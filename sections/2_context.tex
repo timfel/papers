@@ -1,9 +1,13 @@
 \section{Object-centric Development in the Lively Kernel} \label{sec:CONTEXT}
 
+In this section we describe the Lively Kernel and how it relates to object-centric development.
+We give a brief example of an application, a game with the goal to verbally defeat opponents, written with the object-centric development approach.
+While building the application we found several shortcomings of the Lively tools, which we describe and analyse in detail.
+
 \subsection{The Lively Kernel}
 
 The Lively Kernel is a browser-based runtime and development platform for Web applications, including dynamic graphics, network access, language extensions, object serialization, and development tools. 
-Its distinguishing characteristics result from a self-supporting integration of design-time and runtime with sufficient development tools, the implementation of the Morphic User Interface Construction Environment \cite{Maloney1995Mor}, and a serialization mechanism to store objects persistently.
+Its distinguishing characteristics result from a self-supporting integration of design-time and runtime with sufficient development tools, the implementation of the Morphic User Interface Construction Environment \cite{Maloney1995Mor}, and a serialization mechanism to store objects persistently.~\todo{seltsamer satz}
 
 The Lively Kernel itself and some applications are based on the supplied module system that incorporates container modules with namespaces, classes with single inheritance, traits and context-oriented layers \cite{Lincke2011OIC}.
 While the integration of development tools into the runtime of the system already shortens the feedback cycle when modyfing such modules \cite{Lincke2012SCS}, Lively further enables developers to compose and script applications with concrete objects only as first promoted by the Self programming language \cite{Ungar1987SPS}:
@@ -11,9 +15,10 @@ While the integration of development tools into the runtime of the system alread
 First, the Morphic architecture allows to directly manipulate and compose new applications out of active components, \emph{Morphs}.
 It provides handles for basic graphic modification as resizing, repositioning, and rotating such Morphs, but also ways to add Morphs as children to another Morph.
 Second, object-specific behavior provides a concrete context when working on abstract code, allowing developers to try out changes to objects with immediate feedback.
-Lively incorporates an Object Editor, shown in \autoref{fig:editor}, that shows all scripts specific to a certain object, allows to add and alter such scripts, and enables developers to experiment with such scripts as all statements without temporary state can be tried for the editor's target object.
+Lively incorporates an Object Editor, shown in \autoref{fig:editor}, that shows all scripts specific to a certain object, allows to add and alter such scripts, and enables developers to experiment with such scripts as all statements without temporary state can be evaluated for the editor's target object.
 Finally, object serialization enables a Web-based object repository \cite{Lincke2012LPC}, called \emph{Parts Bin}, into which developers publish their Morphic creations, called \emph{Parts}. 
 Such published parts in the shared repository are available for other Morphic creations, rendering the Parts Bin into a library of visual components that developers can use and reuse.
+
 
 \begin{figure}
   \centering
@@ -45,29 +50,54 @@ If functionality was required by various similar morphs, however, we composed co
 For example, the characters are built from copies of the same transparent morph that provides the code for path-finding, user interaction, and debating, while the visible morphs provide appearance and distinct behavior as \emph{costumes}. 
 Character morphs load a character picture from the parts bin, and at variation points, like, for example, the phrases they say, they dispatch to their costume morph.
 
-While implementing this game, we observed two shortcomings in Lively's implementation of the object-centric development approach.
-First, when we use parts as prototypes and, therefore, copy them to reuse and refine them, we ... 
 
 \subsection{Problems Found}
-\begin{itemize}
- \item shared behavior -- work around with costumes pattern
- \begin{itemize}
-  \item costumes pattern leads to scattered code, to not browsable code, more objects as necessary
-  \item there are objects (base of costume -- tiles, things, player) in PartsBin which are not usable
-  \item an objects is artificially splitted into more sub-objects (costume(s) + base)
-  \item costume allows grouping of objects, but its hard (a single group might be OK, but multiple groups like moveables, good vs. bad player, hero vs. passive players, ... leads to a high costumes stack)
-  \item changing behavior of an object in a group does not change behavior of other objects (copies) in group (excellent-words-to-describe-the-problem-or-... to use: propagation, reload, immediate feedback)
- \end{itemize}
 
- \item link between editor and edited object
- \begin{itemize}
-  \item usual pattern: modules, classes - hierarchies to structure code
-  \item tools enables developer to browse along the (usually static) dominant decomposition
-  \item lively kernel (with object centric development): morphic scene is dominant composition, because objects are unstructured and only connected through scene graph
+While implementing this game, we observed two shortcomings in Lively's implementation of the object-centric development approach.
+First, when we use parts as prototypes and, therefore, copy them to reuse and refine them, we automatically copy
+all scripts and attributes of the original prototype.
+This results in having unintentionally shared code.
+Second, when we edit multiple, possibly alike looking morphs, it is hard to tell which of those objects we are currently editing -- a visible connection between the edited object and the editor is missing.
+
+To tackle the \emph{shared behavior} problem, we observed two patterns which are used by many Lively developers, as well as in our example game.
+We implemented the formerly described costumes pattern to share behavior between multiple characters, obstacles, or map tiles.
+Unfortunately the costumes pattern introduces a transparent and, therefore, not easily selectable base object which holds the shared behavior.
+When working in the usual Lively work-flow -- selecting a visible morph for editing through its halo, and then editing it with the ObjectEditor -- the costume is typically selected
+for editing.
+So, when editing the costume, a developer cannot see the shared behavior hidden in the costumes base object.
+The code being in the base object is therefore not browsable and, through that, harder to maintain.
+From an object-oriented point of view a developer might expect all functionality to be within the object itself or its superclasses.
+However, the costumes pattern artificially splits the object into multiple sub-objects, leading to worse code comprehension.
+As we use the Parts Bin for storing our object, the base objects of costumes are visible in our Parts Bin category.
+It is not possible to use any of the base objects solely, therefore the Parts Bin metaphor, to just drag-out and use an object, is broken.
+However, costumes allow grouping of objects, which works well for a very small number of groups.
+But as soon as there are multiple groups like good and bad, controllable and passive, and strong and weak characters,
+too many base objects have to be stacked on top of each other to still have a reasonable good code comprehension and maintenance.
+Additionally, changing the behavior of a single member of a costume-group, does not change the behavior of other objects using the same costume base,
+because the base objects are copied and therefore independent for each costume.
+
+
+The second feature we missed during development is a visual connection between an object and the tool editing the object.
+Usually, code editing tools enable the developer to browse the dominant code decomposition.
+The decomposition is often static, as for modules, classes, or functions.
+In object-centric development, however, the dominant decompositions are dynamic objects within the morphic scene graph,
+because objects are not structured otherwise.
+Browsing through modules and classes, it comparatively easy as development tools are optimized for such tasks.
+However, browsing through the morphic scene graph is possible through right-clicking an object with the mouse cursor to activate it's halo, or right-clicking it multiple times
+to activate the halo of an object being a parent element in the scene graph.
+It is not possible to reach hidden morphs or morph, which are overlayed by other morph through this technique.
+Another method to edit an object is to select it from the ObjectEditors target list.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{images/editor_target_lists}
+  \caption{Lively's Object Editor. Left: old editor having a target selection list without grouping. Right: new editor with grouped target selection, selectable groups and magnifier.}
+  \label{fig:editors_compared}
+\end{figure}
+
+\begin{itemize}
   \item browsing through scene graph is hard (halo (there are invisible objects), list selection in object editor (flat list, no hierarchy))
   \item when editing, no scene graph context to object given -- its not possible to locate object or (easily switch to) surrounding objects
- \end{itemize}
-
 \end{itemize}
 
 %%% Local Variables: 

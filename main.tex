@@ -309,18 +309,36 @@ Hier: Bild mit Daten in der Mitte, OO interpreter rechts, Constraint Solver link
 Horizontal line, ArcPoints vs ScalarPoints
 \section{Implementation}
 - pypy is ..., topaz is ..., topaz architecture
-- extensions:
-  constraint interpreter
-    - ``COP like'', activated for constraint frames
-    - changes LOAD\_* instructions (locals, ivars, cvars)
-    - ``layer'' is deactivated for objects of type Constraint
-      - this way, solver can again be implemented in OO language itself,
-        otherwise it would see (and potentially modify) it's own state
-  objspace primitive to register solvers
-    - triggered on state change (STORE\_*) and state read (LOAD\_*)
-      - TODO: maybe register should just work both ways?
-        e.g.: STORE -> solve(stored\_variable, previous\_value, new\_value)
-              LOAD  -> readout(loaded\_variable, current\_value)
+
+modes:
+  - normal execution
+    LOAD_* -> check if constrainted variable -> get value from solver
+    STORE_* -> check if constrainted variable
+               a) is associated with a solver: suggest_value
+               b) was on the path during constraint construction:
+                  - get constraint block for this variable
+                  - disable all constraints that got created during
+                    execution of the constraint block
+                  - re-execution constraint block to build new constraints
+  - constraint construction
+    LOAD_* -> create constraint variable for the storage cell
+              a) new constraint variable associated with solver
+                 -> continue working with that (all sends go to the solver variable)
+              b) new constraint variable is not assiciated (only on the path)
+                 -> store currently executing constraint block on constraint variable
+                 -> work with the value as in normal execution
+    JUMP_AND -> enable left-hand side (if a constraint)
+             -> continue working on rhs
+    ... (could add more, JUMP_IF, JUMO_OR ...)
+  - constraint execution
+    ... special mode we execute the solver/suggest_value in (in case it is
+    written in Ruby, this musn't enter any of the other modes)
+
+- thoughts on implementation:
+  - normal execution changes should be aspects that come with the language extension
+    (role is basically to observe variable access)
+  - constraint construction/execution should be a COP layer
+
   - Constraints module exposes ObjSpace interface
   - ConstraintObject is marker superclass to ``seal'' solver implementations
   - ConstraintVariable is attached to (locals, ivars, cvars)

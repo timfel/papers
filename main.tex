@@ -20,7 +20,7 @@
   	language=ruby,
 	basicstyle=\scriptsize,%\ttfamily,
 	frame=single,
-	emph={always, once},
+	emph={always, once, constructor},
 	emphstyle=\bfseries,
         % breaklines=true,
         breakatwhitespace=false,
@@ -179,9 +179,8 @@ domains in imperative program exist in the form of \acp{dsl} (both
 external~\todo{css,osx} and internal~\todo{bloom?}), constraint
 libraries~\todo{backtalk}, language extensions~\todo{javadingens}, and
 dedicated languages~\todo{kaleidoscope}. However, constraint solving
-is not yet a general purpose tool.
-
-Beweisen/Zeigen, dass das nicht general purpose ist...
+is not yet a general purpose tool, as we will show in
+section~\ref{sec:background}.
 
 We think that the state of the art approaches result in unsatisfactory
 trade-offs between constraint-oriented and object-oriented
@@ -203,6 +202,7 @@ programming:
 \end{itemize}
 
 \section{Background}
+\label{sec:background}
 Consider a rectangle implemented as a pair of points as in
 listing~\ref{fig:lst:rectangle}. This rectangle is displayed in an
 application window which the user can resize. Suppose this rectangle
@@ -395,36 +395,89 @@ The problems with these approaches are:
 \end{itemize}
 
 \subsection{Constraint-Imperative Programming}
-- Linguistic Symbiosis
-- Maja D'Hondt, Freeman-Benson
-- Problem:
-  - change to OO semantics for language extension
-    - ``when this fails, call into this one other thing''
-    - not generalizable for other language extensions (FRP, Prolog, ...)
-    - ``new language'' problems (no stdlib, no re-use of existing code)
+The \ac{cip}~\todo{kaleidoscope,turtle} and related
+languages~\todo{SOUL} tried to address the aforementioned
+issues. Their main goals were:
+\begin{itemize}
+\item Unify state for constraint solvers and imperative runtime
+\item Automatically re-satisfy constraints when they are invalidated
+\item Linguistic symbiosis between declarative and imperative
+  statements
+\item Provide additional abstractions to enable developers to express
+  constraints on complex objects
+\end{itemize}
 
-The family of \ac{cip} languages tried to address the aformentioned
-issues~\todo{cite}. Problems with this approach are specific to the
-trade-offs each language made between object-orientation and
-constraint programming, but some problems occur for all languages of
-this type.
+Our problem as it could be expressed using Kaleidoscope:
+\begin{lstlisting}
+class Rectangle
+  constructor area = (n: Integer)
+    always: extent.x * extent.y = n
+  end
 
-- integration of solver with imperative language
-- Turtle, Kaleidoscope, Java-dingens, C++ constraint dingens, BackTalk
-- Advantages:
-  - nice semantics (value-streams -> see FRP, time, assignment as one-time constraint)
-  - automatic management of solver variables
-  - automatic re-solving of constraints
-  - semi-automatic constraints for complex objects
+  constructor visible?
+    always: origin.x > 0
+    always: origin.y > 0
+  end
+end
 
-\emph{Encapsulation is violated}, either because constraints can only
-be applied to the primitive leaves of explicitly stated object
-paths~\todo{cite} or because programmers have to expose the structure
-of their domain objects to the runtime before they can be used in
-constraints~\todo{cite}. (Beispiel?) In either case, the runtime
-modifies parts of an object directly.
+rect = Rectangle.new
+always: rect.area = 100
+always: rect.visible?
+\end{lstlisting}
 
-\todo{Maybe move this table + explanation to our contributions}
+% Problems with this approach are specific to the
+% trade-offs each language made between object-orientation and
+% constraint programming, but some problems occur for all languages of
+% this type.
+
+% - integration of solver with imperative language
+% - Turtle, Kaleidoscope, Java-dingens, C++ constraint dingens, BackTalk
+% - Advantages:
+%   - nice semantics (value-streams -> see FRP, time, assignment as one-time constraint)
+%   - automatic management of solver variables
+%   - automatic re-solving of constraints
+%   - semi-automatic constraints for complex objects
+
+The above code states constraints explicitly. The abstraction of what
+it means for a rectangle to have an area of size $n$ and to be visible
+is modularized in the Rectangle class using \emph{constraint
+  constructors}. However, through these constructors a few problems
+appear:
+\begin{description}
+\item[Encapsulation is violated] because constraints can only be
+  applied to the primitive elements within objects. Constraint
+  constructors only move this issue, but within such constructors,
+  code still needs to access fields from other objects (the arguments)
+  directly. A result of this problem is that \ac{cip} languages have
+  to make state accessible from the
+  outside. Table~\ref{tab:cmp-ocp-cip} shows how this limits these
+  languages.
+
+  In \emph{type I} object-oriented languages such as Smalltalk or
+  Ruby, object state is always private and cannot (without
+  meta-programming) be modified from the outside. So to apply \ac{cip}
+  to those languages, they have to be changed to allow access to
+  object state. (either by the programmer (to state object paths for
+  constraints) or by the constraint solver (to modify the state
+  directly).)
+
+  In \emph{type II} languages such as, for example, Java or JavaScript
+  outside access to state can be allowed, so these languages can be
+  used for \ac{cip} directly. However, even in those languages direct
+  access to object state is discouraged as it increases coupling in
+  the system.
+
+  In \ac{ocp}, however, constraints can be specified on the results of
+  normal object-oriented message sends. This means that both type I
+  and type II languages can be used with \ac{ocp} directly.
+\item[Behavior is duplicated] Developers have add \emph{constraint
+    constructors} to their objects before they can be used in
+  constraints. If they want to constrain the area and also access it in
+  from imperative code, they have to duplicate code.
+\item[Solvers are predetermined] Due to the deep integration \ac{cip}
+  languages offer only a fixed set of solvers, and are thus only
+  usable for certain domains.
+\end{description}
 
 \begin{table}
   \centering
@@ -436,37 +489,6 @@ modifies parts of an object directly.
   \caption{Comparison of OCP with CIP}
   \label{tab:cmp-ocp-cip}
 \end{table}
-
-A result of this problem is that \ac{cip} languages have to make state
-accessible from the outside. Table~\ref{tab:cmp-ocp-cip} shows how
-this limits these languages.
-
-In \emph{type I} object-oriented languages such as Smalltalk or Ruby,
-object state is always private and cannot (without meta-programming)
-be modified from the outside. So to apply \ac{cip} to those languages,
-they have to be changed to allow access to object state. (either by the
-programmer (to state object paths for constraints) or by the
-constraint solver (to modify the state directly).)
-
-In \emph{type II} languages such as, for example, Java or JavaScript
-outside access to state can be allowed, so these languages can be used
-for \ac{cip} directly. However, even in those languages direct access
-to object state is discouraged as it increases coupling in the system.
-
-In \ac{ocp}, however, constraints can be specified on the results of
-normal object-oriented message sends. This means that both type I and
-type II languages can be used with \ac{ocp} directly.
-
-\emph{Behavior is duplicated} in some \ac{cip} languages as they
-require developers to add \emph{constraint-method definitions} to
-their objects before they can be used in constraints, possibly
-duplicating behavior so it can be used in both
-paradigms~\todo{cite}.
-
-\emph{Predetermined solvers} integrated into the runtime means that
-programmers cannot choose a solver that may be more appropriate for
-the problem domain, or explicitly use different solvers for different
-parts of the program.
 
 % - Problems:
 %   - object-path constraints

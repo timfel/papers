@@ -31,7 +31,9 @@
 
 % Acronyms
 \newacronym{api}{\textsc{api}}{application programming interface}
-
+\newacronym{cip}{\textsc{cip}}{constraint-imperative programming}
+\newacronym{ocp}{\textsc{ocp}}{object-constraint programming}
+\newacronym{oo}{\textsc{oo}}{object-oriented}
 
 \RequirePackage{xspace}
 \newcommand{\eg}{e.\hairspace{}g.,\xspace}
@@ -128,11 +130,15 @@ declarative constraints using tests, branching, and destructive
 assignment. In the case of temporal constraints, constraint checking
 is a cross-cutting concern and programmers have to structure control
 flow so the constraints can be re-checked whenever they may have been
-invalidated~\todo{cite}.  There are two problems with this approach:
+invalidated~\todo{cite}. There are two problems with this approach:
 \begin{enumerate}
 \item Explicitely solving constraint satisfaction problems using
   imperative code may not find an optimal solution or may not find a
-  solution even if one exists.
+  solution even if one exists. Constraint solving between two objects
+  is bidirectional~\todo{cite}, but typical change propagation
+  approaches using observers~\todo{cite} or pointcuts~\todo{cite}
+  requires programmers to explicitely break cycles or only solve
+  constraints unidirectionally.
 \item Aspects can only capture one dimension of this cross-cutting
   concern. Constraints cross-cut both across control flow and data
   structures. Aspects can capture control flow cross-cutting and
@@ -143,82 +149,135 @@ invalidated~\todo{cite}.  There are two problems with this approach:
   satisfaction module and the rest of the system.
 \end{enumerate}
 
-Programmers solve the first problem by using constraint
-solvers~\todo{cite}. A solver suited to the domain of the problem.
-
-Explicit use of constraint libraries only solves
-the optimization part, but still requires aspects/observers/scattered
-code to trigger solving and copy values between the solver and the OO
-program
-
-Using constraint extensions for specialized domains alleviates this
-problem for these domains ... e.g. cassowary solver for osx
-layouting. the constraints are automatically maintained, as long as
-imperative code does not interfere with the layout engine. However,
-the interaction between the layout engine and the imperative code is
-hard to reason about, as they are in separate source code files and
-operate on different objects/levels of abstractions ...
-
-Finally, the family of constraint-imperative languages tried to
-address these issues. Problems with these approaches are specific to
-the trade-offs of each approach. Some break encapsulation, because
-constraints can only be applied to the primitive leaves of explicitely
-stated object paths. Others require developers to add
-constraint-method definitions to their objects before they can be used
-in constraints, duplicating behaviour definitions for another
-paradigm.
+(Programmers can solve the first problem by using constraint solver
+libraries~\todo{cite} if their problem can be expressed in the domain
+of a solver. However, explicit use of constraint libraries requires
+copying state between program and solver and still requires triggers
+throughout the program to copy that state as required and re-solve the
+constraints. Runtimes with built-in solvers can automatically re-solve
+constraints, but only for the domains supported by the built-in
+solver.)
+Überleitung...
 
 \section{Background}
 
-In the following section, we will explore the related approaches to
-constraint solving in imperative languages in more detail.
+Constraints as we understand them in this paper are assertions about
+relations between objects that are maintained by the runtime. Such
+assertions may be (in-)equalities between objects or their parts, as
+well as assertions about the results of message sends.
+
+Assertions in imperative programming follow the principle to fail
+early after undesirable program state has
+occurred~\todo{cite}. However, it is often possible to correct the
+faulty program state, in which case the program should correct itself
+and continue running rather than stop~\todo{cite rinard}. Replacing
+assertions with constraints, undesirable program states can be
+corrected by the runtime.
+
+In this section, we will explore the related approaches to constraint
+solving in imperative languages in more detail.
 
 \subsection{Constraint Solver Libaries}
-Simplex-based (Cassowary), Propagation (DeltaBlue, SkyBlue), SMT (Z3)
+When realizing they are dealing with a constraint problem, programmers
+may choose to include a constraint solver library in their
+program. (Examples of solvers with implementations or bindings in a
+variety of languages are Cassowary~\todo{cite}, DeltaBlue~\todo{cite},
+or Z${}^3$~\todo{cite}.)
+
+This approach requires programmers to express assertions about the
+system in terms of a ``primitive'' domain (i.e. reals, booleans,
+uninterpreted function symbols) the solver understands. If the program
+constraints can be expressed in such terms and a solver library is
+available, programmers can replace their assertions with calls to the
+constraint solver, and only fail if no solution to the constraint
+system is available. (Beispiel)
+
+Advantages of this approach include:
 \begin{itemize}
-\item[advantages]
-  \begin{itemize}
-  \item solve problems over ``primitive'' domains
-  \item fast for specialized problems (but sometimes very slow in the worst case)
-  \item some have constraint hierarchies
-  \item bidirectional by default
-  \item easy to changing solvers in application code or per object type
-  \end{itemize}
-\item[problems]
-  \begin{itemize}
-  \item no general solver over multiple domains that is also fast
-  \item trigger code is scattered through program
-  \item no language integration (different variables)
-  \end{itemize}
+\item free choice of constraint solvers allows programmers to choose
+  based on desired properties such as constraint hierarchies, support
+  for multiple domains, or performance
+\item constraints are bidirectional by default
+\item multiple solvers can be used in different parts of the program
+  easily
 \end{itemize}
 
-\subsubsection{DataFlow}
-ThingLab, Scratch, LivelyKernel
+In practice however, constraint libraries are often not used, because
+of a number of disadvantages:
 \begin{itemize}
-\item[advantages]
-  \begin{itemize}
-  \item can naturally work on results of object-oriented message sends
-  \item automatically watch for value changes in objects
-  \end{itemize}
-\item[problems]
-  \begin{itemize}
-  \item uni-directional, have to break cycles explicitely
-  \item explicit relations instead of constraints leave no
-    ``wiggle-room'' => no dealing with conflicting requirements
-  \end{itemize}
+\item no general solver over multiple domains that is also fast~\todo{cite}
+\item solvers do not support complex objects, so programmers have to
+  destructure their objects manually and break encapsulation
+\item the solver state is not integrated with the object-oriented
+  state, so variables have to be copied between the two
+  repeatedly. This problem multiplies if more than one solver is used.
 \end{itemize}
+
+\subsubsection{Domain-specific Languages for Constraints}
+For specialized domains such as user interface layouting, constraints
+are available as separate \textsc{dsl}s that describe relations
+between visible objects that can be automatically maintained by the
+runtime. Examples of such \textsc{dsl}s are \textsc{css}~\todo{cite}
+and the \textsc{mac os x} layout specification language, both of which
+allow programmers to express relations such as minimum and maximum
+distances between objects, parent/child relationships, or alternative
+presentations depending on available display space. These constraints
+are automatically re-satisfied by the runtime when imperative code
+changes the user interface. However, because the constraints are
+specified in separate languages, they are hard to reason about in
+imperative code, and it is possible to write imperative code that will
+interfere with the layout engine. Furthermore, constraint
+\textsc{dsl}s such as these only work for specialized domains and on
+few objects used in the imperative program.
+ 
+\subsubsection{DataFlow Constraint Languages}
+Some languages have built-in support for data flow, which allows
+programmers to express unidirectional constraints between objects and
+their parts. Examples of such systems are ThingLab~\todo{cite},
+Scratch~\todo{cite}, or the LivelyKernel/Webwerkstatt~\todo{cite}. Of
+these, only ThingLab includes a planner for propagation that breaks
+cycles automatically. In the other two systems the programmer has to
+break cycles explicitely.
+
+In these systems, programmers can directly express relations between
+objects and parts of objects. For each constrained relation there
+exists a function that maintains it~\todo{cite}, and on each change to
+an object, that function is triggered with the old and new state and
+can decide how to change the downstream object to still satisfy the
+constraint.
+
+Although these systems are not constraint solvers, programmers can use
+constraint solvers in the function that maintains the relation. This
+solves the question when to trigger copying state and constraint
+solving. However, because the relations are binary and
+uni-directional, conflicting constraints as for example in \emph{n:m}
+relations cannot be satisfied in these systems, because the later
+change simply overrides the previous. (Beispiel)
 
 \subsection{Constraint-Imperative Programming}
 
-Type 1 languages (Smalltalk, Ruby), allow no outside access to State
-by default, so CIP has to either modify the language or constraints
-can only be private to an object. This means either constraints on
-complex objects explicitely specify the path (Turtle, ... increases
-coupling), or need ``constraint methods'' ...
+The family of \ac{cip} languages tried to address the aformentioned
+issues~\todo{cite}. Problems with this approach are specific to the
+trade-offs each language made between object-orientation and
+constraint programming, but some problems occur for all languages of
+this type.
 
-Type 2 languages (Java, JavaScript) allow outside access to state, but
-that increases coupling, so constraints on behaviour are also
-desirable here... see above ...
+- integration of solver with imperative language
+- Turtle, Kaleidoscope, Java-dingens, C++ constraint dingens, BackTalk
+- Advantages:
+  - nice semantics (value-streams -> see FRP, time, assignment as one-time constraint)
+  - automatic management of solver variables
+  - automatic re-solving of constraints
+  - semi-automatic constraints for complex objects
+
+\emph{Encapsulation is violated}, either because constraints can only
+be applied to the primitive leaves of explicitly stated object
+paths~\todo{cite} or because programmers have to expose the structure
+of their domain objects to the runtime before they can be used in
+constraints~\todo{cite}. (Beispiel?) In either case, the runtime
+modifies parts of an object directly.
+
+\todo{Maybe move this table + explanation to our contributions}
 
 \begin{table}
   \centering
@@ -231,20 +290,47 @@ desirable here... see above ...
   \label{tab:cmp-ocp-cip}
 \end{table}
 
-- integration of solver with imperative language
-- Turtle, Kaleidoscope, Java-dingens, C++ constraint dingens, BackTalk
-- Features:
-  - semantics (value-streams -> see FRP), time, assignment as one-time constraint
-- Problems:
-  - object-path constraints
-    - either violate encapsulation or constraints only allowed within a class
-    - only constraints on primitive leaves
-    - requirement to add public accessors to all objects on the path
-  - constraint constructors
-    - separate concept, adding constraints means adding constraint constructors
-    - scattering of ``constraint concern'' throughout system
-    - Trait vs Class: decision of programmer whether sth is constrainable
-      or only imperative
+A result of this problem is that \ac{cip} languages have to make state
+accessible from the outside. Table~\ref{tab:cmp-ocp-cip} shows how
+this limits these languages.
+
+In \emph{type I} object-oriented languages such as Smalltalk or Ruby,
+object state is always private and cannot (without meta-programming)
+be modified from the outside. So to apply \ac{cip} to those languages,
+they have to be changed to allow access to object state. (either by the
+programmer (to state object paths for constraints) or by the
+constraint solver (to modify the state directly).)
+
+In \emph{type II} languages such as, for example, Java or JavaScript
+outside access to state can be allowed, so these languages can be used
+for \ac{cip} directly. However, even in those languages direct access
+to object state is discouraged as it increases coupling in the system.
+
+In \ac{ocp}, however, constraints can be specified on the results of
+normal object-oriented message sends. This means that both type I and
+type II languages can be used with \ac{ocp} directly.
+
+\emph{Behavior is duplicated} in some \ac{cip} languages as they
+require developers to add \emph{constraint-method definitions} to
+their objects before they can be used in constraints, possibly
+duplicating behavior so it can be used in both
+paradigms~\todo{cite}.
+
+\emph{Predetermined solvers} integrated into the runtime means that
+programmers cannot choose a solver that may be more appropriate for
+the problem domain, or explicitly use different solvers for different
+parts of the program.
+
+% - Problems:
+%   - object-path constraints
+%     - either violate encapsulation or constraints only allowed within a class
+%     - only constraints on primitive leaves
+%     - requirement to add public accessors to all objects on the path
+%   - constraint constructors
+%     - separate concept, adding constraints means adding constraint constructors
+%     - scattering of ``constraint concern'' throughout system
+%     - Trait vs Class: decision of programmer whether sth is constrainable
+%       or only imperative
 
 \subsection{Linguistic Symbiosis}
 - Maja D'Hondt, Freeman-Benson
@@ -254,38 +340,70 @@ desirable here... see above ...
     - not generalizable for other language extensions (FRP, Prolog, ...)
     - ``new language'' problems (no stdlib, no re-use of existing code)
 
+All these solutions have problems. The following problems we solve:
+\begin{itemize}
+\item New language or no deep integration into existing language
+  prohibits incremental adoption in existing systems
+\item Constraint solvers as (non-exchangeable) black box do not allow
+  using complex objects in constraints
+\item Constraints and constraint satisfaction are scattered across the
+  codebase and ignore encapsulation of objects, so there can be no
+  constraint modules
+\end{itemize}
+
 \section{Contribution: Object-Constraint Programming}
-- integration of solver with OO language
+We propose an integration of constraint-solvers with \ac{oo} languages
+that we call \emph{\ac{ocp}}. (based on Ruby...)
 
-- OO semantics unchanged
-  - OO world has a view on the data that consists of objects
-    with state and behaviour
-  - primitive to register reaction to state changes was added
+Three goals have guided us in creating this language:
+\begin{enumerate}
+\item[Unchanged \ac{oo} semantics] We have not changed the execution
+  semantics of the underlying \ac{oo} language. The integration of
+  constraint-oriented programming consists solely of an additional
+  primitive. The \ac{oo} runtime has an \emph{object view} on its data
+  that consists only of objects with state and behavior.
+\item[Constraints specified using \ac{oo} interface] A constraint
+  declaration in our system is an expression passed to a primitive
+  method unevaluated in form of a anonymous function closure. That
+  closure is executed immediately in the \emph{constraint
+    interpreter}. The constraint interpreter executes the code as
+  normal \ac{oo} code, but, during execution, constructs a
+  \emph{constraint view} for the solvers.
 
-- constraints specified using OO interface
-  - a constraint is a closure passed to a primitive method
-  - that primitive is gateway to the constraint world
-  - the primitive activates the constraint interpreter for the closure
-  - constraint interpreter is (conceptually) a COP layer on the interpreter
-    that records additional information to construct the constraint view
+  To construct the constraint view, variables encountered during the
+  execution are replaced by the interpreter with their solver variable
+  counterparts. If no solver is active in the system that can work
+  with the variable encountered, that variable is replaced with a
+  placeholder constraint variable that delegates to the original
+  object, but serves as a placeholder for constraint invalidation.
 
-- constraint interpreter constructs ``constraint view'' during closure evaluation
-  - the constraint view is the Set of primitive values that partake in a
-    constraint in a constrainable way (in/equalities, arithmetic, boolean logic)
-  - Solver sees the constraint view on the data, that consists of primitive
-    types in the object-graph
-    - the solver/constraint view is consistent subset of OO state data
-    - changes in the OO object graph/state update the solver/constraint view
-  - solver operates on its view of state directly
-  - change shows up in the OO object state
+  The constraint view is complete when the anonymous function
+  returns. The constraint view then consists of a number of a)
+  primitive values that are in the domain of the solver and are
+  connected in a constrainable way (e.g. through in/equalities,
+  arithmetic, boolean logic) and b) a number of complex objects that
+  are constrained to their identity.
 
+  The solver operates on this view directly to solve the
+  constraint. Changes made by the solver to the variables show up in
+  the \ac{oo} view.
+
+  When imperative code changes a primitive value in that appears in
+  this view (for example through assignment~\todo{cite kaleidoscope}),
+  that change triggers the solver to re-satisfy the constraint.
+
+  When imperative code changes a complex value that is constrained to
+  its identity, all constraints asserted based on this value are
+  removed from the solver, and the constraint expression is
+  automatically re-evaluated to assert new constraints ... here we
+  need the example with the arch point
+\end{enumerate}
 
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{architecture}
 \label{fig:architecture}
 \end{figure}
-Hier: Bild mit Daten in der Mitte, OO interpreter rechts, Constraint Solver links
 
 - Contributions:
   - encapsulated, re-useable constraints
@@ -307,31 +425,32 @@ Hier: Bild mit Daten in der Mitte, OO interpreter rechts, Constraint Solver link
 
 \subsection{Running Example}
 Horizontal line, ArcPoints vs ScalarPoints
+
 \section{Implementation}
 - pypy is ..., topaz is ..., topaz architecture
 
 modes:
   - normal execution
-    LOAD_* -> check if constrainted variable -> get value from solver
-    STORE_* -> check if constrainted variable
-               a) is associated with a solver: suggest_value
+    LOAD\_* -> check if constrainted variable -> get value from solver
+    STORE\_* -> check if constrainted variable
+               a) is associated with a solver: suggest\_value
                b) was on the path during constraint construction:
                   - get constraint block for this variable
                   - disable all constraints that got created during
                     execution of the constraint block
                   - re-execution constraint block to build new constraints
   - constraint construction
-    LOAD_* -> create constraint variable for the storage cell
+    LOAD\_* -> create constraint variable for the storage cell
               a) new constraint variable associated with solver
                  -> continue working with that (all sends go to the solver variable)
               b) new constraint variable is not assiciated (only on the path)
                  -> store currently executing constraint block on constraint variable
                  -> work with the value as in normal execution
-    JUMP_AND -> enable left-hand side (if a constraint)
+    JUMP\_AND -> enable left-hand side (if a constraint)
              -> continue working on rhs
-    ... (could add more, JUMP_IF, JUMO_OR ...)
+    ... (could add more, JUMP\_IF, JUMP\_OR ...)
   - constraint execution
-    ... special mode we execute the solver/suggest_value in (in case it is
+    ... special mode we execute the solver/suggest\_value in (in case it is
     written in Ruby, this musn't enter any of the other modes)
 
 - thoughts on implementation:
@@ -350,8 +469,9 @@ modes:
 
 \section{Conclusion}
 - solves 2 shortcoming of other constraint programming languages
-  1. broken encapsulation or too prominent/scattered constraint concept
-  2. solver integrated into system, hard to change
+  1. preserves encapsulation
+  2. exchangeable solver, changeable
+  3. modularized constraints
 - promising approach to 1 more general problem, that we will investigate
   * how to integrate different execution models (declarative, imperative)
 - good benchmark results show that it can be performant

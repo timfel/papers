@@ -17,11 +17,16 @@
 \usepackage[shortcuts]{extdash} % figures
 
 \lstset{%
-  	language=Ruby,
-	basicstyle=\small,
+  	language=ruby,
+	basicstyle=\scriptsize,%\ttfamily,
 	frame=single,
 	emph={always, once},
-	emphstyle={\bfseries}
+	emphstyle=\bfseries,
+        % breaklines=true,
+        breakatwhitespace=false,
+        literate={<<}{$\ll$~}{1},
+        showstringspaces=false,
+        columns=flexible,
 	}
 \restylefloat{figure}
 
@@ -34,6 +39,8 @@
 \newacronym{cip}{\textsc{cip}}{constraint-imperative programming}
 \newacronym{ocp}{\textsc{ocp}}{object-constraint programming}
 \newacronym{oo}{\textsc{oo}}{object-oriented}
+\newacronym{dsl}{\textsc{dsl}}{domain specific language}
+\newacronym{frp}{\textsc{frp}}{functional-reactive programming}
 
 \RequirePackage{xspace}
 \newcommand{\eg}{e.\hairspace{}g.,\xspace}
@@ -48,8 +55,10 @@
 \begin{document}
 
 \conferenceinfo{Modularity}{2013, Lugano, Switzerland}
-\title{DRAFT Modular Object-Constraint Programming with Topaz\todo{Better Name}}
-\subtitle{Subtitle}
+% \title{DRAFT Modular Object-Constraint Programming with Topaz\todo{Better Name}}
+% A mechanism for solving generic constraints on the results of message sends
+\title{An Open Implementation to Solving Constraints on Object Behavior}
+\subtitle{Modular Object-Constraint Programming with Topaz}
 
 \numberofauthors{1}
 \author{
@@ -66,116 +75,252 @@ Tim Felgentreff\\
 \maketitle
 
 \begin{abstract}
-  % Context
-  Imperative object-oriented programming languages are ill-suited to
-  describe constraints between objects. They require programmers to
-  maintain the constraints explicitely through assignments and control
-  flow scattered throughout the code, rather than declare them in one
-  place. For some specific problem domains---such as graphical
-  layouting or musical harmonization ---specialized constraint
-  libraries provide solutions to this issue. For general purpose
-  applications, constraint-oriented extensions to imperative languages
-  have been explored.
+  We present an approach and extension to an object-oriented language
+  to solve generic constraints on messages between objects. These
+  constraints describe equalities and inequalities between the results
+  of message that are continuously maintained by the system.
 
-  % Problem
-  However, current approaches result in unsatisfactory trade-offs
-  between constraint-oriented and object-oriented programming. They
-  either violate object encapsulation by defining constraints only on
-  state, do not integrate constraint solving and the object-oriented
-  behavior definition into one language, and/or are limited to
-  specific domains. Consequently, current approaches increase coupling
-  in the system, duplicate definitions of relations across behavior as
-  well as constraint-expressions, and/or are not directly reuseable
-  for new domains.
+  Constraints are expressed as anonymous functions that contain
+  constraint expressions. To maintain a constraint, our approach
+  chooses a constraint solver based on the return types of the
+  messages sent in the dynamic extent of the expression execution.
+  Solvers can be flexibly bound to types such as reals or strings, but
+  also complex objects such as files or methods. Furthermore,
+  constraint solvers are implemented in application code, so
+  programmers can add domain specific solvers for their use cases.
 
-  % Solution
-  We present an extension to an object-oriented language that allows
-  developers to apply constraints to complex objects and the results
-  of message sends to them. Our approach preserves encapsulation and
-  re-uses the existing object-oriented method definitions for the
-  constraint declarations. Our system can deal with constraints on
-  complex objects (by automatically destructuring them) and provides
-  extension points so users can define specialized constraint solvers
-  for specific domains.
-  % Constraints are re-useable on objects that respond to the same messages.
-  % Constraints appear in various domains (esp. modeling real-world behaviour?)
-  % object-oriented languages are widespread for implementation of many of these domains
-  % they have no good support for constraints
-  %    constraint extensions to imperative languages tried to address this problem
-  %    they either:
-  %        - violate/ignore encapsulation by using path specifiers
-  %        - only support constraints within one objects' primitive state
-  %        - require a different kind of method definition
-  %    we provide seamless application to constraints on objects and the results of
-  %    their methods, our constraint system uses the message sending mechanism of
-  %    the OO paradigm and cannot look inside objects
+  Our system solves constraints by modifying objects that determine
+  the results of messages sent during the constraint expression
+  execution. Whenever imperative code changes these objects, the
+  appropriate solvers are triggered to maintain the constraints.
+
+  Our approach is superior to existing approaches because it relies on
+  object-oriented message sends instead of paths between objects or
+  special constraint method definitions. This property ensures both
+  encapsulation and supports the uniform access principle. This, in
+  turn, allows programmers to change the implementation of objects
+  without breaking constraint code, as well as applying groups of
+  constraints to different objects that implement the same
+  interface. Since programmers can extend the available solvers, they
+  can choose the solver that gives the best results or provides the
+  best performance to their specific application.
+
+  We argue that using our approach, constraint solving becomes a
+  generic tool that is not limited to specific domains. Using a
+  Ruby-based implementation, we show example applications that apply
+  constraints to interesting new domains such as performance
+  assurances and configuration file handling.
 \end{abstract}
 
 \section{Introduction}
 
-In a number of domains, such as graphical layouting, musical
-harmonization, or product lines, acceptable program behavior is
-partially specified in terms of constraints~\todo{cite}. (Specifically
-in domains that have an acceptability envelope\todo{cite} or need to
-optimize values based on competing inputs, constraint solving is a
-natural fit.)  Such constraints may be invariants or (in-)equalities,
-for example minimum and maximum distances between visible elements in
-a layout that have to be considered when resizing~\todo{citeosx}, or
-correspondence between the contents of a file, the display, and a
-programmatic value.
+  % % Context
+  % Imperative object-oriented programming languages are ill-suited to
+  % describe constraints between objects. They require programmers to
+  % maintain the constraints explicitely through assignments and control
+  % flow scattered throughout the code, rather than declare them in one
+  % place. For some specific problem domains---such as graphical
+  % layouting or musical harmonization ---specialized constraint
+  % libraries provide solutions to this issue. For general purpose
+  % applications, constraint-oriented extensions to imperative languages
+  % have been explored.
+
+  % % Problem
+  % However, current approaches result in unsatisfactory trade-offs
+  % between constraint-oriented and object-oriented programming. They
+  % either violate object encapsulation by defining constraints only on
+  % state, do not integrate constraint solving and the object-oriented
+  % behavior definition into one language, and/or are limited to
+  % specific domains. Consequently, current approaches increase coupling
+  % in the system, duplicate definitions of relations across behavior as
+  % well as constraint-expressions, and/or are not directly reuseable
+  % for new domains.
+
+  % % Solution
+  % We present an extension to an object-oriented language that allows
+  % developers to apply constraints to complex objects and the results
+  % of message sends to them. Our approach preserves encapsulation and
+  % re-uses the existing object-oriented method definitions for the
+  % constraint declarations. Our system can deal with constraints on
+  % complex objects (by automatically destructuring them) and provides
+  % extension points so users can define specialized constraint solvers
+  % for specific domains.
+
+Constraints are a useful concept to specify program behavior in a
+number of domains, such as graphical layouting, musical harmonization,
+or game rules~\todo{cite}. Such constraints are equalities and
+inequalities between objects, their parts, and the results of message
+sends to them. A common example are constraints on the minimum
+distance between visible elements in a layout that have to be
+considered when resizing the interface~\todo{citeosx}.
+
+Programmers that imperatively ensure constraints in their programs
+often write assertions to fail early if these constraints are
+unexpectedly not satisfied~\todo{cite}. However, using constraint
+solvers it is often possible to correct the faulty program state
+automatically and continue running~\todo{rinard}. Replacing assertions
+with constraints, undesirable program states can be corrected by the
+runtime.
 
 Constraints are difficult to express in purely imperative
 object-oriented programming languages~\todo{cite}. Programmers satisfy
-declarative constraints using tests, branching, and destructive
-assignment. In the case of temporal constraints, constraint checking
-is a cross-cutting concern and programmers have to structure control
-flow so the constraints can be re-checked whenever they may have been
-invalidated~\todo{cite}. There are two problems with this approach:
-\begin{enumerate}
-\item Explicitely solving constraint satisfaction problems using
-  imperative code may not find an optimal solution or may not find a
-  solution even if one exists. Constraint solving between two objects
-  is bidirectional~\todo{cite}, but typical change propagation
-  approaches using observers~\todo{cite} or pointcuts~\todo{cite}
-  requires programmers to explicitely break cycles or only solve
-  constraints unidirectionally.
-\item Aspects can only capture one dimension of this cross-cutting
-  concern. Constraints cross-cut both across control flow and data
-  structures. Aspects can capture control flow cross-cutting and
-  preserve encapsulation, but support code for constraint satisfaction
-  code still has to be scattered across all classes that participate
-  in constraints. If encapsulation is ignored to modularize constraint
-  satisfaction, tight coupling is introduced between the constraint
-  satisfaction module and the rest of the system.
-\end{enumerate}
+constraints using tests, branching, and destructive
+assignment. Although constraints can be expressed using constraint
+libraries, programmers need to write code to explicitly copy
+object-oriented state between to the constraint solver and back
+whenever it changes, which is cumbersome and error
+prone. Consequently, explicit language support is desirable to express
+constraints in imperative object-oriented languages.
 
-(Programmers can solve the first problem by using constraint solver
-libraries~\todo{cite} if their problem can be expressed in the domain
-of a solver. However, explicit use of constraint libraries requires
-copying state between program and solver and still requires triggers
-throughout the program to copy that state as required and re-solve the
-constraints. Runtimes with built-in solvers can automatically re-solve
-constraints, but only for the domains supported by the built-in
-solver.)
-Überleitung...
+State of the art solutions to express constraints for specific domains
+domains in imperative program exist in the form of \acp{dsl} (both
+external~\todo{css,osx} and internal~\todo{bloom?}), constraint
+libraries~\todo{backtalk}, language extensions~\todo{javadingens}, and
+dedicated languages~\todo{kaleidoscope}. However, constraint solving
+is not yet a general purpose tool.
 
+Beweisen/Zeigen, dass das nicht general purpose ist...
+
+We think that the state of the art approaches result in unsatisfactory
+trade-offs between constraint-oriented and object-oriented
+programming:
+\begin{itemize}
+\item They violate either object encapsulation or the uniform access
+  principle by defining constraints only on state~\todo{cite} or only
+  on special constraint behavior definitions~\todo{cite}. This leads
+  to problems as programs grow and implementations of objects change,
+  as the constraints have to be kept up-to-date regarding the internal
+  state of the domain objects.
+\item They use special types that tie objects to the domains of
+  constraint solvers. This means that objects have to be mapped to
+  those types either through transformations that have to be triggered
+  whenever the program state changes or the objects have to be
+  built entirely from those types.
+\item They provide no mechanism for programmers to add solvers for
+  both finite and infinite domains.
+\end{itemize}
+
+% In the case of temporal constraints, constraint checking
+% is a cross-cutting concern and programmers have to structure control
+% flow so the constraints can be re-checked whenever they may have been
+% invalidated~\todo{cite}. There are two problems with this approach:
+% \begin{enumerate}
+% \item Explicitely solving constraint satisfaction problems using
+%   imperative code may not find an optimal solution or may not find a
+%   solution even if one exists. Constraint solving between two objects
+%   is bidirectional~\todo{cite}, but typical change propagation
+%   approaches using observers~\todo{cite} or pointcuts~\todo{cite}
+%   requires programmers to explicitely break cycles or only solve
+%   constraints unidirectionally.
+% \item Aspects can only capture one dimension of this cross-cutting
+%   concern. Constraints cross-cut both across control flow and data
+%   structures. Aspects can capture control flow cross-cutting and
+%   preserve encapsulation, but support code for constraint satisfaction
+%   code still has to be scattered across all classes that participate
+%   in constraints. If encapsulation is ignored to modularize constraint
+%   satisfaction, tight coupling is introduced between the constraint
+%   satisfaction module and the rest of the system.
+% \end{enumerate}
+
+% (Programmers can solve the first problem by using constraint solver
+% libraries~\todo{cite} if their problem can be expressed in the domain
+% of a solver. However, explicit use of constraint libraries requires
+% copying state between program and solver and still requires triggers
+% throughout the program to copy that state as required and re-solve the
+% constraints. Runtimes with built-in solvers can automatically re-solve
+% constraints, but only for the domains supported by the built-in
+% solver.)
+% Überleitung...
 \section{Background}
+Consider a rectangle implemented as a pair of
+points~\ref{fig:lst:rectangle}. This rectangle is displayed in an
+application window which the user can resize. Suppose this rectangle
+encompasses some information that we want to make sure remains
+visible. We want to make sure the area of the rectangle is never less
+than 100 square pixels and that its origin is always within display
+bounds, i.e. positive.
 
-Constraints as we understand them in this paper are assertions about
-relations between objects that are maintained by the runtime. Such
-assertions may be (in-)equalities between objects or their parts, as
-well as assertions about the results of message sends.
+\begin{figure}
+  \centering
+  \begin{lstlisting}
+class Rectangle
+  attr_accessor :origin, :extent
 
-Assertions in imperative programming follow the principle to fail
-early after undesirable program state has
-occurred~\todo{cite}. However, it is often possible to correct the
-faulty program state, in which case the program should correct itself
-and continue running rather than stop~\todo{cite rinard}. Replacing
-assertions with constraints, undesirable program states can be
-corrected by the runtime.
+  def visible?
+    origin.x > 0 and origin.y > 0
+  end
 
-In this section, we will explore the related approaches to constraint
-solving in imperative languages in more detail.
+  def area
+    extent.x * extent.y
+  end
+end
+  \end{lstlisting}
+  \caption{A rectangle implemented as a pair of points, with a predicate to test it starts within display bounds and a method to calculate the area}
+  \label{fig:lst:rectangle}
+\end{figure}
+% class CartPoint
+%   attr_accessor :x, :y
+%   # ...
+% end
+
+% class PolarPoint
+%   attr_accessor :r, :a
+%   # ...
+%   def x; r * a.cos; end
+%   def y; r * a.sin; end
+% end
+
+% r = Rectangle.new(CartPoint.new(x: 0, y: 0),
+%                   CartPoint.new(x: 1, y: 1))
+% always { r.area > 100 }
+% r.top_left     # => 0, 0
+% r.bottom_right # => 10, 11
+
+% r.top_left.x = 10
+% r.top_left     # => 10, 0
+% r.bottom_right # => 20, 11
+
+% r.top_left = ArcPoint.new(r: 10, a: 0.5)
+% r.top_left     # => 8.78, 4.79
+% r.bottom_right # => 27.98, 11
+
+Imperatively, we can use, for example, aspects to ensure these
+constraints whenever the rectangle changes:
+\begin{lstlisting}
+class RectangleAspect < Aspect
+  def ensure_constraints(method, rect, status, *args)
+    rect.origin.x = 0 if rect.origin.x < 0
+    rect.origin.y = 0 if rect.origin.y < 0
+    if rect.area < 100
+      rect.extent.x = 100.0 / rect.extent.y
+    end
+  end
+end
+
+rect = Rectangle.new
+RectangleAspect.new.wrap(rect, :postAdvice, /(origin|extent)=/)
+\end{lstlisting}
+
+The above code has a two main problems:
+\begin{itemize}
+\item The original constraints are expressed in a form that makes them
+  harder to understand
+\item Advice code is required to capture all modifications that may
+  invalidate the constraints
+\end{itemize}
+
+In this section, we will compare how state of the art approaches can
+solve this constraint oriented. The approaches are presented in four
+groups:
+\begin{inparaenum}
+\item constraint solver libraries that are used directly in imperative
+  code,
+\item constraint solver \acp{dsl} that exist for special domains,
+\item \emph{DataFlow} and \ac{frp} systems, and
+\item constraint-imperative programming languages that allow
+  expressing constraints and imperative statements in the same
+  language
+\end{inparaenum}.
 
 \subsection{Constraint Solver Libaries}
 When realizing they are dealing with a constraint problem, programmers
@@ -184,53 +329,75 @@ program. (Examples of solvers with implementations or bindings in a
 variety of languages are Cassowary~\todo{cite}, DeltaBlue~\todo{cite},
 or Z${}^3$~\todo{cite}.)
 
-This approach requires programmers to express assertions about the
+\begin{lstlisting}
+class RectangleAspect < Aspect
+  def ensure_constraints(method, rect, status, *args)
+    ctx = Z3::Context.new
+    ctx << Z3::Variable.new("extent_x", rect.extent.x)
+    ctx << Z3::Variable.new("extent_y", rect.extent.y)
+    ctx << Z3::Constraint.new("extent_x * extent_y > 100")
+    # ... same for origin constraint
+    ctx.solve
+    rect.extent.x = ctx["extent_x"]
+    rect.extent.y = ctx["extent_y"]
+  end
+end
+# boilerplate code as above
+\end{lstlisting}
+
+This approach requires programmers to express constraints about the
 system in terms of a ``primitive'' domain (i.e. reals, booleans,
-uninterpreted function symbols) the solver understands. If the program
-constraints can be expressed in such terms and a solver library is
-available, programmers can replace their assertions with calls to the
-constraint solver, and only fail if no solution to the constraint
-system is available. (Beispiel)
+uninterpreted function symbols) the solver understands. If the problem
+is expressible in a domain for which a solver is available (as the
+above code is) the constraints can be clearly expressed.
 
-Advantages of this approach include:
+This approach, while clearly expressing the constraints, is not
+satisfactory for two reasons:
+The above code is has a two main problems:
 \begin{itemize}
-\item free choice of constraint solvers allows programmers to choose
-  based on desired properties such as constraint hierarchies, support
-  for multiple domains, or performance
-\item constraints are bidirectional by default
-\item multiple solvers can be used in different parts of the program
-  easily
+\item The state has to be copied between objects and the solver
+\item Advice code is still required to capture all modifications that
+  may invalidate the constraints to trigger the solver
 \end{itemize}
 
-In practice however, constraint libraries are often not used, because
-of a number of disadvantages:
-\begin{itemize}
-\item no general solver over multiple domains that is also fast~\todo{cite}
-\item solvers do not support complex objects, so programmers have to
-  destructure their objects manually and break encapsulation
-\item the solver state is not integrated with the object-oriented
-  state, so variables have to be copied between the two
-  repeatedly. This problem multiplies if more than one solver is used.
-\end{itemize}
-
-\subsubsection{Domain-specific Languages for Constraints}
+\subsection{Domain-specific Languages for Constraints}
 For specialized domains such as user interface layouting, constraints
-are available as separate \textsc{dsl}s that describe relations
-between visible objects that can be automatically maintained by the
-runtime. Examples of such \textsc{dsl}s are \textsc{css}~\todo{cite}
-and the \textsc{mac os x} layout specification language, both of which
-allow programmers to express relations such as minimum and maximum
-distances between objects, parent/child relationships, or alternative
-presentations depending on available display space. These constraints
-are automatically re-satisfied by the runtime when imperative code
-changes the user interface. However, because the constraints are
-specified in separate languages, they are hard to reason about in
-imperative code, and it is possible to write imperative code that will
-interfere with the layout engine. Furthermore, constraint
-\textsc{dsl}s such as these only work for specialized domains and on
-few objects used in the imperative program.
- 
-\subsubsection{DataFlow Constraint Languages}
+are available as separate \ac{dsl}s that describe relations between
+visible objects that can be automatically maintained by the
+runtime. Examples of such \acp{dsl} are \textsc{css}~\todo{cite}, the
+\emph{Mac OS X}~\todo{cite} layout specification language, and the
+Python GUI framework \emph{Enamel}~\todo{cite}. These allow
+programmers to express relations such as distances between objects or
+parent/child alignments. These constraints are automatically
+re-satisfied by the runtime when imperative code changes the user
+interface.
+
+The following example is an example of an \emph{Enamel} specification
+for our problem:
+\begin{lstlisting}
+enameldef Main(Window):
+    Container:
+        constraints = [
+            # the rectangle area is called contents in enamel
+            contents_top > 0, contents_left > 0,
+            (contents_bottom - contents_top) *
+              (contents_right - contents_left) > 100
+        ]
+\end{lstlisting}
+
+This approach clearly specifies constraints and avoids boilerplate
+code trigger constraint solving. However, two different problems arise:
+\begin{itemize}
+\item because the constraints are specified in separate languages,
+  they are hard to reason about in imperative code and it becomes easy
+  to accidentally write imperative code that will interfere with the
+  layout engine
+\item constraint \acp{dsl} such as these offer a predetermined set of
+  constraints for only a few special domain objects, so this approach
+  cannot be generalized
+\end{itemize}
+
+\subsection{DataFlow Constraints and FRP}
 Some languages have built-in support for data flow, which allows
 programmers to express unidirectional constraints between objects and
 their parts. Examples of such systems are ThingLab~\todo{cite},
@@ -254,7 +421,16 @@ uni-directional, conflicting constraints as for example in \emph{n:m}
 relations cannot be satisfied in these systems, because the later
 change simply overrides the previous. (Beispiel)
 
+...
+
 \subsection{Constraint-Imperative Programming}
+- Linguistic Symbiosis
+- Maja D'Hondt, Freeman-Benson
+- Problem:
+  - change to OO semantics for language extension
+    - ``when this fails, call into this one other thing''
+    - not generalizable for other language extensions (FRP, Prolog, ...)
+    - ``new language'' problems (no stdlib, no re-use of existing code)
 
 The family of \ac{cip} languages tried to address the aformentioned
 issues~\todo{cite}. Problems with this approach are specific to the
@@ -331,14 +507,6 @@ parts of the program.
 %     - scattering of ``constraint concern'' throughout system
 %     - Trait vs Class: decision of programmer whether sth is constrainable
 %       or only imperative
-
-\subsection{Linguistic Symbiosis}
-- Maja D'Hondt, Freeman-Benson
-- Problem:
-  - change to OO semantics for language extension
-    - ``when this fails, call into this one other thing''
-    - not generalizable for other language extensions (FRP, Prolog, ...)
-    - ``new language'' problems (no stdlib, no re-use of existing code)
 
 All these solutions have problems. The following problems we solve:
 \begin{itemize}

@@ -6,8 +6,14 @@
 \usepackage{amssymb}
 \usepackage{enumerate}
 \usepackage{paralist}
-
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{natbib}
+\usepackage{listings}
 \usepackage[shortcuts]{extdash}
+
+\setlength{\bibsep}{2.1pt}
 
 % \RequirePackage[osf,sc]{mathpazo} % Palatino with real small caps and old style figures
 % \linespread{1.05} % a bit more for Palatino
@@ -430,16 +436,40 @@ attempt are developer configurable.
 
 To determine whether network races are the culprit of a failure, we
 require developers to write a \emph{diagnosis script}. Such a script
-is similar to a test case. For our example, it includes operations
-that mimic the behavior of a customer who reserves a seat on an
-airplane. It communicates with the Web server via \ac{http}, and
-asserts that the returned data has the correct rates. We use
-assertions to classify recorded network communication schedules in
-relation to whether they produce a failure. Variances between
-successful and failing communication schedules can be used to reduce
-the number of network events that developers need to consider during
-debugging.
-\todo{Add example diagnosis script (code snippet)}
+is similar to a test case:
+\begin{lstlisting}[%
+  basicstyle=\scriptsize,%
+  emph={testBugReport001},%
+  emphstyle=\bfseries,%
+  showstringspaces=false,%
+  frame=tb,%
+  columns=flexible]
+  testBugReport001
+    | priceTable flightIdIdx flightId price reservation |
+    priceTable  := (HTTPSocket
+                    httpGetDocument: 'http://localhost:4567/search'
+                    args: {'origin' -> {'Berlin'}.
+                           'destination' -> {'Amsterdam'}.
+                           'date' -> {Date today printString}}) content.
+    price       := (table
+                    copyFrom: (table indexOfSubCollection: '<td>' startingAt: priceEndIdx - 9)
+                    to: (table indexOfSubCollection: ' EUR')) asInteger.
+    flightIdIdx := table content indexOfSubCollection: 'data-id="'.
+    flightId    := (table content copyFrom: idIdx to: idIdx + 20) asInteger.
+    reservation := (HTTPSocket
+                    httpPostDocument: 'http://localhost:4567/flights/', id, '/reserve'
+                    args: nil) content
+    self assert: (reservation endsWith: price asString).
+\end{lstlisting}
+
+In our example, the script mimics the behavior of a customer who
+reserves a seat on an airplane. It communicates with the Web server
+via \ac{http}, and asserts that the returned data has the correct
+rates. We use assertions to classify recorded network communication
+schedules in relation to whether they produce a failure. Variances
+between successful and failing communication schedules can be used to
+reduce the number of network events that developers need to consider
+during debugging.
 
 For our anomaly detection, we repeatedly apply the
 \ac{lcs}~\cite{Bischof2008AiA} differencing algorithm to groups of
@@ -468,7 +498,7 @@ little or no impact on the failure.
 
 \begin{figure}
   \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/diff_v3.png}
+  \includegraphics[width=0.7\linewidth]{diagrams/diff_v3.png}
   \caption{Anomaly detection for two schedules}
   \label{fig:comm-comparison}
 \end{figure}
@@ -501,7 +531,7 @@ system, our scheduler records which methods are active before each
 event is released and returns that data to our debugging tool. A
 developer can then select an event in the communication view, and the
 debugging tool will present a partial call tree that corresponds to
-the selected event (see Figure~\ref{fig:refinement}).
+the selected event (\cf{Section~\ref{sec:data-refinement}}).
 
 Developers can explore the call tree and request additional
 information about method arguments and return values, as well as
@@ -516,7 +546,7 @@ the debugging tool\footnote{For copying objects, we rely on Smalltalk’s
 dealing with details of copying. If necessary, this protocol also allows 
 developers to adapt the analyzed object depth to their needs.}. Developers 
 can drill into object references
-analogously.  \todo{actually hook this up}
+analogously.%  \todo{actually hook this up}
 
 This approach is an extension of step-wise runtime
 analysis~\cite{Perscheid2010}. Developers can follow the information
@@ -562,6 +592,13 @@ systems are replayed from the recorded data. Note that this may not
 work if data returned from non-participating servers is
 time-dependent, in which case our approach is not applicable.
 
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_1}
+  \caption{Communication Recording Phase}
+  \label{fig:architecture_1}
+\end{figure}
+
 % \todo{}
 % local reproduction?
 % traffic shaper depends on determinism?
@@ -575,8 +612,6 @@ time-dependent, in which case our approach is not applicable.
 
 \section{Implementation}
 \label{sec:implementation}
-
-\todo{Small architectural/design figure, Squeak, Path Tools, Peak to Talk, including contextS, Anaomaly detection, diagnosis script as input, HTML as communication between nodes etc.?}
 
 We implemented \toolname in Squeak/Smalltalk~\cite{Ingalls1997}. It
 works for distributed applications that use \ac{http} to
@@ -595,17 +630,20 @@ approach can be applied analogously in other programming languages for
 which a \ac{cop}~\cite{Appeltauer2009} mechanism is available.
 
 \paragraph{Communication Recording}
-The recording layer creates a process-local trace of the network
-communication, which, for all sent and received \ac{http} requests,
-includes an integer id as Lamport clock, the first 500 bytes of the
-message, as well as \textsc{IP} address, \textsc{url}, and port for
-both sender and receiver. This layer also adds the current Lamport
+Figure~\ref{fig:architecture_1} shows how the different modules
+collaborate during recording. A diagnosis script creates \ac{http}
+traffic and the recording layer creates a process-local trace of the
+network communication before passing the traffic on to the
+application. Network traces include an integer id as Lamport clock,
+the first 500 bytes of the message, as well as \textsc{IP} address,
+\textsc{url}, and port for both sender and receiver for all sent and
+received \ac{http} requests. This layer also adds the current Lamport
 clock ``time'' as an application defined \ac{http} header to each
 outgoing request. This is \ac{http} specific, and for protocols that
 do not have room for custom data, another approach---such as
 prepending magic bytes to the payload---can be
 used~\cite{Konuru2000}. After recording, we merge the traces from
-different processes and sort events by id.
+different processes and sort events by id in \toolname.
 
 \paragraph{Anomaly Detection}
 For anomaly detection, \toolname requires developers to write a
@@ -631,30 +669,39 @@ investigation with these anomalous events.
 
 \paragraph{Refinement of Remote Data}
 
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_2}
+  \caption{Scheduling and Refinement}
+  \label{fig:architecture_2}
+\end{figure}
+
 The scheduler layer, when active, constrains the system to a
-particular communication schedule. It keeps a thread-safe input and
-output buffer to re-order network events as required. A schedule
-contains a recorded trace with queries attached to the
-events. Developers can inspect an event more closely by selecting it
+particular communication schedule. Figure~\ref{fig:architecture_2}
+shows that the schedule is selected from \toolname, and then the
+diagnosis script is re-run. The schedule layer keeps a thread-safe
+input and output buffer to re-order network events as required. A
+schedule contains a recorded trace with queries to the refinement
+layer. Developers can inspect an event more closely by selecting it
 graphically, and \toolname will activate the scheduler layers for each
-process with the corresponding schedule. The first time a developer
-selects an event, a query is added to record method invocations around
-it. The process that generates that event leverages the reflective
-capabilities of Smalltalk to gather execution data and return it to
-the \toolname debugger, which combines recorded method invocations and
-visualizes them in a call tree. In Figure~\ref{fig:refinement} we show
-the result of a developer clicking event \textcircled{\small 1}. If
-the source code for the displayed methods is available in the image
-running the debugger, the application method closest to the event
-automatically opens. For this, our debugger is integrated with the
-\emph{Path Tools} suite and re-uses its call-tree
-navigation~\cite{Perscheid2010,Perscheid}. Developers can then select method
-arguments or receiver instance variables for inspection, which causes
-other queries to execute.
+process with the corresponding schedule and queries. The first time a
+developer selects an event, a query is added to record method
+invocations around it. The process that generates that event leverages
+the reflective capabilities of Smalltalk to gather execution data and
+return it to the \toolname debugger, which combines recorded method
+invocations and visualizes them in a call tree in \emph{Path
+  Tools}~\cite{Perscheid2010,Perscheid}. In
+Figure~\ref{fig:refinement} we show the result of a developer clicking
+event \textcircled{\small 1}. If the source code for the displayed
+methods is available in the image running the debugger, the
+application method closest to the event automatically
+opens. Developers can then select method arguments or receiver
+instance variables for inspection, which causes other queries to
+execute.
 
 \begin{figure}
   \centering
-  \includegraphics[width=\linewidth]{diagrams/refinement.png}
+  \includegraphics[width=0.8\linewidth]{diagrams/refinement.png}
   \caption{Refinement of an event in the network schedule (top) to
     show the corresponding application method (bottom)}
   \label{fig:refinement}

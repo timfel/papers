@@ -80,11 +80,11 @@ Tim Felgentreff\\
 
 \begin{abstract}
   We present an approach and extension to an object-oriented language
-  to solve generic constraints on messages between objects. These
-  constraints describe equalities and inequalities between the results
-  of message that are continuously maintained by the system.
+  to solve constraints on the results of message sends. These
+  constraints are predicates that are continuously maintained by the
+  system.
 
-  Constraints are expressed as anonymous functions that contain
+  Constraints are written as anonymous functions that contain
   constraint expressions. To maintain a constraint, our approach
   chooses a constraint solver based on the return types of the
   messages sent in the dynamic extent of the expression execution.
@@ -152,8 +152,8 @@ Tim Felgentreff\\
 
 Constraints are a useful concept to specify program behavior in a
 number of domains, such as graphical layouting, musical harmonization,
-or game rules~\todo{cite}. Such constraints are equalities and
-inequalities between objects, their parts, and the results of message
+or game rules~\todo{cite}. Such constraints are predicates that test
+relations between objects, their parts, and the results of message
 sends to them. A common example are constraints on the minimum
 distance between visible elements in a layout that have to be
 considered when resizing the interface~\todo{citeosx}.
@@ -397,9 +397,9 @@ The problems with these approaches are:
 \end{itemize}
 
 \subsection{Constraint-Imperative Programming}
-The \ac{cip}~\todo{kaleidoscope,turtle} and related
-languages~\todo{SOUL} tried to address the aforementioned
-issues. Their main goals were:
+The \ac{cip}~\todo{kaleidoscope,turtle} languages and related
+languages such as \textsc{Soul}~\todo{SOUL} tried to address the
+aforementioned issues. Their main goals were:
 \begin{itemize}
 \item Unify state for constraint solvers and imperative runtime
 \item Automatically re-satisfy constraints when they are invalidated
@@ -485,11 +485,10 @@ languages direct access to object state is discouraged as it increases
 coupling in the system, and constraint constructors should be used.
 
 The \ac{vm}, on the other hand, can ignore encapsulation when it
-solves constraints (similar to how a \ac{jit} compiler ignores
-encapsulation when it inlines methods). We have found this idea to be
-useful to allow solvers to directly modify objects, but also provide
-hooks in \ac{ocp} so developers can require solvers to go through
-accessors when applying new solutions.
+solves constraints and assigns new values to variables (similar to how
+a \ac{jit} compiler ignores encapsulation when it inlines methods). We
+have found this idea to be well suited to solvers that work on
+primitive objects and object parts such as integers or reals.
 
 \paragraph{An Object-Oriented Programming Style}
 Programs appear as ordinary \ac{oo} programs if no constraints are
@@ -517,8 +516,9 @@ adopted them in \ac{ocp}.
   \caption{Comparison of OCP with CIP}
   \label{tab:cmp-ocp-cip}
 \end{table}
-
-The following properties of \ac{cip} languages need improvement:
+~\\
+We consider some following properties of \ac{cip} languages to need
+improvement:
 
 \paragraph{Violation of the Uniform Access Principle}
 Constraint constructors, or \emph{user-defined constraints}, allow
@@ -537,57 +537,84 @@ applicability of \ac{cip} to languages with only private state. In
 \ac{ocp}, constraints use the same behavior definitions as imperative
 code, so the problem does not arise.
 
+The disadvantage of not having multi-methods is that each receiver has
+to have a known type (as the method lookup is the same as in purely
+imperative code). This precludes use-cases where an unbound variable
+is first assigned from a constraint. We have found the inconvenience
+of having to initialize variables preferable to the complexity of
+multi-methods.
+
 \paragraph{Limited Solver Domains}
-\ac{cip} languages come with a fixed set of embedded solvers. In
-Kaleidoscope and Turtle, for example, this precludes adding
-constraints on strings or complex objects such as Files or Method
-objects, because no appropriate solver is available. In \ac{ocp},
+\ac{cip} languages come with a fixed set of embedded solvers. This
+precludes using constraints on objects that are not simply structures
+of primitive values, such as file or method objects. Furthermore,
+developers may want to use solvers that are better suited to the
+problem domain, that give better results or performance. In \ac{ocp},
 however, all solvers use the same interface to communicate with the
-\ac{vm} so developers can add new solvers for their domain objects.
+\ac{vm} so developers can add new solvers and replace existing ones.
 
-Three goals have guided us in creating this language:
-\begin{enumerate}
-\item[Unchanged \ac{oo} semantics] We have not changed the execution
-  semantics of the underlying \ac{oo} language. The integration of
-  constraint-oriented programming consists solely of an additional
-  primitive. The \ac{oo} runtime has an \emph{object view} on its data
-  that consists only of objects with state and behavior.
-\item[Constraints specified using \ac{oo} interface] A constraint
-  declaration in our system is an expression passed to a primitive
-  method unevaluated in form of a anonymous function closure. That
-  closure is executed immediately in the \emph{constraint
-    interpreter}. The constraint interpreter executes the code as
-  normal \ac{oo} code, but, during execution, constructs a
-  \emph{constraint view} for the solvers.
+\paragraph{Solvers Ignore Encapsulation}
+The solvers embedded in the \acp{vm} of Kaleidoscope ignore
+encapsulation and manipulate the contents of variable storage
+directly. To include complex objects such as files in constraints, it
+may not be desirable to give the solver direct access to the file
+system. In \ac{ocp}, we require solvers call a hook method to set a
+new value on an object and only manipulate the object state directly
+if the object does not respond to the hook selector.
 
-  To construct the constraint view, variables encountered during the
-  execution are replaced by the interpreter with their solver variable
-  counterparts. If no solver is active in the system that can work
-  with the variable encountered, that variable is replaced with a
-  placeholder constraint variable that delegates to the original
-  object, but serves as a placeholder for constraint invalidation.
+\paragraph{Performance of Imperative Code}
+Kaleidoscope provides a declarative semantics for assignment, type
+declaration and subclassing. However, this declarative semantics is
+also used if no actual constraints are in the program. In \ac{ocp}, we
+only use the declarative semantics for assignments, and only for those
+variables that are used in constraints. This means that the
+performance of purely imperative code should be the same as on a
+purely imperative \ac{vm}.
 
-  The constraint view is complete when the anonymous function
-  returns. The constraint view then consists of a number of a)
-  primitive values that are in the domain of the solver and are
-  connected in a constrainable way (e.g. through in/equalities,
-  arithmetic, boolean logic) and b) a number of complex objects that
-  are constrained to their identity.
+Using our implementation of \ac{ocp}, the code to continously ensure
+the constraints in our example thus becomes:
+\begin{lstlisting}
+rect = Rectangle.new
+always { rect.area == 100 }
+always { rect.visible? }
+\end{lstlisting}
 
-  The solver operates on this view directly to solve the
-  constraint. Changes made by the solver to the variables show up in
-  the \ac{oo} view.
+\todo{explanation of constraint construction follows}
 
-  When imperative code changes a primitive value in that appears in
-  this view (for example through assignment~\todo{cite kaleidoscope}),
-  that change triggers the solver to re-satisfy the constraint.
+A constraint declaration in our system is an expression passed to a
+primitive method unevaluated in form of a anonymous function
+closure. That closure is executed immediately in the \emph{constraint
+  interpreter}. The constraint interpreter executes the code as normal
+\ac{oo} code, but, during execution, constructs a \emph{constraint
+  view} for the solvers.
 
-  When imperative code changes a complex value that is constrained to
-  its identity, all constraints asserted based on this value are
-  removed from the solver, and the constraint expression is
-  automatically re-evaluated to assert new constraints ... here we
-  need the example with the arch point
-\end{enumerate}
+To construct the constraint view, variables encountered during the
+execution are replaced by the interpreter with their solver variable
+counterparts. If no solver is active in the system that can work with
+the variable encountered, that variable is replaced with a placeholder
+constraint variable that delegates to the original object, but serves
+as a placeholder for constraint invalidation.
+
+The constraint view is complete when the anonymous function
+returns. The constraint view then consists of a number of a) primitive
+values that are in the domain of the solver and are connected in a
+constrainable way (e.g. through in/equalities, arithmetic, boolean
+logic) and b) a number of complex objects that are constrained to
+their identity.
+
+The solver operates on this view directly to solve the
+constraint. Changes made by the solver to the variables show up in the
+\ac{oo} view.
+
+When imperative code changes a primitive value in that appears in this
+view (for example through assignment~\todo{cite kaleidoscope}), that
+change triggers the solver to re-satisfy the constraint.
+
+When imperative code changes a complex value that is constrained to
+its identity, all constraints asserted based on this value are removed
+from the solver, and the constraint expression is automatically
+re-evaluated to assert new constraints ... here we need the example
+with the arch point
 
 \begin{figure}
   \centering

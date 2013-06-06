@@ -1,29 +1,78 @@
-\documentclass{article}
-\usepackage{fullpage,upquote,times}
-\sloppy
+\documentclass[11pt]{article}
+\pagestyle{plain}
+\usepackage{fullpage,listings}
+\setlength{\parindent}{0.0in}
+\setlength{\parskip}{7pt plus 1pt}
+
+\lstset{%
+  	language=ruby,
+	basicstyle=\scriptsize,%\ttfamily,
+	frame=single,
+	emph={always, once, constructor},
+	emphstyle=\bfseries,
+        % breaklines=true,
+        breakatwhitespace=false,
+        literate={<<}{$\ll$~}{1},
+        showstringspaces=false,
+        columns=flexible,
+	}
+
+\title{Ideas for the New Object-Oriented Constraint Programming Language}
 
 \begin{document}
 
-\begin{verbatim}
+\author{}
 
-Ideas for the new object-oriented constraint programming language
+\maketitle
 
-GOALS
+\section{Goals for the Language}
 
-integrate object-oriented programming with constraints
-  address integration problems: support normal methods and messages;
-  constraints on method results
+We should have a set of goals for the language.  Here are some
+ideas for that.
 
-predictable efficiency: efficient for basic built-in solvers
+The primary goal is to integrate object-oriented programming with
+constraints.  As aspects of this goal, we want to do this in a way
+that maintains the basic object-oriented programming paradigm
+(including supporting the usual methods and messages), and ideally
+that is an extension of an existing widely-used object-oriented
+language rather than a new special-purpose one.  So we want to have
+constraints on arbitrary objects, not just primitive types, and that
+involve message sends to those objects, such as constraints on points
+that use \lstinline{Point +}, rather than just constraints on floats.
 
-extensibility (add new solvers; cooperating solvers)
+We want the result to be reasonably efficient.  If you don't use
+constraints at all, efficiency should be comparable to that of the
+base language.  If you do use constraints, the time it takes should be
+fast and predictable if you are just using the built-in solvers and
+techniques.  Finally, the design should support multiple cooperating
+solvers, with the possibility of convenient extension by adding new
+solvers.  (So if you use an extension that provides backtracking, it's
+ok if it is slow.)
+  
+\section{Goals for the AOSD/Modularity Paper}
 
+We should include arrays and iteration (Section
+\ref{sec:arrays-iteration}) and support for incremental solving and
+changes over time (Section \ref{sec:change-over-time}).  The other
+ideas can wait until later.
 
+We should also have a set of examples: the video streaming example of
+course, but also a couple of others.  Two possibilities are basic
+geometric objects, including support for interactive graphics (moving
+something with the mouse); and electrical circuits.  The thermometer
+from the old Kaleidoscope papers would be another possibility.
 
-ARRAYS, SETS, AND LOOPS
+\section{Arrays and Iteration}
+\label{sec:arrays-iteration}
 
-Here's a version of Array sum that uses recursion to construct temp variables:
+The language and implementation should be extended to support arrays
+and basic iteration.  (Among other things, we need this for the
+electrical circuits example.)  
 
+Here's a version of \lstinline{Array sum} that uses recursion to
+construct temporary variables to hold the partial sums:
+
+\begin{lstlisting}
 class Array
   def sum
     if self.empty?
@@ -34,33 +83,66 @@ class Array
     end
   end
 end
+\end{lstlisting}
 
-or using a constraint version of inject:
+or using a constraint version of \lstinline{inject}:
+\begin{lstlisting}
 class Array
   def sum
     constraint_inject(0) { |partial_sum,x| partial_sum+x }
   end
 end
+\end{lstlisting}
 
-The second version assumes there is a constraint_inject method defined
-on Enumerable ... this could be similar to the recursive Array sum method.
+The second version assumes there is a \lstinline{constraint_inject}
+method defined on Enumerable.  Here's a clean although not very
+efficient definition.  (This omits some of the bells and whistles
+provided by the standard \lstinline{inject} method --- for example you
+always provide an initial value.)
+
+\begin{lstlisting}
+module Enumerable
+  def constraint_inject(initial)
+    if empty?
+      initial
+    else
+      always { ans == yield (drop(1).constraint_inject(initial) , first) }
+      ans
+    end
+  end
+end
+\end{lstlisting}
 
 Both these should (in theory) interact correctly with other linear
 constraints on the sum or on values.  For example, you could determine
 an element given the sum and values for all the other elements:
 
+\begin{lstlisting}
 a = Array.new(3)
 a[0] = 0.0
 a[1] = 0.0
 a[2] = 0.0
 always { a[0] == 10 }
 always { a[2] == 20 }
-always { a.sum == 50 }
+always { a.sum == 60 }
+\end{lstlisting}
 
-This should be solvable and result in a[1] = 20
+This should be solvable and result in \lstinline{a[1] = 30}.
 
-In conventional Ruby you'd just use a loop:
+Similarly, this should work.  (It's just 3 linear constraints in 3 unknowns.)
 
+\begin{lstlisting}
+a = Array.new(2)
+a[0] = 0.0
+a[1] = 0.0
+always { 2*a[0] + a[1] == 20.0 }
+always { a[0] + a[1] + 3*a[2] == 38.0 }
+always { a.sum == 18 }
+\end{lstlisting}
+
+In conventional Ruby you'd just use a loop to define \lstinline{sum}:
+
+\begin{lstlisting}
 class Array
   def sum
     sum = 0
@@ -68,66 +150,67 @@ class Array
     sum
   end
 end
+\end{lstlisting}
 
-or inject.  However, I don't think that will work with constraints,
-unless there is some way to automatically re-trigger the method.  Also
-how would it work with a known sum and finding an element?
+or \lstinline{inject}.  Do we want to be able to write code that looks
+more like this?  If so I'd like to have provide a general mechanism
+that (for example) works with a known sum and finding an element, as
+in the above example.
 
 We also want constraints on the length of an array, and the whole array.
-For arrays a and b:
+For arrays \lstinline{a} and \lstinline{b}:
 
+\begin{lstlisting}
 always { a.length == 10 }
 always { a == b}
+\end{lstlisting}
 
 If we use the Cooperating Solvers idea of multiple regions connected
 by read-only variables, and require that constraints on an array
 length be in a separate and upstream region from constraints on the
-elements, and also constraints on the whole array (a==b) then we
+elements, and also constraints on the whole array \lstinline{(a==b)} then we
 should be able to have all these kinds.
 
 Here is an example of constraints that wouldn't be allowed (because of
 the cycle among the regions):
 
+\begin{lstlisting}
 array a
 a.length == a[0]
 a.length <= 3
 a.sum == 10
 a[1] ==2
+\end{lstlisting}
 
-This has the solution a=[3,2,5], but finding that is probably beyond
-the capabilities of the solvers we want.
+This has the solution a=[3,2,5], but finding that will be beyond
+the capabilities of the built-in solvers.
+
+\section{Change over Time}
+\label{sec:change-over-time}
+
+Another feature needed for this to be a reasonable object-oriented
+language is a way to handle change over time and interactivity.  It
+should be done so that it takes advantage of Cassowary's API for
+handling edit and stay constraints.  (Then it could also be used with
+other solvers that support this, such as DeltaBlue.)
+
+As a simple starting example, consider a midpoint line.  Here's the
+constraint that defines that the midpoint lies halfway between the
+endpoints:
+
+\begin{lstlisting}
+always { (end1 + end2) == (midpoint*2) }
+\end{lstlisting}
+
+We want to be able to provide a series of new values for one of the
+endpoints and have the constraints resatisfied.  To start with, here's
+a version that just changes the x value:
+
+NOT FINISHED!
 
 
-WISH LIST FOR CONSTRAINTS ON DATA STRUCTURES
-
-This wish list is very likely going to be beyond the capabilities of
-the current solvers!
-
-SETS
-constraints involving 
-  == subset subseteq member
-and expressions involving union intersection - size
-
-ARRAYS
-  map member + (concat) == length [n] [n..m]
-
-DICTIONARIES
-  keys, values, [key] size etc
-
-BINARY TREES
-  depth, mirror, flatten, sum, etc
-
-If we were going to provide these, we'd want constraints on finite
-domains or specialized solvers, and perhaps backtracking.  (For
-example, sets and arrays could be represented as CLP(R) lists, and
-backtracking used to search for solutions.)
-
-
-CHANGE OVER TIME
-
-Midpoint line -- have an edit constraint and a loop
-
-            always { (end1 + end2) == (midpoint*2) }
+then a version that feeds new points
+            
 
 Need incrementality.
 
@@ -136,11 +219,47 @@ What is the relation to FRP etc?
 Let's start with a simple version, just driven from a loop.  Later we
 need to figure out how this works with events or some other mechanism.
 
+
+
+\begin{lstlisting}
 m = MidpointLine.new(Point(0,0),Point(100,100))
 (1..100).each { |i| m.end2.x = i }
+\end{lstlisting}
 
-How to express edit constraints??
   
+\section{Enumerable, Sets, Trees, and other Data Structures}
+
+This section describes a wish list for constraints on data structures.
+This wish list will be beyond the capabilities of the built-in
+solvers, since in some cases we'd need backtracking, but could likely be
+solved by extensions.
+
+For \lstinline{Enumerable} we'd like to support constraints involving
+the full range of methods, including \lstinline{collect},
+\lstinline{first}, \lstinline{member?}, \lstinline{max},
+\lstinline{min}, and others.
+
+For arrays we'd also like to support ranges and concatenation.
+
+For sets we'd also like to support constraints involving the standard
+set operations, such as \lstinline{intersection} and
+\lstinline{union}.
+
+Hashes (dictionaries) should support constraints on the result of looking up
+some key, as well as \lstinline{keys}, \lstinline{values}, and so on.
+
+Finally, constraints on binary trees could include ones on the tree
+depth, flattening the tree, mapping, etc.
+
+If we were going to provide these, we'd want constraints on finite
+domains or specialized solvers, and perhaps backtracking.  (For if we
+were solving these in CLP(R) (Prolog with constraints), sets and
+arrays could be represented as lists, and backtracking used to search
+for solutions.)
+
+
+
+\begin{verbatim}
 
 
 
@@ -186,17 +305,21 @@ ConstraintObject?  solver, variables, ... also error?  methods for
 local propagation constraints?  linear expression for linear
 constraints?
 
-
-NAMES
-
-The language needs a name!  Some ideas:
-
-Kaleidoscope 2013
-Mandala
-Spargel
-Brandenberg
-Babelsberg
-Tiergarten
-
 \end{verbatim}
+
+
+\section{Names}
+
+The language needs a name!  Here are some ideas:
+
+\begin{itemize}
+\item Kaleidoscope 2013
+\item Mandala
+\item Spargel
+\item Brandenberg
+\item Babelsberg
+\item Tiergarten
+\end{itemize}
+
+
 \end{document}

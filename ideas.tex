@@ -1,6 +1,6 @@
 \documentclass[11pt]{article}
 \pagestyle{plain}
-\usepackage{fullpage,listings}
+\usepackage{fullpage,listings,url}
 \setlength{\parindent}{0.0in}
 \setlength{\parskip}{7pt plus 1pt}
 
@@ -51,7 +51,9 @@ ok if it is slow.)
   
 \section{Goals for the AOSD/Modularity Paper}
 
-We should include arrays and iteration (Section
+We need to define ``constraint'' more precisely (Section
+\ref{sec:what-is-a-constraint}), and describe any restrictions on how
+they are specified.  We should include arrays and iteration (Section
 \ref{sec:arrays-iteration}) and support for incremental solving and
 changes over time (Section \ref{sec:change-over-time}).  The other
 ideas can wait until later.
@@ -61,6 +63,36 @@ course, but also a couple of others.  Two possibilities are basic
 geometric objects, including support for interactive graphics (moving
 something with the mouse); and electrical circuits.  The thermometer
 from the old Kaleidoscope papers would be another possibility.
+
+\section{What is a Constraint?}
+\label{sec:what-is-a-constraint}
+
+The idea that constraints apply to any message (expression?) seems
+overly general.  For example, are there any requirements on what it
+evaluates to?  What if there is a side effect?  What if it's calling a
+random number generator?  Kaleidoscope took the view that constraints
+applied to virtual parts (i.e.\ from the outside these looked like
+fields, although they might be computed rather than stored).  Suppose
+that we want something more general for the new language.  
+
+Here are some suggested requirements on the block supplied to
+\lstinline{always}.
+
+\begin{itemize}
+
+\item Evaluating the block returns a boolean --- the constraint is
+  that it evaluate to true.
+
+\item The expression in the block should either be free of side
+  effects, or if there are side effects, they should be benign (for
+  example, doing caching).  (Later, we will probably need to come up
+  with a more precise definition of ``benign'', or better, find some
+  existing definition of this concept in the literature.)
+
+\item Repeatedly evaluating the block should return the same thing (so
+  an expression involving a random number generator wouldn't qualify).
+
+\end{itemize}
 
 \section{Arrays and Iteration}
 \label{sec:arrays-iteration}
@@ -273,12 +305,63 @@ separately.)
 Cassowary allows there to be multiple edit constraints.  Usually this
 is only used to edit a point (so that there are edit constraints on
 the x and y components), and this is already taken care of by the
-above design.  However, we could also define another method
+above design.  If you want to have edit constraints on an arbitrary
+collection of variables, under this design you need to define a new
+object to hold them all; and then the edit constraint applies to that
+object.  Perhaps we could also define another method
 \lstinline{edit_many} that accepts a list of tuples, where each tuple
-is a variable to be edited, a stream, and optionally a strength.
-Providing this is probably low priority.
+is a variable to be edited, a stream, and optionally a strength.  But
+for now let's require the programmer to collect these variables into
+an object --- that seems like it would often be better style in any
+case.
 
 To do: later, figure out more about the relation to FRP and K-Script.
+
+\section{Read-only and Write-only Variables}
+
+Sometime we should add support for read-only variables (perhaps after
+the AOSD paper however).  For them to be part of a general approach,
+we want multiple cooperating solvers.  I like the approach described
+in the VPRI memo ``Architectures for Cooperating Constraint Solvers''
+(\url{http://www.vpri.org/pdf/m2012003_coopsolv.pdf}), which proposes
+that the constraint graph be partitioned into multiple regions,
+connected only via read-only variables.  As far as Cassowary is
+concerned, a read-only variable is just a constant.
+
+For syntax for read-only variables, older languages have used ? and
+that could still work, using a Ruby syntax hack.  For example, if a
+variable \lstinline{x} is read-only, express this as \lstinline{x?}.  Ruby
+will parse this as a method named \lstinline{x?}.  We can catch the
+method not understood error and handle it accordingly.
+
+Kaleidoscope also included write-only variables, written with
+\lstinline{!}.  This is low priority, but could be handled in a
+similar way, since \lstinline{x!} would again be interpreted as a
+method name.
+
+In the current test cases the class \lstinline{Battery} is defined as
+\begin{lstlisting}
+class Battery
+  def initialize(supply_voltage)
+    super()
+    @supply_voltage = supply_voltage
+    always { lead1.voltage - lead2.voltage == @supply_voltage.stay(:required) }
+  end
+\end{lstlisting}
+
+The way \lstinline{supply_voltage} is set doesn't seem particularly
+clear.  With readonly variables this could be written as follows:
+
+\begin{lstlisting}
+class Battery
+  def initialize(supply_voltage)
+    super()
+    always { lead1.voltage - lead2.voltage == supply_voltage? }
+  end
+\end{lstlisting}
+
+(Note that we omitted \lstinline{supply_voltage} as an instance
+variable - the argument is just captured by the always constraint.)
 
 \section{Enumerable, Sets, Trees, and other Data Structures}
 
@@ -310,57 +393,6 @@ were solving these in CLP(R) (Prolog with constraints), sets and
 arrays could be represented as lists, and backtracking used to search
 for solutions.)
 
-
-
-\begin{verbatim}
-
-
-
-THINGS TO ADD
-
-read-only variables (should we use ?, or is that going to be a mess?)
-
-
-THINGS TO FIX
-
-versions of sum for arrays should work, also resistor with the current
- 
-class Battery
-  # this seems unintuitive, and perhaps a common pattern ....
-  def initialize(supply_voltage)
-    super()
-    @supply_voltage = supply_voltage
-    always { lead1.voltage - lead2.voltage == @supply_voltage.stay(:required) }
-  end
-
-QUESTIONS
-
-Syntax for priorities, both on stays and other constraints?
-
-How do solvers communicate (use Cooperating Solvers design!!)
-See old questions about priorities, incrementality, etc. in the VPRI memo.
-
-What about Kaleidoscope concerns: identity constraints, constraint
-constructors, constraints on class?
-
-What about the things that motivated multi-methods (e.g. a constraint
-a+b=c, with b and c known and a unknown)?  Or coercions?
-
-The idea of constraints on messages, or more accurately on the results
-of sending an arbitrary message, seems over general.  Should there be
-restrictions?  Virtual part?  An alternative is to allow constraints
-on arbitrary expressions (should evaluate to a boolean??) but to start
-coming up with the restrictions that the programmer should follow,
-even if they aren't checked.  
-
-If always { } returns a ConstraintObject, what is the protocol for
-ConstraintObject?  solver, variables, ... also error?  methods for
-local propagation constraints?  linear expression for linear
-constraints?
-
-\end{verbatim}
-
-
 \section{Names}
 
 The language needs a name!  Here are some ideas:
@@ -374,5 +406,48 @@ The language needs a name!  Here are some ideas:
 \item Tiergarten
 \end{itemize}
 
+\section{Other Kinds of Constraints}
+
+If we have \lstinline{always}, should we also have \lstinline{once}?
+And also constraints that are enforced while a loop is executing and
+then removed?
+
+What methods does \lstinline{ConstraintObject} currently provide?  Are
+there other methods it should provide?  For example, for local
+propagation constraints we would want methods for setting each of the
+constrained variables to satisfy the constraint.  
+
+Can there be constraints on object identity (as in the later versions
+of Kaleidoscope)?  Can there be constraints on the class of an object?
+
+\section{Miscellaneous Notes and Questions}
+
+This section is a holding pen for miscellaneous notes and questions.
+These are not necessarily well-thought-out.
+
+The syntax for priorities, both on stays and other constraints looks
+like this:
+
+In general the syntax for priorities on a constraint looks like this:
+
+\begin{lstlisting}
+always(:strong) { a+b == c}
+\end{lstlisting}
+
+What is the syntax for stays (including strengths)?  Why is it written
+like this?
+For stays it looks like this (maybe??):
+\begin{lstlisting}
+always { lead1.voltage - lead2.voltage == @supply_voltage.stay(:required) }
+\end{lstlisting}
+
+Re-read the Cooperating Solvers memo to see about questions regarding
+priorities for constraints in general (I think they could only be used
+within one region), incrementality, etc.
+
+What about the issues that motivated multi-methods (e.g.\ a constraint
+a+b=c, with b and c known and a unknown)?  Or coercions?  Are the
+needs that motivated constraint constructors taken care of in the new
+language? 
 
 \end{document}

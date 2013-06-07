@@ -188,13 +188,58 @@ the capabilities of the built-in solvers.
 \section{Change over Time}
 \label{sec:change-over-time}
 
-Another feature needed for this to be a reasonable object-oriented
-language is a way to handle change over time and interactivity.  It
-should be done so that it takes advantage of Cassowary's API for
-handling edit and stay constraints.  (Then it could also be used with
-other solvers that support this, such as DeltaBlue.)
+Another needed feature is a way to handle change over time and
+interactivity.  It should be done so that it takes advantage of
+Cassowary's API for handling edit and stay constraints.  Later, it
+could also be used with other solvers that support this, such as
+DeltaBlue.
 
-As a simple starting example, consider a midpoint line.  Here's the
+To support this, there will be a method \lstinline{edit} that takes a
+variable to be edited, a stream that will provide the new values, and
+optionally a strength.  For example, suppose we have an
+\lstinline{Doubler} object:
+
+\begin{lstlisting}
+class Doubler
+  attr_reader :a, :b
+  def initialize
+    a=0
+    b=0
+    always { b==2*a }
+  end
+end  
+\end{lstlisting}
+
+Then we can give 100 new values to \lstinline{b}, and have
+\lstinline{a} change correspondingly:
+
+\begin{lstlisting}
+d = Doubler.new
+strm = <stream of values from 0 to 99>
+edit(d.b, strm)
+\end{lstlisting}
+
+(Questions: I didn't see a Stream class in Ruby analogous to the one
+in Smalltalk.  Do we need to define our own?  How to we observe the
+changing values?  They can be linked with other constraints, which are
+then satisfied as well.  Is this enough, or do we also need some sort
+of callback mechanism when something changes?)
+
+The behavior of the \lstinline{edit} method is that it adds an edit
+constraint on the edit variable, and then repeatedly calls
+\lstinline{suggest_value} with each new value from the stream.  When
+the stream is empty, it removes the edit constraint and returns.  The
+strength defaults to the strongest non-required strength.  If
+:required is used, the system raises an exception if the new edit
+value can't be used.
+
+Note that this should work fine if the stream is actually being fed
+from another process that provides new values only when available ---
+the process that has the edit constraint should just block until one
+is available.
+
+The variable and stream can hold user-defined objects, not just
+primitive types.  Consider a midpoint line.  Here's the
 constraint that defines that the midpoint lies halfway between the
 endpoints:
 
@@ -202,31 +247,39 @@ endpoints:
 always { (end1 + end2) == (midpoint*2) }
 \end{lstlisting}
 
-We want to be able to provide a series of new values for one of the
-endpoints and have the constraints resatisfied.  To start with, here's
-a version that just changes the x value:
-
-NOT FINISHED!
-
-
-then a version that feeds new points
-            
-
-Need incrementality.
-
-What is the relation to FRP etc?
-
-Let's start with a simple version, just driven from a loop.  Later we
-need to figure out how this works with events or some other mechanism.
-
-
+and an edit operation on that:
 
 \begin{lstlisting}
-m = MidpointLine.new(Point(0,0),Point(100,100))
-(1..100).each { |i| m.end2.x = i }
+m = MidpointLine.new(Point.new(0,0),Point.new(100,100))
+strm = <stream of new point values>
+edit(m.midpoint, strm)
 \end{lstlisting}
+            
+To use Cassowary as the solver, we need to convert this into edit
+constraints on Floats (i.e.\ the x and y values of the midpoint), but
+we also want to do this in an object-oriented way that respects
+encapsulation.  Further, updating the solution with each new value
+should be very fast.  As a sketch of the approach, different classes
+can define an \lstinline{edit_constraints} method that returns a list
+of edit constraints appropriate for that object and solver.  For
+example, a constrained variable holding a point represented as x and y
+coordinates would return edit constraints on the x and y values, while
+a constrained variable holding a float would just return an edit
+constraint on itself.  (Later, if we also support DeltaBlue, the edit
+constraints returned would be different, e.g.\ the point could be
+simply updated rather than dealing with its x and y coordinates
+separately.)
 
-  
+Cassowary allows there to be multiple edit constraints.  Usually this
+is only used to edit a point (so that there are edit constraints on
+the x and y components), and this is already taken care of by the
+above design.  However, we could also define another method
+\lstinline{edit_many} that accepts a list of tuples, where each tuple
+is a variable to be edited, a stream, and optionally a strength.
+Providing this is probably low priority.
+
+To do: later, figure out more about the relation to FRP and K-Script.
+
 \section{Enumerable, Sets, Trees, and other Data Structures}
 
 This section describes a wish list for constraints on data structures.

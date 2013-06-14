@@ -347,36 +347,37 @@ For syntax for read-only variables, older languages have used ? and
 that could still work, using a Ruby syntax hack.  For example, if a
 variable \lstinline{x} is read-only, express this as \lstinline{x?}.  Ruby
 will parse this as a method named \lstinline{x?}.  We can catch the
-method not understood error and handle it accordingly.
+method not understood error and handle it accordingly. This won't work
+for instance or class variables, though. The current solution extends
+the lexer to allow a method called just \lstinline{?}.
 
 Kaleidoscope also included write-only variables, written with
-\lstinline{!}.  This is low priority, but could be handled in a
-similar way, since \lstinline{x!} would again be interpreted as a
-method name.
+\lstinline{!}. This is low priority, but could be handled in a
+similar way. However, the method \lstinline{!} is already defined in
+standard Ruby (it's the method called when you write \lstlinline{!x}),
+so we may want to find another symbol to use here.
 
-In the current test cases the class \lstinline{Battery} is defined as
+In an older test case, the class \lstinline{Battery} is defined as
 \begin{lstlisting}
 class Battery
   def initialize(supply_voltage)
     super()
-    @supply_voltage = supply_voltage
-    always { lead1.voltage - lead2.voltage == @supply_voltage.stay(:required) }
+    always { lead1.voltage - lead2.voltage == supply_voltage.stay(:required) }
   end
 \end{lstlisting}
 
-The way \lstinline{supply_voltage} is set doesn't seem particularly
-clear.  With readonly variables this could be written as follows:
+The stay was required so the solver doesn't simply change the
+\lstinline{supply_voltage} local, which doesn't seem particularly
+clear. With readonly variables, this can currently be written as
+follows:
 
 \begin{lstlisting}
 class Battery
   def initialize(supply_voltage)
     super()
-    always { lead1.voltage - lead2.voltage == supply_voltage? }
+    always { lead1.voltage - lead2.voltage == supply_voltage.? }
   end
 \end{lstlisting}
-
-(Note that we omitted \lstinline{supply_voltage} as an instance
-variable - the argument is just captured by the always constraint.)
 
 \section{Enumerable, Sets, Trees, and other Data Structures}
 
@@ -413,6 +414,7 @@ for solutions.)
 The language needs a name!  Here are some ideas:
 
 \begin{itemize}
+\item \textsc{Loci/R}
 \item Kaleidoscope 2013
 \item Mandala
 \item Spargel
@@ -423,14 +425,33 @@ The language needs a name!  Here are some ideas:
 
 \section{Other Kinds of Constraints}
 
-If we have \lstinline{always}, should we also have \lstinline{once}?
-And also constraints that are enforced while a loop is executing and
-then removed?
+Like Kaleidoscope, we have \lstinline{always}, \lstinline{once}, and
+\lstinline{always {}.during {}} (for constraints that are enforced
+while a block is executing and then removed).
 
-What methods does \lstinline{ConstraintObject} currently provide?  Are
-there other methods it should provide?  For example, for local
+The return value of a call to \lstinline{always} is currently either a
+\lstinline{Constraint} or a boolean. A boolean is returned only
+if no constraints were asserted in the block, if the boolean is
+\lstinline{true}, a warning is printed, if it is false, an error is
+raised.
+
+What methods does \lstinline{Constraint} currently provide?
+\begin{description}
+\item[enable] Enable all constraints that were asserted in the block
+\item[disable] Disable all constraints that were asserted in the block
+\item[strength] Returns the constraint block strength
+\item[strength=] Setter for the constraint block strength. This
+  retracts all constraints and re-enables them using the new strength.
+\item[constraint_block] Returns the block object that was passed to
+  \lstinline{always}
+\item[solver_constraints] Returns an array with the solver-specific
+  constraint objects. For Cassowary constraints, this is a list of
+  \lstinline{LinearEqualities}, for Z3 it is a list of
+  \lstinline{Z3Asts}
+\end{description}
+Are there other methods it should provide?  For example, for local
 propagation constraints we would want methods for setting each of the
-constrained variables to satisfy the constraint.  
+constrained variables to satisfy the constraint.
 
 Can there be constraints on object identity (as in the later versions
 of Kaleidoscope)?  Can there be constraints on the class of an object?

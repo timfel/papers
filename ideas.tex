@@ -100,30 +100,22 @@ that a constraint is a predicate that we want to hold.)
 
 \end{itemize}
 
+It appears that a constraint expression has the same implicit
+limitations as a predicate method. Any well-written predicate should
+have no ill side-effects and should yield the same result if executed
+consecutively with no intermediate state changes. I think it is safe
+to say any constraint expression should, at the same time, be a valid
+predicate (where the return value should always be true from now on).
+
 \section{Arrays and Iteration}
 \label{sec:arrays-iteration}
 
-The language and implementation should be extended to support arrays
-and basic iteration.  (Among other things, we need this for the
-electrical circuits example.)  
+The language and implementation support arrays and basic iteration.
+(Among other things, we need this for the electrical circuits
+example.)
 
-Here's a version of \lstinline{Array sum} that uses recursion to
-construct temporary variables to hold the partial sums:
-
-\begin{lstlisting}
-class Array
-  def sum
-    if self.empty?
-      0
-    else
-      always { ans == self[0] + self[1..-1].sum }
-      ans
-    end
-  end
-end
-\end{lstlisting}
-
-or using a constraint version of \lstinline{inject}:
+Here's a version of \lstinline{Array sum} that uses a constraint
+version of \lstinline{inject}:
 \begin{lstlisting}
 class Array
   def sum
@@ -132,28 +124,30 @@ class Array
 end
 \end{lstlisting}
 
-The second version assumes there is a \lstinline{constraint_inject}
-method defined on Enumerable.  Here's a clean although not very
-efficient definition.  (This omits some of the bells and whistles
-provided by the standard \lstinline{inject} method --- for example you
-always provide an initial value.)
+This assumes there is a \lstinline{constraint_inject} method defined
+on Enumerable.  Here's a possible definition.  (This omits some of the
+bells and whistles provided by the standard \lstinline{inject} method
+--- for example you always provide an initial value.) This code uses
+the \texttt{__constraint__} primitive that executes the passed block
+in constraint-interpreter mode. This looks very ugly, eventually we'll
+have to think of a better way to express the desire to get the
+\emph{constraint-interpreter-view} of a variable.
 
 \begin{lstlisting}
 module Enumerable
-  def constraint_inject(initial)
-    if empty?
-      initial
-    else
-      always { ans == yield (drop(1).constraint_inject(initial) , first) }
-      ans
+  def constraint_inject(memo)
+    i = 0
+    while i < size
+      memo = yield(memo, __constrain__ { self[i] })
     end
+    memo
   end
 end
 \end{lstlisting}
 
-Both these should (in theory) interact correctly with other linear
-constraints on the sum or on values.  For example, you could determine
-an element given the sum and values for all the other elements:
+Both these interact correctly with other linear constraints on the sum
+or on values.  For example, you can determine an element given the sum
+and values for all the other elements:
 
 \begin{lstlisting}
 a = Array.new(3)
@@ -167,7 +161,8 @@ always { a.sum == 60 }
 
 This should be solvable and result in \lstinline{a[1] = 30}.
 
-Similarly, this should work.  (It's just 3 linear constraints in 3 unknowns.)
+Similarly, this works.  (It's just 3 linear constraints in 3
+unknowns.)
 
 \begin{lstlisting}
 a = Array.new(2)
@@ -206,22 +201,38 @@ always { a == b}
 If we use the Cooperating Solvers idea of multiple regions connected
 by read-only variables, and require that constraints on an array
 length be in a separate and upstream region from constraints on the
-elements, and also constraints on the whole array \lstinline{(a==b)} then we
-should be able to have all these kinds.
+elements, and also constraints on the whole array \lstinline{(a==b)}
+then we should be able to have all these kinds. Currently, these
+examples work because we have added a \texttt{ConstraintObject}
+subclass for Array, that maps element access, length, and equality to
+Cassowary (or Z3) variables.
 
 Here is an example of constraints that wouldn't be allowed (because of
 the cycle among the regions):
 
 \begin{lstlisting}
-array a
-a.length == a[0]
-a.length <= 3
-a.sum == 10
-a[1] ==2
+a = []
+always do
+  (a.length == a[0]) &&
+  (a.length <= 3) &&
+  (a.sum == 10) &&
+  (a[1] == 2)
+end
 \end{lstlisting}
 
 This has the solution a=[3,2,5], but finding that will be beyond
 the capabilities of the built-in solvers.
+
+So we'd have to determine the length first, then it works like this:
+\begin{lstlisting}
+a = [0, 0, 0]
+always do
+  (a.length == a[0]) &&
+  (a.length <= 3) &&
+  (a.sum == 10) &&
+  (a[1] == 2)
+end
+\end{lstlisting}
 
 \section{Change over Time}
 \label{sec:change-over-time}

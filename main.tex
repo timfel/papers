@@ -44,6 +44,7 @@
 \newacronym{vm}{\textsc{vm}}{virtual machine}
 \newacronym{jit}{\textsc{jit}}{just-in-time}
 
+\newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
 \RequirePackage{xspace}
 \newcommand{\eg}{e.\hairspace{}g.,\xspace}
 \newcommand{\Eg}{E.\hairspace{}g.,\xspace}
@@ -53,7 +54,8 @@
 \newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
 
 \newcommand{\zcubed}{Z${}^3$\xspace}
-\newcommand{\toolname}{Topaz\xspace}
+\newcommand{\langname}{\textsc{Loci}\xspace}
+\newcommand{\toolname}{\textsc{Loci/R}\xspace}
 
 % \newcommand{\Z3}{Z\vskip-1em\small 3\vskip1em\xspace}
 \begin{document}
@@ -62,7 +64,7 @@
 % \title{DRAFT Modular Object-Constraint Programming with Topaz\todo{Better Name}}
 % A mechanism for solving generic constraints on the results of message sends
 \title{An Open Implementation to Solving Constraints on Object Behavior}
-\subtitle{Modular Object-Constraint Programming with Topaz}
+\subtitle{Modular Object-Constraint Programming with \Large{\langname}}
 
 \numberofauthors{1}
 \author{
@@ -541,7 +543,7 @@ The disadvantage of not having multi-methods is that each receiver has
 to have a known type (as the method lookup is the same as in purely
 imperative code). This precludes use-cases where an unbound variable
 is first assigned from a constraint. We have found the inconvenience
-of having to initialize variables preferable to the complexity of
+of having to initialize variables preferable to the unfamiliarity of
 multi-methods.
 
 \paragraph{Limited Solver Domains}
@@ -566,10 +568,10 @@ if the object does not respond to the hook selector.
 Kaleidoscope provides a declarative semantics for assignment, type
 declaration and subclassing. However, this declarative semantics is
 also used if no actual constraints are in the program. In \ac{ocp}, we
-only use the declarative semantics for assignments, and only for those
-variables that are used in constraints. This means that the
-performance of purely imperative code should be the same as on a
-purely imperative \ac{vm}.
+only use the declarative semantics for assignments of variables that
+are also used in constraints. This means that the performance of
+purely imperative code is the same as on a purely imperative
+\ac{vm}. 
 
 Using our implementation of \ac{ocp}, the code to continously ensure
 the constraints in our example thus becomes:
@@ -581,48 +583,102 @@ always { rect.visible? }
 
 \subsection{Combining Objects and Constraints}
 \label{sec:combination-features}
-\todo{explanation of constraint construction follows}
+The above code asserts that the area of the rectangle \lstinline{rect}
+should always be equal to 100. The assertion is expressed by sending
+the \lstinline{area} method and sending the \lstinline{==} method to
+the result.
 
-A constraint declaration in our system is an expression passed to a
-primitive method unevaluated in form of a anonymous function
-closure. That closure is executed immediately in the \emph{constraint
-  interpreter}. The constraint interpreter executes the code as normal
-\ac{oo} code, but, during execution, constructs a \emph{constraint
-  view} for the solvers.
+\subsubsection{Constrained Variables}
+\label{sec:constraint-values}
+In \langname, each variable name refers to both an \ac{oo} value and a
+constraint value. The type of constraint value is determined the
+dynamic type of the \ac{oo} value when it is first used in a
+constraint. When a variable is first used in a constraint, the
+interpreter send the message \lstinline{for_constraint} to it and
+expects a constraint value it can use in place of the \ac{oo} value as
+result.
 
-To construct the constraint view, variables encountered during the
-execution are replaced by the interpreter with their solver variable
-counterparts. If no solver is active in the system that can work with
-the variable encountered, that variable is replaced with a placeholder
-constraint variable that delegates to the original object, but serves
-as a placeholder for constraint invalidation.
+A constraint value responds to the subset of the interface of the
+associated \ac{oo} value that its solver can solve. For example,
+\emph{Cassowary}~\todo{ref} can solve linear constraints over float
+values, so the Cassowary variables returned by
+\lstinline{Float#for_constraint} respond to the methods \lstinline{+},
+\lstinline{-}, \lstinline{*}, and \lstinline{/}, but not
+\lstinline{sin} or \lstinline{**}. If a programmer tries to assert a
+constraint using those latter methods, an exception will be raised.
 
-The constraint view is complete when the anonymous function
-returns. The constraint view then consists of a number of a) primitive
-values that are in the domain of the solver and are connected in a
-constrainable way (e.g. through in/equalities, arithmetic, boolean
-logic) and b) a number of complex objects that are constrained to
-their identity.
+User code can add solvers to the system by adding a
+\lstinline{for_constraint} method to the classes the solver can work
+on and returning an object that responds to solvable messages. We show
+in section~\todo{ref} how we used this to add a solver over the domain
+of Arrays.
 
-The solver operates on this view directly to solve the
-constraint. Changes made by the solver to the variables show up in the
-\ac{oo} view.
+If an object that is used in a constraint does not respond to
+\lstinline{for_constraint}, a placeholder constraint value is created
+for the variable that delegates message sends to the original
+object. This placeholder is required to invalidate constraints if the
+variable is assigned later.
 
-When imperative code changes a primitive value in that appears in this
-view (for example through assignment~\todo{cite kaleidoscope}), that
-change triggers the solver to re-satisfy the constraint.
+\subsubsection{Constraint Construction}
+\label{sec:constraint-construction}
 
-When imperative code changes a complex value that is constrained to
-its identity, all constraints asserted based on this value are removed
-from the solver, and the constraint expression is automatically
-re-evaluated to assert new constraints ... here we need the example
-with the arch point
+A constraint in our system is a predicate expression passed
+unevaluated in form of a block closure to the primitive method
+\lstinline{always}. The closure is executed in a \emph{constraint
+  interpreter} mode that resolves variables to constraint values
+instead of \ac{oo} values. The constraint interpreter otherwise
+executes the code using normal \ac{oo} semantics.
+
+In our example above, the \lstinline{rect} variable is replaced with a
+placeholder, because no rectangle-solver exists and the class
+\lstinline{Rectangle} does not implement the method
+\lstinline{for_constraint}. The placeholder delegates the message
+\lstinline{area} to the \ac{oo} value. During the execution of
+\lstinline{area} a number of float values are encountered---the
+instance variables of the points that form the rectangle
+(\cf{\ref{fig:architecture}}). These instance variables are resolved
+to constraint values, for example Cassowary variables, and the
+messages between them, instead of calculating the current area of the
+rectangle, return a linear constraint expression. This linear
+expression is then sent the message \lstinline{==} with 100 as its
+argument and returns a constraint equality that can be solved by
+Cassowary.
 
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{architecture}
 \label{fig:architecture}
 \end{figure}
+
+The constraint construction is complete when block passed to
+\lstinline{always} returns. Any constraint values and combinations
+thereof created during the execution are gathered into a
+\emph{Constraint Object}. These provide a meta-level interface to
+enable or disable the entire constraint (and thus all participating
+values), query and change its strength (\cf{\todo{sec}}), and access
+the block that was passed to always, as well as each constraint value
+that participates in the constraint.
+
+The Constraint Object then consists of a number of a) primitive values
+that are in the domain of the solver and are connected in a
+constrainable way (\eg through equalities or inequalities, arithmetic,
+boolean logic) and b) a number of placeholder values for complex
+objects that are constrained to their identity.
+
+The constraint solvers operate on primitive constraint values directly
+to solve the constraint. Changes made by the solver to the variables
+show up in the \ac{oo} view on the next access to the variables from
+imperative code, at which point the constraint values are copied to
+their \ac{oo} counterparts. Assignments to any variable encountered
+during the constraint construction will trigger the solver to
+re-satisfy the constraint~\todo{cite kaleidoscope} (and potentially
+raise an error if the assignment is inconsistent with the constraint).
+
+Placeholder constraint values invalidate the constraint if the
+identity of the \ac{oo} value changes through imperative
+assignment. This invalidation retracts all constraint values created
+during constraint construction and re-executes the block to create new
+constraint values. (\todo{reference discussion about side-effects})
 
 \subsubsection{Declarative Semantics of Imperative Operations}
 \label{sec:semantics}

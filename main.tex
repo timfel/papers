@@ -718,11 +718,6 @@ assignment. This invalidation retracts all constraint values created
 during constraint construction and re-executes the block to create new
 constraint values. (\todo{reference discussion about side-effects})
 
-\paragraph{Read-only Variables}
-\label{sec:read-only-variables}
-- variables that are used in constraints, but can only be assigned
-from imperative code
-
 - Contributions:
   - encapsulated, re-useable constraints for complex objects
     - only act on OO interface, so can be re-used for same-interface objects
@@ -743,11 +738,53 @@ from imperative code
   - implementation
 
 \section{Implementation}
-- pypy is ..., topaz is ..., topaz architecture
+As an implementation of \ac{ocp}, \langname needs an object-oriented
+language to support it. Our current implementation is an extension of
+the Ruby programming language~\todo{cite} and is consequently called
+\toolname.
 
-modes:
-  - normal execution
-    LOAD\_* -> check if constrainted variable -> get value from solver
+The Ruby \ac{vm} we used as a basis for \toolname is
+\emph{Topaz}~\todo{cite}, an experimental \ac{vm} built using the
+\emph{PyPy/RPython} toolchain~\todo{cite}. This has allowed us to
+extend the interpreter and use RPython's \ac{vm}-generation toolchain
+to create a \ac{vm} including a fast \ac{jit} and garbage collector.
+
+The changes we made to the Topaz \ac{vm} are two-fold: we have
+extended it to support constrained variables
+(\cf{\ref{sec:constraint-values}}) by allowing the same name to refer
+to multiple objects, one for \ac{oo} execution and one for constraint
+declaration. Second, we have added an interpreter mode for constraint
+construction (\cf{\ref{sec:constraint-construction}}) and a primitive
+to enter this interpreter mode.
+
+\paragraph{Constrained Variables}
+\label{sec:constrained-variables-impl}
+Ruby provides 5 types of variables: locals, instance variables, class
+variables, globals, and constants (while constants are supposed to be
+assigned only once, it is not an error condition to re-assign a
+constant in Ruby). Of these, we allow 3 as constrained variables:
+locals, instance variables, and class variables.
+
+Variables are constrained by using them in a constraint expression. In
+Topaz, all locals are stored in closure cells and we simply had to add
+a second field for constraint values. Instance and class variables are
+stored in an array and Topaz uses map transitions to efficiently
+access them~\todo{cite Self}. For \toolname, have added a transition
+to store constraint values as well as \ac{oo} values in these maps.
+
+\paragraph{Execution Modes}
+\label{sec:constraint-construction-impl}
+\todo{architecture figure}
+
+To implement the different execution modes---\emph{imperative
+  execution}, \emph{constraint construction}, and \emph{constraint
+  solving}---we added \lstinline{ConstraintInterpreter} as a subclass
+of \lstinline{Interpreter} that changes how locals, instance
+variables, and class variables are accessed. We also changed the
+default interpreter to be aware of changes from solvers.
+
+\begin{description}
+\item[Imperative Execution]     LOAD\_* -> check if constrainted variable -> get value from solver
     STORE\_* -> check if constrainted variable
                a) is associated with a solver: suggest\_value
                b) was on the path during constraint construction:
@@ -755,8 +792,7 @@ modes:
                   - disable all constraints that got created during
                     execution of the constraint block
                   - re-execution constraint block to build new constraints
-  - constraint construction
-    LOAD\_* -> create constraint variable for the storage cell
+\item[Constraint Construction]     LOAD\_* -> create constraint variable for the storage cell
               a) new constraint variable associated with solver
                  -> continue working with that (all sends go to the solver variable)
               b) new constraint variable is not assiciated (only on the path)
@@ -765,9 +801,10 @@ modes:
     JUMP\_AND -> enable left-hand side (if a constraint)
              -> continue working on rhs
     ... (could add more, JUMP\_IF, JUMP\_OR ...)
-  - constraint execution
-    ... special mode we execute the solver/suggest\_value in (in case it is
+\item[Constraint Solving]     ... special mode we execute the solver/suggest\_value in (in case it is
     written in Ruby, this musn't enter any of the other modes)
+
+\end{description}
 
 - thoughts on implementation:
   - normal execution changes should be aspects that come with the language extension

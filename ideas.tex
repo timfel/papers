@@ -21,7 +21,7 @@
 
 \begin{document}
 
-\author{}
+\author{Tim Felgentreff and Alan Borning}
 
 \maketitle
 
@@ -49,40 +49,50 @@ solvers, with the possibility of convenient extension by adding new
 solvers.  (So if you use an extension that provides backtracking, it's
 ok if it is slow.)
   
-\section{Goals for the AOSD/Modularity Paper}
+\section{Goals for the Viewpoints Note}
 
-\emph{Apparently there won't actually be an AOSD paper.  But let's
-  keep saying that's the goal for the moment --- substitute
-  ``Viewpoints Memo'' for ``AOSD paper'' if there really won't be such
-  a thing.  We should aim for completing the memo by mid or late July.}
+Since this is a note rather than a conference paper, we should first
+have a relatively complete and perhaps ambitious description of the
+language as envisioned although not entirely implemented, followed by
+a section describing the current implementation, and perhaps another
+section with directions for future implementation work.  We should
+also have some examples: the video streaming example, electrical
+circuits (since they are already working), and perhaps one or two
+others.  Ideally we would have some interactive graphics examples
+involving moving something with the mouse.  For demos, if it's too
+complicated to deal with mouse input for now, we could just drive an
+animation from a program, using edit constraints (Section
+\ref{sec:change-over-time}).
 
-We need to define ``constraint'' more precisely (Section
-\ref{sec:what-is-a-constraint}), and describe any restrictions on how
-they are specified.  We should include arrays and iteration (Section
-\ref{sec:arrays-iteration}) and support for incremental solving and
-changes over time (Section \ref{sec:change-over-time}).  The other
-ideas can wait until later.
+See Section \ref{sec:examples} for ideas for other examples.
 
-We should also have a set of examples: the video streaming example of
-course, but also a couple of others.  Two possibilities are basic
-geometric objects, including support for interactive graphics (moving
-something with the mouse); and electrical circuits.  The thermometer
-from the old Kaleidoscope papers would be another possibility.
+\section{Names}
 
-\section{What is a Constraint?}
-\label{sec:what-is-a-constraint}
+The language needs a name!  Here are some ideas:
 
-The idea that constraints apply to any message (expression?) seems
-overly general.  For example, are there any requirements on what it
-evaluates to?  What if there is a side effect?  What if it's calling a
-random number generator?  Kaleidoscope took the view that constraints
-applied to virtual parts (i.e.\ from the outside these looked like
-fields, although they might be computed rather than stored).  Suppose
-that we want something more general for the new language.  
+\begin{itemize}
+\item \textsc{Loci/R}
+\item Kaleidoscope 2013
+\item Mandala
+\item Spargel
+\item Brandenberg
+\item Babelsberg
+\item Tiergarten
+\end{itemize}
 
-Here are some suggested requirements on the block supplied to
-\lstinline{always}.  (Basically this seems like we are just saying
-that a constraint is a predicate that we want to hold.)
+For the rest of this note we'll call it Babelsberg.
+
+\section{Defining Constraints}
+\label{sec:defining-constraints}
+
+Formally, a constraint is just a predicate that we want to have hold.
+In the implementation, it is represented as an instance of
+\lstinline{ConstraintObject}.  Minimally, a constraint can be defined
+just as a predicate, written as a Ruby block.  The block should meet
+the following criteria:
+
+TODO: is it called ConstraintObject or Constraint?  (Constraint seems
+better.)
 
 \begin{itemize}
 
@@ -100,12 +110,202 @@ that a constraint is a predicate that we want to hold.)
 
 \end{itemize}
 
-It appears that a constraint expression has the same implicit
-limitations as a predicate method. Any well-written predicate should
-have no ill side-effects and should yield the same result if executed
-consecutively with no intermediate state changes. I think it is safe
-to say any constraint expression should, at the same time, be a valid
-predicate (where the return value should always be true from now on).
+There should be other available attributes for
+\lstinline{ConstraintObject}.  Constraints that will be satisfied
+using a local propagation solver need a set of propagation methods,
+soft constraints need a priority, and so forth.  Here is a list of attributes
+that can be supplied when initializing a constraint object.  The
+predicate is the only required one; the others can either be omitted
+or have default values.
+
+\begin{description}
+\item[predicate] A block that evaluates to true or false.  
+\item[priority] (also known as strength, although I now like
+  ``priority'' better).  Defaults to \lstinline{:required}.
+\item[weight] Defaults to 1.
+\item[error] A block that evaluates to the error in satisfying that
+  constraint.  The error value is 0 iff the constraint is satisfied.
+  Defaults to 0 or 1.
+\item[methods] A dictionary of local propagation methods, indexed by
+  the variable whose value is computed by the corresponding
+  method. Optional.
+\end{description}
+
+All of these should be specifiable as optional arguments to
+\lstinline{always} or \lstinline{once}.  Here's a trivial example for
+the $x+y=z$ constraint.  (This doesn't need local propagation, but
+illustrates the possibilities.)
+
+TODO: there is a suggestion some places that \lstinline{always} can be
+used to define more than one constraint.  This doesn't work though
+with the optional arguments.  So how about if we use it for one
+constraint only?  Use multiple \lstinline{always} statements if you
+need more than one constraint.
+
+\begin{lstlisting}
+always (priority = :strong,
+        weight = 2.0,
+        error = lambda {z-x-y},
+        methods = { x => lambda {z-y}, y => lambda {z-x}, z => lambda {x+y} } )
+       {x+y == z}
+\end{lstlisting}
+
+Even though the predicate is the most important attribute, it appears
+as a block after the arguments.  We could allow it to optionally be
+another argument instead so that it could be written first:
+
+\begin{lstlisting}
+always (predicate = lambda {x+y == z},
+        priority = :strong,
+        weight = 2.0,
+        error = lambda {z-x-y},
+        methods = { x => lambda {z-y}, y => lambda {z-x}, z => lambda {x+y} } )
+\end{lstlisting}
+
+As a more practical example, here is a local propagation constraint that a string is
+equal to the value of an integer:
+
+\begin{lstlisting}
+always (predicate = lambda {s == i.to_s},
+        methods = { s => lambda {i.to_s}, i => lambda {s.to_i} } )
+\end{lstlisting}
+
+\lstinline{Constraint} also provides the following methods:
+
+\begin{description}
+\item[enable] Enable all constraints that were asserted in the block
+  (TODO: what does ``all constraints'' mean?  Shouldn't there just be
+  only one?)
+\item[disable] Disable all constraints that were asserted in the block
+\item[strength] Returns the constraint block strength
+\item[strength=] Setter for the constraint block strength. This
+  retracts all constraints and re-enables them using the new strength.
+\item[constraint\_block] Returns the block object that was passed to
+  \lstinline{always}
+\item[solver\_constraints] Returns an array with the solver-specific
+  constraint objects. For Cassowary constraints, this is a list of
+  \lstinline{LinearEqualities}, for Z3 it is a list of
+  \lstinline{Z3Asts}
+\end{description}
+
+\section{Constraint Durations}
+
+A constraint may not necessarily be active for the entire life of the
+program.  Babelsberg provides the following options:
+\lstinline{always}, \lstinline{once}, and
+\lstinline!assert {}.during {}! (for constraints that are enforced
+while a block is executing and then removed).
+
+The return value of a call to \lstinline{always} is currently either a
+\lstinline{Constraint} or a boolean. A boolean is returned only if no
+constraints were asserted in the block. If the boolean is
+\lstinline{true}, a warning is printed; if it is false, an exception
+is raised.
+
+TODO: again, the possibility of no constraints, or returning a
+boolean, doesn't seem needed.
+
+TODO: the syntax for \lstinline!assert {}.during {}! is weird.  On the
+other hand, all of the options are weird.  Here's another possibility:
+
+\begin{lstlisting}
+assert_during(lambda {x==y}) {some code}
+\end{lstlisting}
+
+\section{Read-only and Write-only Variables}
+
+We should add support for read-only variables.  For syntax, older
+languages have used ? and that could still work, using a Ruby syntax
+hack.  For example, if a variable \lstinline{x} is read-only, express
+this as \lstinline{x?}.  Ruby will parse this as a method named
+\lstinline{x?}.  We can catch the method not understood error and
+handle it accordingly. This won't work for instance or class
+variables, though. The current solution extends the lexer to allow a
+method called just \lstinline{?}.
+
+Kaleidoscope also included write-only variables, written with
+\lstinline{!}. This is low priority, but could be handled in a
+similar way. However, the method \lstinline{!} is already defined in
+standard Ruby (it's the method called when you write \lstinline{!x}),
+so we may want to find another symbol to use here.
+
+In an older test case, the class \lstinline{Battery} is defined as
+\begin{lstlisting}
+class Battery
+  def initialize(supply_voltage)
+    super()
+    always { lead1.voltage - lead2.voltage == supply_voltage.stay(:required) }
+  end
+\end{lstlisting}
+
+The stay was required so the solver doesn't simply change the
+\lstinline{supply_voltage} local, which doesn't seem particularly
+clear. With readonly variables, this can currently be written as
+follows:
+
+\begin{lstlisting}
+class Battery
+  def initialize(supply_voltage)
+    super()
+    always { lead1.voltage - lead2.voltage == supply_voltage.? }
+  end
+\end{lstlisting}
+
+\section{Constraints on Identity, Class, and Object Protocol}
+
+In addition to constraints on floats and other values, we should also
+be able to write constraints on object identity, the class of an
+object, and the messages that it responds to.  For example:
+
+\begin{lstlisting}
+x.equal?(y)  # an identity constraint
+x===y   # other option for writing identity constraints 
+
+# here are some constraints on the class or message protocol of an object:
+a.class==Point  
+a.kind_of?(Point)
+a.instance_of?(Point)
+a.respond_to?(theta)
+\end{lstlisting}
+
+It should be trivial to support such constraints if we only use them
+as tests.  We can then add additional capabilities to the language,
+either immediately, or later in an evolutionary fasion.  Identity
+constraints seem simple enough, particularly if one starts with a
+naive implementation.  For \lstinline{a.class} and
+\lstinline{a.instance_of?}, if a is already bound the constraint is
+just a test; if it is unbound, then the constraint could be satisfied
+by creating a new instance of the appropriate class and binding it to
+\lstinline{a}.  (TODO: do we just call the default initialize method?
+What values go into the fields?)  For now it seems like
+\lstinline{a.kind_of?} and \lstinline{a.respond_to?} should just be
+tests.  In theory, \lstinline{a.kind_of?} could be satisfied by
+backtracking through the possible classes of which \lstinline{a} is an
+instance, but this seems complicated and without a clear use case.
+Similarly for \lstinline{a.respond_to?}.
+
+\section{Multiple Cooperating Solvers}
+\label{sec:cooperating-solvers}
+
+The implementation should support multiple cooperating solvers.  I
+like the approach described in the VPRI memo ``Architectures for
+Cooperating Constraint Solvers''
+(\url{http://www.vpri.org/pdf/m2012003_coopsolv.pdf}), which proposes
+that the constraint graph be partitioned into multiple regions,
+connected only via read-only variables.  As far as Cassowary is
+concerned, a read-only variable is just a constant.
+
+In addition to built-in solvers, the language and its implementation
+should provide an extensibility mechanism for adding additional sorts
+of solvers.  Here are some candidates:
+\begin{itemize}
+\item DeltaBlue
+\item z3 (How is this handled currently?  Is it called directly from
+  Ruby, or is it done using shell scripting?)
+\item a finite domain solver (could implement a version with soft
+  constraints also). In the work with Hesam we've been using kodkod.
+\item a backtracking search mechanism to support Prolog-like constraints
+\end{itemize}
 
 \section{Arrays and Iteration}
 \label{sec:arrays-iteration}
@@ -264,15 +464,12 @@ Then we can give 100 new values to \lstinline{b}, and have
 
 \begin{lstlisting}
 d = Doubler.new
-strm = <stream of values from 0 to 99>
+strm = Stream.new(0..99)
 edit(d.b, strm)
 \end{lstlisting}
 
-(Questions: I didn't see a Stream class in Ruby analogous to the one
-in Smalltalk.  Do we need to define our own?  How to we observe the
-changing values?  They can be linked with other constraints, which are
-then satisfied as well.  Is this enough, or do we also need some sort
-of callback mechanism when something changes?)
+(This uses a custom defined stream class that can be initialized with
+an Emumerable.)
 
 The behavior of the \lstinline{edit} method is that it adds an edit
 constraint on the edit variable, and then repeatedly calls
@@ -296,11 +493,11 @@ endpoints:
 always { (end1 + end2) == (midpoint*2) }
 \end{lstlisting}
 
-and an edit operation on that:
+and an edit operation on that, using a stream with 3 points:
 
 \begin{lstlisting}
 m = MidpointLine.new(Point.new(0,0),Point.new(100,100))
-strm = <stream of new point values>
+strm = Stream.new([Point.new(50,50),Point.new(51,52),Point.new(52,54)])
 edit(m.midpoint, strm)
 \end{lstlisting}
             
@@ -319,65 +516,42 @@ constraints returned would be different, e.g.\ the point could be
 simply updated rather than dealing with its x and y coordinates
 separately.)
 
-Cassowary allows there to be multiple edit constraints.  Usually this
-is only used to edit a point (so that there are edit constraints on
-the x and y components), and this is already taken care of by the
-above design.  If you want to have edit constraints on an arbitrary
-collection of variables, under this design you need to define a new
-object to hold them all; and then the edit constraint applies to that
-object.  Perhaps we could also define another method
-\lstinline{edit_many} that accepts a list of tuples, where each tuple
-is a variable to be edited, a stream, and optionally a strength.  But
-for now let's require the programmer to collect these variables into
-an object --- that seems like it would often be better style in any
-case.
+\subsection{Multiple Edit Constraints}
 
-\section{Read-only and Write-only Variables}
+Cassowary allows multiple edit constraints.  Usually this is only used
+to edit a point (so that there are edit constraints on the x and y
+components), and this is already taken care of by the above design.
+If you want to have edit constraints on an arbitrary collection of
+variables, under this design you need to define a new object to hold
+them all; and then the edit constraint applies to that object.
+Perhaps we could also define another method \lstinline{edit_many} that
+accepts a list of tuples, where each tuple is a variable to be edited,
+a stream, and optionally a strength.  But for now let's require the
+programmer to collect these variables into an object --- that seems
+like it would often be better style in any case.
 
-Sometime we should add support for read-only variables (perhaps after
-the AOSD paper however).  For them to be part of a general approach,
-we want multiple cooperating solvers.  I like the approach described
-in the VPRI memo ``Architectures for Cooperating Constraint Solvers''
-(\url{http://www.vpri.org/pdf/m2012003_coopsolv.pdf}), which proposes
-that the constraint graph be partitioned into multiple regions,
-connected only via read-only variables.  As far as Cassowary is
-concerned, a read-only variable is just a constant.
+\subsection{Relation between Edit Constraints and Assert\_During}
 
-For syntax for read-only variables, older languages have used ? and
-that could still work, using a Ruby syntax hack.  For example, if a
-variable \lstinline{x} is read-only, express this as \lstinline{x?}.  Ruby
-will parse this as a method named \lstinline{x?}.  We can catch the
-method not understood error and handle it accordingly. This won't work
-for instance or class variables, though. The current solution extends
-the lexer to allow a method called just \lstinline{?}.
+I think the edit constraint examples can always be converted to use
+assert\_during.  TODO: is this right?
 
-Kaleidoscope also included write-only variables, written with
-\lstinline{!}. This is low priority, but could be handled in a
-similar way. However, the method \lstinline{!} is already defined in
-standard Ruby (it's the method called when you write \lstinline{!x}),
-so we may want to find another symbol to use here.
-
-In an older test case, the class \lstinline{Battery} is defined as
-\begin{lstlisting}
-class Battery
-  def initialize(supply_voltage)
-    super()
-    always { lead1.voltage - lead2.voltage == supply_voltage.stay(:required) }
-  end
-\end{lstlisting}
-
-The stay was required so the solver doesn't simply change the
-\lstinline{supply_voltage} local, which doesn't seem particularly
-clear. With readonly variables, this can currently be written as
-follows:
+Here's the doubler example using assert\_during:
 
 \begin{lstlisting}
-class Battery
-  def initialize(supply_voltage)
-    super()
-    always { lead1.voltage - lead2.voltage == supply_voltage.? }
-  end
+d = Doubler.new
+assert {lambda {d.b==x}}.during {(0..99).each {|y| x=y}}
 \end{lstlisting}
+
+Or using the other syntax for assert\_during:
+
+\begin{lstlisting}
+d = Doubler.new
+assert_during (lambda {d.b==x}) {(0..99).each {|y| x=y}}
+\end{lstlisting}
+
+However, doing it this way doesn't make use of Cassowary's
+incrementality, and seems more obscure.  So probably we want both edit
+constraints and assert\_during.
 
 \section{Enumerable, Sets, Trees, and other Data Structures}
 
@@ -409,80 +583,47 @@ were solving these in CLP(R) (Prolog with constraints), sets and
 arrays could be represented as lists, and backtracking used to search
 for solutions.)
 
-\section{Names}
-
-The language needs a name!  Here are some ideas:
-
-\begin{itemize}
-\item \textsc{Loci/R}
-\item Kaleidoscope 2013
-\item Mandala
-\item Spargel
-\item Brandenberg
-\item Babelsberg
-\item Tiergarten
-\end{itemize}
-
-\section{Other Kinds of Constraints}
-
-Like Kaleidoscope, we have \lstinline{always}, \lstinline{once}, and
-\lstinline!always {}.during {}! (for constraints that are enforced
-while a block is executing and then removed).
-
-The return value of a call to \lstinline{always} is currently either a
-\lstinline{Constraint} or a boolean. A boolean is returned only
-if no constraints were asserted in the block, if the boolean is
-\lstinline{true}, a warning is printed, if it is false, an error is
-raised.
-
-What methods does \lstinline{Constraint} currently provide?
-\begin{description}
-\item[enable] Enable all constraints that were asserted in the block
-\item[disable] Disable all constraints that were asserted in the block
-\item[strength] Returns the constraint block strength
-\item[strength=] Setter for the constraint block strength. This
-  retracts all constraints and re-enables them using the new strength.
-\item[constraint\_block] Returns the block object that was passed to
-  \lstinline{always}
-\item[solver\_constraints] Returns an array with the solver-specific
-  constraint objects. For Cassowary constraints, this is a list of
-  \lstinline{LinearEqualities}, for Z3 it is a list of
-  \lstinline{Z3Asts}
-\end{description}
-Are there other methods it should provide?  For example, for local
-propagation constraints we would want methods for setting each of the
-constrained variables to satisfy the constraint.
-
-Can there be constraints on object identity (as in the later versions
-of Kaleidoscope)?  Can there be constraints on the class of an object?
-
-\section{Additional Solvers}
-
-Ideally the language and its implementation should provide an
-extensibility mechanism for adding additional sorts of solvers.  Here
-are some candidates:
-\begin{itemize}
-\item DeltaBlue
-\item z3 (How is this handled currently?  Is it called directly from
-  Ruby, or is it done using shell scripting?)
-\item a finite domain solver (could implement a version with soft
-  constraints also). In the work with Hesam we've been using kodkod.
-\end{itemize}
-
 \section{Other Examples}
+\label{sec:examples}
 
-Here are some ideas for other examples beyond what we need for the
-AOSD paper.
+Here are ideas for examples for the Viewpoints note and beyond.
+Again, ideally we would have some interactive graphics examples
+involving moving something with the mouse, but for demos, if it's too
+complicated to deal with mouse input for now, we could just drive an
+animation from a program, using edit constraints.
 
 \begin{itemize}
-\item an interactive graphics example, perhaps a simple one like
-the midpoint line.  If it's too hard to handle mouse input, we could
-have an example with graphical output, driven by a stream of input
-values defined programatically.
-\item a GUI widget layout example, mimicking the functionality of the
+
+\item video streaming example
+
+\item electrical circuits (perhaps including an interactive example,
+  or at least one that repeatedly simulates a Wheatstone bridge with
+  different values for one of the resistors using an edit constraint)
+
+\item basic geometric object (e.g.\ the quadrilateral example), again
+  either with interactivity or at least an animation
+
+\item the thermometer from the old Kaleidoscope papers
+
+\item a GUI widget layout example, mimicking the functionality of Apple's
   XCode constraint-based layout system but embedded nicely into Ruby
-\item some puzzles, e.g. cryptarithmetic or Sudoku (need a finite
+
+\item some puzzles, e.g.\ cryptarithmetic or Sudoku (need a finite
   domain solver for these)
+
+\item a CSVG example (constraint structured vector graphics, from the
+  old work with Greg Badros)
+
+\item CCSS example (Constraint Cascading Style Sheets) - probably a
+  lot of work
+
+\item a window manager example?  (following Greg Badros's SCWM code)
+
+\item if we have temporal constraints: animation examples
+
+\item TODO: look for other interesting Prolog or CLP(R) examples and
+  see which ones can be ported
+
 \end{itemize}
 
 \section{Miscellaneous Notes and Questions}
@@ -531,12 +672,11 @@ varying quantities (like derivatives) and discretely changing ones.
 This would let us have examples such as a pendulum,  or a weight on a
 spring that bounces up and down, or an R/C circuit.
 
-Some referee will no doubt ask about efficiency.  What are the
-prospects for an efficient implementation (say either competitive with
-calling a constraint solver as a library, or even with the
-corresponding imperative code to solve the given problem).
+What are the prospects for an efficient implementation (say either
+competitive with calling a constraint solver as a library, or even
+with the corresponding imperative code to solve the given problem).
 
 Is the design and implementation particular to Ruby in any way?  Could
-something similar be done in Squeak?  Javascript?  Java?
+something similar be done in Squeak?  Java?  Javascript? Lively Kernel?
 
 \end{document}

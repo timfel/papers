@@ -82,8 +82,8 @@ The language needs a name!  Here are some ideas:
 
 For the rest of this note we'll call it Babelsberg.
 
-\section{Defining Constraints}
-\label{sec:defining-constraints}
+\section{Specifiying Constraints}
+\label{sec:specifying-constraints}
 
 Formally, a constraint is just a predicate that we want to have hold.
 In the implementation, it is represented as an instance of
@@ -113,10 +113,15 @@ better.)
 There should be other available attributes for
 \lstinline{ConstraintObject}.  Constraints that will be satisfied
 using a local propagation solver need a set of propagation methods,
-soft constraints need a priority, and so forth.  Here is a list of attributes
-that can be supplied when initializing a constraint object.  The
-predicate is the only required one; the others can either be omitted
-or have default values.
+soft constraints need a priority, and so forth.  
+
+\subsection{Initializing a Constraint}
+
+Here is a list of attributes that can be supplied when initializing a
+constraint object.  The predicate is the only required one, and as
+described below can be either an argument or a block after the
+arguments.  All of the other attributes are specifiable as optional
+arguments to \lstinline{always} or \lstinline{once}.
 
 \begin{description}
 \item[predicate] A block that evaluates to true or false.  
@@ -126,15 +131,10 @@ or have default values.
 \item[error] A block that evaluates to the error in satisfying that
   constraint.  The error value is 0 iff the constraint is satisfied.
   Defaults to 0 or 1.
-\item[methods] A dictionary of local propagation methods, indexed by
+\item[methods] (optional) A dictionary of local propagation methods, indexed by
   the variable whose value is computed by the corresponding
-  method. Optional.
+  method.
 \end{description}
-
-All of these should be specifiable as optional arguments to
-\lstinline{always} or \lstinline{once}.  Here's a trivial example for
-the $x+y=z$ constraint.  (This doesn't need local propagation, but
-illustrates the possibilities.)
 
 TODO: there is a suggestion some places that \lstinline{always} can be
 used to define more than one constraint.  This doesn't work though
@@ -142,11 +142,27 @@ with the optional arguments.  So how about if we use it for one
 constraint only?  Use multiple \lstinline{always} statements if you
 need more than one constraint.
 
+The local propagation methods are only needed for local propagation
+solvers like DeltaBlue.  Each method is a block, that if evaluated,
+will set the index variable to a value that satisfies the constraint.
+The constraint should be functional for the writeable variables,
+i.e.\ the value for the index variable should be unique given values
+for the other constrained variables.  If a constraint is read-only in
+some variable, then there isn't a corresponding method for that
+variable.  (TODO: does there still need to be an entry in the
+dictionary with the read-only variable as a key, and nil or something
+for the corresponding value?)
+
+Here's a trivial example for
+the $x+y=z$ constraint.  (This doesn't need local propagation, since
+Cassoary or z3 can solve it easily, but illustrates the
+possibilities.)
+
 \begin{lstlisting}
 always (priority = :strong,
         weight = 2.0,
         error = lambda {z-x-y},
-        methods = { x => lambda {z-y}, y => lambda {z-x}, z => lambda {x+y} } )
+        methods = { x => lambda {x=z-y}, y => lambda {y=z-x}, z => lambda {z=x+y} } )
        {x+y == z}
 \end{lstlisting}
 
@@ -159,18 +175,43 @@ always (predicate = lambda {x+y == z},
         priority = :strong,
         weight = 2.0,
         error = lambda {z-x-y},
-        methods = { x => lambda {z-y}, y => lambda {z-x}, z => lambda {x+y} } )
+        methods = { x => lambda {x=z-y}, y => lambda {y=z-x}, z => lambda {z=x+y} } )
 \end{lstlisting}
 
-As a more practical example, here is a local propagation constraint that a string is
-equal to the value of an integer:
+As an example that does need local propagation, here is a constraint
+that a string is equal to the value of an integer:
 
 \begin{lstlisting}
 always (predicate = lambda {s == i.to_s},
-        methods = { s => lambda {i.to_s}, i => lambda {s.to_i} } )
+        methods = { s => lambda {s=i.to_s}, i => lambda {i=s.to_i} } )
 \end{lstlisting}
 
-\lstinline{Constraint} also provides the following methods:
+The following constraint that a string be equal to the contents of a
+file illustrates a case in which one of the local propagation methods
+isn't just an assignment to the constrained variable:
+
+\begin{lstlisting}
+always (predicate = lambda {contents == file.read_and_rewind},
+        methods = { contents => lambda {contents=file.read_and_rewind}, 
+                    file => lambda {file.write(contents); file.rewind} } )
+\end{lstlisting}
+
+This constraint assumes that \lstinline{file} is an open file object,
+positioned at the beginning of the file; and that
+\lstinline{read_and_rewind} is a method that reads the contents of the
+file, rewinds it, and returns the contents.\footnote{This illustrates
+  some of the details that can arise with constraints on objects such
+  as files.  By requiring that \lstinline{file} be an open file object
+  positioned at the beginning of the file, and by providing the
+  \lstinline{read_and_rewind} method, the predicate can be
+  side-effect-free.  If these requirements aren't appropriate, one
+  could have a different method that saved the current status of the
+  file, read the contents, and then reset the status to its previous
+  state.}
+
+\subsection{Constraint Methods}
+
+The \lstinline{Constraint} class provides the following methods:
 
 \begin{description}
 \item[enable] Enable all constraints that were asserted in the block
@@ -188,7 +229,7 @@ always (predicate = lambda {s == i.to_s},
   \lstinline{Z3Asts}
 \end{description}
 
-\section{Constraint Durations}
+\subsection{Constraint Durations}
 
 A constraint may not necessarily be active for the entire life of the
 program.  Babelsberg provides the following options:
@@ -206,10 +247,13 @@ TODO: again, the possibility of no constraints, or returning a
 boolean, doesn't seem needed.
 
 TODO: the syntax for \lstinline!assert {}.during {}! is weird.  On the
-other hand, all of the options are weird.  Here's another possibility:
+other hand, the other options seem weird as well.  Here are two other
+possibilities:
 
 \begin{lstlisting}
 assert_during(lambda {x==y}) {some code}
+
+during(assert=lambda {x==y}, action=lambda {some code})
 \end{lstlisting}
 
 \section{Read-only and Write-only Variables}
@@ -265,21 +309,21 @@ x===y   # other option for writing identity constraints
 a.class==Point  
 a.kind_of?(Point)
 a.instance_of?(Point)
-a.respond_to?(theta)
+a.respond_to?(:theta)
 \end{lstlisting}
 
 It should be trivial to support such constraints if we only use them
 as tests.  We can then add additional capabilities to the language,
-either immediately, or later in an evolutionary fasion.  Identity
-constraints seem simple enough, particularly if one starts with a
-naive implementation.  For \lstinline{a.class} and
-\lstinline{a.instance_of?}, if a is already bound the constraint is
-just a test; if it is unbound, then the constraint could be satisfied
-by creating a new instance of the appropriate class and binding it to
-\lstinline{a}.  (TODO: do we just call the default initialize method?
-What values go into the fields?)  For now it seems like
-\lstinline{a.kind_of?} and \lstinline{a.respond_to?} should just be
-tests.  In theory, \lstinline{a.kind_of?} could be satisfied by
+either immediately, or later in an evolutionary fasion.  Satisfying
+identity constraints seem simple enough, particularly if one starts
+with a naive implementation.  For \lstinline{a.class} and
+\lstinline{a.instance_of?}, if \lstinline{a} is already bound, the
+constraint is just a test; if it is unbound, then the constraint could
+be satisfied by creating a new instance of the appropriate class and
+binding it to \lstinline{a}.  (TODO: do we just call the default
+initialize method?  What values go into the fields?)  For now it seems
+like \lstinline{a.kind_of?} and \lstinline{a.respond_to?} should just
+be tests.  In theory, \lstinline{a.kind_of?} could be satisfied by
 backtracking through the possible classes of which \lstinline{a} is an
 instance, but this seems complicated and without a clear use case.
 Similarly for \lstinline{a.respond_to?}.
@@ -287,13 +331,14 @@ Similarly for \lstinline{a.respond_to?}.
 \section{Multiple Cooperating Solvers}
 \label{sec:cooperating-solvers}
 
-The implementation should support multiple cooperating solvers.  I
-like the approach described in the VPRI memo ``Architectures for
+The implementation should support multiple cooperating solvers, using
+the approach described in the VPRI memo ``Architectures for
 Cooperating Constraint Solvers''
-(\url{http://www.vpri.org/pdf/m2012003_coopsolv.pdf}), which proposes
-that the constraint graph be partitioned into multiple regions,
+(\url{http://www.vpri.org/pdf/m2012003_coopsolv.pdf}).  This approach
+involves partitioning the constraint graph into multiple regions,
 connected only via read-only variables.  As far as Cassowary is
-concerned, a read-only variable is just a constant.
+concerned, a read-only variable is just a constant (or an edit
+variable if it is to be changed repeatedly).
 
 In addition to built-in solvers, the language and its implementation
 should provide an extensibility mechanism for adding additional sorts
@@ -306,6 +351,10 @@ of solvers.  Here are some candidates:
   constraints also). In the work with Hesam we've been using kodkod.
 \item a backtracking search mechanism to support Prolog-like constraints
 \end{itemize}
+
+TODO: later (perhaps much later) go further with the ideas of
+cooperating solvers for subregions that communicate in more
+sophisticated ways.
 
 \section{Arrays and Iteration}
 \label{sec:arrays-iteration}
@@ -463,9 +512,9 @@ Then we can give 100 new values to \lstinline{b}, and have
 \lstinline{a} change correspondingly:
 
 \begin{lstlisting}
-d = Doubler.new
+doubler = Doubler.new
 strm = Stream.new(0..99)
-edit(d.b, strm)
+edit(doubler.b, strm)
 \end{lstlisting}
 
 (This uses a custom defined stream class that can be initialized with
@@ -538,15 +587,8 @@ assert\_during.  TODO: is this right?
 Here's the doubler example using assert\_during:
 
 \begin{lstlisting}
-d = Doubler.new
-assert {lambda {d.b==x}}.during {(0..99).each {|y| x=y}}
-\end{lstlisting}
-
-Or using the other syntax for assert\_during:
-
-\begin{lstlisting}
-d = Doubler.new
-assert_during (lambda {d.b==x}) {(0..99).each {|y| x=y}}
+doubler = Doubler.new
+assert {lambda {doubler.b==x}}.during {(0..99).each {|y| x=y}}
 \end{lstlisting}
 
 However, doing it this way doesn't make use of Cassowary's
@@ -594,32 +636,34 @@ animation from a program, using edit constraints.
 
 \begin{itemize}
 
-\item video streaming example
+\item Video streaming example (already working).
 
-\item electrical circuits (perhaps including an interactive example,
-  or at least one that repeatedly simulates a Wheatstone bridge with
-  different values for one of the resistors using an edit constraint)
+\item Electrical circuits (already working).  Later we should include
+  an interactive example, or at least one that repeatedly simulates a
+  Wheatstone bridge with different values for one of the resistors
+  using an edit constraint, and shows the resulting current through the
+  galvanometer.
 
-\item basic geometric object (e.g.\ the quadrilateral example), again
-  either with interactivity or at least an animation
+\item Basic geometric objects (e.g.\ the quadrilateral example), again
+  either with interactivity or at least an animation.
 
-\item the thermometer from the old Kaleidoscope papers
+\item The thermometer from the old Kaleidoscope papers.
 
-\item a GUI widget layout example, mimicking the functionality of Apple's
-  XCode constraint-based layout system but embedded nicely into Ruby
+\item A GUI widget layout example, mimicking the functionality of Apple's
+  XCode constraint-based layout system but embedded nicely into Ruby.
 
-\item some puzzles, e.g.\ cryptarithmetic or Sudoku (need a finite
-  domain solver for these)
+\item Some puzzles, e.g.\ cryptarithmetic or Sudoku (need a finite
+  domain solver for these).
 
-\item a CSVG example (constraint structured vector graphics, from the
-  old work with Greg Badros)
+\item A CSVG example (constraint structured vector graphics, from the
+  old work with Greg Badros).
 
 \item CCSS example (Constraint Cascading Style Sheets) - probably a
-  lot of work
+  lot of work.
 
-\item a window manager example?  (following Greg Badros's SCWM code)
+\item A window manager example?  (following Greg Badros's SCWM code)
 
-\item if we have temporal constraints: animation examples
+\item If we have temporal constraints: animation examples.
 
 \item TODO: look for other interesting Prolog or CLP(R) examples and
   see which ones can be ported
@@ -631,21 +675,26 @@ animation from a program, using edit constraints.
 This section is a holding pen for miscellaneous notes and questions.
 These are not necessarily well-thought-out.
 
-The syntax for priorities, both on stays and other constraints looks
-like this:
-
-In general the syntax for priorities on a constraint looks like this:
-
-\begin{lstlisting}
-always(:strong) { a+b == c}
-\end{lstlisting}
-
-What is the syntax for stays (including strengths)?  Why is it written
-like this?
+What is the syntax for stays (including strengths)?  
 For stays it looks like this (maybe??):
 \begin{lstlisting}
 always { lead1.voltage - lead2.voltage == @supply_voltage.stay(:required) }
 \end{lstlisting}
+
+This seems weird since it is defining two constraints in the
+\lstinline{always} statement, with the stay not being particularly
+obvious.  Here are some other possibilities, with the stay broken out:
+
+\begin{lstlisting}
+always { @supply_voltage.stay(:required) }
+always { @supply_voltage.stay }  # since :required is the default
+always { stay(@supply_voltage) }
+always(predicate=stay(@supply_voltage), strength=:required)
+always(predicate=@supply_voltage.stay, strength=:required)
+\end{lstlisting}
+
+Note that the stay isn't written with a lambda here.  Is this the
+right thing to do?
 
 Re-read the Cooperating Solvers memo to see about questions regarding
 priorities for constraints in general (I think they could only be used

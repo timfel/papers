@@ -87,12 +87,9 @@ For the rest of this note we'll call it Babelsberg.
 
 Formally, a constraint is just a predicate that we want to have hold.
 In the implementation, it is represented as an instance of
-\lstinline{ConstraintObject}.  Minimally, a constraint can be defined
-just as a predicate, written as a Ruby block.  The block should meet
-the following criteria:
-
-TODO: is it called ConstraintObject or Constraint?  (Constraint seems
-better.)
+\lstinline{Constraint}.  Minimally, a constraint can be defined just
+as a predicate, written as a Ruby block.  The block should meet the
+following criteria:
 
 \begin{itemize}
 
@@ -111,7 +108,7 @@ better.)
 \end{itemize}
 
 There should be other available attributes for
-\lstinline{ConstraintObject}.  Constraints that will be satisfied
+\lstinline{Constraint}.  Constraints that will be satisfied
 using a local propagation solver need a set of propagation methods,
 soft constraints need a priority, and so forth.  
 
@@ -136,35 +133,32 @@ arguments to \lstinline{always} or \lstinline{once}.
   method.
 \end{description}
 
-TODO: there is a suggestion some places that \lstinline{always} can be
-used to define more than one constraint.  However, the optional
-arguments apply to a single constraint.  Here are alternatives for
-handling this:
-\begin{itemize}
-\item \lstinline{always} can be used with a compound constraint
-  (primitive constraints joined with \lstinline{&}).  In this case,
-  the optional arguments apply to the compound constraint --- for
-  example, the methods need to satisfy the entire compound
-  constraint.  The error for a compound constraint is likely to be
-  problematic unless it's a simple 0/1 value.
-\item Just use \lstinline{always} with a single constraint (not compound)
-\end{itemize}
+Currently, \lstinline{always} can be used to define more than one
+constraint. This happens, for example, if a predicate method checks
+two conditions and conjugates them (as, for example, in a
+\lstinline{CartesianPoint#==} method). Currently, all arguments apply
+to all constraints that are created during the execution of
+\lstinline{always}. So \lstinline{:weak} compound constraint will be
+added to the solver as multiple primitive constraints that are all
+\lstinline{:weak}.
+
+The error for a compound constraint is likely to be problematic unless
+it's a simple 0/1 value. An alternative is just allow
+\lstinline{always} with a single constraint (not compound) when
+optional arguments are present.
 
 The local propagation methods are only needed for local propagation
 solvers like DeltaBlue.  Each method is a block, that if evaluated,
 will set the index variable to a value that satisfies the constraint.
-The constraint should be functional for the writeable variables,
-i.e.\ the value for the index variable should be unique given values
-for the other constrained variables.  If a constraint is read-only in
-some variable, then there isn't a corresponding method for that
-variable.  (TODO: does there still need to be an entry in the
-dictionary with the read-only variable as a key, and nil or something
-for the corresponding value?)
+The constraint should be functional for the writeable variables, i.e.\
+the value for the index variable should be unique given values for the
+other constrained variables.  If a constraint is read-only in some
+variable, then there isn't a corresponding block for that variable in
+the dictionary.
 
-Here's a trivial example for
-the $x+y=z$ constraint.  (This doesn't need local propagation, since
-Cassoary or z3 can solve it easily, but illustrates the
-possibilities.)
+Here's a trivial example for the $x+y=z$ constraint.  (This doesn't
+need local propagation, since Cassoary or z3 can solve it easily, but
+illustrates the possibilities.)
 
 \begin{lstlisting}
 always (priority = :strong,
@@ -222,9 +216,11 @@ file, rewinds it, and returns the contents.\footnote{This illustrates
 The \lstinline{Constraint} class provides the following methods:
 
 \begin{description}
-\item[enable] Enable all constraints that were asserted in the block
-  (TODO: what does ``all constraints'' mean?  Shouldn't there just be
-  only one?)
+\item[enable] Enable all constraints that were asserted in the block,
+  i.e., if the constraint is a compound constraint (joined with
+  \lstinline{&&} or \lstinline{||} or something) that has to be added
+  to the solver as multiple primitive constraints, all of these
+  primitive constraints are enabled.
 \item[disable] Disable all constraints that were asserted in the block
 \item[strength] Returns the constraint block strength
 \item[strength=] Setter for the constraint block strength. This
@@ -238,6 +234,7 @@ The \lstinline{Constraint} class provides the following methods:
 \end{description}
 
 \subsection{Constraint Durations}
+\label{sec:constraint-durations}
 
 A constraint may not necessarily be active for the entire life of the
 program.  Babelsberg provides the following options:
@@ -251,35 +248,60 @@ constraints were asserted in the block. If the boolean is
 \lstinline{true}, a warning is printed; if it is false, an exception
 is raised.
 
-TODO: again, the possibility of no constraints, or returning a
-boolean, doesn't seem needed.
+The possibility of no constraints (returning just a boolean) is
+required if we want to allow code such as
+\lstinline!always { 1 == 1 }!.
 
-TODO: the syntax for \lstinline!assert {}.during {}! is weird.  On the
-other hand, the other options seem weird as well.  Here are two other
-possibilities:
+Note also, that currently all assertions that we want to continously
+check, but not solve, are implemented in this way. For example,
+without enabling any string solvers in the system,
+\lstinline!always { stringA == stringB }! will return \lstinline{true}
+if indeed the two strings are equal, and whenever any of the strings
+is assigned, the block is re-executed to check if the condition still
+holds. If it doesn't (the boolean returned is be false or nil), an error
+is raised.
 
-\begin{lstlisting}
-assert_during(lambda {x==y}) {some code}
+This same mechanism is used when complex objects that we have no
+solver for occur in the constraint expression (even if a primitive
+constraint is created in the block). Consider equality between two
+cartesian points, \lstinline{pt1} and \lstinline{pt2}: the constraint
+expression will create two primitive constraints, namely that
+\lstinline{pt1.x == pt2.x} and \lstinline{pt1.y == pt2.y}. Whenever an
+\lstinline{@x} or a \lstinline{@y} of either \lstinline{p1} or
+\lstinline{pt2} is assigned, the constraint solver will just calculate
+new values for the other instance variables. However, if
+\lstinline{pt1} is assigned a new object, the two primitive
+constraints are removed from the solver and the constraint block is
+executed again, to find the new meaning of \lstinline{pt1.x == pt2.x}.
+Because \lstinline{pt1} may now be a different class, the equality may
+be expressed differently. So whenever a complex object occurs in the
+execution of a constraint expression, the entire block is kept alive
+as long as the object is, so that the block can be re-executed later
+when the object is assigned a new value.
 
-during(assert=lambda {x==y}, action=lambda {some code})
-\end{lstlisting}
 
 \section{Read-only and Write-only Variables}
 
-We should add support for read-only variables.  For syntax, older
-languages have used ? and that could still work, using a Ruby syntax
-hack.  For example, if a variable \lstinline{x} is read-only, express
-this as \lstinline{x?}.  Ruby will parse this as a method named
-\lstinline{x?}.  We can catch the method not understood error and
-handle it accordingly. This won't work for instance or class
-variables, though. The current solution extends the lexer to allow a
-method called just \lstinline{?}.
+We have support for read-only variables.  For syntax, older languages
+have used ?, but that won't work in Ruby for a few reasons: first, we
+cannot know whether a user means to use the accessor \lstinline{top}
+with a readonly annotation or call the method \lstinline{top?}---both
+are valid method names. The other reason is, that while it is valid to
+write \lstinline{x?}, it is not valid syntax to write
+\lstinline{@x?}. Our current workaround extends the lexer to allow a
+method called just \lstinline{?}, so you write \lstinline{top.?},
+\lstinline{x.?}, and \lstinline{@x.?}.
 
 Kaleidoscope also included write-only variables, written with
-\lstinline{!}. This is low priority, but could be handled in a
-similar way. However, the method \lstinline{!} is already defined in
-standard Ruby (it's the method called when you write \lstinline{!x}),
-so we may want to find another symbol to use here.
+\lstinline{!}. This is low priority, and will have to use a different
+symbol (because \lstinline{!} is both valid at the end of a method
+name \emph{and} the method \lstinline{!} is already defined on Object
+(it's the method called when you write \lstinline{!x}). For the
+implementation this will need some restructuring, because to be
+read-only is currently a property of each variable that is set when
+you call the \lstinline{?} method on it. So to support write-only
+annotations, we need to track what other variables occur in a
+constraint expression to mark them all read-only.
 
 In an older test case, the class \lstinline{Battery} is defined as
 \begin{lstlisting}
@@ -320,18 +342,23 @@ a.instance_of?(Point)
 a.respond_to?(:theta)
 \end{lstlisting}
 
-It should be trivial to support such constraints if we only use them
-as tests.  We can then add additional capabilities to the language,
-either immediately, or later in an evolutionary fasion.  Satisfying
-identity constraints seem simple enough, particularly if one starts
-with a naive implementation.  For \lstinline{a.class} and
+Such constraints are supported already if we only use them as tests,
+through the mechanism described in
+section~\ref{sec:constraint-durations} (the system keeps the block
+alive and re-executes it whenever \lstinline{a} is assigned).
+
+We can add additional capabilities to the language, either
+immediately, or later in an evolutionary fasion.  Satisfying identity
+constraints seem simple enough, particularly if one starts with a
+naive implementation.  For \lstinline{a.class} and
 \lstinline{a.instance_of?}, if \lstinline{a} is already bound, the
 constraint is just a test; if it is unbound, then the constraint could
 be satisfied by creating a new instance of the appropriate class and
-binding it to \lstinline{a}.  (TODO: do we just call the default
-initialize method?  What values go into the fields?)  For now it seems
-like \lstinline{a.kind_of?} and \lstinline{a.respond_to?} should just
-be tests.  In theory, \lstinline{a.kind_of?} could be satisfied by
+binding it to \lstinline{a}. The default behavior should then probably
+be to call the \lstinline{allocate} method of the appropriate class,
+that just leaves the object uninitialized. For now it seems like
+\lstinline{a.kind_of?}  and \lstinline{a.respond_to?} should just be
+tests.  In theory, \lstinline{a.kind_of?} could be satisfied by
 backtracking through the possible classes of which \lstinline{a} is an
 instance, but this seems complicated and without a clear use case.
 Similarly for \lstinline{a.respond_to?}.
@@ -348,13 +375,12 @@ connected only via read-only variables.  As far as Cassowary is
 concerned, a read-only variable is just a constant (or an edit
 variable if it is to be changed repeatedly).
 
-In addition to built-in solvers, the language and its implementation
-should provide an extensibility mechanism for adding additional sorts
-of solvers.  Here are some candidates:
+The language has no built-in solvers. The implementation provides a
+mechanism to register solvers, and the currently included solvers
+(Cassowary, Z3, our limited solver for Arrays) are simply shipped as
+part of the standard library. Some other candidates are:
 \begin{itemize}
 \item DeltaBlue
-\item z3 (How is this handled currently?  Is it called directly from
-  Ruby, or is it done using shell scripting?)
 \item a finite domain solver (could implement a version with soft
   constraints also). In the work with Hesam we've been using kodkod.
 \item a backtracking search mechanism to support Prolog-like constraints
@@ -473,7 +499,8 @@ elements, and also constraints on the whole array \lstinline{(a==b)}
 then we should be able to have all these kinds. Currently, these
 examples work because we have added a \texttt{ConstraintObject}
 subclass for Array, that maps element access, length, and equality to
-Cassowary (or Z3) variables.
+variables in Cassowary or Z3 (or whatever solver is currently active
+for floats).
 
 Here is an example of constraints that wouldn't be allowed (because of
 the cycle among the regions):
@@ -511,10 +538,10 @@ Cassowary's API for handling edit and stay constraints.  Later, it
 could also be used with other solvers that support this, such as
 DeltaBlue.
 
-To support this, there will be a method \lstinline{edit} that takes a
-variable to be edited, a stream that will provide the new values, and
-optionally a strength.  For example, suppose we have an
-\lstinline{Doubler} object:
+To support this, there is a method \lstinline{edit} that takes a
+variable to be edited, a stream (that responds to \lstinline{next})
+that provides the new values, and optionally a strength.  For example,
+suppose we have an \lstinline{Doubler} object:
 
 \begin{lstlisting}
 class Doubler
@@ -532,20 +559,17 @@ Then we can give 100 new values to \lstinline{b}, and have
 
 \begin{lstlisting}
 doubler = Doubler.new
-strm = Stream.new(0..99)
-edit(doubler.b, strm)
+enumerator = (0..99).each
+edit(enumerator) {doubler.b}
 \end{lstlisting}
 
-(This uses a custom defined stream class that can be initialized with
-an Emumerable.)
-
 The behavior of the \lstinline{edit} method is that it adds an edit
-constraint on the edit variable, and then repeatedly calls
-\lstinline{suggest_value} with each new value from the stream.  When
-the stream is empty, it removes the edit constraint and returns.  The
-strength defaults to the strongest non-required strength.  If
-:required is used, the system raises an exception if the new edit
-value can't be used.
+constraint on the edit variables that are in the block, and then
+repeatedly calls \lstinline{suggest_value} with each new value from
+the stream.  When the stream is empty, it removes the edit constraint
+and returns.  The strength defaults to the strongest non-required
+strength.  If :required is used, the system raises an exception if the
+new edit value can't be used.
 
 Note that this should work fine if the stream is actually being fed
 from another process that provides new values only when available ---
@@ -565,8 +589,8 @@ and an edit operation on that, using a stream with 3 points:
 
 \begin{lstlisting}
 m = MidpointLine.new(Point.new(0,0),Point.new(100,100))
-strm = Stream.new([Point.new(50,50),Point.new(51,52),Point.new(52,54)])
-edit(m.midpoint, strm)
+enumerator = [Point.new(50,50),Point.new(51,52),Point.new(52,54)].each
+edit(enumerator) {m.midpoint}
 \end{lstlisting}
             
 To use Cassowary as the solver, we need to convert this into edit
@@ -584,24 +608,34 @@ constraints returned would be different, e.g.\ the point could be
 simply updated rather than dealing with its x and y coordinates
 separately.)
 
+TODO: not sure I understand this last bit
+
 \subsection{Multiple Edit Constraints}
 
 Cassowary allows multiple edit constraints.  Usually this is only used
 to edit a point (so that there are edit constraints on the x and y
 components), and this is already taken care of by the above design.
 If you want to have edit constraints on an arbitrary collection of
-variables, under this design you need to define a new object to hold
-them all; and then the edit constraint applies to that object.
-Perhaps we could also define another method \lstinline{edit_many} that
-accepts a list of tuples, where each tuple is a variable to be edited,
-a stream, and optionally a strength.  But for now let's require the
-programmer to collect these variables into an object --- that seems
-like it would often be better style in any case.
+variables, you can collect your streams and variables into matching
+lists:
+
+\begin{lstlisting}
+x = 0
+y = 100
+x_values = x.upto(y)
+y_values = y.downto(x)
+edit([x_values, y_values]) {[x, y]}
+\end{lstlisting}
+
+Perhaps we should also provide another method \lstinline{edit_many}
+that accepts a list of tuples, where each tuple is a variable to be
+edited, a stream, and optionally a strength. This can be easily done
+from application code.
 
 \subsection{Relation between Edit Constraints and Assert\_During}
 
-I think the edit constraint examples can always be converted to use
-assert\_during.  TODO: is this right?
+Edit constraint examples can, for simple cases, be converted manually
+to use assert\_during and vice versa.
 
 Here's the doubler example using assert\_during:
 
@@ -610,8 +644,9 @@ doubler = Doubler.new
 assert {lambda {doubler.b==x}}.during {(0..99).each {|y| x=y}}
 \end{lstlisting}
 
-However, doing it this way doesn't make use of Cassowary's
-incrementality, and seems more obscure.  So probably we want both edit
+Doing it this way doesn't make use of Cassowary's incrementality, and
+seems more obscure. assert\_during is more flexible and so we cannot
+have automatic mapping between the two. So probably we want both edit
 constraints and assert\_during.  In addition, one should be able to
 use them both in the same program, with an assert\_during used to
 require some additional constraints for the duration of an edit.  
@@ -711,14 +746,15 @@ animation from a program, using edit constraints.
 \item Basic geometric objects (e.g.\ the quadrilateral example), again
   either with interactivity or at least an animation.
 
-\item The thermometer from the old Kaleidoscope papers (see sample
-  code below)
+\item The thermometer from the old Kaleidoscope papers (already
+  working, example code below, too)
 
 \item A GUI widget layout example, mimicking the functionality of Apple's
   XCode constraint-based layout system but embedded nicely into Ruby.
 
 \item Some puzzles, e.g.\ cryptarithmetic or Sudoku (need a finite
-  domain solver for these).
+  domain solver for these). Some puzzles, like an 8-queens
+  implementation, are already working and included as test cases.
 
 \item A CSVG example (constraint structured vector graphics, from the
   old work with Greg Badros).
@@ -742,17 +778,19 @@ Here's the thermometer example from the Kaleidoscope papers.  Note the
 use of both edit and assert\_during.
 
 \begin{lstlisting}
-always {temperature == mercury.height / scale}
-always {white_rectangle.top == thermometer.top}
-always {white_rectangle.bottom == mercury.top}
-always {mercury.bottom == thermometer.bottom}
-always {white_rectangle.color == Color.white?}
-always {mercury.color == Color.grey?}
-always {display_number(temperature)}
-# TODO: fix this up
-# code to connect strm with a stream of mouse.location.y values
-# and to call the following edit statement while the mouse button is down
-  edit(mercury.top, strm)
+always { temperature == mercury.height / scale }
+always { display_number(temperature) }
+
+always { white_rectangle.top == thermometer.top.? }
+always { white_rectangle.bottom == mercury.top }
+always { white_rectangle.color == Color.white.? }
+
+always { mercury.top <= thermometer.top.? }
+always { mercury.bottom == thermometer.bottom.? }
+always(:strong) { mercury.top == mouse.location_y }
+always { mercury.color == Color.grey.? }
+
+edit(strm) { mercury.top }
 \end{lstlisting}
 
 \subsection{Doubly Linked List}
@@ -799,10 +837,11 @@ class DoublyLinkedListCell
     @value = value
     @next = next
     # TODO: check if this works
-    always { if not(@next.nil?) then @next.prev===self }
+    always { if not(@next.nil?) then @next.prev === self }
   end
 
   # insert_before and insert_after are the same 
+end
 \end{lstlisting}
 
 \subsection{N Queens}

@@ -784,14 +784,36 @@ variables, and class variables are accessed. We also changed the
 default interpreter to be aware of changes from solvers.
 
 \begin{description}
-\item[Imperative Execution]     LOAD\_* -> check if constrainted variable -> get value from solver
-    STORE\_* -> check if constrainted variable
-               a) is associated with a solver: suggest\_value
-               b) was on the path during constraint construction:
-                  - get constraint block for this variable
-                  - disable all constraints that got created during
-                    execution of the constraint block
-                  - re-execution constraint block to build new constraints
+\item[Imperative Execution] During imperative execution, the LOAD
+  bytecodes check whether a variable also refers to a constraint value
+  and if so, copy the value the solver has determined to the \ac{oo}
+  value. For immutable objects (such as small integers), the \ac{vm}
+  replaces the reference to the \ac{oo} value and returns the new
+  object. For mutable objects, the \ac{vm} calls
+  \lstinline{assign_constraint_value} with the solver-supplied
+  value. The object must then adjust itself, before it is returned.
+
+  STORE instructions similarly check whether the assigned variable has
+  a constraint value. If so, there may be two reasons:
+  \begin{inparaenum}
+  \item it has a direct interpretation in an active solver. If that is
+    the case, the interpreter, instead of storing the supplied value
+    directly, calls \lstinline{suggest_value} on the constraint value
+    with the supplied value as argument
+  \item it was on the path of a constraint, but has no direct
+    interpretation in a solver. This means all constraint blocks that
+    encountered this value during their execution have to be
+    invalidated and re-executed with the new value
+  \end{inparaenum}
+ 
+
+ LOAD\_* -> check if constrainted
+  variable -> get value from solver STORE\_* -> check if constrainted
+  variable a) is associated with a solver: suggest\_value b) was on
+  the path during constraint construction: - get constraint block for
+  this variable - disable all constraints that got created during
+  execution of the constraint block - re-execution constraint block to
+  build new constraints
 \item[Constraint Construction]     LOAD\_* -> create constraint variable for the storage cell
               a) new constraint variable associated with solver
                  -> continue working with that (all sends go to the solver variable)
@@ -804,7 +826,7 @@ default interpreter to be aware of changes from solvers.
 \item[Constraint Solving]     ... special mode we execute the solver/suggest\_value in (in case it is
     written in Ruby, this musn't enter any of the other modes)
 
-\end{description}
+\end{description} 
 
 - thoughts on implementation:
   - normal execution changes should be aspects that come with the language extension

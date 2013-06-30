@@ -391,51 +391,43 @@ The language and implementation support arrays and basic iteration.
 (Among other things, we need this for the electrical circuits
 example.)
 
-Here's a version of \lstinline{Array sum} that uses a constraint
-version of \lstinline{inject}:
+Here's a version of \lstinline{Array sum} that uses \lstinline{inject}:
 \begin{lstlisting}
 class Array
   def sum
-    constraint_inject(0) { |partial_sum,x| partial_sum+x }
+    inject(0) { |partial_sum, x| partial_sum + x }
   end
 end
 \end{lstlisting}
 
-This assumes there is a \lstinline{constraint_inject} method defined
-on Enumerable.  Here's a possible definition.  (This omits some of the
-bells and whistles provided by the standard \lstinline{inject} method
---- for example you always provide an initial value.) This code uses
-the \lstinline{__constraint__} primitive that executes the passed block
-in constraint-interpreter mode. This looks very ugly, eventually we'll
-have to think of a better way to express the desire to get the
-\emph{constraint-interpreter-view} of a variable.
+We ship a simple local propagation solver for constraints on float
+arrays. In a constraint expression, an ArrayConstraintVariable is used
+for arrays. This maps array elements to Cassowary (or Z3 or whatever
+solver for Reals is active) variables. The enumerable module is
+included in ArrayConstraintVariable and adding constraints on the
+results of \lstinline{inject} and \lstinline{map} works as expected.
 
+In conventional Ruby you might just use a loop to define
+\lstinline{sum}:
 \begin{lstlisting}
-module Enumerable
-  def constraint_inject(memo)
-    i = 0
-    while i < size
-      memo = yield(memo, __constrain__ { self[i] })
-    end
-    memo
+class Array
+  def sum
+    sum = 0
+    each { |x| sum=sum+x }
+    sum
   end
 end
 \end{lstlisting}
 
-TODO: what would we need to do so that the ugly line could just be written like this?
-\begin{lstlisting}
-      memo = yield(memo, self[i])
-\end{lstlisting}
-For example, if we need a constraint interpreter view of a variable,
-can the system determine automatically when this is needed and insert
-the \lstinline{__constraint__} primitive as needed?  The difference
-between the block in ordinary Ruby mode and constraint interpreter
-mode ought to just be an implementation detail rather than something
-that concerns the programmer using Babelsberg.
+Do we want to be able to write code that looks more like this?  If so
+we'd like to have provide a general mechanism that (for example) works
+with a known sum and finding an element, as in the above example. As
+of now, this latter definition of \lstinline{sum} doesn't work for the
+examples below.
 
-Both these interact correctly with other linear constraints on the sum
-or on values.  For example, you can determine an element given the sum
-and values for all the other elements:
+Array constraints on the elements interact correctly with other linear
+constraints on the sum or on values. For example, you can determine an
+element given the sum and values for all the other elements:
 
 \begin{lstlisting}
 a = Array.new(3)
@@ -460,23 +452,6 @@ always { 2*a[0] + a[1] == 20.0 }
 always { a[0] + a[1] + 3*a[2] == 38.0 }
 always { a.sum == 18 }
 \end{lstlisting}
-
-In conventional Ruby you'd just use a loop to define \lstinline{sum}:
-
-\begin{lstlisting}
-class Array
-  def sum
-    sum = 0
-    each { |x| sum=sum+x }
-    sum
-  end
-end
-\end{lstlisting}
-
-or \lstinline{inject}.  Do we want to be able to write code that looks
-more like this?  If so I'd like to have provide a general mechanism
-that (for example) works with a known sum and finding an element, as
-in the above example.
 
 We also want constraints on the length of an array, and the whole array.
 For arrays \lstinline{a} and \lstinline{b}:

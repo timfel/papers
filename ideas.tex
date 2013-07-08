@@ -161,110 +161,59 @@ need local propagation, since Cassoary or z3 can solve it easily, but
 illustrates the possibilities.)
 
 \begin{lstlisting}
-always (priority = :strong,
-        weight = 2.0,
-        error = lambda {z-x-y},
-        methods = { x => lambda {x=z-y}, y => lambda {y=z-x}, z => lambda {z=x+y} } )
-       {x+y == z}
+always priority: :strong,
+       weight: 2.0,
+       error: lambda {z-x-y},
+       methods: lambda {[ x <-> {z-y}, y <-> {z-x}, z <-> {x+y} ]} do
+  x + y == z
+end
 \end{lstlisting}
 
-TODO: Why do we need the predicate? If we simply propagate on change,
-we don't really need the predicate, but only the methods. The only
-thing the predicate gives us in this case, is understandability. We
-can also use it to check whether the programmer supplied enough
-methods (one for each referenced variable) to actually work
-bi-directionally.
+Most of the time we don't need the predicate at all. One place it is
+useful is if there are redundant required constraints on a variable x
+--- then you can use local propagation to solve for x using one of the
+constraints, then use the predicates to check if the other constraints
+are satisfied.  (Well, to be precise, you don't really need it here
+either - you could solve for x using one of the constraints, then
+check whether the value returned by the other constraints is the
+same.)  So perhaps we could make it optional, or just omit it. (I do
+like it for documentation and understandability.)
 
-[Alan] Right, most of the time we don't need the predicate at all.
-One place it is useful is if there are redundant required constraints
-on a variable x --- then you can use local propagation to solve for x
-using one of the constraints, then use the predicates to check if the
-other constraints are satisfied.  (Well, to be precise, you don't
-really need it here either - you could solve for x using one of the
-constraints, then check whether the value returned by the other
-constraints is the same.)  So perhaps we could make it optional, or
-just omit it. (I do like it for documentation and understandability.)
+Even though the predicate is the most important attribute as far as
+comprehension is concerned, it appears as a block after the arguments.
+We allow it to optionally be another argument instead so that it could
+be written first:
 
-I'm currently using this syntax, it seems to work and looks nice to me:
 \begin{lstlisting}
-always do
-  x <-> { z - y }
-  y <-> { z - x }
-  z <-> { x + y }
+always predicate: lambda {x+y == z},
+       priority: :strong,
+       weight: 2.0,
+       error: lambda {z-x-y},
+       methods: -> {[ x <-> {z-y}, y <-> {z-x}, z <-> {x+y} ]}
+\end{lstlisting}
+
+We currently also allow to put the propagation methods into the
+\lstinline{do ... end} block, which puts the methods for the
+propagation more in focus:
+\begin{lstlisting}
+always predicate: -> { x + y == z } do
+  [x <-> { z - y },
+   y <-> { z - x },
+   z <-> { x + y }]
 end
 \end{lstlisting}
 
 [Alan] Most of the time the local propagation method can be evaluated
 to find a value for the variable, as in the above example, but not
-always.  See the file contents example below.  It's kind of weird to
-write it using the \lstinline{<->} syntax:
+always. The following constraint that a string be equal to the
+contents of a file illustrates a case in which one of the local
+propagation methods isn't just an assignment to the constrained
+variable:
 
 \begin{lstlisting}
-always do
-  contents <-> {file.read_and_rewind}
-  file <-> {file.write(contents); file.rewind}
-end
-\end{lstlisting}
-
-since for the second method we are evaluating the block for the side
-effect, not for the value.  If file.rewind returns a handle to the
-file this would work but it's not making clear what the semantics are.
-This alternative a little clearer:
-
-\begin{lstlisting}
-always do
-  contents <-> {file.read_and_rewind}
-  file <-> {file.write(contents); file.rewind; file}
-end
-\end{lstlisting}
-
-although still a bit strange.
-
-So some options are:
-\begin{enumerate}
-\item just use the dictionary syntax (simple, not as pretty)
-\item just the \lstinline{<->} syntax (pretty for the standard case,
-  weird for the non-standard case)
-\item \label{convention} use the \lstinline{<->} syntax, and have a convention that you
-  write the value of the variable as the last expression in the block
-  if the block is being evaluated for side effects rather than the
-  final value
-\item provide two variants (cluttering up the language with several
-  ways of doing something).
-\end{enumerate}
-
-Maybe use option \ref{convention}?
-
-(end of digression)
-
-Even though the predicate is the most important attribute, it appears
-as a block after the arguments.  We could allow it to optionally be
-another argument instead so that it could be written first:
-
-\begin{lstlisting}
-always (predicate = lambda {x+y == z},
-        priority = :strong,
-        weight = 2.0,
-        error = lambda {z-x-y},
-        methods = { x => lambda {x=z-y}, y => lambda {y=z-x}, z => lambda {z=x+y} } )
-\end{lstlisting}
-
-As an example that does need local propagation, here is a constraint
-that a string is equal to the value of an integer:
-
-\begin{lstlisting}
-always (predicate = lambda {s == i.to_s},
-        methods = { s => lambda {s=i.to_s}, i => lambda {i=s.to_i} } )
-\end{lstlisting}
-
-The following constraint that a string be equal to the contents of a
-file illustrates a case in which one of the local propagation methods
-isn't just an assignment to the constrained variable:
-
-\begin{lstlisting}
-always (predicate = lambda {contents == file.read_and_rewind},
-        methods = { contents => lambda {contents=file.read_and_rewind}, 
-                    file => lambda {file.write(contents); file.rewind} } )
+always predicate: lambda { contents == file.read_and_rewind },
+       methods: lambda {[ contents <-> { file.read_and_rewind },
+                          file <-> { file.write(contents); file.rewind } ]}
 \end{lstlisting}
 
 This constraint assumes that \lstinline{file} is an open file object,
@@ -280,26 +229,62 @@ file, rewinds it, and returns the contents.\footnote{This illustrates
   file, read the contents, and then reset the status to its previous
   state.}
 
+It's kind of weird to write it using the \lstinline{<->} syntax, since
+for the second method we are evaluating the block for the side effect,
+not for the value. If \lstinline{file.rewind} returns a handle to the
+file this would work but it's not making clear what the semantics are.
+This alternative is a little clearer:
+
+\begin{lstlisting}
+always predicate: lambda { contents == file.read_and_rewind } do
+  [contents <-> {file.read_and_rewind},
+   file <-> {file.write(contents); file.rewind; file}]
+end
+\end{lstlisting}
+
+although still a bit strange.
+
+We use the \lstinline{<->} syntax for now, and have a convention that
+you write the value of the variable as the last expression in the
+block if the block is being evaluated for side effects rather than the
+final value.
+
+As an example that does need local propagation, here is a constraint
+that a string is equal to the value of an integer:
+\begin{lstlisting}
+always predicate: lambda {s == i.to_s},
+       methods: lambda {[ s <-> {i.to_s}, i <-> {s.to_i} ]}
+\end{lstlisting}
+
 \subsection{Constraint Methods}
 
 The \lstinline{Constraint} class provides the following methods:
 
 \begin{description}
-\item[enable] Enable all constraints that were asserted in the block,
-  i.e., if the constraint is a compound constraint (joined with
-  \lstinline{&&} or \lstinline{||} or something) that has to be added
-  to the solver as multiple primitive constraints, all of these
-  primitive constraints are enabled.
-\item[disable] Disable all constraints that were asserted in the block
-\item[strength] Returns the constraint block strength
-\item[strength=] Setter for the constraint block strength. This
-  retracts all constraints and re-enables them using the new strength.
-\item[constraint\_block] Returns the block object that was passed to
+\item[initialize] Takes a block and an optional strength (like
+  \lstinline{always}), and constructs a \lstinline{Constraint} object,
+  but does not enable it.
+\item[enable] Enable all primitive constraints that were asserted to
+  satisfy the predicate, i.e., if the constraint is a compound
+  constraint (joined with \lstinline{&&} or \lstinline{||} or
+  something) that has to be added to the solver as multiple primitive
+  constraints, all of these primitive constraints are enabled.
+\item[disable] Disable all primitive constraints that were asserted to
+  satisfy the predicate
+\item[recalculate] Disable all primitive constraints that were enabled
+  for the predicate, re-evaluate the predicate, construct new
+  primitive constraints for it, and enable these
+\item[strength] Returns the constraint strength
+\item[strength=] Setter for the constraint strength. This retracts all
+  constraints and re-enables them using the new strength.
+\item[predicate] Returns the block object that was passed to
   \lstinline{always}
-\item[solver\_constraints] Returns an array with the solver-specific
-  constraint objects. For Cassowary constraints, this is a list of
-  \lstinline{LinearEqualities}, for Z3 it is a list of
+\item[primitive\_constraints] Returns an array with the
+  solver-specific constraint objects. For Cassowary constraints, this
+  is a list of \lstinline{LinearEqualities}, for Z3 it is a list of
   \lstinline{Z3Asts}
+\item[constraint\_variables] Returns an array of all solver variables
+  that participate in this constraint.
 \end{description}
 
 \subsection{Constraint Durations}
@@ -646,8 +631,6 @@ constraint on itself.  (Later, if we also support DeltaBlue, the edit
 constraints returned would be different, e.g.\ the point could be
 simply updated rather than dealing with its x and y coordinates
 separately.)
-
-TODO: not sure I understand this last bit
 
 \subsection{Multiple Edit Constraints}
 

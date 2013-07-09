@@ -1143,7 +1143,7 @@ to store constraint values as well as \ac{oo} values in these maps.
 \label{sec:constraint-construction-impl}
 \todo{architecture figure}
 
-To implement the different execution modes---\emph{imperative
+To implement the different execution contexts---\emph{imperative
   execution}, \emph{constraint construction}, and \emph{constraint
   solving}---we added \lstinline{ConstraintInterpreter} as a subclass
 of \lstinline{Interpreter} that changes how locals, instance
@@ -1172,27 +1172,42 @@ default interpreter to be aware of changes from solvers.
     encountered this value during their execution have to be
     invalidated and re-executed with the new value
   \end{inparaenum}
- 
+\item[Constraint Construction] The initializer for constraint
+  objects--- usually called through \lstinline{always}---activates an
+  execution context for constraint construction. In this mode, LOAD
+  instructions find or create a constraint marker for each value that
+  is accessed. These markers send \lstinline{for_constraint} to the
+  value, which is expected to return an object that responds to
+  \lstinline{value} and \lstinline{suggest_value} (where during
+  execution of the latter it would use a solver to resatisfy
+  constraints). For values that do not respond to
+  \lstinline{for_constraint}, the marker is left to recalculate the
+  constraint when the value changes. Otherwise, the object returned
+  from \lstinline{for_constraint} is permanently associated with the
+  variable and replaces the actual value for the duration of the
+  constraint construction.
 
- LOAD\_* -> check if constrainted
-  variable -> get value from solver STORE\_* -> check if constrainted
-  variable a) is associated with a solver: suggest\_value b) was on
-  the path during constraint construction: - get constraint block for
-  this variable - disable all constraints that got created during
-  execution of the constraint block - re-execution constraint block to
-  build new constraints
-\item[Constraint Construction]     LOAD\_* -> create constraint variable for the storage cell
-              a) new constraint variable associated with solver
-                 -> continue working with that (all sends go to the solver variable)
-              b) new constraint variable is not assiciated (only on the path)
-                 -> store currently executing constraint block on constraint variable
-                 -> work with the value as in normal execution
-    JUMP\_AND -> enable left-hand side (if a constraint)
-             -> continue working on rhs
-    ... (could add more, JUMP\_IF, JUMP\_OR ...)
-\item[Constraint Solving]     ... special mode we execute the solver/suggest\_value in (in case it is
-    written in Ruby, this musn't enter any of the other modes)
+  STORE instructions in this mode create equality constraints. This is
+  neccessary to support constructing new objects in the predicate that
+  connect values.
 
+  Support to pass branches to solvers that support them (such as
+  \lstinline{if ... then}, \lstinline{or}, ...) is currently not
+  available. We have added support for the conjunction bytecode only
+  by creating two (or more) primitive constraints that are collected
+  in the constraint object and can be enabled and disabled at once.
+
+  Note that to support solvers written in the host language, the
+  \ac{vm} needs a way to distinguish code that should be executed in
+  this mode from code that should not. We currently expect solvers to
+  be subclasses of \lstinline{ConstraintObject}. We use this class as
+  a marker to leave the constraint execution context when we enter
+  solver code.
+\item[Constraint Solving] This execution context is entered when a
+  constrained variable is stored into. The \ac{vm} sends
+  \lstinline{suggest_value} to the \lstinline{ConstraintObject} for
+  this variable. This context prevents nested sends of
+  \lstinline{suggest_value} to avoid recursions in the solver.
 \end{description} 
 
 - thoughts on implementation:

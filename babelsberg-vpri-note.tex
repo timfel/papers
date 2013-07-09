@@ -701,7 +701,7 @@ external~\todo{css,osx} and internal~\todo{bloom?}), constraint
 libraries~\todo{backtalk}, language extensions~\todo{javadingens}, and
 dedicated languages~\todo{kaleidoscope}. However, constraint solving
 is not yet a general purpose tool, as we will show in
-section~\ref{sec:background}.
+section~\ref{sec:background-related-work}.
 
 
 In this section, we will compare how state of the art approaches to
@@ -720,8 +720,9 @@ approaches are presented in four groups:
 
 We characterize \langname as a language in the ``object constraint
 programming'' family; the name is chosen to emphasize the integration
-with standard object-oriented programming ideas.  In this section we
-provide details of our approach in \langname.
+with standard object-oriented programming ideas, in particular methods
+and messages, and object encapsulation.  In this section we provide
+details of our approach in \langname.
 
 As described in Section \ref{sec:introduction}, our goals for
 \langname include a clean syntax that is compatible with the base
@@ -731,31 +732,213 @@ The semantic model is an extension of Ruby, and supports all of the
 existing Ruby constructs such as classes, instances, methods, message
 sends, and blocks (closures).
 
-For example, we can define the rectangle from
-Section~\ref{sec:background-related-work} in \toolname using existing
+As a first example, consider the following class
+\lstinline{TemperatureConverter} that maintains the appropriate
+relation between instance variables holding centigrade and fahrenheit
+values.
+
+\begin{lstlisting}
+class TemperatureConverter
+  attr_accessor :centigrade, :fahrenheit
+  def initialize                                                                
+    # set the temperatures to a well-known value
+    @centigrade = 100.0
+    @fahrenheit = 212.0
+   always { 1.8*centigrade == fahrenheit - 32.0 }
+  end
+end                                                                           
+\end{lstlisting}
+   
+If we make a new instance of \lstinline{TemperatureConverter} and
+change either the centigrade or fahrenheit temperature, the other
+value will be changed as well to keep the constraint satisfied.
+
+\begin{lstlisting}
+t = TemperatureConverter.new
+t.centigrade = 0.0
+# now t.fahrenheit will be 32.0
+end                                                                           
+\end{lstlisting}
+
+The constraint is labeled as \lstinline{always}, indicating that it
+should hold indefinitely.  Incidentally, we did need to assign
+floating-point numbers to the two fields, so that \toolname knows that
+they are floats; but actually we didn't need to give them values that
+satisfy the constraints --- for example if we had set both of them to
+0.0, one or the other would have been changed to keep the constraint
+satisfied.  (We didn't specify which --- if it mattered this could be
+specified as well.)
+
+%% What would happen if fahrenheit was just a method that returns
+%% 1.8*centigrade+32?  Could we constrain it still?
+
+In the \lstinline{TemperatureConverter} example, the constraints are
+on the results of sending the messages \lstinline{centigrade} and
+\lstinline{fahrenheit}, but these messages just access the
+corresponding fields.  The methods can perform other computations
+however.  Here is a rectangle example from
+Section~\ref{sec:background-related-work} in \toolname, using existing
 Ruby methods for the Rectangle class:
 
 \begin{lstlisting}
 rect = Rectangle.new
 always { rect.area == 100 }
 always { rect.visible? }
+always { rect.center == Point.new(100,100) }
 \end{lstlisting}
 
-The two constraints are labeled as \lstinline{always} constraints,
-indicating that they should hold indefinitely after the constraint
-statement is evaluated.  The first constraint says that the result
-returned from calling the \lstinline{area} method should always be
-equal to 100, and if, for example, another part of the program assigns
-to the height of the rectangle, the width will be adjusted
-automatically to keep the constraint satisfied.  Similarly, if the a
-negative location is assigned to the origin, it will be moved back to
-keep the rectangle visible.\footnote{There are multiple possible
-  locations that satisfy the \lstinline{rect.visible?} constraint;
-  here the system will move the origin as little as possible from the
-  assigned location but so that the constraint is satisfied.}
+The first constraint says that the result returned from calling the
+\lstinline{area} method should always be equal to 100, and if, for
+example, another part of the program assigns to the height of the
+rectangle, the width will be adjusted automatically to keep the
+constraint satisfied.  Similarly, if the a negative location is
+assigned to the origin, it will be moved back to keep the rectangle
+visible.\footnote{There are multiple possible locations that satisfy
+  the \lstinline{rect.visible?} constraint; here the system will move
+  the origin as little as possible from the assigned location but so
+  that the constraint is satisfied.}
 
-\todo{do we really want to get into stay constraints etc yet?  or
-  maybe have a more straightforward example first?}
+By placing the constraint on the result of sending messages rather
+than on fields, the system also respects object encapsulation.  The
+values returned from the message sends in the rectangle example are
+both primitive types (float and boolean), but they can also be
+arbitrary objects.  For example, we could add a constraint on the
+rectangle's center (a computed value, and a point rather than a
+primitive type):
+
+\begin{lstlisting}
+always { rect.center == Point.new(100,100) }
+\end{lstlisting}
+
+\todo{combine this with the initial rectangle example?}
+
+\todo{something about integration with control structures - putting
+  constraints in loops, conditionals, etc?}
+
+\subsection{Read-only Variables}
+
+\langname includes support for read-only variables, expressed by
+sending the question-mark method ({\bfseries\emph{?}}) to a value in a
+constraint expression. A read-only variable can only be changed by
+other solvers upstream of the constraint with the read-only variable,
+or imperatively, but not to satisfy the constraint in which it occurs.
+(See \cite{borning-lisp-symbolic-computation-1992} for a formal
+(declarative) definition of read-only variables.  While the formal
+definition allows cycles through read-only variables, in practice we
+haven't found use cases for this, and it is confusing for programmers,
+so in \langname we disallow this.)
+
+Read-only variables are useful, for example, for parameterized
+constraints so the solver knows not to change the parameter to satisfy
+the constraint:
+\begin{lstlisting}
+class Rectangle
+  def fix_size(desiredsize)
+    always { self.area == desiredsize.? }
+  end
+end
+\end{lstlisting}
+Without the annotation, a solver could choose to change the local
+variable \lstinline{desiredsize} rather than the receiver.
+
+Read-only variables also play a central role in our architecture for
+cooperating constraint solvers, serving as ``gateways'' to control
+information flow among the solvers.  See Section
+\ref{sec:cooperating-solvers}.  
+
+\subsection{Constraint Durations}
+
+Constraints have \emph{durations} during which they are active.  So
+far, we've been using the \lstinline{always} duration, which declares
+that its constraint becomes active when the \lstinline{always}
+statement is evaluated and remains active indefinitely after that.  A
+\lstinline{once} constraint is activated, satisfied, and then
+retracted.  Finally, an \lstinline{assert-during} constraint is
+active for the duration of the evaluation of its associated block.
+
+\subsection{Soft Constraints and Stay Constraints}
+
+The concept of a constraint has been extended to include soft
+constraints as well as hard (required) ones, and a number of
+constraint solvers (including Cassowary and DeltaBlue) support them.
+Soft constraints are useful for example, in interactive graphical
+applications to represent a requirement that two icons be separated by
+a minimum of 10 pixels (a required constraint) and the desire that
+they be 50 pixels apart if possible (a soft constraint).  Soft
+constraints can have different priorities, with the higher-priority
+constraints satisfied in preference to lower-priority ones.  There are
+a variety of ways of trading off two soft constraints of the same
+priority that cannot both be satisfied; see
+\cite{borning-lisp-symbolic-computation-1992} for details.
+
+As an example, a strong (but not required) constraint that $a+b=c$
+would be written in \toolname as
+\begin{lstlisting}
+always (priority: :strong) {a+b==c}
+\end{lstlisting}
+
+Only some constraint solvers support soft constraints, so whether soft
+constraints can be handled depends on which solver is in use --- see
+Section \ref{sec:solvers}.
+
+Another application of soft constraints is to express the desire that
+parts of a system should remain the same unless there is some reason
+they should change (for example to satisfy some stronger constraints).
+This is a central issue when combining constraints with imperative
+programming, since in such a language we need to specify how
+constraints interact with state change.  For example, in interactive
+graphical applications, when moving one part of a constrained figure,
+the user generally expects other parts to remain where they are unless
+there is some reason for them to change to satisfy the constraints.  A
+desire that something remain the same if possible is represented as a
+\emph{stay constraint}, which may have an associated priority.  For
+example, this stay constraint says that we prefer that x keep its
+value, if possible, when satisfying constraints:
+
+\begin{lstlisting}
+always { x.stay(:weak) }
+\end{lstlisting}
+
+\todo{I'm assuming there are not implicit weak stays on every
+  variable, but rather that these needed to be added
+  explicitly. However, DeltaBlue implicitly has a say on every
+  variable, with the weakest strength ... hmmm}
+
+semantics - resatisfied if a part changes or variable is reassigned
+declarative semantics - stay, perturbation model
+
+\subsection{Incrementally Re-satisfying Constraints}
+
+Some applications involve repeatedly re-satisfying a set of
+constraints with differing input values.  A common example of this is
+an interactive graphical application with a constrained figure, where
+we move some part of the figure with the mouse.  For such
+applications, it is important to re-solve the constraints efficiently,
+and a number of constraint solvers support this using so-called
+\emph{edit constraints} that allow a new value for a variable to be
+repeatedly input to the solver.  \langname also supports incrementally
+re-satisfying constraints with an \lstinline{edit} method that takes a
+variable to be edited, a stream (that responds to \lstinline{next})
+that provides the new values, and optionally a strength.  Some
+examples are givein in Section \ref{sec:edit-constraint-examples}.
+
+\subsection{Constraints on Object Identity}
+
+
+\subsection{Constraints on Types and Classes}
+
+types and assigning new types
+
+constraints on types, respond\_to, etc
+
+\subsection{Solvers}
+\label{sec:solvers}
+
+solvers, cooperating solvers
+
+describe how solver is currently selected
+
+what are available solvers
 
 \todo{incorporate the following someplace:}
 
@@ -773,31 +956,6 @@ keep the rectangle visible.\footnote{There are multiple possible
 \item in the absence of constraints, the performance of a program
   written in the host language (Ruby) is unaffected
 \end{itemize}
-
-constraints respect object orientation and encapsulation: apply to the
-results of message sends rather than the internal state of objects
-
-constraint constructors
-
-examples with points and rectangles
-
-do these with always - forward ref to durations section
-
-semantics - resatisfied if a part changes or variable is reassigned
-declarative semantics - stay, perturbation model
-
-types and assigning new types
-
-constraints have durations (always, once, assert during)
-
-read-only variables
-
-solvers, cooperating solvers
-
-
-
-
-
 
 
 We think that the state of the art approaches result in unsatisfactory
@@ -891,30 +1049,6 @@ distinction between object identity vs equality
 constraints~\todo{cite}. We discuss this question in~\todo{future
   work}.
 
-\paragraph{Read-only Variables}
-\langname includes support for read-only variables, expressed by
-sending the question-mark method ({\bfseries\emph{?}}) to a value in a
-constraint expression. A read-only variable can only be changed by
-other solvers upstream of the constraint with the read-only variable,
-or imperatively, but not to satisfy the constraint in which it occurs.
-(See \cite{borning-lisp-symbolic-computation-1992} for a formal
-(declarative) definition of read-only variables.  While the formal
-definition allows cycles through read-only variables, in practice we
-haven't found use cases for this, and it is confusing for programmers,
-so in \langname we disallow this.)
-
-Read-only variables are useful, for example, for parameterized
-constraints so the solver knows not to change the parameter to satisfy
-the constraint:
-\begin{lstlisting}
-class Rectangle
-  def fix_size(area)
-    always { self.area == area.? }
-  end
-end
-\end{lstlisting}
-Without the annotation, a solver could choose to change the local
-variable \lstinline{area} rather than the receiver.
 
 We consider some following properties of \ac{cip} languages to need
 improvement:
@@ -1800,6 +1934,9 @@ cooperating languages with constraints.
 
 \todo{ALAN: include example programs as appropriate - perhaps err on
   the side of too many rather than too few}
+
+\subsubsection{Using Edit Constraints}
+\label{sec:edit-constraint-examples}
 
 \end{document}
 

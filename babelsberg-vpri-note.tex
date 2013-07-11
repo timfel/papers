@@ -1251,7 +1251,7 @@ stored in an array and Topaz uses map transitions to efficiently
 access them~\todo{cite Self}. For \toolname, have added a transition
 to store constraint values as well as \ac{oo} values in these maps.
 
-\paragraph{Execution Modes}
+\subsection{Execution Contexts}
 \label{sec:constraint-construction-impl}
 \todo{architecture figure}
 
@@ -1262,65 +1262,88 @@ of \lstinline{Interpreter} that changes how locals, instance
 variables, and class variables are accessed. We also changed the
 default interpreter to be aware of changes from solvers.
 
-\begin{description}
-\item[Imperative Execution] During imperative execution, the LOAD
-  bytecodes check whether a variable also refers to a constraint value
-  and if so, copy the value the solver has determined to the \ac{oo}
-  value. For immutable objects (such as small integers), the \ac{vm}
-  replaces the reference to the \ac{oo} value and returns the new
-  object. For mutable objects, the \ac{vm} calls
-  \lstinline{assign_constraint_value} with the solver-supplied
-  value. The object must then adjust itself, before it is returned.
+\paragraph{Imperative Execution}
+During imperative execution, the LOAD bytecodes check whether a
+variable also refers to a constraint value and if so, copy the value
+the solver has determined to the \ac{oo} value. For immutable objects
+(such as small integers), the \ac{vm} replaces the reference to the
+\ac{oo} value and returns the new object. For mutable objects, the
+\ac{vm} calls \lstinline{assign_constraint_value} with the
+solver-supplied value. The object must then adjust itself, before it
+is returned.
 
-  STORE instructions similarly check whether the assigned variable has
-  a constraint value. If so, there may be two reasons:
-  \begin{inparaenum}
-  \item it has a direct interpretation in an active solver. If that is
-    the case, the interpreter, instead of storing the supplied value
-    directly, calls \lstinline{suggest_value} on the constraint value
-    with the supplied value as argument
-  \item it was on the path of a constraint, but has no direct
-    interpretation in a solver. This means all constraint blocks that
-    encountered this value during their execution have to be
-    invalidated and re-executed with the new value
-  \end{inparaenum}
-\item[Constraint Construction] The initializer for constraint
-  objects--- usually called through \lstinline{always}---activates an
-  execution context for constraint construction. In this mode, LOAD
-  instructions find or create a constraint marker for each value that
-  is accessed. These markers send \lstinline{for_constraint} to the
-  value, which is expected to return an object that responds to
-  \lstinline{value} and \lstinline{suggest_value} (where during
-  execution of the latter it would use a solver to resatisfy
-  constraints). For values that do not respond to
-  \lstinline{for_constraint}, the marker is left to recalculate the
-  constraint when the value changes. Otherwise, the object returned
-  from \lstinline{for_constraint} is permanently associated with the
-  variable and replaces the actual value for the duration of the
-  constraint construction.
+STORE instructions similarly check whether the assigned variable has a
+constraint value. If so, there may be two reasons:
+\begin{inparaenum}
+\item it has a direct interpretation in an active solver. If that is
+  the case, the interpreter, instead of storing the supplied value
+  directly, calls \lstinline{suggest_value} on the constraint value
+  with the supplied value as argument
+\item it was on the path of a constraint, but has no direct
+  interpretation in a solver. This means all constraint blocks that
+  encountered this value during their execution have to be invalidated
+  and re-executed with the new value
+\end{inparaenum}
 
-  STORE instructions in this mode create equality constraints. This is
-  neccessary to support constructing new objects in the predicate that
-  connect values.
+\paragraph{Constraint Construction}
+The initializer for constraint objects--- usually called through
+\lstinline{always}---activates an execution context for constraint
+construction. In this mode, LOAD instructions find or create a
+constraint marker for each value that is accessed. These markers send
+\lstinline{for_constraint} to the value, which is expected to return
+an object that responds to \lstinline{value} and
+\lstinline{suggest_value} (where during execution of the latter it
+would use a solver to resatisfy constraints). For values that do not
+respond to \lstinline{for_constraint}, the marker is left to
+recalculate the constraint when the value changes. Otherwise, the
+object returned from \lstinline{for_constraint} is permanently
+associated with the variable as its constraint value. The constraint
+value replaces the actual value for the duration of the constraint
+construction.
 
-  Support to pass branches to solvers that support them (such as
-  \lstinline{if ... then}, \lstinline{or}, ...) is currently not
-  available. We have added support for the conjunction bytecode only
-  by creating two (or more) primitive constraints that are collected
-  in the constraint object and can be enabled and disabled at once.
+A constraint value should respond to the subset of the interface of
+the associated \ac{oo} value that its solver can solve. For example,
+Cassowary can solve linear constraints over float values, so the
+Cassowary variables returned by \lstinline{Float#for_constraint}
+respond to the methods \lstinline{+}, \lstinline{-}, \lstinline{*},
+and \lstinline{/}, but not \lstinline{sin} or \lstinline{**}. If a
+programmer tries to assert a constraint using those latter methods, an
+exception will be raised.
 
-  Note that to support solvers written in the host language, the
-  \ac{vm} needs a way to distinguish code that should be executed in
-  this mode from code that should not. We currently expect solvers to
-  be subclasses of \lstinline{ConstraintObject}. We use this class as
-  a marker to leave the constraint execution context when we enter
-  solver code.
-\item[Constraint Solving] This execution context is entered when a
-  constrained variable is stored into. The \ac{vm} sends
-  \lstinline{suggest_value} to the \lstinline{ConstraintObject} for
-  this variable. This context prevents nested sends of
-  \lstinline{suggest_value} to avoid recursions in the solver.
-\end{description} 
+Because we call \lstinline{for_constraint} each variable encountered
+in a constraint, user code can add solvers to the system by adding a
+\lstinline{for_constraint} method to the classes the solver can work
+on and returning an object that responds to solvable messages. We show
+in section~\todo{ref} how we used this to add a solver over the domain
+of Arrays.
+
+STORE instructions in this mode create equality constraints. This is
+neccessary to support constructing new objects in the predicate that
+connect values. However, this also means that all code blocks
+encountered during constraint construction have to be in single
+assignment form. (A more declarative interpretation of variables as
+streams of values at different execution times could solve this
+issue).
+
+Support to pass branches to solvers that support them (such as
+\lstinline{if ... then}, \lstinline{or}, ...) is currently not
+available. We have added support for the conjunction bytecode only by
+creating two (or more) primitive constraints that are collected in the
+constraint object and can be enabled and disabled at once.
+
+Note that to support solvers written in the host language, the \ac{vm}
+needs a way to distinguish code that should be executed in this mode
+from code that should not. We currently expect solvers to be
+subclasses of \lstinline{ConstraintObject}. We use this class as a
+marker to leave the constraint execution context when we enter solver
+code.
+
+\paragraph{Constraint Solving}
+This execution context is entered when a constrained variable is
+stored into. The \ac{vm} sends \lstinline{suggest_value} to the
+\lstinline{ConstraintObject} for this variable. This context prevents
+nested sends of \lstinline{suggest_value} to avoid recursions in the
+solver.
 
 - thoughts on implementation:
   - normal execution changes should be aspects that come with the language extension
@@ -1332,11 +1355,8 @@ default interpreter to be aware of changes from solvers.
   - ConstraintVariable is attached to (locals, ivars, cvars)
     - triggers the specific ``solve'' on STORE and ``set!'' on LOAD
 
-\subsection{Combining Objects and Constraints}
-\label{sec:combining-objects-constraints}
-
-\todo{merge this subsection with the rest of the implementation section}
-
+\subsection{Constraint Construction Example}
+\label{sec:constraint-construction-example}
 To illustrate how our implementation supports the combination of
 objects and constraints, consider the rectangle example in \langname
 from Section \ref{sec:object-constraint-programming}.  The code
@@ -1345,46 +1365,7 @@ be equal to 100. The assertion is expressed by sending the
 \lstinline{area} method and sending the \lstinline{==} method to the
 result. Explicitly named in the constraint is only the variable
 \lstinline{rect}, but there are other variables that play a role in
-this constraint:
-
-\paragraph{Constrained Variables}
-\label{sec:constraint-values}
-In \langname, each variable name refers to both an \ac{oo} value and a
-constraint value. The type of constraint value is determined the
-dynamic type of the \ac{oo} value when it is first used in a
-constraint. When a variable is first used in a constraint, the
-interpreter send the message \lstinline{for_constraint} to it and
-expects a constraint value it can use in place of the \ac{oo} value as
-result.
-
-\todo{Can we change the above sentence?  It seems like variable names
-  should just refer to objects as far as the programmer is concerned.
-  It's just an implementation issue that it also refers to a
-  constraint value.}
-
-A constraint value responds to the subset of the interface of the
-associated \ac{oo} value that its solver can solve. For example,
-\emph{Cassowary}~\todo{ref} can solve linear constraints over float
-values, so the Cassowary variables returned by
-\lstinline{Float#for_constraint} respond to the methods \lstinline{+},
-\lstinline{-}, \lstinline{*}, and \lstinline{/}, but not
-\lstinline{sin} or \lstinline{**}. If a programmer tries to assert a
-constraint using those latter methods, an exception will be raised.
-
-User code can add solvers to the system by adding a
-\lstinline{for_constraint} method to the classes the solver can work
-on and returning an object that responds to solvable messages. We show
-in section~\todo{ref} how we used this to add a solver over the domain
-of Arrays.
-
-If an object that is used in a constraint does not respond to
-\lstinline{for_constraint}, a placeholder constraint value is created
-for the variable that delegates message sends to the original
-object. This placeholder is required to invalidate constraints if the
-variable is assigned later.
-
-\paragraph{Constraint Construction}
-\label{sec:constraint-construction}
+this constraint.
 
 A constraint in our system is a predicate expression passed
 unevaluated in form of a block closure to the primitive method
@@ -1418,17 +1399,17 @@ Cassowary.
 The constraint construction is complete when block passed to
 \lstinline{always} returns. Any constraint values and combinations
 thereof created during the execution are gathered into a
-\emph{Constraint Object}. These provide a meta-level interface to
-enable or disable the entire constraint (and thus all participating
-values), query and change its strength (\cf{\todo{sec}}), and access
-the block that was passed to always, as well as each constraint value
-that participates in the constraint.
+\emph{Constraint}. These provide a meta-level interface to enable or
+disable the entire constraint (and thus all participating values),
+query and change its strength (\cf{\todo{sec}}), and access the block
+that was passed to always, as well as each constraint value that
+participates in the constraint.
 
-The Constraint Object then consists of a number of a) primitive values
-that are in the domain of the solver and are connected in a
-constrainable way (\eg through equalities or inequalities, arithmetic,
-boolean logic) and b) a number of placeholder values for complex
-objects that are constrained to their identity.
+The Constraint then includes a) primitive values that are in the
+domain of the solver and are connected in a constrainable way (\eg
+through equalities or inequalities, arithmetic, boolean logic) and b)
+a number of marked values for complex objects that invalidate the
+constraint if their identity changes.
 
 The constraint solvers operate on primitive constraint values directly
 to solve the constraint. Changes made by the solver to the variables

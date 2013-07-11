@@ -1310,13 +1310,6 @@ and \lstinline{/}, but not \lstinline{sin} or \lstinline{**}. If a
 programmer tries to assert a constraint using those latter methods, an
 exception will be raised.
 
-Because we call \lstinline{for_constraint} each variable encountered
-in a constraint, user code can add solvers to the system by adding a
-\lstinline{for_constraint} method to the classes the solver can work
-on and returning an object that responds to solvable messages. We show
-in section~\todo{ref} how we used this to add a solver over the domain
-of Arrays.
-
 STORE instructions in this mode create equality constraints. This is
 neccessary to support constructing new objects in the predicate that
 connect values. However, this also means that all code blocks
@@ -1457,6 +1450,59 @@ constraint on itself.  (Later, if we also support DeltaBlue, the edit
 constraints returned would be different, e.g.\ the point could be
 simply updated rather than dealing with its x and y coordinates
 separately.)
+
+\subsection{Solver Interface}
+\label{sec:solver-interface}
+
+During constraint construction, the \ac{vm} sends
+\lstinline{for_constraint} to each variable encountered during the
+execution. User code can add solvers to the system by adding a
+\lstinline{for_constraint} method to those classes that the solver can
+work with, making use of Ruby's open classes. This method receives the
+name under which the variable is accessed as argument, and should
+return an object that implements a subset of the classes interfaces
+that the solver can reason about. For Cassowary, we extended the Float
+class:
+\begin{lstlisting}
+  def for_constraint(name)
+    v = Cassowary::Variable.new(name: name, value: self)
+    Cassowary::SimplexSolver.instance.add_stay(v)
+    v
+  end
+\end{lstlisting}
+This method creates a new variable, adds a weak stay so the solver
+attempts to keep the value stable, and returns the constraint
+object. The \ac{vm} then sends messages to this object instead of the
+Float object in the context of the constraint execution.
+
+We expect the objects returned from a \lstinline{for_constraint}
+method to respond to two messages:
+\begin{description}
+\item[suggest\_value] When imperative code stores into a variable that
+  participates in constraints, the \ac{vm} instead sends this message
+  to the associated constraint object. This method triggers the solver
+  and potentially raises an exception, if a required constraint can no
+  longer be satisfied.
+\item[value] Whenever the \ac{vm} accesses a variable that
+  participates in a constraint, it sends this message to the
+  associated constraint object to determine whether the variable was
+  updated by the solver.
+\end{description}
+
+In the case of immutable objects (such as floats and integers), the
+\ac{vm} updates the reference for the variable directly. However, for
+mutable objects, solver libraries should provide the method
+\lstinline{assign_constraint_value} to update the object. We provide
+such a method for the Array class, that replaces the array's contents
+with the contents suggested by the solver:
+\begin{lstlisting}
+  def assign_constraint_value(new_ary)
+    self.replace(new_ary)
+  end
+\end{lstlisting}
+
+This illustrates how the solvers provided by \toolname are simply
+constraint solver libraries that extend core classes.
 
 %% If we have a subsection on solver interface implementation:
 % 

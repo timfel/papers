@@ -323,10 +323,8 @@ Additional contributions with respect to the implementation of
 
 \begin{itemize}
 \item an implementation technique for placing constraints on the
-  results of message sends, using hooks into the virtual machine that
-  transparently switch the interpreter to the correct evaluation mode
-  (standard imperative evaluation mode, constraint construction mode,
-  or constraint solving mode) \todo{improve the phrasing of this}
+  results of message sends, using a primitive to switch the
+  interpreter between imperative and constraint evaluation mode
 \item a working prototype system, integrated with a state of the art
   Ruby virtual machine and JIT
 \item in the absence of constraints, the performance of a program
@@ -784,7 +782,6 @@ Ruby methods for the Rectangle class:
 rect = Rectangle.new
 always { rect.area == 100 }
 always { rect.visible? }
-always { rect.center == Point.new(100,100) }
 \end{lstlisting}
 
 The first constraint says that the result returned from calling the
@@ -809,8 +806,6 @@ primitive type):
 \begin{lstlisting}
 always { rect.center == Point.new(100,100) }
 \end{lstlisting}
-
-\todo{combine this with the initial rectangle example?}
 
 \subsection{Single Assignment Rule}
 \label{sec:single-assignment-rule}
@@ -849,8 +844,6 @@ treat multiply assigned variables in constraints as separate values of
 those variables over time, which are connected through equality
 constraints (similar to the original Kaleidoscope'90 \emph{refinement}
 approach).
-
-\todo{can we explain this better?  better example?}
 
 \subsection{Constraints and Control Structures}
 
@@ -927,26 +920,45 @@ current implementation of \toolname, the available solvers are
 Cassowary, \zcubed, a solver for float and integer array elements that
 maps to \zcubed and Cassowary, and DeltaBlue.
 
+Because all solvers are library code, the programmer has to explicitly
+activate them. The solver for a given constraint is currently eagerly
+chosen based on the runtime type of the variables that occur in the
+constraint, and only one solver can be registered for a particular
+type. In cases where different solvers can handle the same types (for
+example, both \zcubed and Cassowary handle constraints on floats), the
+programmer has to decide which solver to use by activating only the
+desired one. In some cases, this choice may simply be a matter of
+preference, however, other restrictions apply. For example, Cassowary
+cannot solve non-linear equations. To solve non-linear constraints,
+the developer has to know about this restriction and choose
+\zcubed. For interactive graphical applications where constraint
+priorities are needed, Cassowary has to be used.
+
+Generally, developers may choose to express constraints that are too
+difficult to solve, or for which no solver exists. In that case, the
+constraint expression is simply evaluated as a test that is repeatedly
+checked by the runtime whenever a variable changes that may change the
+result of the test. If the test fails, an exception is raised
+explaining that no solver for the constraint was available.
+
 We are currently working on adding support for cooperating constraint
 solvers, so that several solvers can work together to find a solution
 to the constraints.  See Section \ref{sec:cooperating-solvers}.
 
 \subsection{Read-only Variables}
 
-\todo{Clarify this: babelsberg doesn't really "support" read-only
-  variables, stays, priorities, edits, ... it's purely up to the
-  constraint solvers to add the required functionality for this}
-
 \langname includes support for read-only variables, expressed by
 sending the question-mark method ({\bfseries\emph{?}}) to a value in a
-constraint expression.  A read-only variable can only be changed by
-other solvers upstream of the constraint with the read-only variable,
-or imperatively, but not to satisfy the constraint in which it occurs.
-(See reference \cite{borning-lisp-symbolic-computation-1992} for a
-formal definition of read-only variables.  While the formal definition
-allows cycles through read-only variables, in practice we haven't
-found use cases for this, and it is confusing for programmers, so in
-\langname we disallow this.)
+constraint expression. The implementation of this method asserts an
+additional equality constraint in the active solver. A read-only
+variable can only be changed by other solvers upstream of the
+constraint with the read-only variable, or imperatively, but not to
+satisfy the constraint in which it occurs. (See reference
+\cite{borning-lisp-symbolic-computation-1992} for a formal definition
+of read-only variables.  While the formal definition allows cycles
+through read-only variables, in practice we haven't found use cases
+for this, and it is confusing for programmers, so in \langname we
+disallow this.)
 
 Read-only variables are useful, for example, for parameterized
 constraints so the solver knows not to change the parameter to satisfy
@@ -971,10 +983,10 @@ information flow among the solvers.  See Section
 Constraints have \emph{durations} during which they are active.  So
 far, we've been using the \lstinline{always} duration, which declares
 that its constraint becomes active when the \lstinline{always}
-statement is evaluated and remains active indefinitely after that.  A
+statement is evaluated and remains active indefinitely after that. A
 \lstinline{once} constraint is activated, satisfied, and then
-retracted.  Finally, an \lstinline{assert-during} constraint is
-active for the duration of the evaluation of its associated block.
+retracted.  Finally, an \lstinline{assert-during} constraint is active
+for the duration of the evaluation of its associated block.
 
 \subsection{Soft Constraints and Stay Constraints}
 

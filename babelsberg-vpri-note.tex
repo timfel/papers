@@ -933,6 +933,10 @@ to the constraints.  See Section \ref{sec:cooperating-solvers}.
 
 \subsection{Read-only Variables}
 
+\todo{Clarify this: babelsberg doesn't really "support" read-only
+  variables, stays, priorities, edits, ... it's purely up to the
+  constraint solvers to add the required functionality for this}
+
 \langname includes support for read-only variables, expressed by
 sending the question-mark method ({\bfseries\emph{?}}) to a value in a
 constraint expression.  A read-only variable can only be changed by
@@ -1092,10 +1096,11 @@ the Ruby programming language~\todo{cite} and is consequently called
 \toolname.
 
 The Ruby \ac{vm} we used as a basis for \toolname is
-\emph{Topaz}~\todo{cite}, an experimental \ac{vm} built using the
-\emph{PyPy/RPython} toolchain~\todo{cite}. This has allowed us to
-extend the interpreter and use RPython's \ac{vm}-generation toolchain
-to create a \ac{vm} including a fast \ac{jit} and garbage collector.
+\emph{Topaz}~\cite{FelgentreffTopazWroclove2013}, an experimental
+\ac{vm} built using the \emph{PyPy/RPython}
+toolchain~\cite{rigo2006pypy}. This has allowed us to extend the
+interpreter and use RPython's \ac{vm}-generation toolchain to create a
+\ac{vm} including a fast \ac{jit} and garbage collector.
 
 The changes we made to the Topaz \ac{vm} are two-fold: we have
 extended it to support constrained variables
@@ -1105,7 +1110,7 @@ declaration. Second, we have added an interpreter mode for constraint
 construction (\cf{\ref{sec:constraint-construction}}) and a primitive
 to enter this interpreter mode.
 
-\paragraph{Constrained Variables}
+\subsection{Constrained Variables}
 \label{sec:constrained-variables-impl}
 Ruby provides 5 types of variables: locals, instance variables, class
 variables, globals, and constants (while constants are supposed to be
@@ -1116,9 +1121,10 @@ locals, instance variables, and class variables.
 Variables are constrained by using them in a constraint expression. In
 Topaz, all locals are stored in closure cells and we simply had to add
 a second field for constraint values. Instance and class variables are
-stored in an array and Topaz uses map transitions to efficiently
-access them~\todo{cite Self}. For \toolname, have added a transition
-to store constraint values as well as \ac{oo} values in these maps.
+stored in an array and Topaz uses map
+transitions~\cite{chambers1989efficient} to efficiently access
+them. For \toolname, have added a transition to store constraint
+values as well as \ac{oo} values in these maps.
 
 \subsection{Execution Contexts}
 \label{sec:constraint-construction-impl}
@@ -1207,17 +1213,18 @@ stored into. The \ac{vm} sends \lstinline{suggest_value} to the
 nested sends of \lstinline{suggest_value} to avoid recursions in the
 solver.
 
-- thoughts on implementation:
-  - normal execution changes should be aspects that come with the language extension
-    (role is basically to observe variable access)
-  - constraint construction/execution should be a COP layer
+Our current implementation of execution contexts uses Pythons
+\lstinline{with} statement to push a context onto the stack. At those
+points in the \ac{vm} that need to be adapted, we dispatch through the
+context. A new context is created when a \lstinline{Constraint} object
+is initialized, when a constrained variable is assigned and we need to
+re-satisfy constraints, and when we send a message to an object that
+inherits from \lstinline{ConstraintObject}. To support other
+cooperating paradigms besides constraint-oriented programming, we need
+to extend this to support different execution contexts in a more
+general way.
 
-  - Constraints module exposes ObjSpace interface
-  - ConstraintObject is marker superclass to ``seal'' solver implementations
-  - ConstraintVariable is attached to (locals, ivars, cvars)
-    - triggers the specific ``solve'' on STORE and ``set!'' on LOAD
-
-\subsection{Constraint Construction Example}
+\subsubsection*{Constraint Construction Example}
 \label{sec:constraint-construction-example}
 To illustrate how our implementation supports the combination of
 objects and constraints, consider the rectangle example in \langname
@@ -1243,7 +1250,7 @@ placeholder, because no rectangle-solver exists and the class
 \lstinline{area} to the \ac{oo} value. During the execution of
 \lstinline{area} a number of float values are encountered---the
 instance variables of the points that form the rectangle
-(\cf{\ref{fig:architecture}}). These instance variables are resolved
+(\cf{Figure~\ref{fig:architecture}}). These instance variables are resolved
 to constraint values, for example Cassowary variables, and the
 messages between them, instead of calculating the current area of the
 rectangle, return a linear constraint expression. This linear
@@ -1254,7 +1261,9 @@ Cassowary.
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{architecture}
-\caption{WRITE THIS!}
+  \caption{Objects are connected through instance variables. When a
+    constraint is constructed, objects become connected through
+    constraints as well}
 \label{fig:architecture}
 \end{figure}
 
@@ -1263,8 +1272,9 @@ The constraint construction is complete when block passed to
 thereof created during the execution are gathered into a
 \emph{Constraint}. These provide a meta-level interface to enable or
 disable the entire constraint (and thus all participating values),
-query and change its strength (\cf{\todo{sec}}), and access the block
-that was passed to always, as well as each constraint value that
+query and change its strength
+(\cf{\ref{sec:methods-class-constraint}}), and access the block that
+was passed to always, as well as each constraint value that
 participates in the constraint.
 
 The Constraint then includes a) primitive values that are in the
@@ -1279,8 +1289,8 @@ show up in the \ac{oo} view on the next access to the variables from
 imperative code, at which point the constraint values are copied to
 their \ac{oo} counterparts. Assignments to any variable encountered
 during the constraint construction will trigger the solver to
-re-satisfy the constraint~\todo{cite kaleidoscope} (and potentially
-raise an error if the assignment is inconsistent with the constraint).
+re-satisfy the constraint (and potentially raise an error if the
+assignment is inconsistent with the constraint).
 
 Placeholder constraint values invalidate the constraint if the
 identity of the \ac{oo} value changes through imperative
@@ -1304,7 +1314,15 @@ Note that this works if the stream is being fed from another process
 that provides new values only when available --- the process that has
 the edit constraint should just block until one is available.
 
-The variable and stream can hold user-defined objects, not just
+\langname does not support edit constraints at a language level. The
+definition of the edit method is part of the Cassowary solver library
+that is included in the current version of \toolname. The library uses
+the \ac{api} of the \lstinline{Constraint} class to access the
+constraint values associated with variable names, creates edit
+constraints for them, and feeds the stream into the resulting edit
+variables.
+
+The variables and stream can hold user-defined objects, not just
 primitive types.  To use Cassowary as the solver, we need to convert
 this into edit constraints on Floats (i.e.\ the x and y values of the
 midpoint), but we also want to do this in an object-oriented way that
@@ -1320,7 +1338,7 @@ constraints returned would be different, e.g.\ the point could be
 simply updated rather than dealing with its x and y coordinates
 separately.)
 
-\subsection{Solver Interface}
+\subsection{Adding new Solvers}
 \label{sec:solver-interface}
 
 During constraint construction, the \ac{vm} sends
@@ -1644,7 +1662,7 @@ subsection in the appendix)
 % we can change this back if required for the journal
 % \bibliographystyle{alphaurl}
 \bibliographystyle{plain}
-\bibliography{constraints,sigproc,qiqqa_jot_export}
+\bibliography{qiqqa_jot_export,constraints,sigproc}
 
 
 \abouttheauthors
@@ -1843,6 +1861,7 @@ Here's a trivial example for the $x+y=z$ constraint.
 
 
 \subsubsection{Methods for the Class Constraint}
+\label{sec:methods-class-constraint}
 
 The \lstinline{Constraint} class provides the following methods in
 \toolname.  (Here we're talking about ordinary Ruby methods provided

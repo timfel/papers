@@ -1428,10 +1428,11 @@ constraint solver libraries that extend core classes.
 \label{sec:performance-evaluation}
 
 There are three questions we are interested in regarding performance:
-a) how does constraint solving performance compare to other
-approaches, b) how is overall system performance affected in the
-presence of constraints, and c) how is object-oriented performance
-affected by our semantic extensions to the \ac{vm}.
+a) how does constraint solving performance compare to writing
+imperative code to satisfy constraints, b) how is object-oriented
+performance affected by our semantic extensions to the \ac{vm}, and c)
+how does a practical application perform if refactored to use
+constraints.
 
 \paragraph{Constraint Solving}
 To answer the first question, we used an example from
@@ -1549,6 +1550,70 @@ this variable participates in a constraint. Considering that
 \emph{Topaz} is, for these benchmarks, currently the fastet Ruby
 \ac{vm}, we consider \toolname to be very performant for purely
 imperative code.
+
+\paragraph{Application Example}
+We have written a simple video streaming application. This application
+reads a folder with bitmaps and streams raw video to a video
+player. The quality with which the video is streamed depends on a
+number of variables:
+\begin{description}
+\item[User Preference] User may decide not to overload their system
+  and explicitely choose a lower quality. This should be an upper
+  bound for the quality of the streaming.
+\item[Encoding Time] The program has only 1/25 seconds to encode a
+  frame. If it takes longer, the quality should be automatically
+  reduced to ensure smooth playback.
+\item[System Load] The overall system load of the encoding system
+  should be less than 80\%, to retain enough resources for other tasks
+\item[Quality Bounds] Whatever users choose as perferred quality, the
+  quality cannot be below 0 or above 100\%
+\end{description}
+
+In the imperative version of the application, these constraints where
+explicitely checked an re-satisfied after each frame. The
+object-constraint solution uses custom solvers for File contents and
+method execution time:
+\begin{figure}[h!]
+  \begin{subfigure}[b]{0.48\textwidth}
+    \begin{lstlisting}[basicstyle=\scriptsize,frame=none]
+  def recalculate_quality
+    if FrameMsMax > duration
+      @quality = @quality * (FrameTime * 2 / duration)
+    elsif FrameMsMax < duration * 0.9
+      @quality = @quality * (FrameMsMax / duration)
+      @quality -= @quality * 0.09 if cpuload > 80
+    end
+
+    if @quality > user_preference
+      @quality = user_preference
+    end
+    @quality = 0 if @quality < 0
+    @quality = 100 if @quality > 100
+  end
+    \end{lstlisting}
+    \caption{Imperative Version}
+  \end{subfigure}
+  \begin{subfigure}[b]{0.52\textwidth}
+    \centering
+    \begin{lstlisting}[basicstyle=\scriptsize,frame=none]
+always { @quality >= 0 }
+always { @quality <= 100 }
+always { @quality <= user_preference }
+always(:strong) { @quality == user_preference }
+always { @quality + cpuload * 100 <= 100 + 80 * NumberOfProcessors }
+always(:strong) { @quality + encoding_time >= 90 }
+always { @quality + encoding_time <= 100 + FrameMsMax }
+    \end{lstlisting}
+    \caption{Object-Constraint Version}
+  \end{subfigure}
+  \caption{Quality Constraints in Video Streaming}
+  \label{fig:video-streaming-example}
+\end{figure}
+
+Both versions could stream video at the highest quality setting to up
+to 8 clients on an Intel i5 2.4 GHz CPU. Both reduced the quality
+afterwards. Because most of the time was spent encoding and streaming
+video, both versions performed equivalently well.
 
 \subsection{Comparison with Related Approaches}
 \label{sec:comparison}

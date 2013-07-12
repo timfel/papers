@@ -1432,15 +1432,20 @@ approaches, b) how is overall system performance affected in the
 presence of constraints, and c) how is object-oriented performance
 affected by our semantic extensions to the \ac{vm}.
 
+\paragraph{Constraint Solving}
 To answer the first question, we used an example from
-\cite{lopez-asi-1994} and adapted it to \toolname:
+\cite{lopez-asi-1994} and adapted it to \toolname. In this example, a
+mouse drags the upper end of the mercury in a thermometer. However,
+the mercury cannot go outside the bounds of the thermometer, even if
+the user tries to drag it out. Additionally, a grey and white
+rectangle on the screen have to be updated to reflect the new mercury
+position and a displayed number should reflect the integer value of
+the mercury top.
 
 \begin{figure}[h!]
-  \centering
-  \begin{subfigure}[b]{0.3\textwidth}
-    \centering
-    \begin{lstlisting}
-(0...Iterations).each do |i|
+  \begin{subfigure}[b]{0.48\textwidth}
+    \begin{lstlisting}[basicstyle=\scriptsize,frame=none]
+Iterations.times do |i|
   mouse.location_y = i
   old = mercury.top
   mercury.top = mouse.location_y
@@ -1449,20 +1454,79 @@ To answer the first question, we used an example from
   end
   temperature = mercury.height
   if old < mercury.top
-    # moves top upwards and thus draws over the white part
+    # moves upwards (draws over the white)
     grey.top = mercury.top
   else
-    # moves bottom downwards and thus draws over the grey part
+    # moves downwards (draws over the grey)
     white.bottom = mercury.top
   end
   display.number = temperature
-  [mouse, mercury, thermometer, grey, white, temperature, display]
 end
     \end{lstlisting}
+    \caption{Imperative Version}
+  \end{subfigure}
+  \begin{subfigure}[b]{0.52\textwidth}
+    \centering
+    \begin{lstlisting}[basicstyle=\scriptsize,frame=none]
+always { temperature == mercury.height }
+always { white.top == thermometer.top }
+always { white.bottom == mercury.top }
+always { grey.top == mercury.top }
+always { grey.bottom == mercury.bottom }
+always { display.number == temperature }
+always(:strong) { mercury.top == mouse.location_y }
+always { mercury.top <= thermometer.top }
+always { mercury.bottom == thermometer.bottom }
+always { thermometer.bottom == 0 }
+always { thermometer.top == 200 }
+
+Iterations.times do |i|
+  mouse.location_y = i
+end
+# edit(Iterations.times) { mouse.location_y }
+    \end{lstlisting}
+    \caption{Object-Constraint Version}
   \end{subfigure}
   \caption{Interactive Thermometer Example from \cite{lopez-asi-1994}}
   \label{fig:thermometer-example}
 \end{figure}
+
+Note that the object-constraint version may be written in two ways:
+one that is more like the imperative version, and assigns new mouse
+locations in a loop. The comment shows a more constraint-oriented
+version that declares \lstinline{mouse.location_y} as an edit variable
+to incrementally re-satisfy constraints. In our benchmarks we have run
+both variants.
+
+\begin{table*}
+  \centering
+  % \begin{tabular}[h]{r|c c c}
+  %   Iterations & Imperative & Constraints & Edit Constraints \\
+  %   100 & 0.00105s & 0.737s & 0.112s \\
+  %   10,000 & 0.0301s  & 4.19s  & 0.364s \\
+  %   1,000,000 & 0.0634s  & 81.9s  & 4.19s \\
+  % \end{tabular}
+  \includegraphics[width=0.8\textwidth]{thermometer.pdf}
+  \caption{The results of the thermometer benchmark, run on an Intel i7
+    Quad-Core CPU with 3.4 Ghz}
+  \label{tbl:thermometer-benchmark}
+\end{table*}
+
+The naive object-constraint version is many times slower than the
+purely imperative solution. As the iteration count grows, the naive
+version also does not seem to benefit as much from the \ac{jit} as the
+imperative version. However, using edit constraints, repeated solving
+of constraints is slower only by about a factor of 100 for this
+benchmark focused very much on constraint solving. Note also that
+these results use a solver that is also written in pure Ruby, which is
+by itself slower than a C++ based version.
+
+\paragraph{Object-oriented Performance}
+
+For object-oriented performance, we ran a number of tests from the
+metatraceing \acp{vm} experiment~\cite{bolz2013impact}:
+
+
 
 - usage example: video streaming
 - benchmark: kaleidoscope benchmark (<10x slower than imperative)

@@ -320,8 +320,8 @@ implementation of the design as an extension to Ruby, called
   solvers, and that doesn't privilege the solvers provided with the
   basic implementation (they are simply the solvers that are in the
   initial library)
-\item support for solvers that provide incremental solving, and both
-  hard and soft constraints
+\item support for solvers that provide soft as well as hard constraints
+  and incremental solving
 \end{itemize}
 
 %% this is deleted for now, until it is supported:
@@ -813,8 +813,7 @@ rather than a primitive type):
 always { rect.center == Point.new(100,100) }
 \end{lstlisting}
 
-\subsection{Single Assignment Rule}
-\label{sec:single-assignment-rule}
+\subsection{Restrictions on Constraints}
 
 When the programmer uses a method in \langname in a constraint, the
 underlying implementation generates a corresponding set of 
@@ -826,9 +825,18 @@ give rise to conjunctions and disjunctions in the constraints handed
 to the solver, and of the currently implemented solvers, only \zcubed
 can accommodate these.
 
-There is one important restriction that applies to all solvers:
-variables used in methods that will called in a constraint must be
-used in a single-assignment fashion.  As an example of why this
+There are however two important restrictions on constraints that apply
+to all solvers.
+
+First, the expression that defines the constraint should either be
+free of side effects, or if there are side effects, they should be
+benign (for example, doing caching).  Also, repeatedly evaluating the
+block should return the same thing (so an expression involving a
+random number generator wouldn't qualify).  This restriction is
+needed to provide the correct semantics for constraints.
+
+Second, variables used in methods that will called in a constraint must
+be used in a single-assignment fashion.  As an example of why this
 restriction is needed, consider the following method:
 \begin{lstlisting}
 def bad_method(x)
@@ -1839,44 +1847,74 @@ variable is assigned later.
        (and assignments possibly trigger constraint solver)
   - implementation
 
-\section{Discussion}
-\label{sec:discussion}
+%% EVERYTHING FROM THIS SECTION SEEMS TO BE MERGED IN ELSEWHERE (??)
+%% \section{Discussion}
+%% \label{sec:discussion}
+%% - constraint expressions should be idempotent, because they are
+%% re-executed from time to time
+%% - only benign side-effects are allowed in the dynamic
+%% extent of constraint expression execution - it's not a compile-time
+%% error, but will lead to unexpected results
 
+%% - performance is hard to predict: same issue as reference counting
 
-- constraint expressions should be idempotent, because they are
-re-executed from time to time
-- only benign side-effects are allowed in the dynamic
-extent of constraint expression execution - it's not a compile-time
-error, but will lead to unexpected results
+%% - constraints on other primitive storage types (arrays, hashes)
+%% - edit constraints
+%% - constraints on structure, class, interface
+%% - cooperating solvers
 
-- performance is hard to predict: same issue as reference counting
-
-- constraints on other primitive storage types (arrays, hashes)
-- edit constraints
-- constraints on structure, class, interface
-- cooperating solvers
-
-- future work:
-  - multiple-region constraints
-    - needs more dimensions for decisions which solver to use (types, methods used, linearity, ???)
-    - solvers declare dependencies (upstream solvers)
-  - integration with bloom (bloom as \emph{the} solver)
+%% - future work:
+%%   - multiple-region constraints
+%%     - needs more dimensions for decisions which solver to use (types, methods used, linearity, ???)
+%%     - solvers declare dependencies (upstream solvers)
+%%   - integration with bloom (bloom as \emph{the} solver)
   
 
 \section{Conclusion and Future Work}
-- solves 2 shortcoming of other constraint programming languages
-  1. preserves encapsulation
-  2. exchangeable solver, changeable
-  3. modularized constraints
-- promising approach to 1 more general problem, that we will investigate
-  * how to integrate different execution models (declarative, imperative)
-- good benchmark results show that it can be performant
 
-better support for debugging and explanation (why can't the
-constraints be solved? Why did the solver come up with the answer it did?)
+We have presented \langname, a constraint object language that extends
+a standard object-oriented language to support constraints, along with
+an implementation as an extension to Ruby using a state of the art
+virtual machine.  In contrast to other approaches, \langname unifies
+the constructs for encapsulation and abstraction for both the
+declarative constraint parts of the language and the traditional
+imperative parts by using only object-oriented method definitions for
+both declarative and imperative code.  Our implementation is
+integrated with an existing object-oriented virtual machine, and
+provides a standard imperative evaluation mode, a constraint
+evaluation mode that accumulates constraints to hand off to the solver
+as expressions are evaluated, and a constraint solver mode.
 
-put in something about extensions to other languages?  (currently a
-subsection in the appendix)
+This work is relatively recent and there are a number of directions
+for future work.  One is to exercise the system on a wider variety of
+programs, and also to work on improving the performance of the
+constraint evaluation and satisfaction.  Another direction is to add
+additional solvers to the library, for example a finite domain solver
+or solvers that support constraints on other primitive storage types
+such as arrays, strings, and hashes, and to implement the design for
+cooperating solvers.  Yet another direction regarding solvers is to
+introduce a ``meta-solver'' that can automatically select one or more
+applicable solvers for the given set of constraints.
+
+Another important direction will be adding better support for
+debugging, explanation, and benchmarking.  (If the constraint solver
+is unable to satisfy the constraints, why is this?  Or if the solver
+produces an unexpected answer, how was this answer arrived at?  If the
+solver is slow, why, and are there ways to make it faster?)
+
+Our initial implementation extends Ruby, but the ideas are applicable
+to other dynamic object-oriented languages, and future work may
+include versions in Javascript or Squeak.  In particular, a constraint
+extension to Javascript would be of particular interest given the
+potential for integration with Lively.
+
+%% - solves 2 shortcoming of other constraint programming languages
+%%   1. preserves encapsulation
+%%   2. exchangeable solver, changeable
+%%   3. modularized constraints
+%% - promising approach to 1 more general problem, that we will investigate
+%%   * how to integrate different execution models (declarative, imperative)
+%% - good benchmark results show that it can be performant
 
 \ifthenelse{\boolean{jot}}{%
 \backmatter
@@ -2017,9 +2055,7 @@ following criteria:
 
 \item The expression in the block should either be free of side
   effects, or if there are side effects, they should be benign (for
-  example, doing caching).  (Later, we will probably need to come up
-  with a more precise definition of ``benign'', or better, find some
-  existing definition of this concept in the literature.)
+  example, doing caching).  
 
 \item Repeatedly evaluating the block should return the same thing (so
   an expression involving a random number generator wouldn't qualify).
@@ -2176,25 +2212,27 @@ set of priorities is sufficient.  They tend to be used in stylized
 ways, e.g.\ \lstinline{high} for edit constraints and
 \lstinline{low} for stays.
 
-\subsection{Extending Other Languages}
-\label{sec:other-languages}
+%% COMMENTED OUT SINCE NOW MOSTLY REDUNDANT WITH THE CONCLUSION:
+%%
+%% \subsection{Extending Other Languages}
+%% \label{sec:other-languages}
 
-\toolname is an extension to Ruby, and Ruby programs without
-constraints continue to be legal in it.  The Babelsberg syntax takes
-advantage of some Ruby quirks to provide a convenient syntax, and the
-implementation (Section \ref{sec:implementation}) relies on Topaz, an
-experimental VM built using the PyPy/RPython toolchain.
+%% \toolname is an extension to Ruby, and Ruby programs without
+%% constraints continue to be legal in it.  The Babelsberg syntax takes
+%% advantage of some Ruby quirks to provide a convenient syntax, and the
+%% implementation (Section \ref{sec:implementation}) relies on Topaz, an
+%% experimental VM built using the PyPy/RPython toolchain.
 
-However, the ideas are applicable to other dynamic object-oriented
-languages, and future work may include versions in Javascript or
-Squeak.  In particular, a constraint extension to Javascript would be
-of particular interest given the potential for integration with
-Lively.
+%% However, the ideas are applicable to other dynamic object-oriented
+%% languages, and future work may include versions in Javascript or
+%% Squeak.  In particular, a constraint extension to Javascript would be
+%% of particular interest given the potential for integration with
+%% Lively.
 
-Another potential direction for future work is to evolve this language
-extension to work with the constraint-based extension to Bloom,
-initially in Ruby, and later in other languages as well to support
-cooperating languages with constraints.
+%% Another potential direction for future work is to evolve this language
+%% extension to work with the constraint-based extension to Bloom,
+%% initially in Ruby, and later in other languages as well to support
+%% cooperating languages with constraints.
 
 \subsection{Example Programs}
 

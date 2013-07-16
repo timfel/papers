@@ -90,6 +90,9 @@
 \newcommand{\langname}{\textsc{Babelsberg}\xspace}
 \newcommand{\toolname}{\textsc{Babelsberg/R}\xspace}
 
+\newcommand{\load}{\textsc{load}\xspace}
+\newcommand{\store}{\textsc{store}\xspace}
+
 \def\sectionautorefname{Section}
 \def\subsectionautorefname{Section}
 \def\subsubsectionautorefname{Section}
@@ -200,8 +203,9 @@ Tim Felgentreff\\
   object-oriented programs in incremental steps by placing them on the
   results of normal object-oriented message sends. An architecture for
   adding multiple constraint solvers allows \langname to deal with a
-  variety of constraints. Furthermore, the performance of purely
-  object-oriented code is unaffected in the new \textsc{vm}.
+  variety of constraints. Furthermore, the performance of standard
+  object-oriented code without constraints is only modestly impacted
+  in the new \textsc{vm}.
 
   We argue that our approach provides a useful step toward making
   constraint solving a generic tool for object-oriented programmers.
@@ -325,10 +329,11 @@ ignoring or bypassing the constraints.  An alternate technique is to
 support constraints directly in the underlying programming language.
 This addresses the problem of inadvertently bypassing the constraint
 system, and also can typically provide a more convenient syntax for
-writing constraints, either using a separate \ac{dsl} embedded in the
-host language, or (as in the work reported here) by allowing
-constraints to be written in the host language itself, of course at
-the cost of having to support a new or extended programming language.
+writing constraints, either using a separate domain specific language
+embedded in the host language, or (as in the work reported here) by
+allowing constraints to be written in the host language itself, of
+course at the cost of having to support a new or extended programming
+language.
 
 We present a design for integrating constraints with a standard
 object-oriented language, called \langname, and describe an
@@ -361,7 +366,7 @@ as follows.
   languages, which uses a primitive to switch the interpreter between
   imperative evaluation, constraint construction, and constraint
   solving modes.  In imperative evaluation mode, the interpreter
-  operates in the standard fashion, except that LOAD and STORE
+  operates in the standard fashion, except that \load and \store
   operations on variables with constraints obtain the value from the
   constraint solver or send the new value to the solver (which may
   trigger a cascade of other changes to satisfy the constraints).  In
@@ -491,7 +496,7 @@ are \zcubed~\cite{de2008z3}, a state-of-the-art SMT solver from
 Microsoft Research designed for theorem proving (\eg for program
 verification), and kodkod~\cite{torlak2007kodkod} for constraints over
 finite domains.  For use in interactive graphics systems, solvers
-include Cassowary~\cite{badros-cassowary-tr}, an incremental solver
+include Cassowary~\cite{badros-tochi-2001}, an incremental solver
 for linear equality and inequality constraints, including soft
 constraints as well as required ones; the Aukland Layout Editor, which
 includes support for a GUI builder using
@@ -833,20 +838,26 @@ Ruby methods from the \lstinline{Rectangle} class:
 
 \begin{code}
 rect = Rectangle.new
-always { rect.area == 100 }
+always { rect.area >= 100 }
 always { rect.visible? }
 \end{code}
 
 The first constraint says that the result returned from calling the
-\lstinline{area} method should always be equal to 100, and if, for
-example, another part of the program assigns to the height of the
-rectangle, the width will be adjusted automatically to keep the
-constraint satisfied.  Similarly, if a negative location is assigned
-to the origin, it will be moved back to keep the rectangle
-visible.\footnote{There are multiple possible locations that satisfy
-  the \lstinline{rect.visible?} constraint; here the system will move
-  the origin as little as possible from the assigned location but so
-  that the constraint is satisfied.}
+\lstinline{area} method should always be greater than or equal to 100,
+and if, for example, another part of the program assigns to the height
+of the rectangle, if necessary the width will be adjusted
+automatically to keep the constraint satisfied.  Similarly, if a
+negative location is assigned to the origin, it will be moved back to
+keep the rectangle visible.\footnote{There are multiple possible
+  locations that satisfy the \lstinline{rect.visible?} constraint;
+  here the system will move the origin as little as possible from the
+  assigned location but so that the constraint is satisfied.  The same
+  holds for the area constraint.  This behavior is a result of soft
+  ``stay'' constraints that specify that, if it is necessary to change
+  the value of a variable to satisfy other constraints, it should be
+  changed as little as possible.  These are left implicit in this
+  example, but can also be stated explicitly if desired.  See Section
+  \ref{sec:soft-constraints}.}
 
 By placing the constraint on the result of sending messages rather
 than on fields, the system also respects object encapsulation.  The
@@ -864,13 +875,13 @@ always { rect.center == Point.new(100,100) }
 \label{sec:constraint-restrictions}
 
 When the programmer uses a method in \langname in a constraint, the
-underlying implementation generates a corresponding set of 
-constraints that can in turn be handed to an appropriate
+underlying implementation generates a corresponding set of (generally
+simpler) constraints that can in turn be handed to an appropriate
 solver.  Different language constructs in the methods can give rise to
 different sets of constraints, which may be more or less difficult for
 the solver.  For example, conjunctions and disjunctions in the method
 give rise to conjunctions and disjunctions in the constraints handed
-to the solver, and of the currently implemented solvers, only \zcubed
+to the solver, and of the currently provided solvers, only \zcubed
 can accommodate these.
 
 There are however three important restrictions on constraints that
@@ -903,16 +914,16 @@ constraint \lstinline{sum==x} for the first line in the method, and
 \lstinline{sum==sum+2} for the second (which is unsatisfiable).
 
 \langname tracks assignments during constraints, so instead of a
-general error, it can report if a variable was assigned multiple times
+general error, it can report if a variable is assigned multiple times
 in a constraint.  A way to address this issue would be treat multiply
 assigned variables in constraints as distinct variables (\eg $x_t$,
-$x_{t+1}$, etc.), which are connected through equality constraints
-(similar to the original Kaleidoscope'90 refinement approach).
+$x_{t+1}$, etc.), which are connected through equality constraints,
+similar to the original Kaleidoscope'90 refinement approach.
 However, we currently believe that the additional complexity of
 keeping track of successive versions of a variable outweighs the
 additional expressiveness, and have not supported such a feature.
-(Note that for straight-line code it's easy to use additional variables
-to obey this restriction.  Loops with such multiply assigned variables
+(Note that for straight-line code it's easy to add additional variables
+to satisfy this restriction.  Loops with such multiply assigned variables
 need to be converted to recursions --- see the following section for
 an example.)
 
@@ -923,7 +934,7 @@ language, and so can appear in conditionals, loops, recursive methods,
 and so forth, just as with any other statement.  Constraints
 themselves can also include iterations and conditionals.  For example,
 here is a definition of the \lstinline{sum} method for arrays that
-creates a set of addition constraint relating the array elements and
+creates a set of addition constraints relating the array elements and
 their sum, using partial sums as intermediate variables.\footnote{The
   \lstinline{sum} method makes of the \lstinline{inject} method
   instead of, for example, a call to \lstinline{each} that repeatedly
@@ -1061,6 +1072,7 @@ retracted.  Finally, an \lstinline{assert-during} constraint is active
 for the duration of the evaluation of its associated block.
 
 \subsection{Soft Constraints and Stay Constraints}
+\label{sec:soft-constraints}
 
 The concept of a constraint has been extended to include soft
 constraints as well as hard (required) ones, and a number of
@@ -1082,7 +1094,9 @@ always(priority: :high) {a+b==c}
 \end{code}
 
 Only some constraint solvers support soft constraints, so whether soft
-constraints can be handled depends on which solver is in use.  
+constraints can be handled depends on which solver is in use.  Also,
+in \langname the specific choice of how soft constraints are traded
+off is a property of the selected solver.
 
 An important application of soft constraints is to express the desire
 that parts of a system should remain the same unless there is some
@@ -1120,7 +1134,7 @@ of constraint solvers support this using so-called \emph{edit
 input to the solver.  \langname also supports incrementally
 re-satisfying constraints with an \lstinline{edit} method that takes a
 variable to be edited, a stream (that responds to \lstinline{next})
-that provides the new values, and optionally a strength.  For example,
+that provides the new values, and optionally a priority.  For example,
 suppose we make an instance of \lstinline{TemperatureConverter}.  Then
 we can give 100 new values to \lstinline{centigrade}, and have
 \lstinline{fahrenheit} change correspondingly each time:
@@ -1178,10 +1192,10 @@ We first provide an overview of the key features of the implementation
 before plunging into the details.  The interpreter normally operates
 in imperative evaluation mode.  In the absence of constraints, this is
 a standard Ruby \ac{vm}.  However, if the interpreter encounters a
-STORE instruction for a variable with a constraint on it, rather than
+\store instruction for a variable with a constraint on it, rather than
 directly storing into the variable, it calls the appropriate
 constraint solver to solve an equality constraint between the variable
-and the new value; and if it encounters a LOAD instruction for a
+and the new value; and if it encounters a \load instruction for a
 constrained variable with a constraint, it gets the value from the
 solver for that variable.  Constraints in \toolname are written as
 ordinary Ruby expressions that return true or false depending on
@@ -1205,9 +1219,9 @@ interpreter and use RPython's \ac{vm}-generation toolchain to create a
 
 The changes we made to the Topaz \ac{vm} are two-fold.  First, we
 added an interpreter mode for constraint construction
-(\cf{\autoref{sec:constraint-construction-impl}}) and a primitive to enter
+(\cf {\autoref{sec:constraint-construction-impl}}) and a primitive to enter
 this mode.  Second, we extended the interpreter to support constrained
-variables (\cf{\autoref{sec:constrained-variables-impl}}) by allowing the
+variables (\cf {\autoref{sec:constrained-variables-impl}}) by allowing the
 same name to refer to multiple objects, one for use in imperative
 evaluation mode and the other for constraint construction mode.  (Note
 that this use of the same name to refer to multiple objects is a
@@ -1241,7 +1255,7 @@ variables, and class variables are accessed. We also changed the
 default interpreter to be aware of changes from solvers.
 
 \paragraph{Imperative Execution}
-During imperative execution, the LOAD bytecodes check whether a
+During imperative execution, the \load bytecodes check whether a
 variable also refers to a constraint value and if so, copy the value
 the solver has determined to the \ac{oo} value. For immutable objects
 (such as small integers), the \ac{vm} replaces the reference to the
@@ -1250,21 +1264,21 @@ the solver has determined to the \ac{oo} value. For immutable objects
 solver-supplied value. The object must then adjust itself, before it
 is returned.
 
-STORE instructions similarly check whether the assigned variable has a
-constraint value.  There are two situations in which this will be the
-case.  First, the variable may have a direct interpretation in an active
+\store instructions similarly check whether the assigned variable has
+a constraint value.  There are two situations in which this will be
+the case.  In the first, the variable itself is in use by an active
 solver. In that case, the interpreter, instead of storing the supplied
-value directly, calls the \lstinline{suggest_value} method on the constraint
-value, with the supplied value as argument.  Second, the variable is on
-the path of a constraint, but has no direct interpretation in a
-solver.  In this case, all constraint blocks that encountered this
-value during their execution must be invalidated and re-executed with
-the new value.
+value directly, calls the \lstinline{suggest_value} method on the
+constraint value, with the new value as argument.  This will in turn
+invoke the associated solver.  In the second, the variable is on the
+path of a constraint, but is itself not used by a solver.  In this
+case, all constraint blocks that encountered this value during their
+execution must be invalidated and re-executed with the new value.
 
 \paragraph{Constraint Construction}
 The initializer for constraint objects---usually called through
 \lstinline{always}---activates an execution context for constraint
-construction. In this mode, LOAD instructions find or create a
+construction. In this mode, \load instructions find or create a
 constraint marker for each value that is accessed. These markers send
 \lstinline{for_constraint} to the value, which is expected to return
 an object that responds to \lstinline{value} and
@@ -1287,7 +1301,7 @@ and \lstinline{/}, but not \lstinline{sin} or \lstinline{**}. If a
 programmer tries to assert a constraint using those latter methods, an
 exception will be raised.
 
-STORE instructions in this mode create equality constraints. This is
+\store instructions in this mode create equality constraints. This is
 necessary to support constructing new objects in the predicate that
 connect values. However, this also means that all code blocks
 encountered during constraint construction have to be in single
@@ -1307,8 +1321,8 @@ marker to leave the constraint execution context when we enter solver
 code.
 
 \paragraph{Constraint Solving}
-This execution context is entered when a constrained variable is
-stored into. The \ac{vm} sends \lstinline{suggest_value} to the
+This execution context is entered when storing into a constrained
+variable.  The \ac{vm} sends \lstinline{suggest_value} to the
 \lstinline{ConstraintObject} for this variable. This context prevents
 nested sends of \lstinline{suggest_value} to avoid recursions in the
 solver.
@@ -1319,10 +1333,10 @@ points in the \ac{vm} that need to be adapted, we dispatch through the
 context. A new context is created when a \lstinline{Constraint} object
 is initialized, when a constrained variable is assigned and we need to
 re-satisfy constraints, and when we send a message to an object that
-inherits from \lstinline{ConstraintObject}. To support other
-cooperating paradigms besides constraint-oriented programming, we need
-to extend this to support different execution contexts in a more
-general way.
+inherits from \lstinline{ConstraintObject}.\footnote{If we wanted to
+  support other cooperating paradigms in addition to
+  constraint-oriented programming, we would need to extend this to
+  support different execution contexts in a more general way.}
 
 \subsubsection*{Constraint Construction Example}
 \label{sec:constraint-construction-example}
@@ -1330,8 +1344,8 @@ To illustrate how our implementation supports the combination of
 objects and constraints, consider the rectangle example in \langname
 from \autoref{sec:object-constraint-programming}.  The code
 asserts that the area of the rectangle \lstinline{rect} should always
-be equal to 100. The assertion is expressed by sending the
-\lstinline{area} method and sending the \lstinline{==} method to the
+be greater than or equal to 100. The assertion is expressed by sending the
+\lstinline{area} method and sending the \lstinline{>=} method to the
 result. Explicitly named in the constraint is only the variable
 \lstinline{rect}, but there are other variables that play a role in
 this constraint.
@@ -1350,12 +1364,12 @@ placeholder, because no rectangle-solver exists and the class
 \lstinline{area} to the \ac{oo} value. During the execution of
 \lstinline{area} a number of float values are encountered---the
 instance variables of the points that form the rectangle
-(\cf{\autoref{fig:architecture}}). These instance variables are resolved
+(\cf {\autoref{fig:architecture}}). These instance variables are resolved
 to constraint values, for example Cassowary variables, and the
 messages between them, instead of calculating the current area of the
 rectangle, return a linear constraint expression. This linear
-expression is then sent the message \lstinline{==} with 100 as its
-argument and returns a constraint equality that can be solved by
+expression is then sent the message \lstinline{>=} with 100 as its
+argument and returns an inequality constraint that can be solved by
 Cassowary.
 
 \begin{figure}
@@ -1372,12 +1386,12 @@ The constraint construction is complete when block passed to
 thereof created during the execution are gathered into a
 \emph{Constraint}. These provide a meta-level interface to enable or
 disable the entire constraint (and thus all participating values),
-query and change its strength
-(\cf{\autoref{sec:methods-class-constraint}}), and access the block that
-was passed to always, as well as each constraint value that
+query and change its priority
+(\cf {\autoref{sec:methods-class-constraint}}), and access the block that
+was passed to \lstinline{always}, as well as each constraint value that
 participates in the constraint.
 
-The Constraint then includes a) primitive values that are in the
+The constraint then includes a) primitive values that are in the
 domain of the solver and are connected in a constrainable way (\eg
 through equalities or inequalities, arithmetic, boolean logic) and b)
 a number of marked values for complex objects that invalidate the
@@ -1398,7 +1412,7 @@ assignment. This invalidation retracts all constraint values created
 during constraint construction and re-executes the block to create new
 constraint values. This means that the block may be re-executed
 multiple times during the runtime of the program, and any side-effects
-should be benign (\cf{\autoref{sec:constraint-restrictions}}).
+should be benign (\cf {\autoref{sec:constraint-restrictions}}).
 
 \subsection{Implementing Edit Constraints}
 \label{sec:implementing-edit-constraints}
@@ -1416,29 +1430,30 @@ Note that this works if the stream is being fed from another process
 that provides new values only when available --- the process that has
 the edit constraint should just block until one is available.
 
-\langname does not support edit constraints at a language level. The
-definition of the edit method is part of the Cassowary solver library
-that is included in the current version of \toolname. The library uses
-the \ac{api} of the \lstinline{Constraint} class to access the
-constraint values associated with variable names, creates edit
-constraints for them, and feeds the stream into the resulting edit
-variables.
+\langname does not support edit constraints at a language level.
+Instead, the definition of the edit method is part of the Cassowary
+solver library that is included in the current version of
+\toolname. The library uses the \ac{api} of the \lstinline{Constraint}
+class to access the constraint values associated with variable names,
+creates edit constraints for them, and feeds the stream into the
+resulting edit variables.
 
-The variables and stream can hold user-defined objects, not just
-primitive types.  To use Cassowary as the solver, we need to convert
-this into edit constraints on Floats (\ie the x and y values of the
-midpoint), but we also want to do this in an object-oriented way that
-respects encapsulation.  Further, updating the solution with each new
-value should be very fast.  As a sketch of the approach, different
-classes can define an \lstinline{edit_constraints} method that returns
-a list of edit constraints appropriate for that object and solver.
-For example, a constrained variable holding a point represented as x
-and y coordinates would return edit constraints on the x and y values,
-while a constrained variable holding a float would just return an edit
-constraint on itself.  (Later, if we also support DeltaBlue, the edit
-constraints returned would be different, \eg the point could be
-simply updated rather than dealing with its x and y coordinates
-separately.)
+In the near future, we plan to extend the system to allow the
+variables and stream to hold user-defined objects, not just primitive
+types.  To use Cassowary as the solver, we need to convert these into
+edit constraints on Floats or other primitive objects (\eg the x and y
+values of the midpoint), but we also want to do this in an
+object-oriented way that respects encapsulation.  Further, updating
+the solution with each new value should continue to be very fast.  To
+support this, different classes will define an
+\lstinline{edit_constraints} method that returns a list of edit
+constraints appropriate for that object and solver.  For example, a
+constrained variable holding a point represented as x and y
+coordinates would return edit constraints on the x and y values, while
+a constrained variable holding a float would just return an edit
+constraint on itself.  For DeltaBlue, the edit constraints returned
+could be simpler, \eg the point would be simply updated rather than
+dealing with its x and y coordinates separately.
 
 \subsection{Adding new Solvers}
 \label{sec:solver-interface}
@@ -1447,9 +1462,9 @@ During constraint construction, the \ac{vm} sends
 \lstinline{for_constraint} to each variable encountered during the
 execution. User code can add solvers to the system by adding a
 \lstinline{for_constraint} method to those classes that the solver can
-work with, making use of Ruby's open classes. This method receives the
+work with, making use of Ruby's open classes. This method takes the
 name under which the variable is accessed as argument, and should
-return an object that implements a subset of the classes interfaces
+return an object that implements a subset of the interfaces
 that the solver can reason about. For Cassowary, we extended the Float
 class:
 \begin{code}
@@ -1460,7 +1475,7 @@ class:
   end
 \end{code}
 
-This method creates a new variable, adds a low stay so the solver
+This method creates a new variable, adds a low-priority stay so the solver
 attempts to keep the value stable, and returns the constraint
 object. The \ac{vm} then sends messages to this object instead of the
 Float object in the context of the constraint execution.
@@ -1470,9 +1485,9 @@ method to respond to two messages:
 \begin{description}
 \item[suggest\_value] When imperative code stores into a variable that
   participates in constraints, the \ac{vm} instead sends this message
-  to the associated constraint object. This method triggers the solver
-  and potentially raises an exception, if a required constraint can no
-  longer be satisfied.
+  to the associated constraint object. This method triggers the
+  solver, raising an exception if a required constraint can no longer
+  be satisfied.
 \item[value] Whenever the \ac{vm} accesses a variable that
   participates in a constraint, it sends this message to the
   associated constraint object to determine whether the variable was
@@ -1483,7 +1498,7 @@ In the case of immutable objects (such as floats and integers), the
 \ac{vm} updates the reference for the variable directly. However, for
 mutable objects, solver libraries should provide the method
 \lstinline{assign_constraint_value} to update the object. We provide
-such a method for the Array class, that replaces the array's contents
+such a method for the Array class, which replaces the array's contents
 with the contents suggested by the solver:
 \begin{code}
   def assign_constraint_value(new_ary)
@@ -1502,7 +1517,9 @@ constraint solver libraries that extend core classes.
 
 \section{Evaluation}
 
-
+We evaluate \langname and \toolname first with respect to performance,
+and second with respect to how well the language supports desirable
+semantic properties for an object constraint language.
 
 \subsection{Performance Evaluation}
 \label{sec:performance-evaluation}
@@ -1510,19 +1527,19 @@ constraint solver libraries that extend core classes.
 There are three questions we are interested in regarding performance:
 a) how does constraint solving performance compare to writing
 imperative code to satisfy constraints, b) how is object-oriented
-performance affected by our semantic extensions to the \ac{vm}, and c)
+performance affected by our extensions to the \ac{vm}, and c)
 how does a practical application perform if refactored to use
 constraints.
 
 \paragraph{Constraint Solving}
 To answer the first question, we used an example from
-\cite{lopez-asi-1994} and adapted it to \toolname. In this example, a
-mouse drags the upper end of the mercury in a thermometer. However,
-the mercury cannot go outside the bounds of the thermometer, even if
-the user tries to drag it out. Additionally, a gray and white
-rectangle on the screen have to be updated to reflect the new mercury
-position and a displayed number should reflect the integer value of
-the mercury top.
+\cite{lopez-asi-1994} and adapted it to \toolname. In this example,
+the user drags the upper end of the mercury in a thermometer using the
+mouse. However, the mercury cannot go outside the bounds of the
+thermometer, even if the user tries to drag it out. Additionally, a
+gray and white rectangle on the screen should be updated to reflect
+the new mercury position, and a displayed number should reflect the
+integer value of the mercury top.
 
 \begin{figure}[h!]
   \begin{subfigure}[b]{0.48\textwidth}
@@ -1545,7 +1562,7 @@ Iterations.times do |i|
   display.number = temperature
 end
     \end{code}
-    \caption{Imperative Version}
+    \caption{Imperative version}
   \end{subfigure}
   \begin{subfigure}[b]{0.52\textwidth}
     \centering
@@ -1556,7 +1573,7 @@ always { white.bottom == mercury.top }
 always { gray.top == mercury.top }
 always { gray.bottom == mercury.bottom }
 always { display.number == temperature }
-always(:strong) { mercury.top == mouse.location_y }
+always(:high) { mercury.top == mouse.location_y }
 always { mercury.top <= thermometer.top }
 always { mercury.bottom == thermometer.bottom }
 always { thermometer.bottom == 0 }
@@ -1567,18 +1584,18 @@ Iterations.times do |i|
 end
 # edit(Iterations.times) { mouse.location_y }
     \end{code}
-    \caption{Object-Constraint Version}
+    \caption{Object-constraint version}
   \end{subfigure}
-  \caption{Interactive Thermometer Example from \cite{lopez-asi-1994}}
+  \caption{Interactive thermometer example from \cite{lopez-asi-1994}}
   \label{fig:thermometer-example}
 \end{figure}
 
 Note that the object-constraint version may be written in two ways:
-one that is more like the imperative version, and assigns new mouse
-locations in a loop. The comment shows a more constraint-oriented
-version that declares \lstinline{mouse.location_y} as an edit variable
-to incrementally re-satisfy constraints. In our benchmarks we have run
-both variants.
+one that is more like the imperative version and assigns new mouse
+locations in a loop; and a more constraint-oriented version that
+declares \lstinline{mouse.location_y} as an edit variable that
+triggers incrementally re-satisfing the constraints. In our benchmarks
+we have run both variants.
 
 \begin{table}
   \centering
@@ -1589,7 +1606,7 @@ both variants.
     10,000 & 1($\sigma$0.1) & 139($\sigma$10) & 12($\sigma$2.3) \\
     1,000,000 & 1($\sigma$0.1) & 1292($\sigma$66) & 66($\sigma$1.7) \\
   \end{tabular}
-  \caption{Thermometer benchmark (Normalized against Imperative version)}
+  \caption{Thermometer benchmark (normalized against imperative version)}
   \label{fig:thermometer-benchmark}    
 \end{table}
 
@@ -1608,7 +1625,7 @@ both variants.
 % \end{figure}
 
 \autoref{fig:thermometer-benchmark} shows that the naive
-object-constraint version is usually many 100 times slower than the
+object-constraint version is usually many hundred times slower than the
 purely imperative solution. As the iteration count grows, the naive
 version also does not seem to benefit as much from the \ac{jit} as the
 imperative version. Using edit constraints, repeated solving of
@@ -1646,7 +1663,7 @@ this variable participates in a constraint. Compared to JRuby,
 
 Considering that JRuby and Topaz are, for these benchmarks, currently
 the fastest Ruby \acp{vm}, we consider \toolname to be very performant
-for purely imperative code.  It it also be possible to make further
+for purely imperative code.  It should also be possible to make further
 performance improvements by optimizing away many of the tests that are
 at present made each time a variable is accessed. RPython provides
 facilities to inform the \ac{jit} that some properties of the
@@ -1662,20 +1679,20 @@ reads a folder with bitmaps and streams raw video to a video
 player. The quality with which the video is streamed depends on a
 number of variables:
 \begin{description}
-\item[User Preference] User may decide not to overload their system
+\item[User Preference] Users may decide not to overload their systems
   and explicitly choose a lower quality. This should be an upper
   bound for the quality of the streaming.
-\item[Encoding Time] The program has only 1/25 seconds to encode a
+\item[Encoding Time] The program has only 1/25 second to encode a
   frame. If it takes longer, the quality should be automatically
   reduced to ensure smooth playback.
 \item[System Load] The overall system load of the encoding system
-  should be less than 80\%, to retain enough resources for other tasks
+  should be less than 80\%, to retain enough resources for other tasks.
 \item[Quality Bounds] Whatever users choose as preferred quality, the
-  quality cannot be below 0 or above 100\%
+  quality cannot be below 0 or above 100\%.
 \end{description}
 
-In the imperative version of the application, these constraints where
-explicitly checked an re-satisfied after each frame. The
+In the imperative version of the application, these constraints were
+explicitly checked and re-satisfied after each frame. The
 object-constraint solution uses custom solvers for File contents and
 method execution time:
 \begin{figure}[h!]
@@ -1704,7 +1721,7 @@ def recalculate_quality
   @quality = 100 if @quality > 100
 end
     \end{code}
-    \caption{Imperative Version}
+    \caption{Imperative version}
   \end{subfigure}
   \begin{subfigure}[b]{0.52\textwidth}
     \centering
@@ -1712,16 +1729,16 @@ end
 always { @quality >= 0 }
 always { @quality <= 100 }
 always { @quality <= user_preference }
-always(:strong) { @quality == user_preference }
+always(:high) { @quality == user_preference }
 always { @quality + cpuload * 100 <=
              100 + 80 * NumberOfProcessors }
-always(:strong) { @quality + encoding_time >= 90 }
+always(:high) { @quality + encoding_time >= 90 }
 always { @quality + encoding_time <=
              100 + FrameMsMax }
     \end{code}
-    \caption{Object-Constraint Version}
+    \caption{Object-constraint version}
   \end{subfigure}
-  \caption{Quality Constraints in Video Streaming}
+  \caption{Quality constraints in video streaming}
   \label{fig:video-streaming-example}
 \end{figure}
 
@@ -1771,7 +1788,7 @@ returned that was associated with the \lstinline{time} local
 variable. Because it is read-only, the
 \lstinline{assign_constraint_value} method is omitted. For the
 configuration file object, the \lstinline{assign_constraint_value}
-method looks as follows:
+method is as follows:
 \begin{code}
   def assign_constraint_value(float)
     if float != @content.to_f
@@ -1806,10 +1823,10 @@ Kaleidoscope and Turtle.
     Automatic Solving & & x & x & x & x \\
     Linguistic Symbiosis & & & x & x & x \\
     Extensible Solvers & x & & (x) & (x) & x \\
-    Multi-directional Constraints & x & x & & x & x \\
+    Suitably Expressive Constraints & x & x & & x & x \\
     Performant Pure-\ac{oo} code & x & x & x & & x \\
   \end{tabular}
-  \caption{Comparison of OCP with Related Work}
+  \caption{Comparison of OCP with related work}
   \label{tab:cmp-constraint-lang-approaches}
 \end{table*}
 
@@ -1818,13 +1835,13 @@ Programs in \langname appear as ordinary \ac{oo} programs if no
 constraints are used, but can be easily adapted to use constraints
 where it makes sense. If constraints are used, they respect
 encapsulation and re-use the object-oriented method
-definitions. Furthermore, object-oriented techniques such as
-inheritance and dynamic-typing work correctly with constraints.
+definitions. Furthermore,  techniques such as
+inheritance and dynamic typing operate correctly with constraints.
 
 In contrast, library and \ac{dsl} based approaches separate
 constraints from imperative code through a different syntax and
-semantics. \ac{frp} and \ac{cip} languages use \emph{conversion
-  methods} and \emph{constraint constructors} to satisfy constraints.
+semantics. For example, \ac{frp} and \ac{cip} languages use \emph{conversion
+  methods} and \emph{constraint constructors} respectively to support constraints.
 
 \paragraph{Automatic Solving}
 Using libraries for constraint satisfaction allows programmers to
@@ -1835,13 +1852,13 @@ re-satisfy constraints whenever they are violated during program
 execution.
 
 \paragraph{Linguistic Symbiosis}
-D'Hondt et.al.~\cite{d2004seamless} argue that linguistic symbiosis
-between different programming paradigm is required to support
+D'Hondt et al.~\cite{d2004seamless} argue that linguistic symbiosis
+between different programming paradigms is required to support the
 evolution of programs from the object-oriented paradigm to a
 constraint-oriented solution and vice versa. \ac{dsl} and library
 based approaches do not support such incremental refactoring between
-paradigms as well as approaches where constraints are written in the
-imperative host language.
+paradigms as well as approaches in which constraints are written in the
+host language.
 
 \paragraph{Extensible Solvers}
 Libraries provide the most flexibility for choosing different solvers
@@ -1853,16 +1870,28 @@ that reformulate constraints using a different solver.
 
 In \langname, all solvers use the same interface to communicate with
 the \ac{vm} so developers can add new solvers and replace existing
-ones to support new domains or to use solvers that give better results
+ones to support new domains, or to use solvers that give better results
 or performance for a particular problem.
 
-\paragraph{Multi-directional Constraints}
-In a number of applications, multi-directional constraints are
-necessary to express some useful constraints (for example, the quality
-of our video stream was simultaneously influenced by a number of
-different constraints). \langname supports these by providing (and
-enabling programmers to add) solvers that can maintain constraints
-with multiple inputs and outputs.
+\paragraph{Suitably Expressive Constraints}
+To take advantage of the constraint paradigm, the language should
+allow a rich set of constraints to be written and solved.
+Multi-directional constraints are important for some applications,
+while others additionally require solvers that can accommodate
+simultaneous equations and inequalities.  (For example, the Wheatstone
+bridge example requires solving simultaneous equations, while the
+video streaming example needs inequalities as well as equalities, and
+both hard and soft constraints.)  On the other hand, given an overly
+powerful language, it becomes all too easy to write constraints that
+take a very long time indeed to solve or that are intractable.  We
+believe that \langname strikes an appropriate balance here, by
+providing an expressive set of constraints with the solvers in the
+initial library, and by allowing more powerful solvers to be added if
+desired.  However, much more experience is needed to test whether in
+fact this is an appropriate balance, and to adjust it as needed; and
+as noted in the ``Conclusion and Future Work'' section, an important
+direction will be adding better support for debugging, explanation,
+and benchmarking.
 
 \paragraph{Performant Pure OO Code}
 Kaleidoscope provided a declarative semantics for assignment, type
@@ -1871,7 +1900,7 @@ also used if no actual constraints are in the program. Our
 implementation approach in \toolname uses different execution contexts
 for constraint construction/solving and imperative code. Combined with
 a state of the art \ac{jit}, this gives performance for pure \ac{oo}
-code that is comparable to a standard \ac{oo} \ac{vm} as used for
+code that is generally comparable to a standard \ac{oo} \ac{vm} as used for
 other approaches.
 
 \section{Conclusion and Future Work}
@@ -1904,7 +1933,8 @@ Another important direction will be adding better support for
 debugging, explanation, and benchmarking.  (If the constraint solver
 is unable to satisfy the constraints, why is this?  Or if the solver
 produces an unexpected answer, how was this answer arrived at?  If the
-solver is slow, why, and are there ways to make it faster?)
+solver is slow, why, and are there ways to make it faster?  Is there a
+more appropriate solver available?)
 
 Our initial implementation extends Ruby, but the ideas are applicable
 to other dynamic object-oriented languages, and future work may
@@ -1923,7 +1953,7 @@ include versions in Javascript or Squeak.
 
 \ifthenelse{\boolean{jot}}{%
 \backmatter
-\emph{NB: Please be sure to include DOIs (Digital Object Identifiers) for all cited articles, where available}
+%% \emph{NB: Please be sure to include DOIs (Digital Object Identifiers) for all cited articles, where available}
 
 % we can change this back if required for the journal
 % \bibliographystyle{alphaurl}
@@ -1948,7 +1978,13 @@ ACKS
 This appendix contains material that will appear only in the
 Viewpoints note but not the journal article, including a design for
 additional language features not yet implemented, and example
-programs.
+programs.  
+
+All the example programs work currently unless specifically noted.
+(These are the hardwired resistance in the circuit examples, and the
+identity constraint in the doubly linked list.)  In the published
+version of the note --- as opposed to this draft --- we will only
+include programs that work completely.
 
 \subsection{About the Name}
 
@@ -2010,36 +2046,39 @@ a dataflow problem.  We find an order for solving the regions, so that
 region B is solved after region A if B is downstream from A in terms
 of the read-only variables.
 
-\subsection{Support for Local Propagation Constraints and Solvers}
+%% merge any of this material that's still relevant into the next
+%% section
 
-Local propagation solvers are useful since they are efficient and can
-be used with constraints on arbitrary kinds of values.  They have
-important limitations as well --- in particular they don't handle
-simultaneous equations, or constraints that don't uniquely determine
-values for the constrained variables, such as inequalities.  We
-believe that it is important to support them in \toolname, and also
-that they be part of a suite of cooperating solvers, others of which
-\emph{can} handle such kinds of constraints.
+%% \subsection{Support for Local Propagation Constraints and Solvers}
 
-To allow a constraint to be used with a local propagation solver, the
-programmer should supply a set of \emph{constraint methods}, one for
-each writable variable (\ie a variable referenced by the constraint
-that isn't read-only).  Evaluating the method should set the
-corresponding variable to a value that satisfies the constraint.  The
-constraint should be functional for each of its writable variables,
-\ie the value for that variable should be unique given values for
-the other constrained variables.  If a constraint is read-only in some
-variable, then it doesn't need a method for that
-variable.\footnote{Prior work has sought to remove the restriction
-  that the local propagation constraint be functional in the writable
-  variables, so that for example one can use inequalities with local
-  propagation.  Other work has included local propagation constraints
-  whose methods set more than one variable (\eg SkyBlue).  However,
-  these solvers are more difficult for the programmer using them to
-  understand, so we use basic version of local propagation here.  Note
-  that if there is only one method per constraint, with all of the
-  other constrained variables being read-only, local propagation
-  reduces to dataflow constraints.}
+%% Local propagation solvers are useful since they are efficient and can
+%% be used with constraints on arbitrary kinds of values.  They have
+%% important limitations as well --- in particular they don't handle
+%% simultaneous equations, or constraints that don't uniquely determine
+%% values for the constrained variables, such as inequalities.  We
+%% believe that it is important to support them in \toolname, and also
+%% that they be part of a suite of cooperating solvers, others of which
+%% \emph{can} handle such kinds of constraints.
+
+%% To allow a constraint to be used with a local propagation solver, the
+%% programmer should supply a set of \emph{constraint methods}, one for
+%% each writable variable (\ie a variable referenced by the constraint
+%% that isn't read-only).  Evaluating the method should set the
+%% corresponding variable to a value that satisfies the constraint.  The
+%% constraint should be functional for each of its writable variables,
+%% \ie the value for that variable should be unique given values for
+%% the other constrained variables.  If a constraint is read-only in some
+%% variable, then it doesn't need a method for that
+%% variable.\footnote{Prior work has sought to remove the restriction
+%%   that the local propagation constraint be functional in the writable
+%%   variables, so that for example one can use inequalities with local
+%%   propagation.  Other work has included local propagation constraints
+%%   whose methods set more than one variable (\eg SkyBlue).  However,
+%%   these solvers are more difficult for the programmer using them to
+%%   understand, so we use basic version of local propagation here.  Note
+%%   that if there is only one method per constraint, with all of the
+%%   other constrained variables being read-only, local propagation
+%%   reduces to dataflow constraints.}
 
 \subsection{Initializing and Manipulating Constraints}
 \label{sec:initializing-constraints}
@@ -2082,8 +2121,8 @@ arguments to \lstinline{always} or \lstinline{once}.
 
 \begin{description}
 \item[predicate] A block that evaluates to true or false.  
-\item[priority] (also known as strength, although I now like
-  ``priority'' better).  Defaults to \lstinline{:required}.
+\item[priority] (also known as strength, but we've changed to use
+  ``priority'').  Defaults to \lstinline{:required}.
 \item[weight] Defaults to 1.
 \item[error] A block that evaluates to the error in satisfying that
   constraint.  The error value is 0 iff the constraint is satisfied.
@@ -2115,11 +2154,10 @@ other constrained variables.  If a constraint is read-only in some
 variable, then there isn't a corresponding block for that variable in
 the dictionary.
 
-Here's a trivial example for the $x+y=z$ constraint.  
+%% TODO: fix the discussion of local propagation methods, to account
+%% for the current syntax
 
-\todo{include specific syntax and examples from ideas.tex after we
-  figure out what we're doing}
-
+%% Here's a trivial example for the $x+y=z$ constraint.  
 
 \subsubsection{Methods for the Class Constraint}
 \label{sec:methods-class-constraint}
@@ -2135,9 +2173,9 @@ by the class, not the constraint methods for local propagation.)
   to the solver as multiple primitive constraints, all of these
   primitive constraints are enabled.
 \item[disable] Disable all constraints that were asserted in the block
-\item[strength] Returns the constraint block strength
-\item[strength=] Setter for the constraint block strength. This
-  retracts all constraints and re-enables them using the new strength.
+\item[priority] Returns the constraint block priority
+\item[priority=] Setter for the constraint block priority. This
+  retracts all constraints and re-enables them using the new priority.
 \item[constraint\_block] Returns the block object that was passed to
   \lstinline{always}
 \item[solver\_constraints] Returns an array with the solver-specific
@@ -2203,15 +2241,10 @@ priority names. Later, we should explicitly define a set of priority
 names and then all solver libraries can map these to their internal
 priority values.
 
-\todo{These seem like good names for strengths, but not for
-  priorities.  Maybe call them strengths after all?  The main term
-  that seems problematic is ``constraint hierarchies'' rather than
-  ``constraint strength''.}
-
 Adding a more general mechanism to define arbitrary many priorities is
-probably low priority, since in practice we've found that the fixed
-set of priorities is sufficient.  They tend to be used in stylized
-ways, \eg \lstinline{high} for edit constraints and
+a low priority task (bad pun?), since in practice we've found that the
+fixed set of priorities is sufficient.  They tend to be used in
+stylized ways, \eg \lstinline{high} for edit constraints and
 \lstinline{low} for stays.
 
 %% COMMENTED OUT SINCE NOW MOSTLY REDUNDANT WITH THE CONCLUSION:
@@ -2253,13 +2286,12 @@ Law constraint on $n$ connected leads that their currents sum to 0.
 
 \todo{fix the problem with code that only allows 100 ohm resistors}
 
-\todo{fix the ugly  \_\_constrain\_\_ { lead.current } + memo construct}
-
 \begin{lstlisting}
 class Lead
   attr_reader :voltage, :current
   def initialize
-    # set voltage and current to 0.0 for now so that they are of type Float (constraints may change it later)
+    # set voltage and current to 0.0 for now so that they are of type Float 
+    # (constraints may change them later)
     @voltage = 0.0
     @current = 0.0
   end
@@ -2318,8 +2350,7 @@ def connect(leads)
   # all voltages should be equal
   leads[1..-1].each { |a| always { a.voltage == leads[0].voltage } }
   # sum of currents has to be 0
-  sum = leads.inject(0) do |memo, lead|
-    __constrain__ { lead.current } + memo
+  sum = leads.inject(0) { |partial_sum, lead| partial_sum + lead.current }
   end
   always { sum == 0 }
 end
@@ -2338,8 +2369,6 @@ def wheatstone_bridge
   # galvanometer (represented as a wire in this version)
   g = Ground.new
   b = Battery.new(5.0)
-  # CAUTION!  Note that the resistor class temporarily has 100 ohms hardwired
-  # Unfortunately this makes the Wheatstone bridge not very interesting yet
   r1 = Resistor.new(100.0)
   r2 = Resistor.new(100.0)
   r3 = Resistor.new(100.0)
@@ -2354,6 +2383,9 @@ end
 \end{lstlisting}
 
 \subsubsection{Doubly Linked Lists}
+
+\todo{We need to finish implementing identity constraints for this to
+  work!}
 
 This example is adapted from one in reference \cite{lopez-ecoop-1994},
 and illustrates the use of identity constraints.
@@ -2404,6 +2436,8 @@ class DoublyLinkedListCell
 end
 \end{lstlisting}
 
+\subsubsection{Cryptarithmetic}
+
 Here is a well known cryptarithmetic puzzle that \toolname can solve
 using \zcubed:
 \begin{lstlisting}
@@ -2428,8 +2462,8 @@ end
 always { w('send') + w('more') == w('money') }
 \end{lstlisting}
 
-\todo{include additional examples?  n queens? thermometer example (if
-  it works)?}
+%% TODO: include Sudoku example soon
+%% TODO: include additional examples?  n queens?   
 
 \end{document}
 

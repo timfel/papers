@@ -13,11 +13,11 @@ set yrange [0:4]
 
 set key at 0.01,-0.5
 
-set label ">18" at 0.23,3.85
-set label ">18" at 2.23,3.85
-set label ">9" at 3.23,3.85
+set label ">25" at 0.23,3.85
+set label ">33" at 2.23,3.85
+set label ">10" at 3.23,3.85
 
-set datafile separator ","
-plot 'metatracing_vm_benchmarks_normalized.dat' using 2:3:xtic(1) ti "Topaz" linecolor rgb "#FF0000", \
+set datafile separator "|"
+plot 'metatracing_vm_benchmarks_normalized.dat' using 4:5:xtic(1) ti "Topaz" linecolor rgb "#FF0000", \
      '' using 6:7 ti "JRuby" lt 1 lc rgb "#00FF00", \
-     '' using 4:5 ti "Babelsberg/R" lt 1 lc rgb "#0000FF"
+     '' using 2:3 ti "Babelsberg/R" lt 1 lc rgb "#0000FF"

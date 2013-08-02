@@ -88,7 +88,7 @@
 \newcommand{\cf}[1]{cf.\,{#1}\xspace}
 \newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
 
-\newcommand{\zcubed}{Z${}^3$\xspace}
+\newcommand{\zthree}{Z3\xspace}
 \newcommand{\langname}{\textsc{Babelsberg}\xspace}
 \newcommand{\toolname}{\textsc{Babelsberg/R}\xspace}
 
@@ -495,7 +495,7 @@ to only use the constraint to find a value for $c$); and whether the
 solver supports soft constraints as well as hard (required) ones.
 
 A few solvers of particular note to the programming language community
-are \zcubed~\cite{de2008z3}, a state-of-the-art SMT solver from
+are \zthree~\cite{de2008z3}, a state-of-the-art SMT solver from
 Microsoft Research designed for theorem proving (\eg for program
 verification), and kodkod~\cite{torlak2007kodkod} for constraints over
 finite domains.  For use in interactive graphics systems, include
@@ -510,7 +510,7 @@ as the CPLEX optimizer for mathematical
 programming~\cite{optimization1993using}.
 
 For example the following code rewrites the previous, purely imperative
-solution to use the \zcubed constraint solver to solve our
+solution to use the \zthree constraint solver to solve our
 constraints:
 \begin{code}
 class RectAspect < Aspect
@@ -892,7 +892,7 @@ solver.  Different language constructs in the methods can give rise to
 different sets of constraints, which may be more or less difficult for
 the solver.  For example, conjunctions and disjunctions in the method
 give rise to conjunctions and disjunctions in the constraints handed
-to the solver, and of the currently provided solvers, only \zcubed
+to the solver, and of the currently provided solvers, only \zthree
 can accommodate these.
 
 There are however three important restrictions on constraints that
@@ -1010,21 +1010,21 @@ solvers, that makes it straightforward to add new solvers, and that
 doesn't privilege the solvers provided with the basic implementation.
 (They are simply the solvers that are in the initial library.)  In the
 current implementation of \toolname, the available solvers are
-Cassowary, \zcubed, a solver for float and integer array elements that
-maps to \zcubed and Cassowary, and DeltaBlue.
+Cassowary, \zthree, a solver for float and integer array elements that
+maps to \zthree and Cassowary, and DeltaBlue.
 
 Currently, the programmer must explicitly indicate which solvers are
 available for a given program.  The solver for a given constraint is
 chosen eagerly, based on the run-time type of the variables
 that occur in the constraint, and only one solver can be registered
 for a particular type. In cases where different solvers can handle the
-same types (for example, both \zcubed and Cassowary handle constraints
+same types (for example, both \zthree and Cassowary handle constraints
 on floats), the programmer has to decide which solver to use by
 activating only the desired one. In some cases, this choice may simply
 be a matter of preference, however, other restrictions apply. For
 example, Cassowary cannot solve nonlinear equations. To solve
 nonlinear constraints, the developer has to know about this
-restriction and choose \zcubed. For interactive graphical applications
+restriction and choose \zthree. For interactive graphical applications
 where constraint priorities are needed, Cassowary has to be used.
 
 Developers can write constraints that are too
@@ -1072,7 +1072,8 @@ cooperating constraint solvers, serving as ``gateways'' to control
 information flow among the solvers.  See
 \autoref{sec:cooperating-solvers}.
 
-\subsection{Constraint Durations}
+\subsection{Constraint Durations and Activation}
+\label{sec:constraint-durations-and-activation}
 
 Constraints have \emph{durations} during which they are active.  So
 far, we've been using the \lstinline{always} duration, which declares
@@ -1081,6 +1082,21 @@ statement is evaluated and remains active indefinitely after that. A
 \lstinline{once} constraint is activated, satisfied, and then
 retracted.  Finally, an \lstinline{assert-during} constraint is active
 for the duration of the evaluation of its associated block.
+
+A related issue is \emph{when} constraint satisfaction is invoked.
+\langname's default behavior is that constraints are immediately
+satisfied or re-satisfied whenever there is a change to one of the
+constrained variables.  Sometimes this is not the desired behavior,
+for example, if there is a sequence of assignments that change the
+state of an object, with the object being in a temporarily
+inconsistent state in the midst of the assignments.  To handle this,
+\langname includes a construct to allow a sequence of assignments to
+be made, with solving invoked only after all the assignments have been
+made.  Ruby provides multi-assignments to store values into multiple
+variables in a single statement, and this is used in \toolname to
+implement this construct.  If multiple variables that have constraints
+on them are assigned using multi-assignment, all values are assigned
+before the solver is triggered.
 
 \subsection{Soft Constraints and Stay Constraints}
 \label{sec:soft-constraints}
@@ -1286,14 +1302,10 @@ path of a constraint, but is itself not used by a solver.  In this
 case, all constraint blocks that encountered this value during their
 execution must be invalidated and re-executed with the new value.
 
-Besides simple assignments, Ruby provides multi-assignments to store
-values into multiple variables in a single statement. This is often
-used to swap variables (\eg \lstinline{x, y = y, x}). In \toolname, if
-multiple variables that have constraints on them are assigned in this
-fashion, all values are assigned before the solver is triggered. This
-provides programmers with a way to atomically update multiple values
-without the solver potentially undoing the first assignment when the
-second occurs.
+As described in \autoref{sec:constraint-durations-and-activation}, in
+\toolname, if multiple variables that have constraints on them are
+assigned using multi-assignment, all values are assigned before the
+solver is triggered.
 
 \paragraph{Constraint Construction}
 The initializer for constraint objects---usually called through
@@ -1964,9 +1976,15 @@ constraint evaluation and satisfaction.  Another direction is to add
 additional solvers to the library, for example a finite domain solver
 or solvers that support constraints on other primitive storage types
 such as arrays, strings, and hashes, and to implement the design for
-cooperating solvers.  Yet another direction regarding solvers is to
-introduce a ``meta-solver'' that can automatically select one or more
-applicable solvers for the given set of constraints.
+cooperating solvers.  The multi-assignment semantics described in
+\autoref{sec:constraint-durations-and-activation} provides a clean and
+simple way to control when constraint satisfaction is invoked.
+However, more experience with writing programs in \toolname is needed
+to decide whether this construct is sufficiently expressive, or
+whether additional ways are needed to control when constraint solving
+is invoked.  Yet another direction regarding solvers is to introduce a
+``meta-solver'' that can automatically select one or more applicable
+solvers for the given set of constraints.
 
 Another important direction will be adding better support for
 debugging, explanation, and benchmarking.  (If the constraint solver
@@ -2218,7 +2236,7 @@ by the class, not the constraint methods for local propagation.)
   \lstinline{always}
 \item[solver\_constraints] Returns an array with the solver-specific
   constraint objects. For Cassowary constraints, this is a list of
-  \lstinline{LinearEqualities}, for \zcubed it is a list of
+  \lstinline{LinearEqualities}, for \zthree it is a list of
   \lstinline{Z3Asts}
 \end{description}
 
@@ -2473,7 +2491,7 @@ end
 \subsubsection{Cryptarithmetic}
 
 Here is the well known cryptarithmetic puzzle send+more=money, which \toolname can solve
-using \zcubed.  (Later, we should also have an efficient finite-domain
+using \zthree.  (Later, we should also have an efficient finite-domain
 solver such as kodkod available.)
 \begin{lstlisting}
 # initialize each variable to an integer so that the solver knows its type

@@ -1,0 +1,493 @@
+\newpage
+\appendix
+
+\section{Appendix}
+
+This appendix contains material that will appear only in the
+Viewpoints note but not the journal article, including a design for
+additional language features not yet implemented, and example
+programs.  
+
+All the example programs work currently unless specifically noted.
+(Right now this is the identity constraint in the doubly linked list.)
+In the published version of the note --- as opposed to this draft ---
+we will only include programs that work completely.
+
+\subsection{About the Name}
+
+%% \begin{wrapfigure}{r}{0.25\textwidth}
+%%   \begin{center}
+%%     \includegraphics[width=0.25\textwidth]{Metropolisposter}
+%%   \end{center}
+%% \end{wrapfigure}
+
+Babelsberg is a district of Potsdam, in which HPI is located.  It is
+also the location of Studio Babelsberg, the historical center of the
+German film industry (Fritz Lang's \emph{Metropolis} and Josef von
+Sternberg's \emph{The Blue Angel} were filmed there), and still
+active, primarily for high-budget feature films.
+
+\begin{figure}[h]
+  \begin{center}
+  \includegraphics[width=0.25\textwidth]{Metropolisposter}
+  \end{center}
+  \caption{Poster for ``Metropolis''}
+\end{figure}
+
+\subsection{Support for Multiple Cooperating Solvers}
+\label{sec:cooperating-solvers}
+
+The current implementation supports multiple solvers, and a protocol
+for solvers so that it is convenient to add new ones.  However, for a
+given program only one solver is used.  This is a significant
+limitation, since richer sets of constraints can be written and solved
+using multiple cooperating solvers.  The Viewpoints note
+``Architectures for Cooperating Constraint Solvers''
+\cite{borning-coop-solvers-2012} describes one technique for
+supporting this, which fits well with \langname.  Our more recent
+work with Bloom as an infrastructure for cooperating solvers takes a
+more general approach, which will also be more complex to implement.
+We suggest an evolutionary path for \langname that begins with the
+former approach, and perhaps later encompasses the Bloom approach.
+
+Briefly, in the ``Architectures for Cooperating Constraint Solvers''
+approach, we view the constraints and constrained variables as a
+bipartite graph.  For the top level, we partition the constraints into
+regions, based on the following requirements:
+\begin{itemize}
+\item each constraint belongs to exactly one region
+\item the different regions can share variables (but not constraints)
+\item for each variable shared by two or more regions, that variable
+  must be read-only for all but one of the regions
+\item the graph of the different top-level regions must be acyclic
+\item it isn't possible to divide any region into two regions and
+  still maintain the other requirements
+\end{itemize}
+
+We can always partition the constraint graph this way.  (In the limit,
+there is a single region.)  The partitioning is unique.
+
+Given this partitioning, and a solver for the constraints in each
+region, it's easy to solve the constraint system as a whole: it's just
+a dataflow problem.  We find an order for solving the regions, so that
+region B is solved after region A if B is downstream from A in terms
+of the read-only variables.
+
+%% merge any of this material that's still relevant into the next
+%% section
+
+%% \subsection{Support for Local Propagation Constraints and Solvers}
+
+%% Local propagation solvers are useful since they are efficient and can
+%% be used with constraints on arbitrary kinds of values.  They have
+%% important limitations as well --- in particular they don't handle
+%% simultaneous equations, or constraints that don't uniquely determine
+%% values for the constrained variables, such as inequalities.  We
+%% believe that it is important to support them in \toolname, and also
+%% that they be part of a suite of cooperating solvers, others of which
+%% \emph{can} handle such kinds of constraints.
+
+%% To allow a constraint to be used with a local propagation solver, the
+%% programmer should supply a set of \emph{constraint methods}, one for
+%% each writable variable (\ie a variable referenced by the constraint
+%% that isn't read-only).  Evaluating the method should set the
+%% corresponding variable to a value that satisfies the constraint.  The
+%% constraint should be functional for each of its writable variables,
+%% \ie the value for that variable should be unique given values for
+%% the other constrained variables.  If a constraint is read-only in some
+%% variable, then it doesn't need a method for that
+%% variable.\footnote{Prior work has sought to remove the restriction
+%%   that the local propagation constraint be functional in the writable
+%%   variables, so that for example one can use inequalities with local
+%%   propagation.  Other work has included local propagation constraints
+%%   whose methods set more than one variable (\eg SkyBlue).  However,
+%%   these solvers are more difficult for the programmer using them to
+%%   understand, so we use basic version of local propagation here.  Note
+%%   that if there is only one method per constraint, with all of the
+%%   other constrained variables being read-only, local propagation
+%%   reduces to dataflow constraints.}
+
+\subsection{Initializing and Manipulating Constraints}
+\label{sec:initializing-constraints}
+
+This subsection describes the protocol for initializing constraints
+and the methods available on constraint objects.
+
+Formally, a constraint is just a predicate that we want to have hold.
+In the implementation, it is represented as an instance of
+\lstinline{Constraint}.  Minimally, a constraint can be defined just
+as a predicate, written as a Ruby block.  The block should meet the
+following criteria:
+
+\begin{itemize}
+
+\item Evaluating the block returns a boolean --- the constraint is
+  that it evaluate to true.
+
+\item The expression in the block should either be free of side
+  effects, or if there are side effects, they should be benign (for
+  example, doing caching).  
+
+\item Repeatedly evaluating the block should return the same thing (so
+  an expression involving a random number generator wouldn't qualify).
+
+\end{itemize}
+
+There should be other available attributes for
+\lstinline{Constraint}.  Constraints that will be satisfied
+using a local propagation solver need a set of propagation methods,
+soft constraints need a priority, and so forth.  
+
+\subsubsection{Initializing a Constraint}
+
+Here is a list of attributes that can be supplied when initializing a
+constraint object.  The predicate is the only required one, and as
+described below can be either an argument or a block after the
+arguments.  All of the other attributes are specifiable as optional
+arguments to \lstinline{always} or \lstinline{once}.
+
+\begin{description}
+\item[predicate] A block that evaluates to true or false.  
+\item[priority] (also known as strength, but we've changed to use
+  ``priority'').  Defaults to \lstinline{:required}.
+\item[weight] Defaults to 1.
+\item[error] A block that evaluates to the error in satisfying that
+  constraint.  The error value is 0 iff the constraint is satisfied.
+  Defaults to 0 or 1.
+\item[methods] (optional) A dictionary of local propagation methods, indexed by
+  the variable whose value is computed by the corresponding
+  method.
+\end{description}
+
+\lstinline{always} can be used to define compound constraints. This
+happens, for example, if a predicate method checks two conditions and
+conjoins them (as, for example, in a \lstinline{CartesianPoint#==}
+method).  All arguments apply to all constraint parts that are created
+during the execution of \lstinline{always}. So \lstinline{:low} priority
+compound constraint will be added to the solver as multiple primitive
+constraints that are all \lstinline{:low} priority.  If local propagation
+methods are provided, evaluating a method must satisfy all of the
+component constraints of a compound constraint.  The error for a
+compound constraint is likely to be problematic unless it's a simple
+0/1 value. An alternative is just allow \lstinline{always} with a
+single constraint (not compound) when optional arguments are present.
+
+The local propagation methods are only needed for local propagation
+solvers like DeltaBlue.  Each method is a block, that if evaluated,
+will set the index variable to a value that satisfies the constraint.
+The constraint should be functional for the writable variables, \ie
+the value for the index variable should be unique given values for the
+other constrained variables.  If a constraint is read-only in some
+variable, then there isn't a corresponding block for that variable in
+the dictionary.
+
+%% TODO: fix the discussion of local propagation methods, to account
+%% for the current syntax
+
+%% Here's a trivial example for the $x+y=z$ constraint.  
+
+\subsubsection{Methods for the Class Constraint}
+\label{sec:methods-class-constraint}
+
+The \lstinline{Constraint} class provides the following methods in
+\toolname.  (Here we're talking about ordinary Ruby methods provided
+by the class, not the constraint methods for local propagation.)
+
+\begin{description}
+\item[enable] Enable all constraints that were asserted in the block,
+  \ie if the constraint is a compound constraint (joined with
+  \lstinline{&&} or \lstinline{||} or something) that has to be added
+  to the solver as multiple primitive constraints, all of these
+  primitive constraints are enabled.
+\item[disable] Disable all constraints that were asserted in the block
+\item[priority] Returns the constraint block priority
+\item[priority=] Setter for the constraint block priority. This
+  retracts all constraints and re-enables them using the new priority.
+\item[constraint\_block] Returns the block object that was passed to
+  \lstinline{always}
+\item[solver\_constraints] Returns an array with the solver-specific
+  constraint objects. For Cassowary constraints, this is a list of
+  \lstinline{LinearEqualities}, for \zthree it is a list of
+  \lstinline{Z3Asts}
+\end{description}
+
+\subsection{Constraint Durations}
+\label{sec:constraint-durations}
+
+A constraint may not necessarily be active for the entire life of the
+program.  \langname provides the following options:
+\lstinline{always}, \lstinline{once}, and
+\lstinline!assert {}.during {}! (for constraints that are enforced
+while a block is executing and then removed).
+
+The return value of a call to \lstinline{always} is an object of type
+\lstinline{Constraint}. If the constraint has no solver, but the
+expression already evaluates to true, a warning is printed; if it is
+false, an exception is raised.
+
+Note that currently all assertions that we want to continuously check,
+but cannot solve (yet), are implemented in this way. For example, without
+enabling any string solvers in the system, 
+\lstinline!always { stringA == stringB }! will return \lstinline{true} 
+if indeed the two strings
+are equal, and whenever any of the strings is assigned, the block is
+re-executed to check if the condition still holds. If it doesn't (the
+boolean returned is be false or nil), an error is raised.
+
+This same mechanism is used when complex objects that we have no
+solver for occur in the constraint expression (even if a primitive
+constraint is created in the block). Consider equality between two
+Cartesian points, \lstinline{pt1} and \lstinline{pt2}: the constraint
+expression will create two primitive constraints, namely that
+\lstinline{pt1.x == pt2.x} and \lstinline{pt1.y == pt2.y}. Whenever an
+\lstinline{@x} or a \lstinline{@y} of either \lstinline{p1} or
+\lstinline{pt2} is assigned, the constraint solver will just calculate
+new values for the other instance variables. However, if
+\lstinline{pt1} is assigned a new object, the two primitive
+constraints are removed from the solver and the constraint block is
+executed again, to find the new meaning of \lstinline{pt1.x == pt2.x}.
+Because \lstinline{pt1} may now be a different class, the equality may
+be expressed differently. So whenever a complex object occurs in the
+execution of a constraint expression, the entire block is kept alive
+as long as the object is, so that the block can be re-executed later
+when the object is assigned a new value.
+
+\subsection{Constraint Priorities}
+
+All arguments to \lstinline{always} (except for the block), are simply
+passed on to the \lstinline{enable} method of the solver specific
+primitive constraint objects asserted during the execution of the
+block. \toolname does not know about constraint priorities (or
+weights, local propagation methods, or anything else that a particular
+solver may use). DeltaBlue and Cassowary---the two solvers that we
+currently provide that support priorities---simply map a set of named
+priorities to internal priority values: \lstinline{required},
+\lstinline{high}, \lstinline{medium}, and \lstinline{low}. Right
+now, we implicitly expect the solver libraries to use the same
+priority names. Later, we should explicitly define a set of priority
+names and then all solver libraries can map these to their internal
+priority values.
+
+Adding a more general mechanism to define arbitrary many priorities is
+a low priority task (bad pun?), since in practice we've found that the
+fixed set of priorities is sufficient.  They tend to be used in
+stylized ways, \eg \lstinline{high} for edit constraints and
+\lstinline{low} for stays.
+
+%% COMMENTED OUT SINCE NOW MOSTLY REDUNDANT WITH THE CONCLUSION:
+%%
+%% \subsection{Extending Other Languages}
+%% \label{sec:other-languages}
+
+%% \toolname is an extension to Ruby, and Ruby programs without
+%% constraints continue to be legal in it.  The Babelsberg syntax takes
+%% advantage of some Ruby quirks to provide a convenient syntax, and the
+%% implementation (\autoref{sec:implementation}) relies on Topaz, an
+%% experimental \ac{vm} built using the PyPy/RPython toolchain.
+
+%% However, the ideas are applicable to other dynamic object-oriented
+%% languages, and future work may include versions in Javascript or
+%% Squeak.  In particular, a constraint extension to Javascript would be
+%% of particular interest given the potential for integration with
+%% Lively.
+
+%% Another potential direction for future work is to evolve this language
+%% extension to work with the constraint-based extension to Bloom,
+%% initially in Ruby, and later in other languages as well to support
+%% cooperating languages with constraints.
+
+\subsection{Example Programs}
+
+This part of the appendix provides a set of example programs in
+\toolname that illustrate various features of the language
+
+\subsubsection{Electrical Circuit Examples}
+\label{sec:electrical-circuits}
+
+Here is a complete listing of the classes for building simple
+electrical circuits with batteries, resistors, wires, and grounds,
+along with some sample circuits using them.  Note in particular the
+clean way constraints such as Ohm's Law can be expressed, and the
+integration of constraints with control structures for the Kirchhoff 's
+Law constraint on $n$ connected leads that their currents sum to zero.
+
+\begin{lstlisting}
+class Lead
+  attr_reader :voltage, :current
+  def initialize
+    # set voltage and current to 0.0 for now so that they are of type Float 
+    # (constraints may change them later)
+    @voltage = 0.0
+    @current = 0.0
+  end
+end
+
+class TwoLeadedObject
+  attr_reader :lead1, :lead2
+  def initialize
+    @lead1 = Lead.new
+    @lead2 = Lead.new
+    # constrain currents to be equal magnitude and opposite
+    always { lead1.current + lead2.current == 0.0 }
+  end
+end
+
+class Resistor < TwoLeadedObject
+  attr_reader :resistance
+  def initialize(resistance)
+    super()
+    @resistance = resistance
+    # Ohm's Law constraint.  Note that the resistance is read-only.
+    always { lead1.voltage - lead2.voltage == resistance.?*lead1.current }
+  end
+end
+
+class Battery < TwoLeadedObject
+  attr_reader :supply_voltage
+  def initialize(supply_voltage)
+    super()
+    @supply_voltage = supply_voltage
+    always { lead2.voltage - lead1.voltage == @supply_voltage.? }
+  end
+end
+
+class Ground
+  attr_reader :lead
+  def initialize
+    @lead = Lead.new
+    # constrain the voltage and current to be 0
+    always { lead.voltage == 0.0 }
+    always { lead.current == 0.0 }
+  end
+end
+
+class Wire < TwoLeadedObject
+  def initialize
+    super()
+    always { lead1.voltage == lead2.voltage }
+  end
+end
+
+def connect(leads)
+  return if leads.empty?
+  # all voltages should be equal
+  leads[1..-1].each { |a| always { a.voltage == leads[0].voltage } }
+  # sum of currents has to be 0
+  sum = leads.inject(0) { |partial_sum, lead| partial_sum + lead.current }
+  end
+  always { sum == 0 }
+end
+
+def battery_resistor
+  # build a circuit with a battery and a resistor, and return the current in one of the leads
+  r = Resistor.new(resistance)
+  b = Battery.new(voltage)
+  connect [g.lead, r.lead1, b.lead1]
+  connect [r.lead2, b.lead2]
+  return r.lead1.current
+end
+
+def wheatstone_bridge
+  # build a Wheatstone bridge, and return the current through the
+  # galvanometer (represented as a wire in this version)
+  g = Ground.new
+  b = Battery.new(5.0)
+  r1 = Resistor.new(100.0)
+  r2 = Resistor.new(100.0)
+  r3 = Resistor.new(100.0)
+  r4 = Resistor.new(100.0)
+  w = Wire.new
+  connect [g.lead, b.lead1, r3.lead2, r4.lead2]
+  connect [b.lead2, r1.lead1, r2.lead1]
+  connect [r1.lead2, r3.lead1, w.lead1]
+  connect [r2.lead2, r4.lead1, w.lead2]
+  return w.lead1.current
+end
+\end{lstlisting}
+
+\subsubsection{Doubly Linked Lists}
+
+\todo{We need to finish implementing identity constraints for this to
+  work!}
+
+This example is adapted from one in reference \cite{lopez-ecoop-1994},
+and illustrates the use of identity constraints.
+
+For comparison, first here is the code for a singly linked list.
+
+\begin{lstlisting}
+class ListCell
+
+  attr_accessor :value, :next
+
+  def initialize(value,next=nil)
+    @value = value
+    @next = next
+  end
+
+  def insert_before(new_cell)
+    new_cell.next = self
+    new_cell
+  end
+
+  def insert_after(new_cell)
+    temp = @next
+    @next = new_cell
+    new_cell.next = temp
+    self
+  end
+\end{lstlisting}
+
+Here is the code for \lstinline{DoublyLinkedListCell} --- the only
+difference is the additional instance variable \lstinline{prev} and
+the constraint in \lstinline{initialize}.
+
+\begin{lstlisting}
+class DoublyLinkedListCell
+
+  attr_accessor :value, :next, :prev 
+  # :prev is only used internally
+
+  def initialize(value,next=nil)
+    @value = value
+    @next = next
+    # TODO: check if this works
+    always { if not(@next.nil?) then @next.prev === self }
+  end
+
+  # insert_before and insert_after are the same 
+end
+\end{lstlisting}
+
+\subsubsection{Cryptarithmetic}
+
+Here is the well known cryptarithmetic puzzle send+more=money, which \toolname can solve
+using \zthree.  (Later, we should also have an efficient finite-domain
+solver such as kodkod available.)
+\begin{lstlisting}
+# initialize each variable to an integer so that the solver knows its type
+s,e,n,d,m,o,r,y = [0]*8
+
+# each letter represents a digit between 0 and 9
+always { [s,e,n,d,m,o,r,y].ins(0..9) } 
+
+# each letter is mapped to a different digit
+always { [s,e,n,d,m,o,r,y].alldifferent? }
+
+# the addition constraint
+always {   s*1000 + e*100 + n*10 + d +
+           m*1000 + o*100 + r*10 + e ==
+ m*10000 + o*1000 + n*100 + e*10 + y }
+
+# the leading digits can't be 0
+always { s>0 }
+always { m>0 }
+
+puts ("solution: [s,e,n,d,m,o,r,y] = " + [s,e,n,d,m,o,r,y].to_s)
+\end{lstlisting}
+
+
+%%% Local Variables: 
+%%% mode: latex
+%%% TeX-master: "babelsberg_hpi_technical_report"
+%%% End: 

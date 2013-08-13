@@ -1,0 +1,957 @@
+\documentclass[preprint]{elsarticle}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{url}
+\usepackage{ifthen}
+\usepackage{amssymb}
+\usepackage{enumerate}
+\usepackage{paralist}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{natbib}
+\usepackage{listings}
+\usepackage[shortcuts]{extdash}
+
+\setlength{\bibsep}{1.3pt}
+
+% \RequirePackage[osf,sc]{mathpazo} % Palatino with real small caps and old style figures
+% \linespread{1.05} % a bit more for Palatino
+% \RequirePackage[scaled=.9]{beramono}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+% math font: euler
+% \RequirePackage[euler-digits]{eulervm}
+
+\usepackage{glossaries}
+\newcommand{\ac}[1]{\gls{#1}}
+\newcommand{\acp}[1]{\glspl{#1}}
+\newcommand{\io}{\textsc{i/o}\xspace}
+
+\newacronym{api}{\textsc{api}}{application programming interface}
+\newacronym{clr}{\textsc{clr}}{Common Language Runtime}
+\newacronym{com}{\textsc{com}}{Component Object Model}
+\newacronym{cop}{\textsc{cop}}{context-oriented programming}
+\newacronym{http}{\textsc{http}}{the Hypertext Transfer Protocol}
+\newacronym{iaas}{\textsc{iaas}}{Infrastructure-as-a-Service}
+\newacronym{ipc}{\textsc{ipc}}{Inter-process communication}
+\newacronym{jdi}{\textsc{jdi}}{Java Debugger Interface}
+\newacronym{jvmti}{\textsc{jvmti}}{Java Virtual Machine Tools Interface}
+\newacronym{jit}{\textsc{jit}}{just-in-time}
+\newacronym{json}{\textsc{json}}{JavaScript Object Notation}
+\newacronym{jvm}{\textsc{jvm}}{Java virtual machine}
+\newacronym{lcs}{\textsc{lcs}}{longest common sub-sequence}
+\newacronym{osi}{\textsc{osi}}{Open Systems Interconnection}
+\newacronym{paas}{\textsc{paas}}{Platform-as-a-Service}
+\newacronym{rest}{\textsc{rest}}{REpresentational State Transfer}
+\newacronym{soa}{\textsc{soa}}{Service-oriented Architectures}
+\newacronym{tcp}{\textsc{tcp}}{Transmission Control Protocol}
+\newacronym{udp}{\textsc{udp}}{User Datagram Protocol}
+\newacronym{uml}{\textsc{uml}}{Unified Modeling Language}
+\newacronym{uuid}{\textsc{uuid}}{universally unique identifier}
+\newacronym{vcs}{\textsc{vcs}}{version control system}
+\newacronym{vm}{\textsc{vm}}{virtual machine}
+\newacronym{xhr}{\textsc{xhr}}{XMLHttpRequest}
+
+\newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
+\RequirePackage{xspace}
+\newcommand{\eg}{e.\hairspace{}g.,\xspace}
+\newcommand{\Eg}{E.\hairspace{}g.,\xspace}
+\newcommand{\Ie}{I.\hairspace{}e.,\xspace}
+\newcommand{\ie}{i.\hairspace{}e.,\xspace}
+\newcommand{\cf}[1]{cf.\,{#1}\xspace}
+
+\newcommand{\toolname}{Peek-At-Talk\xspace}
+
+\newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
+
+\newcommand{\doctitle}{Constraining Timing-dependent Communication
+  for Debugging Non\-/deterministic Failures}
+
+\newcommand{\docsubject}{}
+\newcommand{\dockeywords}{Distributed Debugging, Record and Replay,
+  Dynamic Analysis}
+
+\usepackage[pdftex]{hyperref}
+\hypersetup{
+    pdfborder={0 0 0},
+    pdfauthor={T.~Felgentreff, M.~Perscheid, R.~Hirschfeld},
+    pdftitle=\doctitle,
+    pdfkeywords=\dockeywords
+}
+
+\begin{document}
+
+
+\begin{frontmatter}
+
+\title{\doctitle}
+\author[hpi]{T.~Felgentreff}
+\ead{tim.felgentreff@hpi.uni-potsdam.de}
+\author[hpi]{M.~Perscheid}
+\ead{michael.perscheid@hpi.uni-potsdam.de}
+\author[hpi]{R.~Hirschfeld}
+\ead{robert.hirschfeld@hpi.uni-potsdam.de}
+
+\address[hpi]{Software Architecture Group,~%
+  Hasso-Plattner Institute,\\%
+  Prof. Dr. Helmert Str. 2-3,~%
+  University of Potsdam, Germany%
+}
+\date{\today}
+% \maketitle
+
+\begin{abstract}
+  \input{journal_abstract.tex}
+\end{abstract}
+
+% \category{D.2.5}{Testing and Debugging}{Debugging aids}
+% \terms{Delphi theory}
+\begin{keyword}
+\dockeywords
+\end{keyword}
+
+\end{frontmatter}
+
+\section{Introduction}
+\label{sec:introduction}
+An increasing number of companies develop distributed Web
+applications~\cite{kondo2009cost}. 
+% EYPaaSSurvey2012
+Such applications
+often use custom communication interfaces rather than
+middleware~\cite{Nadiminti}. 
+% Ballou2008
+% Tassey2002
+This leads to
+timing dependencies in network communication and possible 
+non-deterministic failures because the order of network events can cause 
+changes in system behavior~\cite{Artho2003}.
+%,Lu2008
+
+Non\-/deterministic failures are hard to debug, because developers
+cannot reliably reproduce them~\cite{zeller2009programs}. Without
+reproduction, developers cannot systematically test their hypotheses
+about possible failure causes and debugging becomes a 
+time-consuming trial and error approach. Standard symbolic debuggers 
+are also inappropriate to debug distributed systems because they work 
+only at the source code level and provide no high-level view on 
+communication between processes and network nodes.
+
+More state-of-the-art approaches to debug non-deterministic failures
+use either expensive recording for post-mortem debugging
+~\cite{Stanley2009} or hard to understand record-and-replay 
+techniques~\cite{Geels2006Replay}. Post-mortem debugging
+collects all runtime data during execution and presents the combined
+data from different processes, which developers can then inspect
+independently from the running system. Record-and-replay techniques
+only record the outcome of non\-/deterministic operations to reproduce 
+a specific failure. All non\-/deterministic operations such as certain 
+system calls, access to uninitialized memory, and unsynchronized 
+access to shared memory are replaced by their recorded outcomes 
+and allow developers to replay the distributed system. 
+
+The aim of both approaches is to present recorded data for
+inspection. Post-mortem debugging records during one execution at
+comparatively high overhead, while record-and-replay records only
+enough data to ensure future runs are equivalent, and then uses
+multiple executions to record a little more data each time. However,
+both approaches have limitations for debugging distributed network
+applications:
+%with timing\-/dependent network communication:
+
+\begin{enumerate}[(a)]
+\item Post-mortem debugging imposes a high overhead on live
+  systems~\cite{Stanley2009} because all required data has to be
+  recorded beforehand. This overhead makes it unfeasible to leave
+  recording enabled for the live system at all times. Moreover, these 
+  approaches have a potential to introduce 
+  Heisenbugs~\cite{zeller2009programs}  in which the act of 
+  observing influences the non-determinism behavior. 
+\item Record and replay provides the wrong level of abstraction for
+  understanding timing\-/dependent communication. During replay,
+  developers still have to use symbolic debuggers and infer high-level
+  network timing dependencies from the source code of distributed
+  components. The information that a certain network request arrived
+  after another does not easily map to which methods get executed in
+  which order.
+\item Neither approach allows developers to request additional data
+  from the live system if required during debugging. If the recorded
+  data was insufficient or the replay system is different than the
+  live system in a certain aspect, information required to understand
+  and fix the bug may not be available to the developers. They have to
+  re-record all previous execution data plus the additionally required
+  information for post-mortem debugging, or have to configure the
+  replay system to be more like the live system.
+\end{enumerate}
+
+\todo{make this reference the workshop paper}
+We propose \emph{record and refinement}---implemented in our
+\toolname tool---to debug timing\-/dependent network communication. 
+Our approach imposes low overhead, provides a top-down view on
+timing\-/dependent communication, and still allows developers to
+inspect run-time data from the live system during debugging.
+
+During the initial record phase, we record network communication in
+the live system and divide communication schedules into failing and
+successful schedules. We analyze the differences between these
+schedules to detect anomalies that are likely causes of the
+non\-/deterministic failure. We constrain the distributed system to
+the failing schedules by modifying its network communication analogous
+to a traffic shaper~\cite{IetfShaper} that inspects network requests
+and passes them on according to some rule. Our rule is the previously
+recorded schedule, so we remove timing\-/dependent communication as a
+source of non-determinism by delivering and sending requests in
+order. If the constrained system reproduces the failure repeatedly,
+developers can request and refine more data from the live system with
+the help of our extended step-wise run-time
+analysis~\cite{Perscheid2010}.  The contributions of this paper are:
+
+\begin{itemize}
+\item A recording technique with low overhead that removes
+  timing\-/dependent network communication as a source of
+  non-determinism, and enables constraining communication in the live
+  system so multiple equivalent executions are possible.
+\item A communication anomaly analysis that allows developers to
+  approach a non\-/deterministic failure from the abstraction of network
+  communication, in addition to the low-level source code abstraction.
+\item An approach to record runtime data over multiple executions to
+  provide as much real data from the live system as required to
+  understand the non-deterministic failure.
+\item The \toolname tool that implements our record and refinement
+  approach for Squeak/Smalltalk~\cite{Ingalls1997}.
+\end{itemize}
+
+The rest of this paper is structured as follows:
+Section~\ref{sec:approach} illustrates our approach with the help of
+an example. Section~\ref{sec:implementation} explains \toolname and
+gives an overview of its implementation.
+% Section~\ref{sec:evaluation} evaluates our approach using the
+% prototype in terms of performance and usability.
+Section~\ref{sec:related-work} presents related work and
+Section~\ref{sec:conclusions} concludes.
+
+% Context:
+% much distributed applications development, inherent communication
+% non-determinism, failures that are caused by communication schedule
+% differences occur sporadically
+
+% debugging tools struggle to keep up
+
+% symbolic debuggers and printf ad-hoc combinations don't work
+
+% stop-the-world doesn't work, cumbersome to debug many servers,
+% non-determinism changes if debugger stops execution, failures hard to
+% reproduce
+
+% Existing solutions: focus on record/replay for live system
+
+% Problems:
+
+% 1. recording = tradeoff b/w accuracy and performance
+% either potentially not enough data or high overhead
+
+% 2. support for interactive debugging/analysis is lacking
+% too much data problem, data filtering only post mortem
+
+% global view on events not clear with insufficient recording
+
+% We propose Solution: Record communication information in live system
+% and identify failing communication schedules
+
+% use traffic-shaping to constrain communication to failing schedules,
+% removing non-determinism
+
+% record additional information during re-runs
+
+% Contributions:
+% 1. combine record+replay with iterative refinement => low overhead
+
+% 2. use refinements for more interactive debugging => improved
+% debugging experience
+
+\section{Record and Refinement}
+\label{sec:approach}
+
+\todo{Shorten this}
+
+We present an example system, a flight booking service that uses
+asynchronous communication between servers. It includes:
+\begin{inparaenum}[\itshape a\upshape)]
+\item a Web server that allows customers to search for and book
+  flights,
+\item a cache that the Web server communicates with to get flight
+  information, and
+\item a crawler that collects flight information from different
+  airlines and stores it in the cache.
+\end{inparaenum}
+The flight information, such as available seats and pricing, changes
+over time and the cache periodically updates its contents.
+
+In this system, a non\-/deterministic failure can occur, for example,
+under the following circumstance: two customers access the Web page at
+the same time, looking for flights from Berlin to Amsterdam on the
+same date. If both customers try to reserve seats on the same flight
+at roughly the same time, the booking is influenced by:
+\begin{inparaenum}[\itshape a\upshape)]
+\item the latency of their connection to the Web server,
+\item the cache update interval, and
+\item the changing flight information.
+\end{inparaenum}
+It may happen that one of the two customers is able to book the flight
+at the displayed rate, while the other can only receive a higher rate,
+because now fewer seats are available and the crawler updated the
+cache. The less fortunate customer may then complain in a bug report
+like this:
+\begin{quote}
+  Sometimes, when I try to book a flight on your website, it is added
+  to my cart just fine, but with a different price than what was
+  displayed in the list when I clicked it.
+\end{quote}
+
+This report contains the word ``sometimes'', indicating that the
+failure did not occur consistently, because of one or more sources of
+non-determinism in the system (one such source may be variations in
+user behavior, which we will ignore). We now present record and
+refinement with the help of this example.
+
+% The above bug report contains the word "sometimes", indicating a
+% degree of non-determinism. To approach this failure developer
+
+% Scenario: bug report, sporadic failure in web site, create diagnosis
+% script
+
+% run script 10k times => ~100 failures
+% debugging not possible (failure very rare)
+
+\subsection{Communication Recording}
+\label{sec:minimal-recording}
+
+Developers could try to reproduce the problem on a development system
+first, but for non\-/deterministic failures, observations from the
+live system are essential~\cite{altekar2009odr}. Distributed systems
+are set up differently during development than at deployment time, and
+will over time accumulate state changes and encounter situations
+unforeseen during development~\cite{Geels2006Replay}. Thus, instead of
+trying to reproduce the non\-/deterministic failure locally, we record
+information in the live system, including information about executions
+that exhibit the failure.
+
+Given the above bug report, developers create hypotheses, which they
+need to test, about the failure's root cause. Using our approach,
+developers can test whether communication timing dependencies are the
+source of this non\-/deterministic failure. If so, they can inspect
+how communication varies over multiple executions to understand the
+failure top-down, before debugging at the source code level.
+
+Developers need to establish causes from effects to debug failures in
+any system, and to do so, the order in which events occur is
+essential~\cite{lamport1978time}. However, distributed systems are
+capable of truly parallel execution, in which case a global ordering
+is not obtainable. Instead, we establish a partial ordering of
+communication events through the use of \emph{Lamport Clocks}. This
+order is called the \emph{logical schedule}~\cite{Konuru2000} in which
+the events occurred. Figure~\ref{fig:comm-sched} shows such a schedule
+for our example system. In this schedule, two requests arrive at the
+Web server. The first is sent on to the cache, which queries the
+crawler, and eventually returns the data to the Web server. Then the
+second Web request arrives at the cache, and is served from cached
+data. Upon receiving responses from the cache, the Web server responds
+to the Web clients.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/communication_v2.png}
+  \caption{A communication schedule}
+  \label{fig:comm-sched}
+\end{figure}
+
+To be useful for debugging, the communication schedules we record have
+to be sufficiently detailed to capture differences across multiple
+executions. We assume that servers are otherwise deterministic, which
+allows us to limit the amount of information we need to record to
+communication events. Consequently, to record the causes of
+non\-/deterministic failures that stem from timing\-/dependent
+communication, we have to record order, direction, and communication
+partners for each network event in a distributed application. This can
+be done with little overhead both in space and time during the actual
+execution. The necessary information overhead we encode into each
+event consists of 8 byte Lamport clocks~\cite{Geels2006Replay}, with
+the first bit as a sign byte to tell incoming from outgoing
+events. Additionally, we include \textsc{IP} addresses and port
+numbers to identify the communication partners, which adds 4 bytes for
+the port and 16 bytes for the address, in the worst case of
+\textsc{IPv6} addressing. For an application that keeps the last
+1,000,000 requests stored in its logs before rotation, this amounts to
+about 26 MiB in additional storage space. The additional time required
+to encode this information is negligible, inducing a slowdown of only
+1\% in \toolname, with most of the time spent waiting for network \io
+operations.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{l | c c}
+    Benchmark & Avg Executions/5s & $\sigma$ \\
+    \hline
+    Normal execution & 8.51 & 0.31 \\
+    Recording & 8.39 & 0.12 \\
+  \end{tabular}
+  \caption{Executions of a script that exercises the described flight
+    booking bug. We ran the script 50s and averaged the number of
+    executions per 5s}
+  \label{tab:tracing-bench}
+\end{table}
+
+\paragraph{Schedule Shaper}
+\label{sec:traffic-shaper}
+
+The first goal of record and refinement is to enable consistent
+reproduction of failures in the live system by removing the network as
+a source of non-determinism. From the data recorded during multiple
+executions, we constrain the system to those communication schedules
+that exhibit the failure. For this we use a \emph{traffic
+  shaper}~\cite{IetfShaper}, which, for each node, controls the
+interaction with \io devices and mediates application access to the
+network.
+
+The scheduler has to control all network access by applications. We
+achieve this control by wrapping the runtime's network \ac{api}. All
+data sent or received through that \ac{api} is treated according to
+the recorded schedules. For this, the scheduler buffers each
+event. Once all events that are expected to occur before a buffered
+event have appeared according to the schedule, the buffered event is
+released. In the case of a single-threaded server, any interaction
+with the network is served from the buffer if possible, and only
+executes the wrapped functions if no suitable event is available. The
+scheduler will keep executing the wrapped function and add the result
+to its buffer until a suitable event is available. On a multi-threaded
+server, events are held back using semaphores that are signaled when
+the previous event is released.
+
+Our scheduler has to deal with situations in which no event occurs
+that matches a required schedule. Such situations will cause an
+application to wait for the network and appear to ``hang''. In cases
+where a given schedule cannot be reproduced in the live system, for
+example if a server that appears in the schedule has been taken
+offline, we argue that developers have to be able to inspect the
+scheduler operations to understand the situation. Appropriate
+heuristics such as timeouts or conditions for giving up on a replay
+attempt are developer configurable.
+
+% constrain the communication in the system to failing communication
+% schedules
+% tame non-determinism -> make sporadic failure deterministic
+% shaper: Intermediate layer b/w framework and runtime/system
+% Buffers events until the right event is found
+% releases events in order, as many as are available
+% forces multi-threaded server into buffer by use of semaphores
+% heuristics and additional info for developers (timeouts, unscheduled
+% events, current buffer status)
+
+\subsection{Anomaly Detection}
+\label{sec:anomaly-detection}
+
+To determine whether network races are the culprit of a failure, we
+require developers to write a \emph{diagnosis script}. Such a script
+is similar to a test case:
+\begin{lstlisting}[%
+  basicstyle=\scriptsize,%
+  emph={testBugReport001},%
+  emphstyle=\bfseries,%
+  showstringspaces=false,%
+  frame=tb,%
+  columns=flexible]
+  testBugReport001
+    | priceTable flightIdIdx flightId price reservation |
+    priceTable  := (HTTPSocket
+                    httpGetDocument: 'http://localhost:4567/search'
+                    args: {'origin' -> {'Berlin'}.
+                           'destination' -> {'Amsterdam'}.
+                           'date' -> {Date today printString}}) content.
+    price       := (table
+                    copyFrom: (table indexOfSubCollection: '<td>' startingAt: priceEndIdx - 9)
+                    to: (table indexOfSubCollection: ' EUR')) asInteger.
+    flightIdIdx := table content indexOfSubCollection: 'data-id="'.
+    flightId    := (table content copyFrom: idIdx to: idIdx + 20) asInteger.
+    reservation := (HTTPSocket
+                    httpPostDocument: 'http://localhost:4567/flights/', id, '/reserve'
+                    args: nil) content
+    self assert: (reservation endsWith: price asString).
+\end{lstlisting}
+
+In our example, the script mimics the behavior of a customer who
+reserves a seat on an airplane. It communicates with the Web server
+via \ac{http}, and asserts that the returned data has the correct
+rates. We use assertions to classify recorded network communication
+schedules in relation to whether they produce a failure. Variances
+between successful and failing communication schedules can be used to
+reduce the number of network events that developers need to consider
+during debugging.
+
+For our anomaly detection, we repeatedly apply the
+\ac{lcs}~\cite{Bischof2008AiA} differencing algorithm to groups of
+communication schedules. First, we determine \acp{lcs} of all
+successes and all failures respectively, removing outliers. Second, we
+diff \acp{lcs} of successful communications with \acp{lcs} of failing
+communications. The differences between those are most likely to
+contribute to a failure. In Figure~\ref{fig:comm-comparison}, we have
+only one successful run at the top and one failing run at the bottom
+left, so the \acp{lcs} of failures and successes are trivially to the
+full communication schedules each. We compare those and find the
+differences between successes and failures in the shaded and magnified
+area.
+
+For more complex examples, anomaly detection requires more recorded
+executions to detect anomalies. Assuming otherwise deterministic
+servers, successful schedules will exhibit fewer anomalies and thus a
+sufficiently large number of failing and successful executions will
+ensure that the anomaly detection can exclude variances that have
+little or no impact on the failure.
+% This needs some validiation and explanation
+
+% If the servers exhibit other non-determinism, additional detection
+% of such is required to discards unsuitable executions, \eg if a load
+% balancer is present, the test script has to fail if a different
+% server is used
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.7\linewidth]{diagrams/diff_v3.png}
+  \caption{Anomaly detection for two schedules}
+  \label{fig:comm-comparison}
+\end{figure}
+
+% assume failures are caused by non-determinism in communication schedule
+% use reproduction in live system for recording
+% what to record?
+% ordering of events is paramount -> human reasoning
+% assume servers are deterministic in themselves -> communication schedule suffices for replay
+% record lamport schedule (reference to previous work)
+% end up with communication schedules that lead to failures (more
+% often -> statistically?)
+
+\subsection{Refinement of Remote Data}
+\label{sec:data-refinement}
+
+If communication timing dependencies are the source of a
+non\-/deterministic failure, then the system will fail consistently
+when constrained to failing communication schedules. Once developers
+reviewed and understood the high-level dependencies, they need to
+understand how they are expressed at the source code level to fix the
+failure.
+
+Using our scheduler, developers can inspect specific failing
+communication schedules for further analysis. The scheduler provides
+an interface to add queries to events.  The first time a developer
+re-runs a schedule, \toolname adds a query to record the stack at the
+time each event is released. When this schedule is applied to the live
+system, our scheduler records which methods are active before each
+event is released and returns that data to our debugging tool. A
+developer can then select an event in the communication view, and the
+debugging tool will present a partial call tree that corresponds to
+the selected event (\cf{Section~\ref{sec:data-refinement}}).
+
+Developers can explore the call tree and request additional
+information about method arguments and return values, as well as
+instance variables of objects. Based on the recorded stack, \toolname
+displays the method source code, if it is available. If developers try
+to inspect, for example, a method argument, our tool attaches a query
+to the scheduler in the live system. The scheduler wraps the
+corresponding method and creates deep copies of its arguments and
+return values during the next re-execution, which are then returned to
+the debugging tool\footnote{For copying objects, we rely on Smalltalk’s 
+\texttt{veryDeepCopy} protocol, which relieves us of the burden of 
+dealing with details of copying. If necessary, this protocol also allows 
+developers to adapt the analyzed object depth to their needs.}. Developers 
+can drill into object references
+analogously.%  \todo{actually hook this up}
+
+This approach is an extension of step-wise runtime
+analysis~\cite{Perscheid2010}. Developers can follow the information
+available in the live system until they understand the failure,
+without causing a significant one-time overhead. The overhead of each
+exploration step is small, because we only selectively record
+information that developers request.
+
+% \todo{}
+% interactive analysis -> interactive debugging
+% record additional info for inspections (debugger) -> variable values,
+% stack, arguments
+% during re-runs
+% developer can choose
+% use stack to associate code locations
+% no stepping, debugging from network events to code
+
+\subsection{Discussion}
+\label{sec:discussion}
+
+The presented approach currently has two main limitations. First, our
+low-overhead recording and schedule shaper depend on the determinism
+of each server. Consequently, if other sources of non-determinism,
+such as system calls to \texttt{random} or \texttt{gettimeofday}, have
+an impact on the failure, we cannot currently reproduce it. This can
+be fixed by recording more sources of non-determinism, at the expense
+of increased overhead. This can be easily implemented with additional
+layered methods around such non-determinism. However, our scheduler
+could still use that additional data to constrain the live system to
+reliably reproduce a failure, and the rest of our approach still
+applies.
+
+Secondly, our approach currently only works in the \emph{closed-world}
+case, in which all processes that participate in the distributed
+system include our recording and scheduler. If that is not the case,
+we need to extend our approach in two ways to support an
+\emph{open-world} case: first, we need to use a discovery mechanism to
+tell participating processes from non-participating processes. Second,
+for non-participating processes, we need to record the message
+contents besides what we currently record. If a schedule is later
+applied to the live system, events from and to non-participating
+systems are replayed from the recorded data. Note that this may not
+work if data returned from non-participating servers is
+time-dependent, in which case our approach is not applicable.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_1}
+  \caption{Communication Recording Phase}
+  \label{fig:architecture_1}
+\end{figure}
+
+% \todo{}
+% local reproduction?
+% traffic shaper depends on determinism?
+% discovery mechansim for open/closed world
+% closed world -> all have scheduler and recording
+% use dedicated interface
+% open world:
+% no scheduler => record message contents, (mock system)?, live system,
+% oh no
+% no recorder => easy to get bad schedule
+
+\section{Implementation}
+\label{sec:implementation}
+
+\todo{merge stuff from approach with more focus on implementation
+  issues}
+
+We implemented \toolname in Squeak/Smalltalk~\cite{Ingalls1997}.
+\todo{why, self-sustaining system}
+
+It works for distributed applications that use \ac{http} to
+communicate. We wrapped the Squeak \ac{http} \ac{api} with
+\emph{ContextS}~\cite{Hirschfeld2008}, a
+\ac{cop}~\cite{Appeltauer2009} implementation for Squeak. \ac{cop} is
+an extension to object-oriented programming that provides a
+\emph{layer} construct for encapsulating cross-cutting behavioral
+variations of a system. Layers can adapt classes and methods and can
+be composed at runtime.
+
+\todo{talk about cop layers, reference devlayers}
+With ContextS layers we can dynamically enable recording and
+scheduling in the live system. The layers adapt all methods that read
+and write \ac{http} requests to and from a socket. This implementation
+approach can be applied analogously in other programming languages for
+which a \ac{cop}~\cite{Appeltauer2009} mechanism is available.
+
+\paragraph{Communication Recording}
+\todo{more detail, how are layers activated, by whom, which parts of
+  the system are unaffected, i.e. development tools}
+
+Figure~\ref{fig:architecture_1} shows how the different modules
+collaborate during recording. A diagnosis script creates \ac{http}
+traffic and the recording layer creates a process-local trace of the
+network communication before passing the traffic on to the
+application. Network traces include an integer id as Lamport clock,
+the first 500 bytes of the message, as well as \textsc{IP} address,
+\textsc{url}, and port for both sender and receiver for all sent and
+received \ac{http} requests. This layer also adds the current Lamport
+clock ``time'' as an application defined \ac{http} header to each
+outgoing request. This is \ac{http} specific, and for protocols that
+do not have room for custom data, another approach---such as
+prepending magic bytes to the payload---can be
+used~\cite{Konuru2000}. After recording, we merge the traces from
+different processes and sort events by id in \toolname.
+
+\paragraph{Anomaly Detection}
+\todo{explain how we iterated over the algorithm -- short feedback
+  loops}
+
+For anomaly detection, \toolname requires developers to write a
+diagnosis script which can be executed to gather communication
+schedules. If the script includes assertions that check for the
+presence of a failure, \toolname automatically compares and highlights
+anomalies of the failures as shown in
+Figure~\ref{fig:anomalies}. Developers can then begin their
+investigation with these anomalous events.
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=\linewidth]{diagrams/prototype_diff.png}
+  \caption{Highlighted anomalies}
+  \label{fig:anomalies}
+\end{figure*}
+
+% \todo{Implementation genauer Beschreiben?}
+
+% record: Squeak/Smalltalk, contextS, wrap framework methods, track
+% sender/receiver/lamportId, some content -> implementable on other
+% runtimes with other COP impls
+
+\paragraph{Refinement of Remote Data}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_2}
+  \caption{Scheduling and Refinement}
+  \label{fig:architecture_2}
+\end{figure}
+
+The scheduler layer, when active, constrains the system to a
+particular communication schedule. Figure~\ref{fig:architecture_2}
+shows that the schedule is selected from \toolname, and then the
+diagnosis script is re-run. The schedule layer keeps a thread-safe
+input and output buffer to re-order network events as required. A
+schedule contains a recorded trace with queries to the refinement
+layer. Developers can inspect an event more closely by selecting it
+graphically, and \toolname will activate the scheduler layers for each
+process with the corresponding schedule and queries. The first time a
+developer selects an event, a query is added to record method
+invocations around it. The process that generates that event leverages
+the reflective capabilities of Smalltalk to gather execution data and
+return it to the \toolname debugger, which combines recorded method
+invocations and visualizes them in a call tree in \emph{Path
+  Tools}~\cite{Perscheid2010,Perscheid}. 
+
+\todo{expand this part, what hooks does pathtools provide, why have we
+  found it useful, maybe compare to eclipse debugger extensions we did
+  in orchideo}
+
+In
+Figure~\ref{fig:refinement} we show the result of a developer clicking
+event \textcircled{\small 1}. If the source code for the displayed
+methods is available in the image running the debugger, the
+application method closest to the event automatically
+opens. Developers can then select method arguments or receiver
+instance variables for inspection, which causes other queries to
+execute.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/refinement.png}
+  \caption{Refinement of an event in the network schedule (top) to
+    show the corresponding application method (bottom)}
+  \label{fig:refinement}
+\end{figure}
+
+% shaper: contextS, process-global schedule, heuristics preferences
+% (timeouts, drop or delay unscheduled messages), schedule is either
+% active or not, schedule items each include sender/receiver/some
+% content
+
+% data refinement: schedule items include an optional query (only
+% hardwired queries) -> keep stack, keep method arguments ... (uses
+% smalltalk reflection, not sure how to implement in java)
+
+% \section{Evaluation}
+% \label{sec:evaluation}
+
+% In this section, we evaluate our prototype in terms of performance and
+% with a case-study.
+
+% \paragraph{Performance}
+% \label{sec:accuracy-performance}
+
+% Our prototype uses ContextS to implement the tracing. We benchmarked
+% executions of a diagnosis script that exercises the bug we described
+% for our example flight booking service. We ran the script 10 times for
+% 5 seconds each both by itself and with the recording layer active. We
+% recorded how many times per second the script executes and averaged
+% those numbers over the runs.
+
+% \begin{table}[h]
+%   \centering
+%   \begin{tabular}{l | c c}
+%     Benchmark & Avg Executions/s & $\sigma$ in \% of avg \\
+%     \hline
+%     Normal execution & 8.51 & 3.64 \\
+%     Tracing & 8.39 & 1.36 \\
+%   \end{tabular}
+%   % \caption{Tracing Benchmark}
+%   \label{tab:tracing-bench}
+% \end{table}
+
+% Our results indicate that the practical tracing overhead is minimal,
+% inducing a slowdown of only 0.01. Although ContextS has a very
+% high-overhead and is one of the slowest available implementations of
+% \ac{cop}~\cite{Appeltauer2009} for send-heavy benchmarks, in the case
+% of distributed applications, a lot of the time is spent waiting for \io
+% and not in method activation. Given these results, a context-oriented
+% implementation for other languages should equally have a very small
+% practical overhead and thus fulfill the requirement for low-overhead
+% tracing.
+
+% % logging overhead of ContextS solution -> minimal, implemented on other
+% % platforms, applicable
+
+% \paragraph{Case Study}
+% \label{sec:case-study}
+
+% To evaluate our approach, we have re-implemented a system from an
+% industry partner that exhibited a timing\-/dependent failure. The
+% original system is written in Ruby on Rails and deployed in the
+% intranet of a company with about a hundred users. The system
+% implements a reporting Web service, which its users query to get
+% current data about other systems within the company. A user will
+% generally have a few prepared reports that provide a high-level
+% overview about different sub-systems. If any of the overview reports
+% are not within expectations, the user will drill into those reports to
+% see more detailed listings of the available data.
+
+% After this system was deployed, the developers received a bug report
+% in which a user noted that very rarely the sums in the overview will
+% not match the numbers returned when drilling down into the data. This
+% rare bug was triggered if, between requesting an overview and a drill
+% down, new data became available in any of the sub-systems and the
+% drill-down query was run against the new data.
+
+% We have reimplemented the system in Smalltalk, keeping the setup of
+% servers and their responsibilities and communication the same as in
+% the original, for evaluation with our prototype. Our participants did
+% not know the code for the system beforehand, but we explained the
+% purpose and setup before the trial. We provided the original bug
+% report and explained we had already transformed it into a diagnosis
+% script. Using our tool, the participants were able to understand how
+% the participating servers communicate. Our anomaly visualization
+% required some explanation, but then the participants could also
+% identify the timing\-/dependency, as well as explain the problem in the
+% source code associated with the anomalous events.
+
+% % industry example of such a failure
+% % re-implementation of setup in Smalltalk, debugging with our tools
+
+\section{Related Work}
+\label{sec:related-work}
+
+Our approach builds on previous work in the area of distributed
+post-mortem debugging and distributed record and replay. Current
+approaches vary mainly in how much they record, and subsequently, how
+much of the system they can simulate to eliminate behavioral
+disturbance.
+
+We draw ideas for our debugging tool and refinements approach from
+Friday~\cite{Geels}, a debugger for distributed record and replay, and
+Causeway~\cite{Stanley2009}, a distributed post-mortem
+debugger. Friday provides extensions to the GDB debugger and enables
+developers to add watchpoints and queries to a replay to gather more
+information. Causeway synchronizes a network view with a call-tree, so
+developers can easily map executed code to network events. In contrast
+to these approaches, our record and refinement enables developers to
+continuously use it on the live system to debug failures that occur
+very rarely or never in development.
+
+Our recording technique is similar to the record and replay as
+presented in liblog~\cite{Geels2006Replay}, DejaVu~\cite{Konuru2000},
+RecPlay~\cite{Gent1999}, and Jockey~\cite{Saito2005}, all of which
+also use Lamport clocks and intercept \io to establish partial
+ordering of network events. However, these approaches focus on
+low-level network events and intercept \io at the level of systems
+calls. They also require either a custom \ac{vm} or additional dynamic
+libraries that cannot be deactivated at runtime. The low-level events
+recorded by these approaches are further removed from the application,
+which makes it difficult for developers to understand where they
+originate in their application code. As the kind of data that is
+recorded by these approaches is predetermined, developers cannot
+easily test whether a given non\-/deterministic failure originates
+from timing dependencies in network access. Compared to these
+approaches, record and refinement is more flexible in what it records,
+and does so at a higher level abstraction.
+
+R2~\cite{guo2008r2} is an application-level record-and-replay approach
+which offers more control to the developers about what is recorded,
+and can be used to test for multiple sources of non\-/deterministic
+failures. However, unlike our approach, R2 does not allow replay in
+the live system.
+
+Our record and refinement can be seen as an extension of dynamic
+memory access race\-/detection in parallel programs such as
+RaceTrack~\cite{yu2005racetrack}. Compared to such approaches our
+implementation is less general. However, its advantage is the higher
+level of abstraction, which is closer to the mental model of the Web
+application developer. We argue that tools that detect a large set of
+data\-/races, but do so by acting at a low level of abstraction, such
+as memory regions and \io devices, are less useful in debugging
+specific kinds of races than specialized tools such as \toolname.
+
+% record and replay (DejaVu, liblog, iDNA, ReCrash)
+% post-mortem (Causeway, \todo{more})
+
+\section{Conclusions}
+\label{sec:conclusions}
+
+We have presented our \emph{record and refinement} approach to debug
+non\-/deterministic failures in the timing\-/dependent communication of 
+distributed applications. Our approach provides a
+systematic top-down method to low-overhead recording of network events
+in the live system, anomaly analysis, and refining of runtime data
+from the live system. To evaluate our approach, we present our \toolname 
+tool for debugging distributed Web applications.
+
+Since the overhead of our recording approach is low, it can be enabled
+in a deployed system continuously and record data about failures that
+occur infrequently or only during deployment. We achieve this low
+overhead by focusing on the data strictly necessary for failures
+caused by timing\-/dependent communication.
+
+Our anomaly analysis of communication schedules identifies network
+patterns that are likely to contribute to a failure. Developers use
+these associations to acquire an overview of the timing dependencies
+in the system at a high level of abstraction and subsequently to
+choose schedules and events for further inspection. We detect
+anomalies by differentiating communication schedules and correlating
+the differences with failed assertions.
+
+Finally, we provide a refinement mechanism to selectively inspect 
+runtime data in the live system. This allows developers to debug the 
+failure at the source code level, without being restricted by the amount of
+prerecorded information. We achieve this by constraining the system to
+a particular communication schedule and wrapping method executions to
+record runtime data.
+
+Future work is two-fold. First, recording and scheduling should be
+extended to other sources of non-determinism, to show that our
+approach is applicable not only to timing\-/dependent
+communication. Second, we are investigating how to integrate
+non-participating servers into our approach. Furthermore, beyond
+debugging of timing\-/dependent communication, we may investigate how
+\toolname allows developers to gain an overview of a distributed
+system. By connecting code locations on different servers via network
+events it emphasizes the implicit programming interfaces between
+servers and helps developers to understand how communication is 
+performed in the code.
+
+Despite these future work, our approach is already usable to debug
+failures in distributed systems. We have evaluated in a case study how
+developers can approach failures without prior knowledge of the
+concrete distributed system. Our approach does not require the system
+to stop, it allows debugging on the live system, and it allows
+navigation on both network and implementation level.
+
+% Future work:
+% limitations of scheduler, open/closed world, local reproduction
+% My conclusions:
+
+% \input{introduction.tex}
+% \input{background.tex}
+% \input{design.tex}
+% \input{conclusions.tex}
+% \input{related_work.tex}
+
+\bibliographystyle{model1-num-names}
+\bibliography{paper}
+\addcontentsline{toc}{section}{References}
+\end{document}
+
+%%% Local Variables: 
+%%% mode: latex
+%%% TeX-master: t
+%%% End: 

@@ -1,5 +1,57 @@
 \documentclass[english, inproceedings]{polze}
 
+\usepackage[utf8x]{inputenc}
+\usepackage[T1]{fontenc}
+
+\usepackage{listings} % for sourcecode
+\usepackage{array} % tables
+\usepackage{afterpage} % figures
+\usepackage{float} % figures
+\usepackage{paralist} % figures
+\usepackage[shortcuts]{extdash} % figures
+
+\lstset{%
+  	language=ruby,
+	basicstyle=\scriptsize,%\ttfamily,
+	frame=single,
+	emph={always, once, constructor},
+	emphstyle=\bfseries,
+        % breaklines=true,
+        breakatwhitespace=false,
+        literate={<<}{\tiny{$\ll$}~}{1}%
+                 {.?}{\bfseries\emph{.?}}{1},
+        showstringspaces=false,
+        columns=flexible,
+	}
+\restylefloat{figure}
+
+\usepackage{glossaries}
+\newcommand{\ac}[1]{\gls{#1}}
+\newcommand{\acp}[1]{\glspl{#1}}
+
+% Acronyms
+\newacronym{api}{\textsc{api}}{application programming interface}
+\newacronym{cip}{\textsc{cip}}{constraint-imperative programming}
+\newacronym{ocp}{\textsc{ocp}}{object-constraint programming}
+\newacronym{oo}{\textsc{oo}}{object-oriented}
+\newacronym{dsl}{\textsc{dsl}}{domain specific language}
+\newacronym{frp}{\textsc{frp}}{functional-reactive programming}
+\newacronym{vm}{\textsc{vm}}{virtual machine}
+\newacronym{jit}{\textsc{jit}}{just-in-time}
+
+\newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
+\RequirePackage{xspace}
+\newcommand{\eg}{e.\hairspace{}g.,\xspace}
+\newcommand{\Eg}{E.\hairspace{}g.,\xspace}
+\newcommand{\Ie}{I.\hairspace{}e.,\xspace}
+\newcommand{\ie}{i.\hairspace{}e.,\xspace}
+\newcommand{\cf}[1]{cf.\,{#1}\xspace}
+\newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
+
+\newcommand{\zcubed}{Z${}^3$\xspace}
+\newcommand{\langname}{\textsc{Loci}\xspace}
+\newcommand{\toolname}{\textsc{Loci/R}\xspace}
+
 \begin{document}
 
 \author{Tim Felgentreff}
@@ -80,6 +132,220 @@ Thus, our current research focuses on the following topics:
 
 \section{Background}
 \label{sec:background}
+Consider a rectangle implemented as a pair of points as in
+listing~\ref{fig:lst:rectangle}. This rectangle is displayed in an
+application window which the user can resize. Suppose this rectangle
+encompasses some information that we want to make sure remains
+visible. We want to make sure the area of the rectangle is never less
+than 100 square pixels and that its origin is always within display
+bounds, i.e. positive.
+
+\begin{figure}
+  \centering
+  \begin{lstlisting}
+class Rectangle
+  attr_accessor :origin, :extent
+
+  def visible?
+    origin.x >= 0 and origin.y >= 0
+  end
+
+  def area
+    extent.x * extent.y
+  end
+end
+  \end{lstlisting}
+  \caption{A rectangle implemented as a pair of points, with a predicate to test it starts within display bounds and a method to calculate the area}
+  \label{fig:lst:rectangle}
+\end{figure}
+
+Imperatively, we can use, for example, aspects to satisfy these
+constraints explicitly whenever the rectangle changes:
+\begin{lstlisting}
+class RectAspect < Aspect
+  def ensure_constraints(method, rect, status, *args)
+    rect.origin.x = 0 if rect.origin.x <= 0
+    rect.origin.y = 0 if rect.origin.y <= 0
+    rect.extent.x = 100.0 / rect.extent.y if rect.area <= 100
+  end
+end
+
+RectAspect.new.wrap(Rectangle, :postAdvice, /(origin|extent)=/)
+\end{lstlisting}
+
+The above code has a number of problems:
+\begin{itemize}
+\item The original constraints are expressed in a form that makes them
+  harder to understand
+\item Advice code is required to capture all modifications that may
+  invalidate the constraints - if the advice is insufficient or not
+  triggered often enough, the constraints may be violated through
+  parts of the execution
+\item It is not trivial to tell whether the solution for the
+  constraints is optimal. In the presence of competing constraints,
+  this becomes even harder.
+\end{itemize}
+
+In this section, we will compare how state of the art approaches to
+constraint programming in imperative programs solve our problem.  The
+approaches are presented in four groups:
+\begin{inparaenum}
+\item constraint solver libraries that are used directly from
+  imperative code,
+\item constraint solver \acp{dsl} that exist for special domains,
+\item \emph{DataFlow} and \ac{frp} languages, and
+\item constraint-imperative programming that combines constraints and
+  imperative statements in the one language
+\end{inparaenum}.
+
+\subsection{Constraint Solver Libaries}
+When realizing they are dealing with a constraint problem, programmers
+may choose to include a constraint solver library in their
+program. (Examples of solvers with implementations or bindings in a
+variety of languages are Cassowary~\todo{cite}, DeltaBlue~\todo{cite},
+or \zcubed~\todo{cite}.)
+
+The following code adapts the previous, purely imperative solution to
+use the \zcubed constraint solver to solve our constraints:
+\begin{lstlisting}
+class RectAspect < Aspect
+  def ensure_constraints(method, rect, status, *args)
+    ctx = Z3::Context.new
+    ctx << Z3::Variable.new("extent_x", rect.extent.x)
+    ctx << Z3::Variable.new("extent_y", rect.extent.y)
+    ctx << Z3::Constraint.new("extent_x * extent_y >= 100")
+    # ... same for origin constraint
+    ctx.solve
+    rect.extent.x = ctx["extent_x"]
+    rect.extent.y = ctx["extent_y"]
+  end
+end
+# boilerplate code as for purely imperative approach
+\end{lstlisting}
+
+Using a solver allows programmers to express constraints about the
+system in terms of a solver-specific domain (i.e. reals, booleans,
+uninterpreted function symbols, \dots) the solver understands. If the
+problem is expressible in a domain for which a solver is available (as
+the above code is) the constraints can be clearly written.
+
+\subsection{Domain-specific Languages for Constraints}
+For specialized domains such as user interface layouting, constraints
+are available as separate \ac{dsl}s that describe relations between
+visible objects that can be automatically maintained by the
+runtime. Examples of such \acp{dsl} are \textsc{css}~\todo{cite}, the
+\emph{Mac OS X}~\todo{cite} layout specification language, and the
+Python GUI framework \emph{Enamel}~\todo{cite}. These allow
+programmers to express relations such as distances between objects or
+parent/child alignments. These constraints are automatically
+re-satisfied by the runtime when imperative code changes the user
+interface.
+
+The following is an example of an \emph{Enamel} specification for our
+problem:
+\begin{lstlisting}[language=python]
+enameldef Main(Window):
+    Container:
+        constraints = [
+            # the rectangle area is called contents in enamel
+            contents_top >= 0, contents_left >= 0,
+            (contents_bottom - contents_top) *
+              (contents_right - contents_left) >= 100
+        ]
+\end{lstlisting}
+
+This approach allows programmers to specify constraints and avoid
+boilerplate code to trigger constraint solving and has found
+widespread adoption, particularily through the Mac OS X layout system.
+
+\subsection{DataFlow Constraints and FRP}
+Some languages have built-in support for data flow, which allows
+programmers to express unidirectional constraints between objects and
+their parts. Examples of such systems are ThingLab~\todo{cite},
+Scratch~\todo{cite}, the LivelyKernel/Webwerkstatt~\todo{cite}, or
+KScript~\todo{cite}. (Of these, only ThingLab includes a planner for
+propagation that breaks cycles automatically. In the other systems the
+programmer has to break cycles explicitely.)
+
+The following uses LivelyKernel connections to observe changes to
+\texttt{origin} and \texttt{extent} in a Rectangle \texttt{rect}.  On
+each change, the transformation function is executed with the current
+and the previous value and returns the new value for the
+field. Programmers can thus directly express relations between objects
+and parts of objects.
+\begin{lstlisting}[language=java]
+connect(rect, "origin", rect, "origin",
+        function(origin, prevOrigin) {
+            if (this.isVisible()) return prevOrigin;
+            else return origin;
+        })
+connect(rect, "extent", rect, "extent",
+        function(extent, prevExtent) {
+            if (this.area() <= 100) return prevExtent;
+            else return extent;
+        })
+\end{lstlisting}
+
+Although these systems are not constraint solvers, programmers can use
+constraint solvers in the function (and some systems, like KScript,
+already integrate a constraint solver to use in the connection). These
+approaches answer the question when to trigger constraint solving.
+
+\subsection{Constraint-Imperative Programming}
+From the works of Borning on integrating constraints with objects in
+ThingLab~\todo{cite}, the evolution of integration lead to \ac{cip} as
+materialized in the Kaleidoscope system~\todo{Freeman-Benson90} and
+its various extensions~\todo{Lopez94}. Related languages include
+Siri~\todo{c}, Turtle~\todo{c}, and \textsc{Soul}~\todo{SOUL}.
+
+
+Kaleidoscope integrates constraint solvers using local propagation and
+simplex for reals, and a finite-domain solver for booleans. Most of
+the early constraint-based systems were based on a perturbation model
+of constraints~\todo{Freeman-Benson,Borning92}. In this model,
+constraints are used to restore the state of a system after an
+external perturbation, such as a user interaction. Initially,
+Kaleidoscope instead used a refinement model of
+constraints~\todo{Freeman-Benson90}, in which a variable is a stream
+of values over time which can be refined, but never replaced by
+outside events. Later versions of Kaleidoscope~\todo{Kaleidoscope93}
+shifted back to the pertubation model and imperative
+variables. Although this removed some of the expressiveness of the
+language, the authors found this model more natural for imperative
+programmers~\todo{NatoJournalPaper}.
+
+Some contributions of Kaleidoscope were:
+\begin{itemize}
+\item Unified state for constraint solvers and imperative runtime
+\item Automatically re-satisfying constraints when they are
+  invalidated
+\item Linguistic symbiosis between declarative and imperative
+  statements
+\item Providing additional abstractions to enable developers to
+  express constraints on complex objects
+\end{itemize}
+
+Our rectangle example can be expressed using Kaleidoscope as follows:
+\begin{lstlisting}
+class Rectangle
+  constructor area = (n: Integer)
+    always: extent.x * extent.y = n
+  end
+
+  constructor visible?
+    always: origin.x >= 0
+    always: origin.y >= 0
+  end
+end
+
+rect = Rectangle.new
+always: rect.area = 100
+always: rect.visible?
+\end{lstlisting}
+
+The above code states constraints clearly, and \emph{constraint
+  constructors} modularize the calculated properties visiblity and
+area so they can be used in constraint expressions.
 
 \section{Babelsberg}
 \label{sec:babelsberg}
@@ -87,8 +353,360 @@ Thus, our current research focuses on the following topics:
 In this section, we present our current research progress. It is a
 concept for an extension to existing object-oriented languages...
 
+We think that the state of the art approaches result in unsatisfactory
+trade-offs between constraint-oriented and object-oriented
+programming:
+\begin{itemize}
+\item They violate either object encapsulation or the uniform access
+  principle by defining constraints only on state~\todo{cite} or only
+  on special constraint behavior definitions~\todo{cite}. This leads
+  to problems as programs grow and implementations of objects change,
+  as the constraints have to be kept up-to-date regarding the internal
+  state of the domain objects.
+\item They use special types that tie objects to the domains of
+  constraint solvers. This means that objects have to be mapped to
+  those types either through transformations that have to be triggered
+  whenever the program state changes or the objects have to be
+  built entirely from those types.
+\item They provide no mechanism for programmers to add solvers for
+  both finite and infinite domains.
+\end{itemize}
+
+\begin{table*}
+  \centering
+  \begin{tabular}{l|c|c|c|c|c}
+    & Libraries & \textsc{dsl} & DataFlow/\textsc{frp} & \textsc{cip} & \textsc{ocp} \\
+    Constraints on methods & & & & & x \\
+    Unified State &  & x & x & x & x \\
+    Automatic Solving & & x & x & x & x \\
+    Linguistic Symbiosis & & & x & x & x \\
+    Extensible Solvers & x & & x & & x \\
+    Bi-directional Constraints & x & x & & x & x \\
+    Finite \& Infinite Domains & x & x & x & x & x \\
+  \end{tabular}
+  \caption{Comparison of OCP with Related Work}
+  \label{tab:cmp-constraint-lang-approaches}
+\end{table*}
+
+We propose an integration of constraint-solvers with \ac{oo} languages
+that we call \emph{\ac{ocp}} to emphasize the focus on keeping \ac{oo}
+programming as the primary paradigm. \ac{ocp} keeps desirable
+properties from other approaches and is, for the most part, a
+continuation of \ac{cip} as originally presented
+in~\todo{cite}. Table~\ref{tab:cmp-constraint-lang-approaches} shows
+these properties and compares \ac{ocp} to the approaches presented in
+section~\ref{sec:background}.
+
+As an implementation of \ac{ocp}, we propose \langname. Our current
+prototype is an extension of the Ruby programming language~\todo{cite}
+and is consequently called \toolname. To verify the applicability of
+our approach to other object-oriented languages, we have additionally
+created a hosted implementation of this concept on top of the
+JavaScript environment Lively Kernel~\cite{lincke2012lively}.
+
+The Ruby \ac{vm} we used as a basis for \toolname is
+\emph{Topaz}~\todo{cite}, an experimental \ac{vm} built using the
+\emph{PyPy/RPython} toolchain~\todo{cite}. This has allowed us to
+extend the interpreter and use RPython's \ac{vm}-generation toolchain
+to create a \ac{vm} including a fast \ac{jit} and garbage collector.
+
+In \toolname, we can express the above problem using the methods
+already defined for the Rectangle class:
+\begin{lstlisting}
+rect = Rectangle.new
+always { rect.area == 100 }
+always { rect.visible? }
+\end{lstlisting}
+
+As a continuation of \ac{cip}, \ac{ocp} shares desirable properties
+with the \ac{cip} languages \emph{Kaleidoscope}\todo{ref} and
+\emph{Turtle}\todo{ref}:
+
+\paragraph{Encapsulation}
+Encapsulation in user code is preserved if appropriate constraint
+constructors are used to abstract instance variable access.  In
+\emph{type I} object-oriented languages such as Smalltalk or Ruby,
+object state is always private and cannot (without meta-programming)
+be modified from the outside. So to apply constraints in those
+languages, constraint constructors are required decompose objects
+appropriately. In \emph{type II} languages such as, for example, Java
+or JavaScript outside access to state can be allowed, so these
+languages can be used for \ac{cip} directly. However, even in those
+languages direct access to object state is discouraged as it increases
+coupling in the system, and constraint constructors should be used.
+
+The \ac{vm}, on the other hand, can ignore encapsulation when it
+solves constraints and assigns new values to variables (similar to how
+a \ac{jit} compiler ignores encapsulation when it inlines methods). We
+have found this idea to be well suited to solvers that work on
+primitive objects and object parts such as integers or reals.
+
+\paragraph{An Object-Oriented Programming Style}
+Programs appear as ordinary \ac{oo} programs if no constraints are
+used, but can be easily adapted to use constraints where it makes
+sense. If constraints are used, the programmer does not need to
+manually trigger solvers. Furthermore, object-oriented techniques such
+as inheritance and dynamic-typing work correctly with constraints.
+
+\paragraph{A Declarative Semantics}
+Kaleidoscope answers some important questions how imperative and
+declarative code interacts on the same objects. The declarative
+semantics for assignments to constrained variables in
+Kaleidoscope---as a one-time equality constraint---worked well
+in~\todo{cite} and for us.
+
+Kaleidoscope further provided a purely declarative semantics for
+variables by regarding them as value streams that are refined over
+time~\todo{cite}. This notion is useful in a refinement model of
+constraints where the set of possible values for each variable is
+refined during the execution of the program, but never altered in
+other ways~\todo{cite}.
+
+We have found the perturbation model of constraints more intuitive in
+a primarily imperative program. In \langname, constraints describe the
+relations that should hold and that have to be re-satisfied when
+imperative code perturbs the system. In this model, we have not found
+a compelling use-case for accessing previous values of a variable and
+thus do not provide this feature.
+
+Another important question that we do not yet answer is the
+distinction between object identity vs equality
+constraints~\todo{cite}. We discuss this question in~\todo{future
+  work}.
+
+\paragraph{Read-only Variables}
+\langname includes support for read-only variables, expressed by
+sending the question-mark method ({\bfseries\emph{?}}) to a value in a
+constraint expression. A read-only variable can only be changed
+imperatively, but not by the solver. This is useful, for example, for
+parameterized constraints so the solver knows not to change the
+parameter:
+\begin{lstlisting}
+class Rectangle
+  def fix_size(area)
+    always { self.area == area.? }
+  end
+end
+\end{lstlisting}
+Without the annotation, a solver may choose to change the local
+variable \lstinline{area} rather than the receiver, if, for example,
+the solver tries to minimize the number of variables that are adjusted
+to satisfy a constraint (as is often desired).
+
+We consider some following properties of \ac{cip} languages to need
+improvement:
+
+\paragraph{Violation of the Uniform Access Principle}
+Constraint constructors, or \emph{user-defined constraints}, allow
+objects to decompose themselves into elements for which a constraint
+solver is available. However, these constructors require multi-method
+dispatch semantics. Also, normal methods can only be used as constants
+in constraints, and constraint constructors cannot be called from
+imperative code. This means that developers have to duplicate behavior
+definitions if an interface is needed both in constraints and
+imperative code (as the \emph{area} method is, above). This, in turn,
+requires developers to anticipate whether certain behavior may be used
+in constraints or imperative code by clients. If they do not
+anticipate it, clients have to revert to accessing state directly if
+possible. Table~\ref{tab:cmp-ocp-cip} shows how this limits the
+applicability of \ac{cip} to languages with only private state. In
+\ac{ocp}, constraints use the same behavior definitions as imperative
+code, so the problem does not arise.
+
+The disadvantage of not having multi-methods is that each receiver has
+to have a known type (as the method lookup is the same as in purely
+imperative code). This precludes use-cases where an unbound variable
+is first assigned from a constraint. We have found the inconvenience
+of having to initialize variables preferable to the unfamiliarity of
+multi-methods.
+
+\paragraph{Limited Solver Domains}
+\ac{cip} languages come with a fixed set of embedded solvers. This
+precludes using constraints on objects that are not simply structures
+of primitive values, such as file or method objects. Furthermore,
+developers may want to use solvers that are better suited to the
+problem domain, that give better results or performance. In \ac{ocp},
+however, all solvers use the same interface to communicate with the
+\ac{vm} so developers can add new solvers and replace existing ones.
+
+\paragraph{Solvers Ignore Encapsulation}
+The solvers embedded in the \acp{vm} of Kaleidoscope ignore
+encapsulation and manipulate the contents of variable storage
+directly. To include complex objects such as files in constraints, it
+may not be desirable to give the solver direct access to the file
+system. In \ac{ocp}, we require solvers call a hook method to set a
+new value on an object and only manipulate the object state directly
+if the object does not respond to the hook selector.
+
+\paragraph{Performance of Imperative Code}
+Kaleidoscope provides a declarative semantics for assignment, type
+declaration and subclassing. However, this declarative semantics is
+also used if no actual constraints are in the program. In \ac{ocp}, we
+only use the declarative semantics for assignments of variables that
+are also used in constraints. This means that the performance of
+purely imperative code is the same as on a purely imperative
+\ac{vm}. 
+
+\begin{table}
+  \centering
+  \begin{tabular}{r|c|c||r|c|c|}
+    CIP    & Behavior & State & OCP    & Behavior & State \\
+    Type 1 & -         &  (!)  & Type 1 & +         &  -   \\
+    Type 2 & -         &   +   & Type 2 & +         &  +   \\
+  \end{tabular}
+  \caption{Comparison of OCP with CIP}
+  \label{tab:cmp-ocp-cip}
+\end{table}
+
+\subsection{Combining Objects and Constraints}
+\label{sec:combination-features}
+The above code asserts that the area of the rectangle \lstinline{rect}
+should always be equal to 100. The assertion is expressed by sending
+the \lstinline{area} method and sending the \lstinline{==} method to
+the result. Explicitly named in the constraint is only the variable
+\lstinline{rect}, but there are other variables that play a role in
+this constraint:
+
+\paragraph{Constrained Variables}
+\label{sec:constraint-values}
+In \langname, each variable name refers to both an \ac{oo} value and a
+constraint value. The type of constraint value is determined the
+dynamic type of the \ac{oo} value when it is first used in a
+constraint. When a variable is first used in a constraint, the
+interpreter send the message \lstinline{for_constraint} to it and
+expects a constraint value it can use in place of the \ac{oo} value as
+result.
+
+A constraint value responds to the subset of the interface of the
+associated \ac{oo} value that its solver can solve. For example,
+\emph{Cassowary}~\todo{ref} can solve linear constraints over float
+values, so the Cassowary variables returned by
+\lstinline{Float#for_constraint} respond to the methods \lstinline{+},
+\lstinline{-}, \lstinline{*}, and \lstinline{/}, but not
+\lstinline{sin} or \lstinline{**}. If a programmer tries to assert a
+constraint using those latter methods, an exception will be raised.
+
+User code can add solvers to the system by adding a
+\lstinline{for_constraint} method to the classes the solver can work
+on and returning an object that responds to solvable messages. We show
+in section~\todo{ref} how we used this to add a solver over the domain
+of Arrays.
+
+If an object that is used in a constraint does not respond to
+\lstinline{for_constraint}, a placeholder constraint value is created
+for the variable that delegates message sends to the original
+object. This placeholder is required to invalidate constraints if the
+variable is assigned later.
+
+\paragraph{Constraint Construction}
+\label{sec:constraint-construction}
+
+A constraint in our system is a predicate expression passed
+unevaluated in form of a block closure to the primitive method
+\lstinline{always}. The closure is executed in a \emph{constraint
+  interpreter} mode that resolves variables to constraint values
+instead of \ac{oo} values. The constraint interpreter otherwise
+executes the code using normal \ac{oo} semantics.
+
+In our example above, the \lstinline{rect} variable is replaced with a
+placeholder, because no rectangle-solver exists and the class
+\lstinline{Rectangle} does not implement the method
+\lstinline{for_constraint}. The placeholder delegates the message
+\lstinline{area} to the \ac{oo} value. During the execution of
+\lstinline{area} a number of float values are encountered---the
+instance variables of the points that form the rectangle
+(\cf{\ref{fig:architecture}}). These instance variables are resolved
+to constraint values, for example Cassowary variables, and the
+messages between them, instead of calculating the current area of the
+rectangle, return a linear constraint expression. This linear
+expression is then sent the message \lstinline{==} with 100 as its
+argument and returns a constraint equality that can be solved by
+Cassowary.
+
+\begin{figure}
+  \centering
+  % \includegraphics[width=\linewidth]{architecture}
+\label{fig:architecture}
+\end{figure}
+
+The constraint construction is complete when block passed to
+\lstinline{always} returns. Any constraint values and combinations
+thereof created during the execution are gathered into a
+\emph{Constraint Object}. These provide a meta-level interface to
+enable or disable the entire constraint (and thus all participating
+values), query and change its strength (\cf{\todo{sec}}), and access
+the block that was passed to always, as well as each constraint value
+that participates in the constraint.
+
+The Constraint Object then consists of a number of a) primitive values
+that are in the domain of the solver and are connected in a
+constrainable way (\eg through equalities or inequalities, arithmetic,
+boolean logic) and b) a number of placeholder values for complex
+objects that are constrained to their identity.
+
+The constraint solvers operate on primitive constraint values directly
+to solve the constraint. Changes made by the solver to the variables
+show up in the \ac{oo} view on the next access to the variables from
+imperative code, at which point the constraint values are copied to
+their \ac{oo} counterparts. Assignments to any variable encountered
+during the constraint construction will trigger the solver to
+re-satisfy the constraint~\todo{cite kaleidoscope} (and potentially
+raise an error if the assignment is inconsistent with the constraint).
+
+Placeholder constraint values invalidate the constraint if the
+identity of the \ac{oo} value changes through imperative
+assignment. This invalidation retracts all constraint values created
+during constraint construction and re-executes the block to create new
+constraint values. (\todo{reference discussion about side-effects})
+
 \section{Conclusions and Next Steps}
 \label{sec:concl-next-steps}
+We have presented \langname, an object constraint language that
+extends a standard object-oriented language to support constraints,
+along with an implementation as an extension to Ruby using a state of
+the art virtual machine.  In contrast to other approaches, \langname
+unifies the constructs for encapsulation and abstraction for both the
+declarative constraint parts of the language and the traditional
+imperative parts by using only object-oriented method definitions for
+both declarative and imperative code.  Our implementation is
+integrated with an existing object-oriented virtual machine, and
+provides a standard imperative evaluation mode, a constraint
+evaluation mode that accumulates constraints to hand off to the solver
+as expressions are evaluated, and a constraint solver mode.
+
+This work services as a basis for a number of questions we want to
+answer in future work.  One is to show that our approach is general
+and usable by applying the system in a wide variety of application
+domains, and also to work on improving the performance of the
+constraint evaluation and satisfaction.  Another direction is to add
+additional solvers to the library, for example a finite domain solver
+or solvers that support constraints on other primitive storage types
+such as arrays, strings, and hashes. Furthermore, we want to implement
+a design for cooperating solvers, to not only solve constraints in a
+variety of domains, but also have data flow between domains.  The
+multi-assignment semantics described in
+\autoref{sec:constraint-durations-and-activation} provides a clean and
+simple way to control when constraint satisfaction is invoked.
+However, more experience with writing programs in \toolname is needed
+to decide whether this construct is sufficiently expressive, or
+whether additional ways are needed to control when constraint solving
+is invoked.  Yet another direction regarding solvers is to introduce
+an oracle that can automatically select one or more applicable solvers
+for a given set of constraints. This could be a ``meta-solver'' that
+trades off features of different solvers, such as performance or
+stability.
+
+Another important focus will be adding better support for debugging,
+explanation, and benchmarking.  Currently, if the constraint solver is
+unable to satisfy the constraints, there is no indication of why this
+is. If the solver produces an unexpected answer, it is unclear how
+this answer was arrived at. Or if one solver is slow, another may be
+more appropriate for the problem.
+
+Our initial implementation extended a Ruby \ac{vm}, but the ideas are
+applicable to other dynamic object-oriented languages, and an
+implementation in JavaScript without \ac{vm} support is underway to
+show this.
 
 
 \bibliography{qiqqa_jot_export,constraints,sigproc}

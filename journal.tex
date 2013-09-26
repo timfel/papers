@@ -65,12 +65,12 @@
 
 \newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
 
-\newcommand{\doctitle}{Constraining Timing-dependent Communication
-  for Debugging Non\-/deterministic Failures}
+\newcommand{\doctitle}{Implementing Record and Refinement for
+  Debugging Timing-dependent Communication}
 
 \newcommand{\docsubject}{}
 \newcommand{\dockeywords}{Distributed Debugging, Record and Replay,
-  Dynamic Analysis}
+  Dynamic Analysis, Record and Refinement}
 
 \usepackage[pdftex]{hyperref}
 \hypersetup{
@@ -185,12 +185,12 @@ applications:
   replay system to be more like the live system.
 \end{enumerate}
 
-\todo{make this reference the workshop paper}
-We propose \emph{record and refinement}---implemented in our
-\toolname tool---to debug timing\-/dependent network communication. 
-Our approach imposes low overhead, provides a top-down view on
-timing\-/dependent communication, and still allows developers to
-inspect run-time data from the live system during debugging.
+We have proposed \emph{record and refinement}---implemented in our
+\toolname tool---to debug timing\-/dependent network
+communication~\cite{felgentreff2013wasdett}.  Our approach imposes low
+overhead, provides a top-down view on timing\-/dependent
+communication, and still allows developers to inspect run-time data
+from the live system during debugging.
 
 During the initial record phase, we record network communication in
 the live system and divide communication schedules into failing and
@@ -205,21 +205,23 @@ source of non-determinism by delivering and sending requests in
 order. If the constrained system reproduces the failure repeatedly,
 developers can request and refine more data from the live system with
 the help of our extended step-wise run-time
-analysis~\cite{Perscheid2010}.  The contributions of this paper are:
+analysis~\cite{Perscheid2010}.
+
+In this paper, we describe the implementation of these techniques in
+our prototype \toolname and its integration with our Path tools
+debugging suite. The contributions with respect to our implementation
+in Squeak/Smalltalk~\cite{Ingalls1997} are:
 
 \begin{itemize}
-\item A recording technique with low overhead that removes
-  timing\-/dependent network communication as a source of
-  non-determinism, and enables constraining communication in the live
-  system so multiple equivalent executions are possible.
-\item A communication anomaly analysis that allows developers to
-  approach a non\-/deterministic failure from the abstraction of network
-  communication, in addition to the low-level source code abstraction.
-\item An approach to record runtime data over multiple executions to
-  provide as much real data from the live system as required to
-  understand the non-deterministic failure.
-\item The \toolname tool that implements our record and refinement
-  approach for Squeak/Smalltalk~\cite{Ingalls1997}.
+\item A technique that allows us safely modify core library code
+  for network communication in a self-sustaining development
+  environment.
+\item An architecture that decouples the recording from the analysis,
+  and refinement phases so we can experiment and test each area
+  without having to re-run the entire distributed system.
+\item An architectural overview of our Path tools suite that provides
+  generic debugging tools that we adapted for record and refinement
+  debugging.
 \end{itemize}
 
 The rest of this paper is structured as follows:
@@ -327,37 +329,28 @@ refinement with the help of this example.
 \subsection{Communication Recording}
 \label{sec:minimal-recording}
 
-Developers could try to reproduce the problem on a development system
-first, but for non\-/deterministic failures, observations from the
-live system are essential~\cite{altekar2009odr}. Distributed systems
-are set up differently during development than at deployment time, and
-will over time accumulate state changes and encounter situations
-unforeseen during development~\cite{Geels2006Replay}. Thus, instead of
-trying to reproduce the non\-/deterministic failure locally, we record
-information in the live system, including information about executions
-that exhibit the failure.
-
-Given the above bug report, developers create hypotheses, which they
-need to test, about the failure's root cause. Using our approach,
-developers can test whether communication timing dependencies are the
-source of this non\-/deterministic failure. If so, they can inspect
-how communication varies over multiple executions to understand the
-failure top-down, before debugging at the source code level.
+From a bug report, developers create hypotheses as to its cause. Using
+our approach, developers can test whether communication timing
+dependencies are the source of this non\-/deterministic failure. For
+such failures, observations from the live system are
+essential~\cite{altekar2009odr}, because long-running systems will
+over time accumulate state changes and encounter situations unforeseen
+during development~\cite{Geels2006Replay}. Thus, we record information
+in the live system, including information about executions that
+exhibit the failure.
 
 Developers need to establish causes from effects to debug failures in
 any system, and to do so, the order in which events occur is
-essential~\cite{lamport1978time}. However, distributed systems are
-capable of truly parallel execution, in which case a global ordering
-is not obtainable. Instead, we establish a partial ordering of
-communication events through the use of \emph{Lamport Clocks}. This
-order is called the \emph{logical schedule}~\cite{Konuru2000} in which
-the events occurred. Figure~\ref{fig:comm-sched} shows such a schedule
-for our example system. In this schedule, two requests arrive at the
-Web server. The first is sent on to the cache, which queries the
-crawler, and eventually returns the data to the Web server. Then the
-second Web request arrives at the cache, and is served from cached
-data. Upon receiving responses from the cache, the Web server responds
-to the Web clients.
+essential~\cite{lamport1978time}. For a truly parallel system, we can
+create a partial using \emph{Lamport Clocks}. This order is called the
+\emph{logical schedule}~\cite{Konuru2000} in which the events
+occurred. Figure~\ref{fig:comm-sched} shows such a schedule for our
+example system. In this schedule, two requests arrive at the Web
+server. The first is sent on to the cache, which queries the crawler,
+and eventually returns the data to the Web server. Then the second Web
+request arrives at the cache, and is served from cached data. Upon
+receiving responses from the cache, the Web server responds to the Web
+clients.
 
 \begin{figure}
   \centering
@@ -366,41 +359,6 @@ to the Web clients.
   \label{fig:comm-sched}
 \end{figure}
 
-To be useful for debugging, the communication schedules we record have
-to be sufficiently detailed to capture differences across multiple
-executions. We assume that servers are otherwise deterministic, which
-allows us to limit the amount of information we need to record to
-communication events. Consequently, to record the causes of
-non\-/deterministic failures that stem from timing\-/dependent
-communication, we have to record order, direction, and communication
-partners for each network event in a distributed application. This can
-be done with little overhead both in space and time during the actual
-execution. The necessary information overhead we encode into each
-event consists of 8 byte Lamport clocks~\cite{Geels2006Replay}, with
-the first bit as a sign byte to tell incoming from outgoing
-events. Additionally, we include \textsc{IP} addresses and port
-numbers to identify the communication partners, which adds 4 bytes for
-the port and 16 bytes for the address, in the worst case of
-\textsc{IPv6} addressing. For an application that keeps the last
-1,000,000 requests stored in its logs before rotation, this amounts to
-about 26 MiB in additional storage space. The additional time required
-to encode this information is negligible, inducing a slowdown of only
-1\% in \toolname, with most of the time spent waiting for network \io
-operations.
-
-\begin{table}[h]
-  \centering
-  \begin{tabular}{l | c c}
-    Benchmark & Avg Executions/5s & $\sigma$ \\
-    \hline
-    Normal execution & 8.51 & 0.31 \\
-    Recording & 8.39 & 0.12 \\
-  \end{tabular}
-  \caption{Executions of a script that exercises the described flight
-    booking bug. We ran the script 50s and averaged the number of
-    executions per 5s}
-  \label{tab:tracing-bench}
-\end{table}
 
 \paragraph{Schedule Shaper}
 \label{sec:traffic-shaper}
@@ -665,6 +623,40 @@ which a \ac{cop}~\cite{Appeltauer2009} mechanism is available.
 \paragraph{Communication Recording}
 \todo{more detail, how are layers activated, by whom, which parts of
   the system are unaffected, i.e. development tools}
+
+To be useful for debugging, the communication schedules we record have
+to be sufficiently detailed to capture differences across multiple
+executions. Assuming that servers are otherwise deterministic, we have
+to record order, direction, and communication partners for each
+network event in a distributed application. This can be done with
+little overhead both in space and time during the actual
+execution. The necessary information overhead we encode into each
+event consists of 8 byte Lamport clocks~\cite{Geels2006Replay}, with
+the first bit as a sign byte to tell incoming from outgoing
+events. Additionally, we include \textsc{IP} addresses and port
+numbers to identify the communication partners, which adds 4 bytes for
+the port and 16 bytes for the address, in the worst case of
+\textsc{IPv6} addressing. For an application that keeps the last
+1,000,000 requests stored in its logs, this amounts only to about 26
+MiB in additional storage space. The additional time required to
+encode this information is negligible, inducing a slowdown of only 1\%
+in our \toolname, with most of the time spent waiting for network \io
+operations.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{l | c c}
+    Benchmark & Avg Executions/5s & $\sigma$ \\
+    \hline
+    Normal execution & 8.51 & 0.31 \\
+    Recording & 8.39 & 0.12 \\
+  \end{tabular}
+  \caption{Executions of a script that exercises the described flight
+    booking bug. We ran the script 50s and averaged the number of
+    executions per 5s}
+  \label{tab:tracing-bench}
+\end{table}
+
 
 Figure~\ref{fig:architecture_1} shows how the different modules
 collaborate during recording. A diagnosis script creates \ac{http}

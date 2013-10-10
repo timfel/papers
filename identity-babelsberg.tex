@@ -1,11 +1,21 @@
 \documentclass{article}
 \usepackage{amssymb}
+
+\oddsidemargin 0 in
+\evensidemargin 0 in
+\textwidth 6.5 in
+\topmargin 0 in
+\textheight 8.5 in
+\sloppy
+\setlength{\parindent}{0.0in}
+\setlength{\parskip}{7pt plus 1pt}
+
 \begin{document}
 \sloppy
 
 \title{Object Identity Constraints in Babelsberg}
-\author{Alan Borning (and Tim Felgentreff?)}
-\date{Draft of 8 October September 2013}
+\author{Alan Borning and Tim Felgentreff}
+\date{Draft of 10 October 2013}
 
 \maketitle
 
@@ -19,20 +29,20 @@ language.  Current versions are Babelsberg/R (Ruby) and Babelsberg/JS
 
 Babelsberg supports constraints on object identity, as well as on
 equality and other relations.  For example, this constraint ensures
-that \verb|x| and \verb|y| refer to the same object.  (In other words,
-there must be just one object that both \verb|x| and \verb|y| refer
-to, not two equal objects.)
+that \verb|x| and \verb|y| refer to the same object.\footnote{Standard
+  Ruby uses the method {\tt equal?} for the object identity test, but
+  Babelsberg/R uses a new keyword, {\tt is?}, both to avoid
+  programmers overriding the identity method, and also because
+  programmers coming from other languages are likely to find Ruby's
+  standard method name peculiar if not downright confusing.  {\tt ==}
+  is Ruby's equality test.}  (In other words, there must be just one
+object that both \verb|x| and \verb|y| refer to, not two equal
+objects.)
 
 \begin{verbatim}
 x is? y
 \end{verbatim}
 
-A note regarding method names: standard Ruby uses the method
-\verb|equal?| for the object identity test, but Babelsberg/R uses a
-new keyword, \verb|is?|, both to avoid programmers overriding the
-identity method, and also because programmers coming from other
-languages are likely to find Ruby's standard method name peculiar if
-not downright confusing.
 
 However, there are more complicated examples of identity constraints
 that either don't make sense semantically, or that do make sense but
@@ -41,7 +51,7 @@ to clarify the rules for what is legal in a constraint involving
 object identity.  
 
 The Babelsberg paper \cite{felgentreff-babelsberg-tr} lists three
-restrictions on constraints in the language:
+restrictions on constraints:
 
 \begin{quotation}
 First, evaluating the expression that defines the constraint should return a
@@ -58,108 +68,106 @@ Third, variables used in methods that will be called in a constraint
 must be used in a single-assignment fashion.  
 \end{quotation}
 
-These restrictions are not checked by Babelsberg, and if the
-programmer violates them, there aren't any guarantees regarding the
-results.  
-
 To handle identity constraints properly, the second restriction should
-be strengthened a bit, and an additional restriction should be added.
-Here is a proposed revision (which also fixes a smaller issue
-regarding system primitives, described below).
+be strengthened, and an additional restriction should be added.  Here
+is a proposed revision, which also divides the second restriction into
+several parts and fixes a smaller issue regarding system primitives.
 
 \begin{enumerate}
 
-\item Evaluating the expression that defines the constraint should
-  return a boolean --- the constraint is that the expression evaluates
-  to true.
+\item \label{item:constraint-type} Evaluating the expression that
+  defines the constraint should return a boolean --- the constraint is
+  that the expression evaluates to true.
 
-\item The constraint expression should either be free of side effects,
-  or if there are side effects, they should be benign (for example,
-  doing caching).
+\item \label{item:side-effects} The constraint expression should
+  either be free of side effects, or if there are side effects, they
+  should be benign (for example, doing caching).
 
-\item The result of evaluating the block should be deterministic (so
-  that an expression whose value depended on which of two processes
-  happened to complete first wouldn't qualify).
+\item \label{item:deterministic} The result of evaluating the block
+  should be deterministic.  (For example, an expression whose value
+  depended on which of two processes happened to complete first
+  wouldn't qualify.)
 
-\item Variables used in methods that will be called in a constraint
-  must be used in a single-assignment fashion.
+\item \label{item:single-assignment} Variables used in methods that
+  will be called in a constraint must be used in a single-assignment
+  fashion.
 
-\item If the block uses identity constraints, neither the
-  constraint block nor any methods that it calls (directly or
-  indirectly) can create new objects --- they can only use existing
-  objects.
-
-\item The result of evaluating the block should only depend on
-  variables known to the solver, and not on the result of a primitive
-  whose value isn't known to the solver.  Along with the prohibitions
-  of side effects and non-determinism, this implies that if none of
-  the variables referenced in the constraint expression (or variables
-  reachable from those referenced variables) have changed,
-  re-evaluating the expression must return the same result.
+\item \label{item:identity-constraints} If the block uses identity
+  constraints, neither the constraint block nor any methods that it
+  calls (directly or indirectly) can create new objects --- they can
+  only use existing objects.
 
 \end{enumerate}
 
-The first three restrictions are needed to provide the correct
-semantics for constraints.  
+Restrictions \ref{item:constraint-type}--\ref{item:deterministic} are
+needed to provide the correct semantics for constraints.
 
-The fourth restriction (single assignment semantics) prevents a class
-of errors resulting from overconstraining a multiply-assigned-to
-variable.  See \cite{felgentreff-babelsberg-tr} for more information,
-and alternatives.
+Restriction \ref{item:single-assignment} (single assignment semantics)
+prevents a class of errors resulting from overconstraining a
+multiply-assigned-to variable.  See \cite{felgentreff-babelsberg-tr}
+for more information, and alternatives.
 
-The fifth restriction makes it easier for the identity constraint
-solver to ensure that the identity constraints are indeed satisfied
---- without it, it would probably need to include additional tests to
-make sure that the constraint really was satisfied.  One possible
-intuition for it is that changing the UID of the object bound to a
-variable is like a side effect if you have identity constraints.  Some
-examples are given in Section \ref{sec:examples}.  It is actually a
-stronger restriction than is needed, but right now it's not clear how
-to precisely define a lenient alternative.  (See the discussion of
+Restriction \ref{item:identity-constraints} makes it easier for the
+identity constraint solver to ensure that the identity constraints are
+indeed satisfied.  An intuition for this restriction is that changing
+the UID of the object bound to a variable is something like a side
+effect if you have identity constraints.  Some examples are given in
+Section \ref{sec:examples}.  It is actually a stronger restriction
+than is needed, and we might be able to get rid of it altogether by
+including runtime checks to make sure that the constraint really was
+satisfied.  However, we don't have clear use cases for needing to
+violate this restriction.  So we leave it in for now, so that we can
+make progress, but may return to it later.  (See the discussion of
 alternatives in Section \ref{sec:alternatives}.)
-
-The last restriction also concerns the implementation, and essentially
-means that the VM can know when some value relevant to the constraint
-has changed.  It could be removed if the VM were suitably modified,
-for example so that the solver was triggered if the value that would
-be returned by a primitive changed.
 
 \section{Semantics of Constraints}
 
-We should clarify the relation between the expression that defines the
-constraint and the behavior of the solvers.  The expression, as
+The semantics of constraints are straightforward: the expression, as
 evaluable Ruby code, defines the constraint.  If it evaluates to true
 the constraint is satisfied.
 
-The Babelsberg/R VM, in concert with the solvers, is charged with
-satisfying the constraints.  Given a required constraint to solve, the
-solver should either satisfy it or raise an exception (where
-``satisfying it'' implies that the value resulting from evaluating the
-expression should be true).  Ideally, the solver would also include
-any runtime checks needed to ensure that it functioned correctly for
-any legal constraint, but we might need to include additional
-restrictions on the constraints so that the solver is known to work
-with them.  (Considering soft constraints as well as hard or required
-ones doesn't seem to add any additional issues, but since it would
-complicate the discussion let's ignore them for now.)
+However, there are some less straightforward consequences with respect
+to the solvers.  The Babelsberg/R VM, in concert with the solvers, is
+charged with satisfying the constraints.  Given a required constraint
+to solve, the solver should either satisfy it or raise an exception
+(where ``satisfying it'' implies that the value resulting from
+evaluating the expression should be true).  Ideally, the solver would
+also include any runtime checks needed to ensure that it functioned
+correctly for any legal constraint, but we might need to include
+additional restrictions on the constraints so that the solver is known
+to work with them.  (Considering soft constraints as well as hard or
+required ones doesn't seem to add any additional issues, but since it
+would complicate the discussion let's ignore them for now.)
 
-\section{Implementation of Identity Constraints}
-\label{sec:impl-ident-constr}
+\section{Implementation Considerations}
+\label{sec:implementation}
 
-Identity constraints in Babelsberg/R are treated specially at the
-\textsc{vm} level. To make this work, a current limitation of the
-implementation (not the design) is that a constraint expression can
-only contain one or more identity constraint or other constraints, but
-not both. An identity constraint adds links between the constrained
+The restriction that the result of evaluating the block be
+deterministic implies that if the system is in the same state,
+evaluating the constraint block should always give the same result.
+In the Babelsberg/R implementation, operationally this means that the
+value of the block should only depend on variables known to the
+solver, and not on system methods that can return different values
+without the solver being triggered.  This restriction could perhaps be
+removed if the VM were suitably modified, for example so that the
+solver was triggered if the value that would be returned by a
+primitive method changed, but this is probably not worth the
+performance penalty and implementation complexity.
+
+In the current implementation, identity constraints in Babelsberg/R
+are handled at the \textsc{vm} level rather than with a separate
+solver.  An identity constraint adds links between the constrained
 variables. An assignment to one of the variables is semantically the
 same as a simultaneous assignment of the same value to all linked
-variables (see the discussion on multi-assignments
+variables.  (See the discussion on multi-assignments
 in~\cite{felgentreff-babelsberg-tr} for more information on
-simultaneous assignments).
-
-Note that this simple propagation mechanism currently does not allow
-constraint priorities on identity constraints. Again, this is only an
-implementation issue.
+simultaneous assignments.)  This simple propagation mechanism
+currently does not allow constraint priorities on identity
+constraints; however, this is only an implementation issue rather than
+being a necessary aspect of the semantics.  Another limitation of the
+current implementation (not the design) is that a constraint
+expression can only contain identity constraints, or other constraints
+such as equalities or inequalities, but not both.  
 
 \section{Examples}
 \label{sec:examples}
@@ -179,12 +187,12 @@ In Babelsberg/R the interpreter can run in ordinary imperative
 evaluation mode, or in constraint construction mode.  In ordinary
 evaluation mode we can use the expression as a test, as discussed
 above.  When in constraint construction mode, evaluating the
-\verb|always| constraint will run point's == method, and add primitive
-constraints that p's x field equal 100, and p's y field equal 200,
-keeping track of dependencies in the process.  This works fine, even
-though we are creating a new point each time we use the constraint as
-a test.  In particular, if we repeatedly evaluate the constraint block
-as a test, we always get true.
+\verb|always| constraint will run point's == method (the equality
+test), and add primitive constraints that p's x field equal 100, and
+p's y field equal 200, keeping track of dependencies in the process.
+This works fine, even though we are creating a new point each time we
+use the constraint as a test.  In particular, if we repeatedly
+evaluate the constraint block as a test, we always get true.
 
 However, an otherwise similar constraint that uses an identity
 constraint rather than an equality constraint is unsatisfiable:
@@ -196,19 +204,19 @@ always { p is? Point.new(100,200) }
 
 No matter what \verb|p| is bound to, running the constraint as a test
 will return false, since we are testing whether \verb|p| is identical
-to a new point.  Something potentially confusing about this example is
-that we can imagine that the constraint solver would create a new
-point with x=100 and y=200, happily bind it to p, and at that time
-regard the constraint as satisfied.  But is the constraint satisfied
-at that time?  If we run the constraint block as a test it returns
-false, so by our semantics, it is not.  But the restrictions noted
-above would catch this issue, since the constraint involves creating a
-new object.  (As hinted above, one could probably also catch this
-problem by first running the solver to satisfy the constraint, then
-running the constraint as a test to make sure the constraint really is
-satisfied.  But doing this seems unnecessary, since so far we've only
-constructed pathological cases that need this test --- probably better
-to have the restriction.)
+to a freshly-created point.  Something potentially confusing about
+this example is that we can imagine that the constraint solver would
+create a new point with x=100 and y=200, happily bind it to p, and at
+that time regard the constraint as satisfied.  But is the constraint
+satisfied at that time?  If we then run the constraint block as a test
+it returns false, so by our semantics, it is not.  The restrictions
+listed above would catch this issue, since the constraint involves
+creating a new object.  (As hinted above, one could probably also
+catch this problem by first running the solver to satisfy the
+constraint, then running the constraint as a test to make sure the
+constraint really is satisfied.  But doing this seems unnecessary,
+since so far we've only constructed pathological cases that need this
+test.)
 
 Next, consider this example from \cite{felgentreff-babelsberg-tr},
 which uses just an equality constraint but not identity.  Suppose also
@@ -234,13 +242,14 @@ creating new objects in constraints that use identity.
 always { rect.center is? Point.new(100,100) }
 \end{verbatim}
 
-Note that one or both sides of an identity constraint can invoke
-methods that include conditionals, loops, and recursion --- they just
-can't create new objects.  For example, we could have a method
-\verb|last| that returns the last element of a linked list, either
-using a while loop or recursive -- in either case, it is more than a
-simple accessor method.  We could then use this method in a constraint
-like
+\subsection{Invoking Other Methods from Identity Constraints}
+
+One or both sides of an identity constraint can invoke methods that
+include conditionals, loops, and recursion --- they just can't create
+new objects.  For example, we could have a method \verb|last| that
+returns the last element of a linked list, either using a while loop
+or recursive -- in either case, it is more than a simple accessor
+method.  We could then use this method in a constraint like
 
 \begin{verbatim}
 always { e is? s.last }
@@ -251,23 +260,94 @@ Identity constraints can use temporary variables or \verb|self|
 satisfy an identity constraint would arguably be a side effect, and in
 any case would be weird).
 
+
+\subsection{Examples with System Calls}
+\label{sec:system-calls}
+
+Here are a few constraints that are disallowed because they call
+system methods.  (They use equality rather than identity constraints
+--- the aspect that is problematic is using primitive methods.)
+
+\begin{verbatim} 
+always { x == rand? }        # this uses the built-in rand method 
+always { t == Time.now() }
+always { b == File.exist?("fred.txt") }
+\end{verbatim} 
+
+\subsection{Stack Examples}
+
+Suppose we have a class Stack with \verb|init|, \verb|push|,
+\verb|pop|, and \verb|empty?| methods.
+
+Then this constraint is disallowed because it would have a side
+effect:
+
+\begin{verbatim}
+always { x == stack.pop }
+\end{verbatim}
+
+(And clearly it \emph{should} be disallowed --- every time we evaluate
+the constraint as a test, it changes the stack, until the stack is
+empty and an exception is raised.)
+
+On the other hand, this is fine:
+\begin{verbatim}
+always { e == stack.empty? }
+\end{verbatim}
+
+Babelsberg/R will keep track of the dependencies, so that if the stack
+is changed by pushing or popping an item, \verb|e| will be kept
+up-to-date.
+
+\subsection{Random Number Generator Examples}
+
+A constraint that uses the built-in \verb|rand| method is disallowed
+because it calls a system method (Section \ref{sec:system-calls}).
+However, it would be easy enough to define our own random number
+generator in Ruby:
+
+\begin{verbatim}
+class Random
+  def init
+    @seed = 0
+    @a = 1664525
+    @c = 1013904223
+    @m = 2**32
+  end
+  def rand
+    @seed = (@a*@seed + @c) % @m
+    @seed/@m.to_f
+  end
+end
+
+Then the constraint in this code
+r = Random.new
+always { x == r.rand.? }
+\end{verbatim}
+
+is also disallowed, but not because it uses a random number generator
+\emph{per se}, but rather because it uses a method with a side effect.
+(If we changed it to use a strange version, with a \verb|rand| method
+that just returned the number but didn't update the seed, and a
+separate \verb|tick| method that updated the seed, it would be OK.)
+
 \section{Alternatives for the Restrictions}
 \label{sec:alternatives}
 
 It seems that the restriction on not creating new objects if the
 constraint uses identity constraints is the only one that is
-problematic --- the others seem reasonable.
+problematic --- the others seem reasonable.  It works, but is stronger
+than necessary.
 
-A hand-wavy description of a more lenient version of the restriction
-could be that if there any new objects are created, such creation must
-be ``benign'', for example, the new object might be a temporary one
-used only in one of the methods called, which then is no longer
-accessible after the method returns (and so would be garbage
-collected).
+An intuition for a more lenient version of the restriction could be
+that if there any new objects are created, such creation must be
+``benign'', for example, the new object might be a temporary one used
+only in one of the methods called, which then is no longer accessible
+after the method returns (and so would be garbage collected).
 
-But what would this mean operationally?  One idea is that identity
-constraints cannot leak new objects.  But this seems to not quite
-work.  Consider:
+But what does ``benign'' mean in this context?  One idea is that
+identity constraints cannot leak new objects.  But this seems to not
+quite work.  Consider:
 
 \begin{verbatim}
 def test
@@ -280,10 +360,20 @@ always { test == 42 }
 \end{verbatim}
 
 Here, we aren't leaking the new points, but there is still an
-unsatisfied constraint in the middle of the \verb|test| method, but
-the solver will probably view it as satisfiable.\footnote{Can we come
-  up with a better example, for instance one in which the return
-  value is different if the identity constraint is correctly solved?}
+unsatisfied constraint in the middle of the \verb|test| method, which
+the solver would probably view as satisfiable.
+
+Another approach might be to eliminate the restriction altogether, and
+just include a test after the code to satisfy any identity constraint,
+to check that in fact the identity constraint holds.  We don't have
+any clear use cases for identity constraints that also need to create
+new objects, and adding the check has a slight performance penalty ---
+on the other hand, it would simplify the language description if it
+works.
+
+%% Can we come up with a better example, for instance one in which the
+%% return value is different if the identity constraint is correctly
+%% solved?
 
 \bibliographystyle{plain}
 \bibliography{constraints}

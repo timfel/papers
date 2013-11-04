@@ -32,6 +32,8 @@
 
 % Acronyms
 \newacronym{api}{\textsc{api}}{application programming interface}
+\newacronym{dsl}{\textsc{dsl}}{domain specific language}
+\newacronym{vm}{\textsc{vm}}{virtual machine}
 
 
 \newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
@@ -44,6 +46,9 @@
 \newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
 
 \newcommand{\langname}{\mbox{Babelsberg}\xspace}
+\newcommand{\load}{\textsc{load}\xspace}
+\newcommand{\store}{\textsc{store}\xspace}
+\newcommand{\javascript}{JavaScript\xspace}
 
 \begin{document}
 \frontmatter          % for the preliminaries
@@ -99,26 +104,26 @@ domain-specific languages\cite{AppleCocoaAutoLayout,Enaml}, or (more
 recently) functional-reactive
 programming\cite{ohshima2012report,meyerovich2009flapjax} to specify
 constraints. These approaches do not need special runtime support, but
-require the programmer to call specific APIs or follow certain rules
-to not accidentally circumvent the constraints.
+require the programmer to call specific \acp{api} or follow certain
+rules to not accidentally circumvent the constraints.
 
 The first implementation of \langname is as a custom Ruby virtual
 machine, called \langname/R. In this work we support the claim that
 \langname is a general design for integrating constraints with
 dynamic, object-oriented languages by presenting a purely
-JavaScript-based implementation of \langname called
-\langname/JS. Compared to \langname/R, our JavaScript implementation
+\javascript-based implementation of \langname called
+\langname/JS. Compared to \langname/R, our \javascript implementation
 presents additional challenges to the \langname design.
 
 First, browser data structures cannot be modified directly by the
-solvers. Instead, the appropriate API functions have to be called to
-set some values. In \langname/JS, we use a local propagation solver --
-DeltaBlue\cite{freeman1989deltablue} -- to call these functions. An
+solvers. Instead, the appropriate \ac{api} functions have to be called
+to set some values. In \langname/JS, we use a local propagation solver
+-- DeltaBlue\cite{freeman1989deltablue} -- to call these functions. An
 architecture for interactions between different constraint
 solvers\cite{borning2012architectures} allows developers to use
 specialized solvers like Cassowary\cite{badros2001cassowary} or
 Z3\cite{de2008z3} where it makes sense, and have the system propagate
-value updates to the browser API via local propagation.
+value updates to the browser \ac{api} via local propagation.
 
 Second, to use \langname/JS in interactive Web applications requires
 that the system react quickly to user input, for example when dragging
@@ -132,12 +137,127 @@ performance.
 \section{Background}
 \label{sec:background}
 
-\paragraph{The Babelsberg approach}
+Programs frequently have some set of constraints that should hold.
+For standard imperative languages, the usual approach to dealing with
+such constraints is to leave it entirely up to the programmer to
+ensure that they are satisfied --- the constraints may be just in
+comments and documentation, or perhaps in the form of
+machine-checkable assertions.  For the latter case, programmers
+typically write assertions to fail early if these constraints are
+unexpectedly not satisfied~\cite{rinard2005exploring}. However, some
+constraints may describe an invalid system state that could be
+automatically corrected. To deal with such constraints, programmers
+may write code that are executed at various times throughout the
+execution to check and correct invalid state. In these cases, it is
+usually clearer to express and satisfy constraints explicitly, rather
+than encoding them with control flow and state changing
+operations.
+
+One approach is to use a library that provides one or more constraint
+solvers. A large number of solvers that cover a wide range of type
+domains (such as reals, booleans, or finite sets) is available for
+imperative languages and can be called from imperative
+code~\cite{torlak2007kodkod,de2008z3,badros2001cassowary,freeman1989deltablue}.
+For more specialized domains such as user interface layout, some
+libraries provide separate \acp{dsl} to express for example minimal
+distances between graphical objects. Prominent examples here include
+the Mac OS X layout specification language~\cite{AppleCocoaAutoLayout}
+and the Qt GUI framework~\todo{cite}.
+
+Another approach, however, is to integrate a means to express and
+maintain constraints with the language itself. Some languages such as
+Scratch~\todo{cite}, LivelyKernel~\todo{cite}, and
+KScript~\cite{ohshima2012report} have built-in support for data flow,
+which allows programmers to express unidirectional constraints between
+objects. To support a broader set of constraints, some languages
+directly integrate one or more solvers into their execution
+model. Again, there is a huge body of prior art in this area, examples
+include Constraint Logic Programming~\todo{cite}, Constraint
+Imperative
+Programming~\cite{lopez1994kaleidoscope,grabmuller2004turtle}, and
+Object Constraint Programming, which \langname is an instance of.
+
+\langname is a design for a family of object constraint languages that
+integrate constraints with an existing object-oriented language. Its
+goals include:
+\begin{itemize}
+\item a syntax and semantics that are a strict superset and fully
+  compatible with the base language
+\item performance that is competitive with the base language for
+  purely object-oriented code
+\item support for required and preferential constraints, constraints
+  on object identity, variables that are readonly to solvers or
+  imperative code, as well as incremental resolving for use in
+  interactive applications
+\item an \ac{api} for constraint solvers that makes it straightforward
+  to add new solvers and does not privilege the solvers provided with
+  the implementation, to make it easy to use different solvers in
+  different programs
+\end{itemize}
+The first implementation of \langname is \langname/R, based on a
+modified Ruby \ac{vm}.
+
+
+\subsection{The \langname/R Approach}
 \label{sec:babelsberg-approach}
 Babelsberg is ...
 Following features...
 
-\paragraph{Interacting Constraint Libraries}
+\section{\langname/JS}
+\label{sec:design}
+
+why a reimplementation in \javascript?
+
+because...
+
+\subsection{Object Constraint Programming without VM Support}
+\label{sec:vm-support}
+
+\langname/R was built as an extension to a Ruby \ac{vm}. The extension
+is two-fold:
+\begin{itemize}
+\item The \ac{vm} was extended to support \emph{constrained
+    variables}. These variables refer to different objects depending
+  on the context they are used in. One is the normal object-oriented
+  binding used in the host language execution. The other is a
+  constraint object that can be used by a solver for constraint
+  construction and solving. Variables become to constrained variables
+  only when they are used in a constraint, minimizing the performance
+  impact for parts of the program where only unconstrained variables
+  are accessed.
+\item The \langname/R interpreter distinguishes between different
+  execution modes: normal \emph{imperative execution} and
+  \emph{constraint construction}. A primitive --- \lstinline{always}
+  --- was added to execute a closure in constraint construction
+  mode. In this mode, the bytecodes for \load and \store were modified
+  to refer to the constraint objects of constrained variables. Normal
+  variables are automatically promoted to constrained variables in
+  this mode. During imperative execution, assignments to constrained
+  variables trigger recalculation of the constraints.
+\end{itemize}
+
+We have thus identified the following requirements for implementing
+the \langname scheme without \ac{vm} support:
+\begin{itemize}
+\item The host language must support a means to intercept variable
+  lookup, so names can refer to different objects.
+\item The host language must provide a means to modify interpretation
+  of a block of code to implement the constraint construction mode.
+\end{itemize}
+
+The first requirement is partially supported in \javascript for object
+fields using property accessors. We limit ourselves to constraining
+fields in \langname/JS, but not local variables. In doing so, we can
+define property accessors on objects that are used in constraints to
+intercept their field lookup and storage.  Second, to execute code in
+a constraint construction mode, we use a modified \javascript
+interpreter written in \javascript and a source code transformation,
+because popular \javascript \acp{vm}~\todo{cite} usually do not
+provide direct access to the native interpreter.
+
+\todo{we could have used just source transformation and eval...}
+
+\subsection{Interacting Constraint Libraries}
 \label{sec:inter-constr-libr}
 Constraints are partitioned into regions. The partitioning algorithm
 is ``by solver''. Each constraint can be explicitly assigned to a
@@ -156,12 +276,14 @@ still be applied to variables that appear only in one solver.
 \paragraph{Running Example: Thermometer Demo}
 \label{sec:runn-exampl-therm}
 
+\subsection{Cooperating Incremental Resolving}
+\label{sec:coop-incr-resolv}
 
 \section{Implementation}
 \label{sec:implementation}
 
-JavaScript/Lively, DeltaBlue, Cassowary, JavaScript Interpreter,
-Source-Code transformation, Show algorithm for suggest_value and edit
+\javascript/Lively, DeltaBlue, Cassowary, \javascript Interpreter,
+Source-Code transformation, Show algorithm for suggest\_value and edit
 
 \section{Evaluation}
 \label{sec:eval}
@@ -182,11 +304,12 @@ Source-Code transformation, Show algorithm for suggest_value and edit
 \label{sec:problems}
 Read-only is not constant: Right now, downstream solvers see shared
 variables as readonly, however, in the current implementation this
-means that the variable has a strong equality constraint in the
-solver, but it isn't a constant. This means that the following doesn't
-work in Cassowary (you get NonLinearResult), even though it probably
+means that the variable has a strong equality or a stay constraint in
+the solver, but it isn't a constant. This means that the following
+doesn't work in Cassowary (you get NonLinearResult), even though it
+probably
 should:\\
-\texttt{always { resistance * current.? == voltage }}
+\texttt{always \{ resistance * current.? == voltage \}}
 
 \section{Future Work}
 \label{sec:future-work}

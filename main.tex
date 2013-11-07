@@ -185,14 +185,14 @@ The contributions of this work thus are:
   solvers
 \end{itemize}
 
-\todo{do we want the next bit?}
+\todo{do we want this bit?}
 Further contributions pertaining to the implementation are:
 \begin{itemize}
-\item ?(A design to use local propagation solvers with object-oriented abstractions)
-\item ?(A design for multi-method dispatch semantics on top of normal
-  object-oriented dispatch for binary messages)
-\item ?(Per-constraint exception handling as an extension to the
-  \langname design)
+\item Local propagation solvers with object-oriented abstractions (so
+  we don't need to repeat formulas)
+\item A design for basically multi-method dispatch semantics on top
+  of normal object-oriented dispatch for binary messages
+\item Per-constraint exception handling
 \end{itemize}
 
 The rest of this paper is structured as
@@ -279,12 +279,10 @@ modified Ruby \ac{vm}.
 \subsection{The \langname/R Approach}
 \label{sec:babelsberg-approach}
 
-
-
 Babelsberg is ...
 Following features...
 
-The semantics of constraints in \langname are straightforward.
+The semantics of constraints in \langname are this ...
 
 \section{\langname/JS}
 \label{sec:design}
@@ -344,12 +342,24 @@ fields in \langname/JS, but not local variables. In doing so, we can
 define property accessors on objects that are used in constraints to
 intercept their field lookup and storage.  Second, to execute code in
 a constraint construction mode, we use a modified \javascript
-interpreter written in \javascript and a source code transformation,
-because popular \javascript \acp{vm}~\todo{cite} usually do not
-provide direct access to the native interpreter.
+interpreter written in \javascript and a source code
+transformation,\todo{we could have used just source transformation and
+  eval? not really, but the answer is more complicated} because
+popular \javascript \acp{vm}~\todo{cite} usually do not provide direct
+access to the native interpreter.
 
-\todo{we could have used just source transformation and eval? not
-  really, but the answer is more complicated}
+
+\emph{now explain what happens when we write a constraint. refer to
+  jot paper where appropriate
+  \begin{itemize}
+  \item src-transform to find context
+  \item run custom interpreter
+  \item (coercion of values, finding the right solver)
+  \item create property getters and setters for participating objects
+  \item enable the constraints in the solvers
+  \item return a Constraint meta-object (refer to jot article for
+    protocol)
+  \end{itemize}}
 
 \subsection{Interacting Constraint Libraries}
 \label{sec:inter-constr-libr}
@@ -432,17 +442,112 @@ constraint that has variables visible in multiple solvers. However,
 the optimization can still be applied to variables whose transitive
 closure of connected variables is local to one region.
 
-\paragraph{Running Example: Thermometer Demo}
-\label{sec:runn-exampl-therm}
+\framebox{TODO: Running Example: Thermometer Demo}
+
+\framebox{TODO: Explain solver selection}
+\emph{
+  \begin{enumerate}[a.]
+  \item If a solver is chosen (either explicitely by the programmer or
+    through other means) for the active constraint execution, use that
+  \item If not, send "constraint\_solver" to current value
+  \item If an object is returned (not nil), make that the current
+    solver
+  \item If a solver-variable exists for the chosen solver and the
+    current variable, use that
+  \item Otherwise, send "constraint\_variable\_for" with the value to
+    the solver (this allows solvers to interpret unbound variable
+    names, i.e. nil, in a domain they consider useful. So cassowary
+    can solve constraints over unassigned instance variables, and we
+    don't have to assign an integer first
+  \item (For backwards compatibility in Babelsberg/R with the built-in
+    local propagation mechanism (using "for\_constaint" and
+    "assign\_constraint\_value"), we still send "for\_constraint" to
+    the value if no solver-variable was found by this point - this is
+    not important for this note, however)
+  \item The returned solver-variable must be in the same solver that
+    is currently active (if any), and an exception is raised if not
+  \end{enumerate}
+}
 
 \subsection{Cooperating Incremental Resolving}
 \label{sec:coop-incr-resolv}
+
+\emph{The gist here is that we use the edit method. The edit method
+  here returns a callback function instead of accepting a stream,
+  because this is more in line with the nature of JavaScript.}
+
+\emph{For the edit function, instead of creating new variables plus
+  equalities as in Babelsberg/R, we check which solvers the variable
+  is in. The algorithm is then:
+\begin{itemize}
+\item mark the variable as edit variable in all solvers it
+  participates in (e.g. beginEdit for cassowary and new
+  EditConstraint(var) for DeltaBlue). Remove all read-only
+  annotations for the edit variables.
+\item create a callback function that, on each call:
+  \begin{itemize}
+  \item assigns new edit constants
+  \item triggers resolving
+  \item updates read-only constraints for changed variables in
+    downstream regions, triggering those solvers (this part is
+    potentially slow. we can optimize it by creating edit
+    constraints for those connected variables as well. question is,
+    what do we do if we interleave creating new constraints and
+    calling the edit callback - do we just disallow that?)
+  \end{itemize}
+\item on end edit (by calling the callback function without
+  arguments), the read-only annotations are put back
+\end{itemize}
+}
 
 \section{Implementation}
 \label{sec:implementation}
 
 \javascript/Lively, DeltaBlue, Cassowary, \javascript Interpreter,
 Source-Code transformation, Show algorithm for suggest\_value and edit
+
+\emph{Assignment\\
+  During constraint construction, if the variable has an
+  interpretation (``is\_solveable'') in the currently active solver,
+  an equality constraint is asserted, otherwise it is simply
+  stored. Normally, assignment is a 3-step process
+  \begin{description}
+  \item[Begin Assign]
+    \begin{enumerate}
+    \item Disable all readonly constraints (equality constraints on
+      the current value)
+    \item Store the new value
+    \item If there are solver-variables, pick the the most upstream
+      variable and call begin\_assign on the (usually asserts an
+      equality constraint, but solver specific)
+    \end{enumerate}
+  \item[Assign]
+    \begin{enumerate}
+    \item If there are solver-variables, pick the most upstream one
+      and call assign on that (usually triggers the solver to
+      resatisfy its constraints, including the previously asserted
+      equality constraint with the new value)
+    \item Now call begin\_assign and assign on all
+      solver-variables with the new value on all downstream
+      solvers
+    \end{enumerate}
+  \item[End Assign]
+    \begin{enumerate}
+    \item Call end\_assign on the most upstream solver-variable
+      (usually removes the equality constraint created in
+      begin\_assign)
+    \item Re-enable all the readonly constraints with the new value
+    \item For all constraints this variable appears in that have no
+      solver-variable for this variable, recalculate the path (this
+      will use the new value to re-evaluate the closure in the solver
+      - note that this may mean that a solver-variable is subsequently
+      created if the variable type changed, but the other way around
+      doesn't work. We should probably not allow changing the domain
+      of variables that already occured in constraints)
+    \end{enumerate}
+  \end{description}
+}
+
 
 \section{Evaluation}
 \label{sec:evaluation}

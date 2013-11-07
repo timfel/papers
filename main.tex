@@ -1,7 +1,7 @@
 % Copyright (C) 2013, Tim Felgentreff
 % All rights reserved.
 
-\documentclass[draft]{llncs}
+\documentclass{llncs}
 \usepackage{makeidx}  % allows for indexgeneration
 \usepackage[pdftex]{graphicx} % PNGs
 \usepackage{amsmath, amssymb} % algebra
@@ -17,14 +17,43 @@
 \usepackage{paralist} % figures
 \usepackage[shortcuts]{extdash} % figures
 \usepackage{hyperref}
+\usepackage{todonotes}
 
-\lstset{%
-  	language=Java,
-	basicstyle=\small,
-	frame=single,
-	emph={localId, Super, refines, layer},
-	emphstyle={\bfseries}
-	}
+\lstdefinelanguage{JavaScript}{
+  keywords={typeof, new, true, false, catch, function, return, null, catch, switch, var, if, in, while, do, else, case, break},
+  keywordstyle=\bfseries,
+  ndkeywords={class, export, boolean, throw, implements, import, this},
+  ndkeywordstyle=\color{darkgray}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{purple}\ttfamily,
+  stringstyle=\ttfamily,
+  morestring=[b]',
+  morestring=[b]"
+}
+
+\lstnewenvironment{code}[1][]%
+{\vskip0em\noindent
+  \minipage{\linewidth}
+  \vspace{0.5\baselineskip}
+  \lstset{%
+    language=JavaScript,%
+    basicstyle=\scriptsize,%\ttfamily,
+    frame=single,%
+    emph={always, once, constructor},%
+    emphstyle=\bfseries,%
+    % breaklines=true,
+    breakatwhitespace=false,%
+    literate={<<}{\tiny{$\ll$}~}{1}%
+    {.?}{\bfseries\emph{.?}}{1}%
+    {visible?}{visible?}{1},%
+    showstringspaces=false,%
+    %columns=flexible,%
+    #1}}
+{\endminipage\vskip0em}
+
 \restylefloat{figure}
 
 \usepackage{glossaries}
@@ -44,7 +73,7 @@
 \newcommand{\Ie}{I.\hairspace{}e.,\xspace}
 \newcommand{\ie}{i.\hairspace{}e.,\xspace}
 \newcommand{\cf}[1]{cf.\,{#1}\xspace}
-\newcommand{\todo}[1]{\framebox{\textsc{todo} #1}}
+% \newcommand{\todo}[1]{\marginpar{\textsc{todo} #1}}
 
 \newcommand{\langname}{\mbox{Babelsberg}\xspace}
 \newcommand{\load}{\textsc{load}\xspace}
@@ -260,9 +289,19 @@ The semantics of constraints in \langname are straightforward.
 \section{\langname/JS}
 \label{sec:design}
 
-why a reimplementation in \javascript?
+\javascript is currently of great interest to the research
+community. In the industry, it has become the de-facto standard for
+Web programming and a huge amount of code exists in the
+language. \javascript's unique language design and its execution
+environment in the Web browser currently prompt much research to
+revise and adapt existing features of other systems\todo{cite
+  JSproxies paper from ecoop12, Dart paper, js module system
+  paper}.
 
-because...
+To provide practical support for object-constraint programming in
+\javascript, we adapt the \langname design to not require support from
+the underlying \ac{vm}. This enables us to run \langname/JS in modern
+browsers and use it in a variety of practical Web applications.
 
 \subsection{Object Constraint Programming without VM Support}
 \label{sec:vm-support}
@@ -309,23 +348,89 @@ interpreter written in \javascript and a source code transformation,
 because popular \javascript \acp{vm}~\todo{cite} usually do not
 provide direct access to the native interpreter.
 
-\todo{we could have used just source transformation and eval...}
+\todo{we could have used just source transformation and eval? not
+  really, but the answer is more complicated}
 
 \subsection{Interacting Constraint Libraries}
 \label{sec:inter-constr-libr}
-Constraints are partitioned into regions. The partitioning algorithm
-is ``by solver''. Each constraint can be explicitly assigned to a
-solver instance. The regions are sorted by the ``weight'' of their
-solver. You can have multiple instances of the same solver with
-different weights. Constraints are then solved top-to-bottom. Each
-determined variable is assigned its value and, for all lower region
-solvers it appears in, a read-only constraint is created to keep that
-value.
 
-Propagation is important. Consider this (insert here example with
-hidden propagation). This makes an optimization of the Babelsberg
-design impossible (lazy value storage). However, the optimization can
-still be applied to variables that appear only in one solver.
+A huge body of work exists that describes approaches to integrate
+different constraint solvers\todo{cite grabmüller,smt}. In this work,
+we chose to implement a design for interacting solvers that partitions
+constraints into regions which are connected through read-only
+variables\cite{borning2012architectures}.
+
+In \langname/JS, each constraint belongs to a particular solver. All
+constraints that belong to the same solver are in the same
+region. Variables that occur in multiple constraints that belong to
+different solvers are read-only in all but one of the
+solvers. Read-only variables are represented in a solver specific
+manner, either through \emph{stay constraints} for solvers that
+support them, or through required equality constraints. We require
+solver libraries to provide a method to make a variable read-only for
+that solver.
+
+To sort regions, each solver has an associated weight. Solver
+libraries define default weights, but the programmer can assign an
+instance specific weight to each solver instance. This allows
+applications to use multiple instances of the same solver type (this
+can be used, for example, to break up non-linear constraints into
+multiple linear constraints and solve them with Cassowary).
+
+Once the solver regions are sorted, solving proceeds in order of
+descending weight. Each region will determine values for the variables
+it can write to, and the downstream regions will adjust to accommodate
+the new values assigned to read-only variables from higher level
+regions.
+
+In contrast to \langname/R, we cannot defer assigning the values from
+the solver to the object-oriented variable. Consider the following two
+constraints:
+
+\begin{code}
+aCassowarySolver.weight = 10;
+aDeltaBlueSolver.weight = 1;
+var a, b;
+
+always({solver: aCassowarySolver}, function() {
+    return a == b;
+});
+
+always({solver: aDeltaBlueSolver, methods: function() {
+        a.formula([window.title], function(s) { return parseFloat(s) });
+        window.title.formula([a], function(n) { return n + "" });
+       }}, function() {
+    return a == string;
+});
+\end{code}
+
+The first constraint uses Cassowary to make \lstinline{a} and
+\lstinline{b} refer to the same real value (because Cassowary works
+only on reals, \lstinline{a} and \lstinline{b} are coerced into
+\javascript floats in the constraint). The second constraint uses
+local propagation to make the browser window title reflect the value
+of \lstinline{a}. (Note that due to the assigned weights,
+\lstinline{a} is read-only for DeltaBlue, so we could also have
+omitted the first formula).
+
+If we now assign \lstinline{a = 20}, both solvers will be triggered,
+because both have a reference to a constraint that \lstinline{a}
+participates in, and both \lstinline{b} and the
+\lstinline{window.title} will show the new value on the next
+read.
+
+However, if we assign \lstinline{b = 10}, only Cassowary will be
+triggered, because \lstinline{b} is only referenced in the Cassowary
+constraint. We found that to support the expected behavior that the
+window title is updated on either assignment, we have to eagerly
+trigger constraint satisfaction for the transitive closure of
+variables connected to the variable that is assigned.
+
+In \langname/R, lazy variable was an optimization. We cannot apply
+this optimization when assigning to variables that participate in any
+constraint that has variables visible in multiple solvers. However,
+the optimization can still be applied to variables whose transitive
+closure of connected variables is local to one region.
 
 \paragraph{Running Example: Thermometer Demo}
 \label{sec:runn-exampl-therm}

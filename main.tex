@@ -34,6 +34,20 @@
   morestring=[b]"
 }
 
+\lstset{%
+    language=JavaScript,%
+    basicstyle=\scriptsize,%\ttfamily,
+    frame=single,%
+    emph={always, once, constructor},%
+    emphstyle=\bfseries,%
+    % breaklines=true,
+    breakatwhitespace=false,%
+    literate={<<}{\tiny{$\ll$}~}{1}%
+    {.?}{\bfseries\emph{.?}}{1}%
+    {visible?}{visible?}{1},%
+    showstringspaces=false,%
+    %columns=flexible,%
+}
 \lstnewenvironment{code}[1][]%
 {\vskip0em\noindent
   \minipage{\linewidth}
@@ -64,6 +78,7 @@
 \newacronym{api}{\textsc{api}}{application programming interface}
 \newacronym{dsl}{\textsc{dsl}}{domain specific language}
 \newacronym{vm}{\textsc{vm}}{virtual machine}
+\newacronym{dom}{\textsc{dom}}{Document Object Model}
 
 
 \newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
@@ -155,7 +170,7 @@ The typical execution environment for \javascript --- the Web browser
 consider. First, \langname assumes that the environment is open and
 solvers can ignore encapsulation and modify data structures
 directly. However, some Web browser data structures --- like the
-window object --- can only be manipulated using dedicated
+\ac{dom} --- can only be manipulated using dedicated
 \acp{api}. Second, interactive \javascript-based rich web applications
 require that the system react quickly to user input --- for example,
 dragging a graphical object must be smooth, even if there are
@@ -261,6 +276,9 @@ goals include:
 \begin{itemize}
 \item a syntax and semantics that are a strict superset and fully
   compatible with the base language
+\item a unified mechanism for abstraction shared between constraints
+  and object oriented code, so that constraints can re-use
+  object-oriented methods and respect encapsulation
 \item performance that is competitive with the base language for
   purely object-oriented code
 \item support for required and preferential constraints, constraints
@@ -276,7 +294,7 @@ The first implementation of \langname is \langname/R, based on a
 modified Ruby \ac{vm}.
 
 
-\subsection{The \langname/R Approach}
+\subsection{\langname/R}
 \label{sec:babelsberg-approach}
 
 Babelsberg is ...
@@ -348,19 +366,101 @@ transformation,\todo{we could have used just source transformation and
 popular \javascript \acp{vm}~\todo{cite} usually do not provide direct
 access to the native interpreter.
 
+\subsubsection{Property Accessors on Constrained Objects}
+\label{sec:prop-access-constr}
+When an object has been used in a constraint, its constrained
+properties have been replaced with property accessors. The property
+getter is a simple wrapper around the solver variable. Instead of
+returning the field value of the object, it returns the value of the
+variable in the solver data structure.
 
-\emph{now explain what happens when we write a constraint. refer to
-  jot paper where appropriate
-  \begin{itemize}
-  \item run custom interpreter
-  \item create property getters and setters for participating objects
-  \item enable the constraints in the solvers
-  \item return a Constraint meta-object (refer to jot article for
-    protocol)
-  \end{itemize}}
+The property setter distinguishes two cases: first, if the variable is
+writable from a solver, an equality constraint for that solver is
+created and the updated constraint system is solved, potentially
+triggering other solvers. If the variable is not writable (either
+because it is of a type that no available solver supports or because
+it has been marked read-only for solvers by the programmer), its new
+value is stored, and all dependent constraints are recalculated.
+
+\subsubsection{Creating Constraints}
+\label{sec:writing-constraints}
+As an example to writing constraints, consider an interactive
+temperature converter which maintains the relation between sliders
+representing values on the Fahrenheit, Celsius, Rankine, and Kelvin
+scale.
+
+\begin{code}
+var converter = {},
+    cassowary = new CLSimplexSolver();
+always({solver:  cassowary}, function() {
+    return converter.C * 1.8 == converter.F - 32 &&
+           converter.C + 273.15 == converter.K &&
+           converter.F + 459.67 == converter.R
+});
+\end{code}
+
+Once this code has executed, any change to either one of the
+temperature values in the converter object will trigger changes to the
+other values to keep the constraint satisfied through property
+accessors described above.
+
+During execution, the \lstinline{always} function passes the function
+and information about the context into a custom \javascript
+interpreter that part of the \langname/JS library. This
+\emph{constraint interpreter} creates property accessors for the
+\lstinline{C}, \lstinline{F}, \lstinline{K}, and \lstinline{R} fields
+of the \lstinline{converter} object. Accesses to these fields within
+the constraint do not use these accessors, but instead return
+\emph{ConstrainedVariable} objects. Messages are then sent to these
+objects, and instead of calculating values, create relations that can
+be satisfied by a solver. The \lstinline{always} statement returns a
+\lstinline{Constraint} object that provides meta-level access to the
+asserted relations (refer to\cite{FelgBorningJot2014} for more info on
+the protocol).
+
+In this example, the constraints are on the fields of the
+object. However, constraints in \langname can also include methods
+that perform computations. For example, imagine the converter uses the
+\lstinline{getCelsius} method to return a cached temperature value
+that is updated in regular intervals from a Web service:
+\begin{code}
+var converter = {},
+    cassowary = new CLSimplexSolver();
+
+converter.getCelsius = function() {
+    if (!converter.updater) {
+        updateCelsius(converter); // updateCelsius omitted for brevity
+        converter.updater = setInterval(5000, function() {
+            updateCelsius(converter);
+        });
+    }
+    return converter.C;
+}
+
+always({solver:  cassowary}, function() {
+    return converter.getCelsius() * 1.8 == converter.F - 32 &&
+           converter.getCelsius() + 273.15 == converter.K &&
+           converter.F + 459.67 == converter.R
+});
+\end{code}
+
+By placing the constraint on the result of sending messages rather
+than on fields, \langname respects object encapsulation.  The value
+returned from the message send in this example is simply a float, but
+return values can also be arbitrary objects and computed values.
+\framebox{TODO: Concise example for computed object constraint?}
 
 \subsection{Interacting Constraint Libraries}
 \label{sec:inter-constr-libr}
+
+Note that the above temperature converter has no graphical
+representation. Cassowary only works on reals, yet in order to
+visualize the temperature scales, we need to convert the values into
+strings and update the Web browsers \ac{dom} using the appropriate
+\ac{api}. A local propagation solver can call the \ac{api}, yet it is
+more cumbersome to use for linear arithmetic. We want both a solver
+for linear arithmetic on the reals and a local propagation solver to
+interact to solve this problem.
 
 A huge body of work exists that describes approaches to integrate
 different constraint solvers\todo{cite grabmüller,smt}. In this work,
@@ -439,8 +539,6 @@ this optimization when assigning to variables that participate in any
 constraint that has variables visible in multiple solvers. However,
 the optimization can still be applied to variables whose transitive
 closure of connected variables is local to one region.
-
-\framebox{TODO: Running Example: Thermometer Demo}
 
 \framebox{TODO: Explain solver selection}
 \emph{
@@ -575,9 +673,9 @@ Source-Code transformation, Show algorithm for suggest\_value and edit
 
 \subsection{Constraint Construction}
 \label{sec:constr-constr}
-explain in detail how the aforementioned steps work
+explain in detail how the steps described in the design work
 
-additional implementation specific details:
+additional implementation level details:
 \begin{itemize}
 \item src-transform to determine and pass context
 \item coercion of values for binary messages

@@ -518,59 +518,43 @@ it can write to, and the downstream regions will adjust to accommodate
 the new values assigned to read-only variables from higher level
 regions.
 
-In contrast to \langname/R, we cannot defer assigning the values from
-the solver to the object-oriented variable. Consider the following two
-constraints:
-
+For our temperature converter, we can now provide some graphical
+representation. We want the color of a \textsc{div} element to changes
+when the temperature is above 30$^{\circ}$ C.
 \begin{code}
-aCassowarySolver.weight = 10;
-aDeltaBlueSolver.weight = 1;
-var a, b;
+// using the jQuery api to get a DOM element
+var el = $("#tooHotWarning");
 
-always({solver: aCassowarySolver}, function() {
-    return a == b;
-});
-
-always({solver: aDeltaBlueSolver, methods: function() {
-        a.formula([window.title], function(s) { return parseFloat(s) });
-        window.title.formula([a], function(n) { return n + "" });
-       }}, function() {
-    return a == string;
-});
+always({solver: deltablue, methods: function() {
+        el.color.formula([converter.getCelsius()],
+            function(celsius) {
+              var color = c > 30 ? "red" : "blue";
+              el.setAttribute("class", color);
+              return color;
+            });
+        }},
+    function() {
+        if (converter.getCelsius() > 30) {
+            return el.getAttribute("class") == "red";
+        } else {
+            return el.getAttribute("class") == "blue";
+        }
+    }
+);
 \end{code}
 
-The first constraint uses Cassowary to make \lstinline{a} and
-\lstinline{b} refer to the same real value (because Cassowary works
-only on reals, \lstinline{a} and \lstinline{b} are coerced into
-\javascript floats in the constraint). The second constraint uses
-local propagation to make the browser window title reflect the value
-of \lstinline{a}. For the latter, we provide two
-\emph{formulas}. Those tell DeltaBlue the dependencies and conversion
-function for each variable that we want to allow DeltaBlue to modify
-(note that due to the assigned weights, \lstinline{a} is read-only for
-DeltaBlue, so we could also have omitted the first formula).
-
-If we now assign \lstinline{a = 20}, both solvers will be triggered,
-because both have a reference to a constraint that \lstinline{a}
-participates in, and both \lstinline{b} and the
-\lstinline{window.title} will show the new value on the next
-read.
-
-However, if we assign \lstinline{b = 10}, only Cassowary will be
-triggered, because \lstinline{b} is only referenced in the Cassowary
-constraint. We found that to support the expected behavior that the
-window title is updated on either assignment, we have to eagerly
-trigger constraint satisfaction for the transitive closure of
-variables connected to the variable that is assigned.
-
-In \langname/R, lazy variable was an optimization. We cannot apply
-this optimization when assigning to variables that participate in any
-constraint that has variables visible in multiple solvers. However,
-the optimization can still be applied to variables whose transitive
-closure of connected variables is local to one region.
 
 \subsection{Cooperating Incremental Resolving}
 \label{sec:coop-incr-resolv}
+
+Some applications involve repeatedly re-satisfying the same set of
+constraints with differing input values.  A common such case is an
+interactive graphical application with a constrained figure, where we
+move some part of the figure with the mouse.  For such applications,
+it is important to re-solve the constraints efficiently, and a number
+of constraint solvers support this using so-called \emph{edit
+  constraints} that allow a new value for a variable to be repeatedly
+input to the solver. 
 
 \emph{The gist here is that we use the edit method. The edit method
   here returns a callback function instead of accepting a stream,
@@ -674,6 +658,60 @@ Source-Code transformation, Show algorithm for suggest\_value and edit
   when assigning complex objects, we remove the readonly
   constraint. This seems to meet expectations when programming user
   interactions via constraints}
+
+
+\subsubsection{Deferred Assignment}
+\label{sec:deferred-assignment}
+In contrast to \langname/R, we cannot defer assigning the values from
+the solver to the object-oriented variable. Consider the following two
+constraints:
+
+\begin{code}
+aCassowarySolver.weight = 10;
+aDeltaBlueSolver.weight = 1;
+var a, b;
+
+always({solver: aCassowarySolver}, function() {
+    return a == b;
+});
+
+always({solver: aDeltaBlueSolver, methods: function() {
+        a.formula([window.title], function(s) { return parseFloat(s) });
+        window.title.formula([a], function(n) { return n + "" });
+       }}, function() {
+    return a == string;
+});
+\end{code}
+
+The first constraint uses Cassowary to make \lstinline{a} and
+\lstinline{b} refer to the same real value (because Cassowary works
+only on reals, \lstinline{a} and \lstinline{b} are coerced into
+\javascript floats in the constraint). The second constraint uses
+local propagation to make the browser window title reflect the value
+of \lstinline{a}. For the latter, we provide two
+\emph{formulas}. Those tell DeltaBlue the dependencies and conversion
+function for each variable that we want to allow DeltaBlue to modify
+(note that due to the assigned weights, \lstinline{a} is read-only for
+DeltaBlue, so we could also have omitted the first formula).
+
+If we now assign \lstinline{a = 20}, both solvers will be triggered,
+because both have a reference to a constraint that \lstinline{a}
+participates in, and both \lstinline{b} and the
+\lstinline{window.title} will show the new value on the next
+read.
+
+However, if we assign \lstinline{b = 10}, only Cassowary will be
+triggered, because \lstinline{b} is only referenced in the Cassowary
+constraint. We found that to support the expected behavior that the
+window title is updated on either assignment, we have to eagerly
+trigger constraint satisfaction for the transitive closure of
+variables connected to the variable that is assigned.
+
+In \langname/R, lazy variable was an optimization. We cannot apply
+this optimization when assigning to variables that participate in any
+constraint that has variables visible in multiple solvers. However,
+the optimization can still be applied to variables whose transitive
+closure of connected variables is local to one region.
 
 \subsection{Constraint Construction}
 \label{sec:constr-constr}

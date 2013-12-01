@@ -635,60 +635,122 @@ Source-Code transformation, Show algorithm for suggest\_value and edit
 
 \subsection{Assignment}
 \label{sec:assignment}
-\emph{During constraint construction, if the variable has an
-  interpretation (``is\_solveable'') in the currently active solver,
-  an equality constraint is asserted, otherwise it is simply
-  stored. Normally, assignment is a 3-step process
-  \begin{description}
-  \item[Begin Assign]
-    \begin{enumerate}
-    \item Disable all readonly constraints (equality constraints on
-      the current value)
-    \item Store the new value
-    \item If there are solver-variables, pick the the most upstream
-      variable and call begin\_assign on the (usually asserts an
-      equality constraint, but solver specific)
-    \end{enumerate}
-  \item[Assign]
-    \begin{enumerate}
-    \item If there are solver-variables, pick the most upstream one
-      and call assign on that (usually triggers the solver to
-      resatisfy its constraints, including the previously asserted
-      equality constraint with the new value)
-    \item Now call begin\_assign and assign on all
-      solver-variables with the new value on all downstream
-      solvers
-    \end{enumerate}
-  \item[End Assign]
-    \begin{enumerate}
-    \item Call end\_assign on the most upstream solver-variable
-      (usually removes the equality constraint created in
-      begin\_assign)
-    \item Re-enable all the readonly constraints with the new value
-    \item For all constraints this variable appears in that have no
-      solver-variable for this variable, recalculate the path (this
-      will use the new value to re-evaluate the closure in the solver
-      - note that this may mean that a solver-variable is subsequently
-      created if the variable type changed, but the other way around
-      doesn't work. We should probably not allow changing the domain
-      of variables that already occured in constraints)
+
+Assignment to objects that are constrained in \langname/JS is the core
+concept that binds the declarative constraints and imperative code
+together. Whereas in normal, imperative code assignment writes a value
+to a memory location, assignments in \langname add equality
+constraints on constrained objects and trigger resatisfaction. The new
+equality constraint may be unsatisfiable, in which case the assignment
+is not executed and a runtime exception is generated.
+
+Given the following definitions
+
+\begin{math}
+  L\qquad\text{the variable locations in the language}\\
+  V\qquad\text{the values in the language (objects or primitive)}\\
+  E\qquad\text{value expressions in the language}\\
+  S = \{s|s: L\rightarrow V\}\qquad\text{the set of system states mapping variables to values}\\
+  K(e) = \{s|<e,s> \rightarrow \text{true}\}\qquad\text{the constraint
+    function }K: E\rightarrow \mathcal{P}(S)\\
+  s[K(e)] = \text{ANY}(K(e))\qquad\text{s[K(e)] means s is any state
+    that satisfies the constraint }K(e)\\
+\end{math}
+
+The following describes normal unconstrained assignment in operational
+semantics:
+\begin{equation}
+\frac{<e\in E,s>\rightarrow v\in V}{<l:=e,s>\rightarrow s^{'}}\;\text{where }s^{'}(l) = v  
+\end{equation}
+
+However, constrained assignment has two possible outcomes:
+\begin{equation*}
+  \frac{<e_n\in E,s[e_0]>\rightarrow v\in V}{<l:=e,s>\rightarrow s^{'}[K(e_0)\cap K(e_n)]}
+\end{equation*}
+
+This means that, for assigmnent to constrained variables, the
+\langname design requires that the assignment change into a system
+state that satisfies all previous constraints, as well as the equality
+expressed with the assignment, if possible. Otherwise, the system goes
+to a state that satisfies the previous constraints, but not the new
+equality constraint (this may be another state or the old one).
+
+As in \langname/R, \langname/JS assignment informs the developer of a
+failed assignment by generating a runtime exception. To furthermore
+support the cooperating solvers design, assignment in this work is a
+3-step process.
+
+\paragraph{Set Value}
+If the new value is the same as the old, we return early. Otherwise,
+we disable all readonly constraints on the assigned variable. This
+happens if the variable has been marked readonly by the programmer or
+automatically, because it appeared in multiple solvers (only one of
+which can be allowed write access). Readonly constraints are equality
+constraints or required stay constraints (for solvers that support the
+latter).
+
+If the assigned value has an external variable, \ie it is constrained
+by a solver that can handle its type (for example a real in
+Cassowary), the new value is input into the most upstream solver as an
+equality constraint and this solver is executed to produce a new
+value. If the primary solver cannot satisfy its constraints with the
+new value, the readonly constraints are re-enabled and an exception is
+generated. Afterwards, the equality constraint for assignment is
+removed.
+
+\paragraph{Update Downstream Variables}
+For all external variables except the primary one (the one in the most
+upstream solver), the new value is input into the solver. If any of
+the solvers fail to satisfy their constraints with the new value, an
+exception is generated (and all readonly constraints are re-enabled as
+above).
+
+For all remaining constraints, the variable is not solveable in their
+solvers. Consequently, its value was treated as a constant in their
+constraint expressions. With the new value, these have to be
+recalculated. To do so, the old variable value is remembered and the
+new value is stored into the variable. All remaining constraints are
+disabled, their expressions re-run, and then the constraints are
+re-enabled. Afterwards, the old value is restored into the variable.
+If any constraint in this set fails to run its expression or cannot be
+satisfied with the new value, the old value is also restored and an
+exception is generated.
+
+Note that the semantics of the \langname design are only satisfied if
+all constraint expressions conform to the rule that they can have no
+side-effects. If they do, the new (invalid) value was propagated and
+the system state may be inconsistent with the constraints.
+
+\paragraph{Update Connected Variables}
+Finally, we have to update the variables connected to the assigned
+variable. To do so, we create the transitive closure of all variables
+connected to the assignee through constraints. For all these
+variables, a new value has already been created for all solvers that
+already ran, but their downstream readonly constraints still have to
+be updated. These variables have to go through the first two steps of
+the assignment process, returning early if their values have not
+changed.
+
+Note that at this point, assignment can only fail for variables that
+are in solvers that have not run yet. These are only solvers that the
+primary assignee is not part of. If any one of these solvers cannot
+satisfy their constraints with the new value, no storage of new values
+into memory has taken place (we have reverted the only storage of new
+values after recalculating constraint expressions in the second
+step). So, to cancel assignment at this time, we need to assign the
+old value to the primary assignee to revert all solvers' states. While
+this may leave the system in a different state than it was in before
+assignment (depending on the implementation of the participating
+solvers), this new state will be one that satisfies all previously
+enabled constraints.
+
+\todo{Tim: this scheme currently does not allow a user to change the
+  type of a constrained variable -- that will not create new
+  constrainedvariable objects or remove old ones -- that is a problem}
 \todo{Alan: alternately, we could allow changing the domain of
   variables and have it be a quite expensive operation -- it is likely
   to be very infrequent.  Not allowing the domain to change is a bit
   odd for a dynamically typed language.}
-    \end{enumerate}
-  \end{description}
-}
-
-\emph{we can currently relax this scheme in javascript, because we
-  don't support multi-assignment and identity constraints. without
-  these, we can do the assignment in one step}
-
-\emph{after assignment, we update all connected variables by assigning
-  them the current solver value, if it has changed. this will
-  recursively update connected variables until the solvers stop
-  changing them. IMPORTANT: I need to explain why this won't
-  oscillate}
 
 \emph{Complex object assignments (like points) are handled differently
   in JavaScript compared to Babelsberg/R: to behave in an expected
@@ -880,8 +942,3 @@ could be trivially added.
 %%% mode: latex
 %%% TeX-master: t
 %%% End: 
-
-%%% Local Variables:
-%%% mode: latex
-%%% TeX-master: t
-%%% End:

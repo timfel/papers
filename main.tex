@@ -81,6 +81,7 @@
 \newacronym{vm}{\textsc{vm}}{Virtual Machine}
 \newacronym{dom}{\textsc{dom}}{Document Object Model}
 \newacronym{ocp}{\textsc{ocp}}{Object-Constraint Programming}
+\newacronym{atp}{\textsc{atp}}{available-to-promise}
 
 \newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
 \RequirePackage{xspace}
@@ -274,43 +275,73 @@ concludes.
 \section{Background and Related Work}
 \label{sec:background}
 
-Programs frequently have some set of constraints that should hold.  In
-a standard imperative languages such as Java, the usual approach to
-dealing with constraints is to leave it entirely up to the programmer
-to ensure that they are satisfied --- the constraints may be just in
-comments and documentation, or perhaps in the form of
-machine-checkable assertions.  For the latter case, programmers
-typically write assertions to fail early if these constraints are
-unexpectedly not satisfied \cite{rinard2005exploring}. However, some
-constraints describe invalid system states that can be automatically
-corrected. To deal with such constraints, programmers may write code
-that is executed at various times throughout the execution to check
-and correct invalid state. In these cases, it is usually clearer to
-express and satisfy constraints explicitly, rather than encoding them
-with control flow and state changing
-operations \cite{FelgBorningJot2014}.
+Programs frequently have some set of constraints that should
+hold. Consider an \ac{atp} function from an enterprise management
+system. This function checks resource availability before committing
+to a delivery of a certain quantity at a certain date. Commonly,
+\ac{atp} functions depend on the available stock, planned receipts
+(\eg purchase or production), and planned requirements (\eg sales or
+reservations). The fundamental constraint in an \ac{atp} system is
+that at any time the available stock must be larger or equal zero, so
+planned orders cannot be promised if they would require more stock
+than is available. Additional non-required constraints may be that the
+stock should be as small as possible, or the system should adjust
+scheduled order amounts based on demand.
 
-One approach is to use a library that provides one or more constraint
-solvers. A large number of solvers that cover a wide range of type
-domains (such as reals, booleans, or finite sets) is available for
-imperative languages and can be called from imperative
-code \cite{torlak2007kodkod,de2008z3,badros2001cassowary,freeman1989deltablue}.
-For more specialized domains such as user interface layout, some
-libraries provide separate \acp{dsl} to express for example minimal
-distances between graphical objects. Prominent examples here include
-the Mac OS X layout specification language \cite{AppleCocoaAutoLayout}
-and the Qt GUI framework\todo{cite}.
+\todo{figure with a timeline of orders and promises in an atp system}
 
-Another approach, however, is to integrate a means to express and
-maintain constraints with the language itself. Some languages such as
-Scratch\todo{cite}, LivelyKernel\todo{cite}, and
-KScript \cite{ohshima2012report} have built-in support for data flow,
-which allows programmers to express unidirectional constraints between
+In a standard imperative languages such as Java, the usual approach to
+dealing with such constraints is to leave it entirely up to the
+programmer to ensure that they are satisfied --- the constraints may
+be implicit in the code and just explicitely expressed in comments and
+documentation, or perhaps in the form of machine-checkable
+assertions.
+
+For some constraints, programmers may write assertions to fail early
+if the constraints are unexpectedly not satisfied
+\cite{rinard2005exploring}, other constraints describe invalid system
+states that can be automatically corrected. To deal with the latter,
+programmers may write corrective code that is executed at various
+times (for example, the \ac{atp} function may run on each order or at
+a certain time interval and process orders that have piled up). This
+code uses branches and state changing operations to check and correct
+invalid state. However, these statements are order dependent, and the
+branching code expresses the constraints implicitely. Furthermore, it
+is unclear whether a solution is complete in that it covers all
+possible cases or optimal. We argue it is usually clearer to express
+and satisfy constraints explicitly, rather than encoding them in
+control flow \cite{FelgBorningJot2014}.
+
+One approach to make the constraints explicit is to use a library that
+provides one or more constraint solvers. A large number of solvers
+that cover a wide range of type domains (such as reals, booleans, or
+finite sets) is available for imperative languages and can be called
+from imperative code
+\cite{torlak2007kodkod,de2008z3,badros2001cassowary,freeman1989deltablue}. For
+more specialized domains such as user interface layout, some libraries
+provide separate \acp{dsl} to express for example minimal distances
+between graphical objects. Prominent examples here include the Mac OS
+X layout specification language \cite{AppleCocoaAutoLayout} or the
+\textsc{Squander} framework \cite{Squander}. For our \ac{atp} example,
+these approaches replace the branching and state changing code with
+declarative constraints. However, these constraints are expressed in
+the language of the library, using solver-specific types and
+expressions. To interact with the imperative state of the system,
+these values have to be copied between the solver and runtime data
+structures whenever either imperative code or the solver update
+them. Because solvers operate on a limited number of domain-specific
+primitive types, object-oriented abstractions cannot be used to
+express constraints.
+
+An alternative approach, however, is to integrate a means to express
+and maintain constraints with the language itself. Some languages such
+as Scratch\todo{cite}, LivelyKernel\todo{cite}, and KScript
+\cite{ohshima2012report} have built-in support for data flow, which
+allows programmers to express unidirectional constraints between
 objects. To support a broader set of constraints, some languages
 directly integrate one or more solvers into their execution
 model. Again, there is a huge body of prior art in this area, examples
-include Constraint Logic Programming\todo{cite}, Constraint
-Imperative
+include Constraint Logic Programming\todo{cite}, Constraint Imperative
 Programming \cite{lopez1994kaleidoscope,grabmuller2004turtle}, and
 Object Constraint Programming, which \langname is an instance
 of. Object Constraint Programming differs from the former in that it
@@ -368,6 +399,21 @@ there are two important restrictions:
   not qualify)
 \end{itemize}
 
+The constraint that at all times the available stock should be above
+zero in our \ac{atp} example could be expressed in a more concise
+manner with \langname/R:
+\begin{lstlisting}[language=ruby]
+series.rows.ensure do |row|
+  series.sort_by(&:date).upto(row).map(&:qty).sum >= 0
+end
+\end{lstlisting}
+We express that the system should ensure for all rows in our time
+series that, if sorted by date up to the current row, the sum of the
+ordered (\ie positive) or promised (\ie negative) quantities should be
+larger or equal to zero. To write in this concise manner, we use the
+Ruby collection \ac{api} and the user-defined \lstinline{ensure}
+method to declare constraints on each element of a list.
+
 Given a set of constraint expressions, \langname can choose among
 multiple solvers to find a solution to them. An architecture to add
 multiple solvers makes it straightforward to add new solvers, and does
@@ -379,6 +425,13 @@ solver. Additionally, features such as incremental
 solving \cite{freeman1990incremental}, read-only variables, soft- and
 stay-constraints \cite{borning1992constraint} are only available with
 some solvers.
+
+The \langname/R design allows programmers to express constraints
+concisely using the abstractions of the Ruby language, however, it
+only runs on a modified Ruby \ac{vm}. To express constraints in this
+way in existing environments where \ac{vm} modifications are not
+feasible, the design has to be extended to support an \langname-style
+constraints without \ac{vm} support.
 
 \section{\langname/JS}
 \label{sec:design}

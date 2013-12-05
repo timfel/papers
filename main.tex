@@ -130,7 +130,7 @@
 \def\figureautorefname{Figure}
 
 \begin{abstract}
-  We present an approach to implement \acrlong{ocp} without \acrlong{vm} support. We evaluate our
+  We present an approach to implementing \acrlong{ocp} without \acrlong{vm} support. We evaluate our
   approach by implementing \langname~-- an \acrshort{ocp} language -- in \javascript, a language for
   which a number of \acrshort{vm}s are actively used and modifying them is not an option.
   % Context
@@ -151,6 +151,15 @@
 
  It also did not provide facilities use multiple solvers
   cooperatively to solve more complex constraints.
+%% ALAN TODO: revise the abstract to follow the outline in the emails:
+%%  - there are a set of interesting interactive examples possible using
+%%    constraints in a web-based environment
+%%  - how can we support these?
+%%  - we want to integrate constraints with the underlying OO language
+%%  - Javascript one good choice for this
+%%  - Babelsberg is a promising approach, but the existing implementation
+%%    needs VM support.  Not available here.
+%%  - we present a solution that does this without VM support.
   
 \end{abstract}
 %
@@ -161,14 +170,18 @@ be that all parts in an electrical circuit simulation obey the laws of
 physics, that the rows in a Sudoku include each digit from 0 to 9, or
 that a streamed video play smoothly in the presence of changing CPU or
 network load.
+%% ALAN TODO: revise this to start with motivation (interesting
+%%  interactive examples possible using constraints in a web-based
+%%  environment)
 
-\langname\cite{FelgBorningJot2014} proposed an integration of
+\langname\cite{FelgBorningJot2014} is a language framework that supports
+an integration of
 constraint satisfaction with objects and their methods, building on
 the earlier work on constraint-imperative programming in
 Kaleidoscope \cite{lopez1994kaleidoscope} and
 Turtle \cite{grabmuller2004turtle}. In \langname, constraints are
-expressed like assertions using the underlying object-oriented
-language. The constraint is that the assertion evaluates to true, and
+expressed as predicates using the underlying object-oriented
+language. The constraint is that the predicate evaluates to true, and
 the system maintains this constraint automatically whenever objects
 that particpate in the constraint change.
 
@@ -178,19 +191,22 @@ libraries \cite{badros2001cassowary,de2008z3,torlak2007kodkod},
 domain-specific languages \cite{AppleCocoaAutoLayout,Enaml}, or (more
 recently) functional-reactive
 programming \cite{ohshima2012report,meyerovich2009flapjax} to specify
+and solve
 constraints. These approaches do not need special runtime support, but
 require the programmer to call specific \acp{api} or follow certain
 rules to not accidentally circumvent the constraints.
 
 However, the initial \langname design described a \ac{vm} extension
-design and a prototype in Ruby\cite{flanagan2008ruby} called
+design and a prototype in Ruby \cite{flanagan2008ruby} called
 \langname/R. To apply \langname to existing environments where \ac{vm}
 modifications are not feasible, the design has to be extended to
 support an implementation without \ac{vm} support.
 
-In this work, we describe the requirements on a host language to
-implement \langname as a library, as well as the extensions to the
-design required to make a library-based implementation useful for a
+In this work, we describe the requirements for implementing 
+\langname as an extension to a host language that
+can be written entirely in the host
+language itself, as well as the extensions to the
+design required to make this implementation useful for a
 variety of problems.
 \begin{description}
 \item[] First, the language needs to provide features to intercept
@@ -205,32 +221,85 @@ variety of problems.
   where rich web applications are commonplace).
 \end{description}
 
+%% ALAN TODO: move this paragraph earlier?
 To evaluate how these requirements can be satisfied, we describe an
-implementation of \langname as a \javascript library that we call
+implementation of \langname as a \javascript extension that we call
 \langname/JS. \javascript is currently of interest in the industry and
 research communities, and \javascript applications typically have to
 work on a variety of client \acp{vm} included in different Web
-browsers. This makes it unfeasible to implement \langname in a
-\javascript \ac{vm}. An implementation as a library enables us to
-apply constraint programming to a variety of existing problems and
+browsers. This makes it infeasible to implement \langname in a
+\javascript \ac{vm}. An implementation as an extension written
+entirely in \javascript enables us to
+apply constraint programming to a variety of existing problems, and to
 compare it directly with alternative solutions on a variety of
 platforms.
 
-In \javascript, we use the built-in property accessors and a
-\javascript interpreter written in \javascript to execute code
-symbolically and intercept variable access. Second, to set values
-without ignoring encapsulation --- for example, using the browser
-\acp{api} --- we use DeltaBlue\cite{freeman1989deltablue}, a local
-propagation solver. We implement an architecture for interactions
-between different constraint solvers\cite{borning2012architectures}
-that allows developers to use a variety of solvers, such as
-Cassowary\cite{badros2001cassowary} or Z3\cite{de2008z3}, each
-appropriate to a particular collection of constraints, and have the
-system automatically propagate information between them. To provide
-interactive performance, we also support incremental solving in
-combination with cooperating solvers design to provide good
-performance. Incremental solving is available, for example, as edit
-constraints in DeltaBlue and Cassowary.
+\todo{TIM: please check the reorganization of the following two
+  paragraphs.  Also, does Javascript/JS support Z3?  If so let's add
+  it to the paragraph below.  (Old version is at the end, commented out.)}
+
+It is often infeasible to provide a single constraint solver that
+works well for all aspects of a problem; instead, different solvers
+may be more appropriate than others for some aspects.  To support
+this, we implement an architecture for cooperating constraint solvers
+\cite{borning2012architectures} that allows developers to make use of
+a variety of solvers, each appropriate to a particular collection of
+constraints, and have the system automatically propagate information
+among them. To provide interactive performance, we also support
+incremental solving with cooperating solvers.  The current
+implementation of \langname provides the Cassowary
+\cite{badros2001cassowary} and DeltaBlue \cite{badros2001cassowary}
+solvers out of the box; it is straightforward to add additional ones.
+
+\todo{ALAN - check the following paragraphs.  Maybe they don't belong
+  here?} 
+
+The original \langname/R system employs two interpretation modes:
+imperative evaluation mode and constraint construction mode.  The
+interpreter normally operates in imperative evaluation mode.  In the
+absence of constraints, this is the standard Ruby \ac{vm}.  However,
+if the interpreter encounters a \load or \store instruction for a
+variable with a constraint on it, rather than directly loading or
+storing into the variable, it calls the appropriate constraint solver
+to retrieve the variable's value or to solve an equality constraint
+between the variable and the new value.  When a constraint is being
+added, the interpreter switches to constraint construction mode.  It
+continues to evaluate expressions using message sends, but rather than
+computing the result, it builds up a network of primitive constraints
+that represent the constraint being added, keeping track of the
+dependencies in the process.
+
+For \langname/JS, since we don't have access to the virtual machine,
+another technique is needed.  Instead, the underlying \javascript
+interpreter is used for imperative evaluation mode.  To intercept
+accesses and assignments to constrained variables, we replace the
+normal property accessors with new ones that interact correctly with
+the constraint solvers, again calling the appropriate constraint
+solver to solve an equality constraint between the variable and the
+new value for a store, or getting the value from the solver for that
+variable for a load.  When a constraint is being added, we evaluate
+the constraint expression to build up the network of primitive
+constraints by using a modified \javascript interpreter (written in
+\javascript) --- since this is a much less common activity, and one
+that doesn't occur in inner loops, the performance penalty from using
+an interpreter written in an interpreted language is not an issue.
+
+%%% OLD VERSION:
+%% In \javascript, we use the built-in property accessors and a
+%% \javascript interpreter written in \javascript to execute code
+%% symbolically and intercept variable access. Second, to set values
+%% without ignoring encapsulation --- for example, using the browser
+%% \acp{api} --- we use DeltaBlue\cite{freeman1989deltablue}, a local
+%% propagation solver. We implement an architecture for interactions
+%% between different constraint solvers\cite{borning2012architectures}
+%% that allows developers to use a variety of solvers, such as
+%% Cassowary\cite{badros2001cassowary} or Z3\cite{de2008z3}, each
+%% appropriate to a particular collection of constraints, and have the
+%% system automatically propagate information between them. To provide
+%% interactive performance, we also support incremental solving in
+%% combination with cooperating solvers design to provide good
+%% performance. Incremental solving is available, for example, as edit
+%% constraints in DeltaBlue and Cassowary.
 
 % First, some Web browser data structures --- like the \ac{dom} --- can
 % only be manipulated using dedicated \acp{api}.  Second, interactive
@@ -363,7 +432,7 @@ goals include:
 \item performance that is competitive with the base language for
   purely object-oriented code
 \item support for required and preferential constraints, constraints
-  on object identity, variables that are readonly to solvers or
+  on object identity, variables that are read-only to solvers or
   imperative code, as well as incremental resolving for use in
   interactive applications
 \item an \ac{api} for constraint solvers that makes it straightforward
@@ -619,7 +688,7 @@ A huge body of work exists that describes approaches to integrate
 different constraint solvers\todo{cite grabmüller,other smt work}. In
 the work presented here, we chose to implement a design for
 cooperating solvers that partitions constraints into regions which are
-connected through read-only variables\cite{borning2012architectures}.
+connected through read-only variables \cite{borning2012architectures}.
 
 In \langname/JS, each constraint belongs to a particular solver. All
 constraints that belong to the same solver are in the same
@@ -780,10 +849,10 @@ a 3-step process:
 
 \paragraph{Set Value}
 If the new value is the same as the old, we return early. Otherwise,
-we disable all readonly constraints on the assigned variable. This
-happens if the variable has been marked readonly by the programmer or
+we disable all read-only constraints on the assigned variable. This
+happens if the variable has been marked read-only by the programmer or
 automatically, because it appeared in multiple solvers (only one of
-which can be allowed write access). Readonly constraints are equality
+which can be allowed write access). Read-only constraints are equality
 constraints or required stay constraints (for solvers that support the
 latter).
 
@@ -792,7 +861,7 @@ by a solver that can handle its type (for example a real in
 Cassowary), the new value is input into the most upstream solver as an
 equality constraint and this solver is executed to produce a new
 value. If the primary solver cannot satisfy its constraints with the
-new value, the readonly constraints are re-enabled and an exception is
+new value, the read-only constraints are re-enabled and an exception is
 generated. Afterwards, the equality constraint for assignment is
 removed.
 
@@ -800,7 +869,7 @@ removed.
 For all external variables except the primary one (the one in the most
 upstream solver), the new value is input into the solver. If any of
 the solvers fail to satisfy their constraints with the new value, an
-exception is generated (and all readonly constraints are re-enabled as
+exception is generated (and all read-only constraints are re-enabled as
 above).
 
 For all remaining constraints, the variable is not solveable in their
@@ -824,7 +893,7 @@ Finally, we have to update the variables connected to the assigned
 variable. To do so, we create the transitive closure of all variables
 connected to the assignee through constraints. For all these
 variables, a new value has already been created for all solvers that
-already ran, but their downstream readonly constraints still have to
+already ran, but their downstream read-only constraints still have to
 be updated. These variables have to go through the first two steps of
 the assignment process, returning early if their values have not
 changed.
@@ -1025,7 +1094,7 @@ constraint is removed for the next-lower region (\todo{I just realized
 \subsection{Problems}
 \label{sec:problems}
 Read-only is not constant: Right now, downstream solvers see shared
-variables as readonly, however, in the current implementation this
+variables as read-only, however, in the current implementation this
 means that the variable has a strong equality or a stay constraint in
 the solver, but it isn't a constant. This means that the following
 doesn't work in Cassowary (you get NonLinearResult), even though it

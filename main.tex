@@ -484,7 +484,7 @@ collection is a constraint. Whenever any color or the target palette
 luminance changes, the system will automatically adapt to ensure that
 this expression is always satisfied. This snippet also shows that
 constraints can be used within imperative constructs and constrain the
-values of properties (the \lstinline{target_luminance} as well as the
+values of properties (the \lstinline{target\_luminance} as well as the
 results of object-oriented message sends (the result of the calculated
 \lstinline{luminance} of colors).
 
@@ -1029,39 +1029,68 @@ region.
 
 \subsection{Constraint Construction}
 \label{sec:constr-constr}
-explain in detail how the steps described in the design work
+When a programmer writes a function that contains a constraint
+expression, this expression is evaluated using our JavaScript
+\emph{ConstraintInterpreter}. Because \javascript does not provide
+access to the calling context, interpreter cannot lookup names used in
+the constraint expression in the callers binding. Instead, those names
+have to be passed explicitly.
 
-additional implementation level details:
+\langname/JS provides a source transformation based on
+\emph{UglifyJS}\todo{cite}, that collects names from the context and
+modifies the source code to pass those names into the constraint
+expression. This source transformation is enabled automatically when a
+programmer uses \langname/JS in the Lively Kernel environments'
+\emph{Object Editor}. For other \javascript code, they have to provide
+a context object explicitly.
+
+Given a context, a function, and a solver, the ConstraintInterpreter
+executes the expressions in the function to create the constraint. The
+ConstraintInterpreter subclasses a \javascript interpreter, modifying
+its behavior in 3 main aspects:
 \begin{itemize}
-\item src-transform to determine and pass context
-\item coercion of values for binary messages
-\item selecting the solver
+\item Slot accesses are intercepted. For each slot accessed during the
+  execution of a constraint expression, property accessors are created
+  that delegate access to a \emph{ConstrainedVariable} object. For
+  each slot only one ConstrainedVariable is created on first
+  access. ConstrainedVariables manage the communication with the
+  various solvers and create solver specific representations of the
+  slot value.
+\item Certain unary (\lstinline{!} and \lstinline{-}) and binary
+  operations (arithmetic, equality, inequalities, conjunction) are not
+  interpreted as usual if an operand is a ConstrainedVariable or an
+  expression involving ConstrainedVariables. In this case, the
+  constraint object is sent a message to construct a solver-specific
+  expression representing the operation and that expression is
+  returned. For example, in Cassowary, the expression
+  \lstinline{a.value <= b.value} would return a
+  \emph{LinearInequality} object.
+\item Functions invoked in the expression are also interpreted in the
+  ConstraintInterpreter by default. However, the plain \javascript
+  interpreter is used if the receiver is a ConstrainedVariable. In
+  that case, the call is executed using normal \javascript execution
+  semantics. This is required to avoid creating constraints on the
+  state of the solvers themselves.
 \end{itemize}
 
-\framebox{solver selection}
-\emph{
-  \begin{enumerate}[a.]
-  \item If a solver is chosen (either explicitely by the programmer or
-    through other means) for the active constraint execution, use that
-  \item If not, send "constraint\_solver" to current value
-  \item If an object is returned (not nil), make that the current
-    solver
-  \item If a solver-variable exists for the chosen solver and the
-    current variable, use that
-  \item Otherwise, send "constraint\_variable\_for" with the value to
-    the solver (this allows solvers to interpret unbound variable
-    names, i.e. nil, in a domain they consider useful. So cassowary
-    can solve constraints over unassigned instance variables, and we
-    don't have to assign an integer first
-  \item (For backwards compatibility in Babelsberg/R with the built-in
-    local propagation mechanism (using "for\_constaint" and
-    "assign\_constraint\_value"), we still send "for\_constraint" to
-    the value if no solver-variable was found by this point - this is
-    not important for this note, however)
-  \item The returned solver-variable must be in the same solver that
-    is currently active (if any), and an exception is raised if not
-  \end{enumerate}
-}
+The responsibility of ConstrainedVariables during constraint
+construction is to pass calls to the appropriate solver. To that end,
+a ConstrainedVariable lazily builds a mapping from solvers to
+solver-specific representations of its value. During construction, if
+the programmer has explicitly selected a solver, this solver is asked
+to provide a value representation by sending the message
+\lstinline{constraintVariableFor} with the value as argument. If no
+solver was provided, the value is sent the
+\lstinline{constraintSolver} message. Solver libraries may override
+this message for types that they can operate on. If the value responds
+with a solver instance, this solver becomes the active solver for the
+currently constructed constraint and is asked to provide a
+representation, again by sending \lstinline{constraintVariableFor}.
+
+Whenever a new representation is created in this manner, the solvers
+are sorted to determine which region the variable belongs to. Only the
+solver responsible for this region may write to the variable, to all
+other solvers it is read-only.
 
 \subsection{Determining Cooperating Solver Regions}
 \label{sec:determ-inter-solv}

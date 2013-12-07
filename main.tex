@@ -791,11 +791,14 @@ of constraint solvers support this using so-called \emph{edit
   constraints} that allow a new value for a variable to be repeatedly
 input to the solver.
 
-To support edit constraints on a language level, \langname/JS provides
-an \lstinline{edit} method that takes the variables to be edited
-and returns a callback function. The process that produces new values
-can use this callback to input new values into the solvers for the
-variables to be edited.
+The original \langname design did not include support for incremental
+resolving at the language level - it was up to the solver library to
+provide access to such functionality. However, to integrate with our
+cooperating solvers architecture, \langname/JS includes support for
+incremental resolving through a solver-independent \lstinline{edit}
+method that takes the variables to be edited and returns a callback
+function. The process that produces new values can use this callback
+to input new values into the solvers for the variables to be edited.
 
 The \lstinline{edit} function gathers all constraints the passed
 variables participate in. Only variables that occur solely in solvers
@@ -1162,10 +1165,65 @@ constraints, as described in \autoref{sec:assignment}.
 
 \subsection{Edit Constraints}
 \label{sec:edit-constraints}
-\emph{compared to babelsberg/R, these are now more generic - each
-  solver has to provide some support, but the language extension also
-  knows about them. this is necessary to support edit constraints with
-  the same interface across solvers}
+Since the original \langname design did not include language-level
+support for edit constraints, these were supplied by the solver
+libraries. In \langname/R, the meta-level protocol for inspecting
+constraints was used to support edit constraints in Cassowary and
+DeltaBlue. The programmer called the appropriate edit method with the
+objects to be edited and a stream that would provide new values. The
+Constraint meta-protocol was used to create edit variables, constrain
+them to be equal to the supplied variables, and update them from the
+stream.
+
+To support cooperating incremental resolving
+(\cf{\autoref{sec:coop-incr-resolv}}) \langname/JS, there are two
+changes to this scheme. First, to support edit constraints within a
+single thread, the edit method, instead taking a stream of values,
+returns a callback to input new values into the solvers. Second, since
+the language design now support edit constraints explicitly, the
+solvers have to provide a specific edit constraint \ac{api}.
+
+Upon calling the edit method, the following methods are called on the
+solvers and the supplied variables, in order:
+\begin{description}
+\item[prepareEdit] This method is called on each solver variable. In
+  this method, variables can prepare themselves for editing. In
+  Cassowary, for example, this would call the \lstinline{addEditVar}
+  method on the solver with the variable as argument. For DeltaBlue,
+  this creates an \lstinline{EditConstraint} on the variable and adds
+  it to the list of constraints.
+\item[beginEdit] This method is called once for each solver
+  participating in the edit before the callback is returned. In
+  Cassowary, this initializes the edit constants array and prepares
+  the solver for fast resolving when these constants change. In
+  DeltaBlue, the solver generates an execution plan to solve the
+  constraints starting with the EditConstraints as input.
+\end{description}
+
+Now the callback can be used to input new values into the system and
+trigger resolving. The callback will call
+\textbf{\lstinline{resolveArray}} on each solver with the new values
+and update the object's storage (so other observers and hooks around
+the values still work). Because the solver's execution plan is fixed
+for the duration of an edit, we disallow creating new edit callbacks
+before the current edit has finished. When new constraints are
+created, the execution plan may also become invalid, but we do not
+enforce invalidating the edit callback in this case.
+
+To finish editing, the callback is simply called without supplying new
+values.
+\begin{description}
+\item[finishEdit] Called on each solver variable. Cassowary variables
+  do nothing here, DeltaBlue variables remove their EditConstraints
+  from the solver.
+\item[endEdit] Called once for each solver and reset the solver
+  state. Afterwards, the solver
+\end{description}
+
+Compared to \langname/R, this makes the interface for edit constraints
+unified across solvers and also allows it to work with cooperating
+solvers. However, each solver now has to provide some support for
+this, so more work is required to enable the feature.
 
 \subsection{Examples}
 \label{sec:examples}

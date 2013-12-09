@@ -108,9 +108,12 @@
 \titlerunning{Abbreviated Title}
 \author{Author 1\inst{1}, Author 2\inst{2}, and Author 3\inst{1}}
 \authorrunning{Author1, Author2, Author3}   % abbreviated author list (for running head)
-%
+
+%% alternate title: \title{Babelsberg/JS}
+%% \subtitle{A Browser-based Implementation of an Object Constraint Language}
+
 \date{\today}
-%
+
 %%%% modified list of authors for the TOC (add the affiliations)
 % \tocauthor{Tim Felgentreff (Hasso-Plattner-Institute)}
 %
@@ -167,7 +170,7 @@
 Constraints are relations between objects that should hold. This could
 be that all parts in an electrical circuit simulation obey the laws of
 physics, that the rows in a Sudoku include each digit from 0 to 9, or
-that a streamed video play smoothly in the presence of changing CPU or
+that a streamed video play smoothly in the presence of changing CPU and
 network load.
 %% ALAN TODO: revise this to start with motivation (interesting
 %%  interactive examples possible using constraints in a web-based
@@ -196,91 +199,48 @@ constraints. These approaches do not need special runtime support, but
 require the programmer to call specific \acp{api} or follow certain
 rules to not accidentally circumvent the constraints.
 
-The \langname design was first implemented as a prototype in Ruby
+Felgentreff et al.\ first implemented
+the \langname design as a prototype in Ruby
 \cite{flanagan2008ruby}, called \langname/R.  This implementation
 depends on extending the Ruby \ac{vm}.  However, there are important
 situations in which access to the \ac{vm} is unavailable, such as languages
 running in a web browser (e.g., \javascript).  In this
-paper, we describe an alternative design that allows us to implement
-\langname without \ac{vm} support.  To do this, we implement \langname
-as an extension to a host language that can be written entirely in the
-host language itself.  The
-requirements on the new design are as follows:
-\begin{description}
-\item[] First, the language needs to provide features to intercept
-  variable access and execute code symbolically.
-\item[] Second, the \ac{vm}-based implementation of \langname assumes
-  that the \ac{vm} provides access to the program state so solvers can
-  ignore encapsulation and modify data structures directly.  In
-  contrast, here the extension must enable calling the appropriate
-  \ac{api} functions to manipulate data structures.
-\item[] Third, interactive applications require that the system react
-  quickly to user input (this is especially true in \javascript,
-  where rich web applications are commonplace).
-\end{description}
+paper, we describe a new design that allows us to implement
+\langname without \ac{vm} support,
+as an extension to a host language written entirely in the
+host language itself.  As with the original \langname/R
+implementation, we want the extension to have  minimal
+impact on speed for programs without constraints.  Further, for
+programs with constraints, we want to have good performance for
+interactive graphical applications, which generally implies the need
+to support incremental constraint solvers.
 
-%% ALAN TODO: move this paragraph earlier?
-To evaluate how these requirements can be satisfied, we describe an
-implementation of \langname as a \javascript extension that we call
-\langname/JS. \javascript is currently of interest in the industry and
-research communities, and \javascript applications typically have to
-work on a variety of client \acp{vm} included in different Web
-browsers. This makes it infeasible to implement \langname in a
-\javascript \ac{vm}. An implementation as an extension written
-entirely in \javascript enables us to
-apply constraint programming to a variety of existing problems, and to
+In this paper, we describe an implementation of \langname as a
+\javascript extension that we call \langname/JS. \javascript is
+currently of interest in the industry and research communities, and
+\javascript applications typically have to work on a variety of client
+\acp{vm} included in different Web browsers. This makes it infeasible
+to implement \langname in a \javascript \ac{vm}. An implementation as
+an extension written entirely in \javascript enables us to apply
+constraint programming to a variety of existing problems, and to
 compare it directly with alternative solutions on a variety of
 platforms.
 
-\todo{TIM: please check the reorganization of the following two
-  paragraphs.  Also, does Javascript/JS support Z3?  If so let's add
-  it to the paragraph below.  (Old version is at the end, commented out.)}
+\todo{TIM: does Javascript/JS support Z3?  If so let's add it to the
+  paragraph below.  (Old version is at the end, commented out.)}
 
-It is often infeasible to provide a single constraint solver that
-works well for all aspects of a problem; instead, different solvers
-may be more appropriate than others for some aspects.  To support
-this, we implement an architecture for cooperating constraint solvers
-\cite{borning2012architectures} that allows developers to make use of
-a variety of solvers, each appropriate to a particular collection of
-constraints, and have the system automatically propagate information
-among them. To provide interactive performance, we also support
-incremental solving with cooperating solvers.  The current
-implementation of \langname provides the Cassowary
-\cite{badros2001cassowary} and DeltaBlue \cite{badros2001cassowary}
-solvers out of the box; it is straightforward to add additional ones.
+Finally, Felgentreff et al.\ \cite{FelgBorningJot2014-submitted}
+identify an important requirement for a practical Object Constraint
+Language, and note that it was not yet implemented in their system,
+namely support for \emph{cooperating constraint solvers}.  The
+motivation for this is that it is often infeasible to provide a single
+constraint solver that works well for all aspects of a problem;
+instead, different solvers may be more appropriate than others for
+some aspects.  Our design and implementation in \langname/JS provides
+this support, and does so in a way that continues to support
+incremental re-solving of constraints and that doesn't require access
+to the \ac{vm}.
 
-\todo{ALAN - check the following paragraphs.  Maybe they don't belong
-  here?} 
-
-The original \langname/R system employs two interpretation modes:
-imperative evaluation mode and constraint construction mode.  The
-interpreter normally operates in imperative evaluation mode.  In the
-absence of constraints, this is the standard Ruby \ac{vm}.  However,
-if the interpreter encounters a \load or \store instruction for a
-variable with a constraint on it, rather than directly loading or
-storing into the variable, it calls the appropriate constraint solver
-to retrieve the variable's value or to solve an equality constraint
-between the variable and the new value.  When a constraint is being
-added, the interpreter switches to constraint construction mode.  It
-continues to evaluate expressions using message sends, but rather than
-computing the result, it builds up a network of primitive constraints
-that represent the constraint being added, keeping track of the
-dependencies in the process.
-
-For \langname/JS, since we don't have access to the virtual machine,
-another technique is needed.  Instead, the underlying \javascript
-interpreter is used for imperative evaluation mode.  To intercept
-accesses and assignments to constrained variables, we replace the
-normal property accessors with new ones that interact correctly with
-the constraint solvers, again calling the appropriate constraint
-solver to solve an equality constraint between the variable and the
-new value for a store, or getting the value from the solver for that
-variable for a load.  When a constraint is being added, we evaluate
-the constraint expression to build up the network of primitive
-constraints by using a modified \javascript interpreter (written in
-\javascript) --- since this is a much less common activity, and one
-that doesn't occur in inner loops, the performance penalty from using
-an interpreter written in an interpreted language is not an issue.
 
 %%% OLD VERSION:
 %% In \javascript, we use the built-in property accessors and a
@@ -336,10 +296,12 @@ The contributions of this work thus are:
 
 The rest of this paper is structured as
 follows. \autoref{sec:background} describes related work and the
-\langname design. In \autoref{sec:design}, we present what features a
-language must provide to support \langname without \ac{vm} extensions,
-as well our architecture for cooperating solvers and incremental
-resolving. \autoref{sec:evaluation} presents the implementation of our
+basic \langname design on which we build. In \autoref{sec:design}, 
+we describe the features a
+language must provide to support \langname without \ac{vm} extensions;
+\autoref{sec:cooperating-solvers} describes
+our architecture for cooperating solvers and incremental
+re-solving. \autoref{sec:evaluation} presents the implementation of our
 design in \javascript, performance evaluation, and compares
 applications written in \langname/JS to related
 approaches. \autoref{sec:conclusion} describes future work and
@@ -351,13 +313,17 @@ concludes.
 Programs frequently have some set of constraints that should
 hold. Consider a color chooser, for example, to create a color palette
 for a website. Users can specify desired average hue and luminance, as
-well as tweak each color individually. Tweaks to each color may be
-slightly adjusted by the system, or cause adjustments in other colors
+well as adjust each color individually. Adjustments to each color may be
+slightly altered by the system, or cause adjustments in other colors
 to stay close to the desired hue and luminance averages. The
 constraints on hue, luminance, and specific color selection may be
 prioritized in a different manner, or there may be additional
 non-required constraints, for example, that no color may be less than
 80\% as luminant as the average.
+
+\todo{Not sure what this means: ``no color may be less than 80\% as
+  luminant''.  Is the constraint that each color contributes at most
+  80\% to the total luminance?}
 
 \begin{figure}
   \centering
@@ -369,7 +335,7 @@ non-required constraints, for example, that no color may be less than
 In a standard imperative languages such as Java, the usual approach to
 dealing with such constraints is to leave it entirely up to the
 programmer to ensure that they are satisfied --- the constraints may
-be implicit in the code and just explicitely expressed in comments and
+be implicit in the code and just expressed explicitly in comments and
 documentation, or perhaps in the form of machine-checkable
 assertions.
 
@@ -385,9 +351,10 @@ uses branches and state changing operations to check and correct
 invalid state. However, these statements are order dependent, and the
 branching code expresses the constraints implicitely. Furthermore, it
 is unclear whether a solution is complete in that it covers all
-possible cases or optimal. We argue it is usually clearer to express
+possible cases or optimal.  As argued by Felgentreff et 
+al.~\cite{FelgBorningJot2014-submitted}, it is usually clearer to express
 and satisfy constraints explicitly, rather than encoding them in
-control flow \cite{FelgBorningJot2014-submitted}.
+control flow.
 
 One approach to make the constraints explicit is to use a library that
 provides one or more constraint solvers. A large number of solvers
@@ -404,9 +371,10 @@ approaches replace the branching and state changing code with
 declarative constraints. However, these constraints are expressed in
 the language of the library, using solver-specific types and
 expressions. To interact with the imperative state of the system,
-these values have to be copied between the solver and runtime data
+the solver must be called explicitly, and the constrained values
+must be copied between the solver and runtime data
 structures whenever either imperative code or the solver update
-them. Because solvers operate on a limited number of domain-specific
+them.  Further, because solvers operate on a limited number of domain-specific
 primitive types, object-oriented abstractions cannot be used to
 express constraints.
 
@@ -423,10 +391,10 @@ Constraint Imperative
 Programming \cite{lopez1994kaleidoscope,grabmuller2004turtle}, and
 Object Constraint Programming, of which \langname is an instance.
 Object Constraint Programming differs from the former in that it
-focuses on object-orientation as the main paradigm. It tries to
+focuses on object-orientation as the main paradigm. It seeks to
 integrate declarative constraints in a way that does not compromise
-the expectations of imperative object-oriented programmers and to
-provide a declarative semantics that is compatible with these
+the expectations of imperative object-oriented programmers and that
+provides a declarative semantics that is compatible with these
 expectations.
 
 \langname is a design for a family of object constraint languages that
@@ -478,6 +446,10 @@ there are two important restrictions:
   not qualify)
 \end{itemize}
 
+\todo{Again, not sure what this means: ``The constraint that no color
+  should be less than 80\% as luminant''.  Is the constraint that each
+  color contributes at most 80\% to the total luminance?}
+
 The constraint that no color should be less than 80\% as luminant as
 the global average, for example, could be expressed a concise manner
 with \langname/R:
@@ -487,11 +459,11 @@ colors.each do |color|
 end
 \end{lstlisting}
 What looks like an assertion on all elements in the \lstinline{colors}
-collection is a constraint. Whenever any color or the target palette
+collection is actually a constraint. Whenever any color or the target palette
 luminance changes, the system will automatically adapt to ensure that
 this expression is always satisfied. This snippet also shows that
 constraints can be used within imperative constructs and constrain the
-values of properties (the \lstinline{target\_luminance} as well as the
+values of properties (the \lstinline{target_luminance} as well as the
 results of object-oriented message sends (the result of the calculated
 \lstinline{luminance} of colors).
 
@@ -531,7 +503,42 @@ To provide practical support for object-constraint programming in
 the underlying \ac{vm}. This enables us to run \langname/JS in modern
 browsers and use it in a variety of practical Web applications.
 
-\subsection{\langname/JS}
+\todo{integrate the following paragraphs with the text:}
+
+
+
+The original \langname/R system employs two interpretation modes:
+imperative evaluation mode and constraint construction mode.  The
+interpreter normally operates in imperative evaluation mode.  In the
+absence of constraints, this is the standard Ruby \ac{vm}.  However,
+if the interpreter encounters a \load or \store instruction for a
+variable with a constraint on it, rather than directly loading or
+storing into the variable, it calls the appropriate constraint solver
+to retrieve the variable's value or to solve an equality constraint
+between the variable and the new value.  When a constraint is being
+added, the interpreter switches to constraint construction mode.  It
+continues to evaluate expressions using message sends, but rather than
+computing the result, it builds up a network of primitive constraints
+that represent the constraint being added, keeping track of the
+dependencies in the process.
+
+For \langname/JS, since we don't have access to the virtual machine,
+another technique is needed.  Instead, the underlying \javascript
+interpreter is used for imperative evaluation mode.  To intercept
+accesses and assignments to constrained variables, we replace the
+normal property accessors with new ones that interact correctly with
+the constraint solvers, again calling the appropriate constraint
+solver to solve an equality constraint between the variable and the
+new value for a store, or getting the value from the solver for that
+variable for a load.  When a constraint is being added, we evaluate
+the constraint expression to build up the network of primitive
+constraints by using a modified \javascript interpreter (written in
+\javascript) --- since this is a much less common activity, and one
+that doesn't occur in inner loops, the performance penalty from using
+an interpreter written in an interpreted language is not an issue.
+
+
+\subsection{Babelsberg/JS}
 \label{sec:vm-support}
 
 \langname/R was built as an extension to a Ruby \ac{vm}. The extension
@@ -563,6 +570,11 @@ the \langname scheme without \ac{vm} support:
 \begin{itemize}
 \item The host language must support a means to intercept variable
   lookup, so names can refer to different objects.
+\item The \ac{vm}-based implementation of \langname assumes
+  that the \ac{vm} provides access to the program state so solvers can
+  ignore encapsulation and modify data structures directly.  In
+  contrast, here the extension must enable calling the appropriate
+  \ac{api} functions to manipulate data structures.
 \item The host language must provide a means to modify interpretation
   of a block of code to implement the constraint construction mode.
 \end{itemize}
@@ -582,10 +594,13 @@ To execute code in a constraint construction mode, we use a modified
 transformation (This transformation can be omitted. In \langname/JS,
 it merely provides a more convenient syntax, but languages that
 provide access to the calling context could provide this syntax
-without transformation). Popular \javascript \acp{vm}\todo{cite}
+without transformation). Popular \javascript \acp{vm} \todo{cite}
 usually do not provide direct access to the native
 interpreter\todo{also, what about other languages?}. \todo{discuss the
   use of ``eval'' in the evaluation section}
+
+\todo{dropped in the item about calling the appropriate API functions
+  - add a sentence about this (and make sure it makes sense)}
 
 \subsubsection{Property Accessors for Constrained Objects}
 \label{sec:prop-access-constr}
@@ -601,12 +616,22 @@ created and the updated constraint system is solved, potentially
 triggering other solvers.  On the other hand, if 
 the variable is not writable (either
 because it is of a type that no available solver supports or because
-it has been marked read-only for that solver by the programmer), its new
+it has been marked as read-only by the programmer), its new
 value is stored, and all dependent constraints are recalculated.
+
+\todo{Tim - check comment below}
+%% This was:
+%%   (either because it is of a type that no available solver supports or
+%%   because it has been marked as read-only for that solver by the
+%%   programmer),
+%% but really the variable would be marked as read-only with respect to a
+%% particular constraint, not a solver.  That seems a little
+%% complicated to explain, so I fudged by leaving it out altogether.
+%% Perhaps not ideal ...
 
 \subsubsection{Creating Constraints}
 \label{sec:writing-constraints}
-As an example to writing constraints, consider an interactive
+As an example of defining constraints, consider an interactive
 temperature converter, which maintains the relation between sliders
 representing values on the Fahrenheit, Celsius, Rankine, and Kelvin
 scales.
@@ -624,7 +649,7 @@ always({solver:  cassowary}, function() {
 %% For later: is there a way to write this that isn't a conjunction?
 %% It seems more natural to write a series of separate constraints.
 
-Once this code has executed, any change to any of the
+Once this code has executed, a change to any one of the
 temperature values in the converter object will trigger changes to the
 other three values to keep the constraint satisfied through property
 accessors described above.
@@ -689,17 +714,19 @@ representation. Cassowary only works on reals, yet in order to
 visualize the temperature scales, we need to convert the values into
 strings and update the Web browsers' \ac{dom} using the appropriate
 \ac{api}.  This is best done with a local propagation solver, which
-can invoke arbitrary methods to satisfy the constraints (in this case
-by calling the \ac{api}).  The constraints that define the temperature
+can invoke arbitrary methods to satisfy the constraints, in this case
+by calling the \ac{api}.  (The constraints that define the temperature
 converter are simple enough that we could have used a local
 propagation solver for all of them, but this is unsatisfactory for
 many problems, since local propagation cannot handle such situations
-as simultaneous equations or inequalities.  There is currently no
+as simultaneous equations or inequalities.)  
+
+There is currently no
 single solver that can efficiently handle all constraints that arise
 in a typical application (and it seems unlikely that one exists).  To
 address this, we instead provide an architecture for cooperating
 constraint solvers that allows the problem to be partitioned among
-multiple solvers.  For this simple example, we use two solvers: one
+multiple solvers.  For this example, we use two solvers: one
 for linear arithmetic on the reals, and one for local propagation
 constraints.
 
@@ -796,7 +823,7 @@ resolving at the language level - it was up to the solver library to
 provide access to such functionality. However, to integrate with our
 cooperating solvers architecture, \langname/JS includes support for
 incremental resolving through a solver-independent \lstinline{edit}
-method that takes the variables to be edited and returns a callback
+function that takes the variables to be edited and returns a callback
 function. The process that produces new values can use this callback
 to input new values into the solvers for the variables to be edited.
 
@@ -840,6 +867,11 @@ restrictions can still use normal assignment.
 
 \section{Evaluation}
 \label{sec:evaluation}
+
+\todo{seems like an ambiguous heading.  Does this mean ``evaluation''
+  in the sense of the Javascript evaluator, or ``evaluation'' in the
+  sense of ``did we succeed''?  If the former, how about ``The
+  Evaluator'' as a section name.}
 
 \subsection{Implementation}
 \label{sec:implementation}

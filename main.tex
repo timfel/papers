@@ -1491,9 +1491,83 @@ always({solver: cassowary}, function() {
 });
 \end{code}
 
+\paragraph{Circuits}
+\label{sec:circuits}
+The circuit parts are represented by classes that create constraints
+in their initializers (note that we have to pass the context because
+classes are written in plain \javascript files in Lively, and we have
+not enabled source transformation for these). The code to connect
+leads is omitted (it simply asserts voltage equality between the
+connected leads and that the sum of currents be 0.0).
+\begin{code}
+Object.subclass('TwoLeadedObject', {
+   initialize: function() {
+      this.lead1 = {voltage: 0.0, current: 0.0};
+      this.lead2 = {voltage: 0.0, current: 0.0};
+      always({solver: cassowary, ctx: {self: this}}, function () {
+         return self.lead1.current + self.lead2.current == 0.0;
+      });
+   },
+});
+
+TwoLeadedObject.subclass('Resistor', {
+   initialize: function($super, resistance) {
+      $super();
+      this.resistance = resistance;
+      always({solver: cassowary, ctx: {self: this}}, function () {
+         return self.lead2.voltage - self.lead1.voltage ==
+                self.lead2.current * resistance
+      })
+    },
+});
+
+TwoLeadedObject.subclass('Battery', {
+   initialize: function($super, supplyVoltage) {
+      $super();
+      this.supplyVoltage = supplyVoltage;
+      always({solver: cassowary,
+              ctx: {self: this, supply: this.supplyVoltage}},
+         function () {
+           return self.lead2.voltage - self.lead1.voltage == supply
+      })
+   },
+});
+
+Object.subclass('Ground', {
+   initialize: function() {
+      this.lead = {voltage: 0.0, current: 0.0};
+      always({solver: cassowary, ctx: {self: this}}, function () {
+         return self.lead.voltage == 0.0 && self.lead.current == 0.0
+      })
+   },
+});
+
+TwoLeadedObject.subclass('Wire', {
+   initialize: function($super) {
+      $super();
+      always({solver: cassowary, ctx: {self: this}}, function () {
+         return self.lead1.voltage == self.lead2.voltage
+      })
+   },
+});
+
+Wire.subclass('Ammeter', {});
+TwoLeadedObject.subclass('Voltmeter', {
+   initialize: function($super) {
+      $super();
+      this.readingVoltage = 0.0;
+      always({solver: cassowary, ctx: {self: this}}, function () {
+         return self.lead1.current == 0.0 &&
+           self.lead2.voltage - self.lead1.voltage == self.readingVoltage
+      })
+   },
+});
+\end{code}
+
 \subsection{Benchmarks}
 \label{sec:app-performance}
-%% TODO - Should we just leave this out and report the results?
+For comparing purely imperative to purely constraint-oriented
+performance:
 \begin{code}
 for (var i = 0; i < this.Iterations; i++) {
     mouse.location_y = i
@@ -1549,7 +1623,18 @@ for (var i = 0; i < this.Iterations; i++) {
 }
 \end{code}
 
-
+To compare field read performance with and without constraints, we
+used the following:
+\begin{code}
+var o = {a: 0, b: 0, c: 0, d: 0, e: 0}, sum;
+// For testing constrained performance, uncomment the following
+// always({solver: cassowary, ctx: {o: o}}, function() {
+//    return o.a == 0 && o.b == 0 && o.c == 0 && o.d == 0 && o.e == 0
+// });
+for (var i = 0; i < this.Iterations; i++) {
+   sum = o.a + o.b + o.c + o.d + o.e;
+}
+\end{code}
 
 \end{document}
 

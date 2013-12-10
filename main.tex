@@ -191,17 +191,20 @@ programming environment built on \javascript.
 \autoref{fig:colorchooser} shows a color chooser from the parts bin
 \cite{lively-partsbin-2012} that can be used to create a color palette
 for a website.  Users can specify the desired average hue and
-luminance, as well as change each color individually.  Changes to each
-color may be slightly adjusted by the system, or cause adjustments in
-other colors, to stay close to the required hue and luminance
-averages. The constraints on hue, luminance, and specific color
-selection may be prioritized in a different manner, or there may be
-additional non-required constraints, for example, that the luminance
-of each individual color must be at least 80\% of the total luminance.
-
-\todo{For the colorchanger, make this description specific, and say
-  what the color changer in the figure actually does.  Does it respond
-  properly to editing?}
+luminance using the sliders, as well as change each color individually
+using a color chooser. The system automatically updates the colors and
+sliders according to user input -- for example, the hue slider adjusts
+when the user changes the luminance slider. Edit constraints are used
+for incremental resolving, so colors change smoothly when dragging the
+sliders. Furthermore, the constraints on hue, luminance, and specific
+color selection have different priorities. Changes to individual
+colors may be slightly adjusted by the system or cause changes to
+other colors to keep the average hue and luminance constant, whereas
+dragging the sliders forces the system to use the new value. There are
+additional constraints that luminance and hue of each individual color
+must be at least 80\% of the average luminance and hue, and that the
+system cannot set red, green, and blue values outside the value range
+(0--1 in Lively).
 
 \autoref{fig:wheatstone} shows a constraint-based simulation of
 Wheatstone Bridge being constructed.  Parts representing batteries,
@@ -1429,6 +1432,7 @@ although these could be trivially added using the meta-protocol of
 % Possibly change this
 \bibliography{Qiqqa2BibTexExport}
 \clearpage
+\appendix
 
 \section{Appendix}
 This appendix includes code for the examples and benchmarks.
@@ -1436,6 +1440,56 @@ This appendix includes code for the examples and benchmarks.
 \subsection{Examples}
 \label{sec:examples-1}
 
+\paragraph{Color Chooser}
+\label{sec:color-chooser}
+The entire palette (\lstinline{self}) averages its luminance and hue
+values from the colors. The colors are connected by constraints to
+create the sum of luminances and hues.
+\begin{code}
+var previous = undefined;
+colors.each(function (ea) {
+    always({solver: cassowary}, function() {
+         if (previous) {
+             return color.lumSum == color.luminance + previous.lumSum &&
+                    color.hueSum == color.hue + previous.hueSum
+         } else {
+             return color.lumSum == color.luminance &&
+                    color.hueSum == color.hue;
+         }
+    });
+    previous = ea;
+});
+
+always({solver: cassowary}, function() {
+     return color.lumSum / pixelCount == self.luminance &&
+            color.hueSum / pixelCount == self.hue
+});
+\end{code}
+
+Each color is represented by a rectangle and has a set of constraints
+\begin{code}
+// Tell the solver to stay within Lively RGB color range
+always({solver: cassowary}, function() {
+     var c = rect.getFill();
+     return c.r >= 0 && c.g >= 0 && c.b >= 0 &&
+            c.r <= 1 && c.g <= 1 && c.b <= 1
+});
+// Calculate luminance
+always({solver: cassowary}, function() {
+     var c = rect.getFill();
+     return rect.luminance == 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+});
+// Approximate hue
+always({solver: cassowary}, function() {
+     var c = rect.getFill();
+     return rect.hue == (c.r + (c.b * 2 + 1) + (c.g * 3 + 2)) / 9.0
+});
+// Constrain luminance and hue to be close to the palette average
+always({solver: cassowary}, function() {
+     return self.hue * 0.8 <= rect.hue &&
+            self.luminance * 0.8 <= rect.luminance
+});
+\end{code}
 
 \subsection{Benchmarks}
 \label{sec:app-performance}

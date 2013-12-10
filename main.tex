@@ -105,7 +105,7 @@
 \mainmatter           % start of the contributions
 
 \title{Babelsberg/JS}
-\subtitle{A Browser-based Implementation of an Object Constraint Language}
+\subtitle{A Browser-based Implementation of \\ an Object Constraint Language}
 \titlerunning{Babelsberg/JS}
 \author{Author 1\inst{1}, Author 2\inst{2}, and Author 3\inst{1}}
 \authorrunning{Author1, Author2, Author3}   % abbreviated author list (for running head)
@@ -134,42 +134,33 @@
 \def\figureautorefname{Figure}
 
 \begin{abstract}
-  We present an approach to implementing \acrlong{ocp} without \acrlong{vm} support. We evaluate our
-  approach by implementing \langname~-- an \acrshort{ocp} language -- in \javascript, a language for
-  which a number of \acrshort{vm}s are actively used and modifying them is not an option.
-  % Context
-  Constraints in \langname are predicates that are continuously ensured by the system. Solvers can
-  be flexibly chosen to solve constraints on primitive types such as reals or strings, but also
-  complex objects such as graphical widgets or file handles. \langname is superior to related
-  approaches because it uses object-oriented message sends to specify constraints instead of direct
-  references between objects or special constraint method definitions.
-
-  % Problem
-  The initial \langname implementation was as a custom Ruby \acrshort{vm}. \langname/R intercepts
-  imperative assignments to satisfy constraints whenever the system is perturbed, and solvers in
-  \langname/R can manipulate objects directly to satisfy constraints. However, in \javascript this
-  is not possible without \acrshort{vm} support.
-
-  % Solution
-  Our solution describes an integration 
-
- It also did not provide facilities use multiple solvers
-  cooperatively to solve more complex constraints.
-%% ALAN TODO: revise the abstract to follow the outline in the emails:
-%%  - there are a set of interesting interactive examples possible using
-%%    constraints in a web-based environment
-%%  - how can we support these?
-%%  - we want to integrate constraints with the underlying OO language
-%%  - Javascript one good choice for this
-%%  - Babelsberg is a promising approach, but the existing implementation
-%%    needs VM support.  Not available here.
-%%  - we present a solution that does this without VM support.
-  
+Constraints provide a useful technique for ensuring that desired
+properties hold in an application, and have been used in a wide range
+of applications, including graphical layout, simulation, scheduling,
+and problem-solving.  At the same time, very lightweight, web-based
+applications have become increasingly prominent.  We describe a design
+and implementation of an \acrlong{ocp} language, an object-oriented
+language that cleanly integrates constraints with the underlying
+language, in a way that respect encapsulation and standard
+object-oriented programming techniques, and that runs in browser-based
+applications.  Prior work on \acrshort{ocp} languages has relied on
+modifying the underlying \acrlong{vm}, but that is not an option for
+such browser-based applications.  In this paper, we present an
+approach to implementing \acrlong{ocp} without \acrlong{vm} support,
+along with an implementation as a \javascript extension.  We
+demonstrate the resulting language, \langname/JS, on a number of
+applications and provide performance results.  Programs in
+\langname/JS without constraints run at essentially the same speed as
+pure \javascript, while programs that do have constraints can still be
+run quite efficiently.  Our design and implementation also supports
+cooperating constraint solvers, which allow multiple solvers to work
+together to solve a more difficult problem, as well as incremental
+re-solving to support interaction.
 \end{abstract}
-%
+
 \section{Introduction}
 
-Constraints are relations between objects that should hold. This could
+Constraints are relations among objects that should hold. This could
 be that all parts in an electrical circuit simulation obey the laws of
 physics, that the rows in a Sudoku include each digit from 0 to 9, or
 that a streamed video play smoothly in the presence of changing CPU
@@ -194,25 +185,33 @@ environment.
 Figures \ref{fig:colorchooser} and \ref{fig:wheatstone} are
 screenshots from our prototype system that illustrate the kinds of
 capabilities we want.  Both are constructed in the Lively Kernel
-environment, an entirely web-based programming environment built on
-\javascript \cite{lively-kernel-2008}. \autoref{fig:colorchooser}
-shows a color chooser from the parts bin \cite{lively-partsbin-2012}
-that could be used to create a color palette for a website. Users can
-specify the desired average hue and luminance, as well as change each
-color individually.  Changes to each color may be slightly adjusted by
-the system, or cause adjustments in other colors, to stay close to the
-required hue and luminance averages. The constraints on hue,
-luminance, and specific color selection may be prioritized in a
-different manner, or there may be additional non-required constraints,
-for example, that the luminance of each indivudual color must be at
-least 80\% of the total luminance.  The second figure,
-\autoref{fig:wheatstone}, shows a constraint-based simulation of
+environment \cite{lively-kernel-2008}, an entirely web-based
+programming environment built on \javascript.
+
+\autoref{fig:colorchooser} shows a color chooser from the parts bin
+\cite{lively-partsbin-2012} that can be used to create a color palette
+for a website.  Users can specify the desired average hue and
+luminance, as well as change each color individually.  Changes to each
+color may be slightly adjusted by the system, or cause adjustments in
+other colors, to stay close to the required hue and luminance
+averages. The constraints on hue, luminance, and specific color
+selection may be prioritized in a different manner, or there may be
+additional non-required constraints, for example, that the luminance
+of each individual color must be at least 80\% of the total luminance.
+
+\todo{For the colorchanger, make this description specific, and say
+  what the color changer in the figure actually does.  Does it respond
+  properly to editing?}
+
+\autoref{fig:wheatstone} shows a constraint-based simulation of
 Wheatstone Bridge being constructed.  Parts representing batteries,
-resistors, and so forth are copied from the parts bin on the right,
+resistors, and meters are copied from the parts bin on the right,
 dropped into the circuit on the left, and wired together.  These parts
-carry constraints representing Ohm's Law, Kirchhoff's Current Laws,
-and so forth; and the system automatically solves the constraints and
-updates the amperes displayed on the meter.
+carry constraints representing Ohm's Law, Kirchhoff's Current Law, and
+so forth.  The system automatically solves the constraints when the
+parts are first connected, and re-solves them if the battery's supply
+voltage or a resistance is edited, updating the amperes displayed by
+the meter.
 
 \begin{figure}
   \centering
@@ -221,10 +220,10 @@ updates the amperes displayed on the meter.
   \label{fig:wheatstone}
 \end{figure}
 
-The capability to graphically construct constraint-based simulations
-dates back to Sketchpad \cite{sutherland-ifips-1963} and ThingLab
-\cite{borning-toplas-1981}.  However, in this current work we want to
-do a true integration of the constraints with the host object-oriented
+While the capability to graphically construct constraint-based
+simulations dates back to Sketchpad \cite{sutherland-ifips-1963} and
+ThingLab \cite{borning-toplas-1981}, in the current work we want to do
+a true integration of the constraints with the host object-oriented
 programming language, and further support this in a web-based
 environment.  To accomplish this, we build on recent work by
 Felgentreff et al.~\cite{FelgBorningJot2014-submitted} on Babelsberg,
@@ -236,7 +235,7 @@ Kaleidoscope \cite{lopez1994kaleidoscope} and Turtle
 as predicates using the underlying object-oriented language. The
 constraint is that the predicate evaluates to true, and the system
 maintains this constraint automatically whenever objects that
-particpate in the constraint change.
+participate in the constraint change.
 
 \langname improves on related approaches to constraint satisfaction in
 object-oriented programs, which use
@@ -274,15 +273,15 @@ need to support incremental constraint solvers.
 In addition to the goal of good performance, a useful Object
 Constraint Language requires sufficiently powerful constraint solving
 capabilities.  Felgentreff et al.\ \cite{FelgBorningJot2014-submitted}
-identify an important requirement here, which was not yet
-implemented in their system, namely support for \emph{cooperating
-  constraint solvers}.  The motivation for this is that it is often
-infeasible to provide a single constraint solver that works well for
-all aspects of a problem; instead, different solvers may be more
-appropriate than others for some aspects.  Our design and
-implementation in \langname/JS provides this support, and does so in a
-way that continues to support incremental re-solving of constraints
-and that doesn't require access to the \ac{vm}.
+identify an important requirement here that was not yet implemented in
+their system, namely support for \emph{cooperating constraint
+  solvers}.  The motivation for this is that it is often infeasible to
+provide a single constraint solver that works well for all aspects of
+a problem; instead, different solvers may be more appropriate than
+others for some aspects, and which need to work together to solve the
+problem.  Our design and implementation in \langname/JS provides this
+capability, in a way that supports incremental re-solving of
+constraints without requiring access to the \ac{vm}.
 
 
 %%% OLD VERSION:
@@ -338,20 +337,20 @@ The contributions of this work thus are:
 %%   for unknown values in arithmetic operations.
 
 The rest of this paper is structured as follows.
-\autoref{sec:background} describes related work and the basic
-\langname design on which we build. In \autoref{sec:design}, we
-describe the features a language must provide to support \langname
-without \ac{vm} extensions.  This design is realized in \langname/JS
+\autoref{sec:background} describes related work and the \langname
+framework on which we build. In \autoref{sec:design}, we describe the
+features a language must provide to support \langname without \ac{vm}
+extensions.  This design is realized in \langname/JS
 (\autoref{sec:vm-support}), which also includes support for
 cooperating constraint solvers (\autoref{sec:cooperating-solvers}) and
 incremental re-solving (\autoref{sec:coop-incr-resolv}).  We then
 describe the implementation of \langname/JS in the Lively Kernel
-environment (\autoref{sec:implementation} and its performance
-(\autoref{sec:performance}.  \autoref{sec:conclusion} describes future
-work and concludes.
+environment (\autoref{sec:implementation}), and the results of
+performance evaluation (\autoref{sec:performance}).
+\autoref{sec:futurework} describes future work and concludes.
 
-\todo{cut this phrase - revisit the overview later to make sure it
-  matches the paper. ``and compares applications written in
+\todo{I cut this phrase - revisit the overview later to check
+  whether it's needed. ``and compares applications written in
   \langname/JS to related approaches.''}
 
 \section{Background and Related Work}
@@ -375,7 +374,7 @@ code that is executed at various times (for example, color adjustments
 may run while the user is dragging the luminance slider). This code
 uses branches and state changing operations to check and correct
 invalid state. However, these statements are order dependent, and the
-branching code expresses the constraints implicitely. Furthermore, it
+branching code expresses the constraints implicitly. Furthermore, it
 is unclear whether a solution is complete in that it covers all
 possible cases or optimal.  As argued by Felgentreff et 
 al.~\cite{FelgBorningJot2014-submitted}, it is usually clearer to express
@@ -387,7 +386,7 @@ provides one or more constraint solvers. A large number of solvers
 that cover a wide range of type domains (such as reals, booleans, or
 finite sets) is available for imperative languages and can be called
 from imperative code
-\cite{torlak2007kodkod,de2008z3,badros2001cassowary,freeman1989deltablue}. For
+\cite{badros2001cassowary,de2008z3,torlak2007kodkod,freeman1989deltablue}. For
 more specialized domains such as user interface layout, some libraries
 provide separate \acp{dsl} to express for example minimal distances
 between graphical objects. Prominent examples here include the Mac OS
@@ -436,7 +435,7 @@ goals include:
   standard object-oriented code without constraints
 \item support for required and preferential constraints, constraints
   on object identity, variables that are read-only to solvers or
-  imperative code, as well as incremental resolving for use in
+  imperative code, as well as incremental re-solving for use in
   interactive applications
 \item an \ac{api} for constraint solvers that makes it straightforward
   to add new solvers and does not privilege the solvers provided with
@@ -454,7 +453,7 @@ extensions, with only one minor syntactic extension, plus
 libraries for constraint satisfaction.  The semantic
 model is also an extension of Ruby's, and supports all of the existing
 Ruby constructs such as classes, instances, methods, message sends,
-blocks (closures), object identity, and the languages' control
+blocks (closures), object identity, and the language's control
 structures.
 
 All these Ruby constructs are also supported in constraints. However,
@@ -473,7 +472,7 @@ there are two important restrictions:
 \end{itemize}
 
 For example, the constraint that each color should have a luminance
-larger or equal to 80\% of the global targeted average could be
+at least 80\% of the global targeted average could be
 expressed a concise manner with \langname/R:
 \begin{lstlisting}[language=ruby]
 colors.each do |color|
@@ -816,7 +815,7 @@ always({solver: deltablue}, function() {
 \end{code}
 Note that for the DeltaBlue local propagation solver, we do not
 provide a predicate (although we could --- in that case it would be
-run to test whether resolving is necessary). Instead, the local
+run to test whether re-solving is necessary). Instead, the local
 propagation solver needs formulas for all writable variables that
 state dependencies and how to update the variable. In this case, we
 want the Celsius value to be used as input for the color, but not
@@ -826,7 +825,7 @@ dependencies are passed as arguments to the formula function, so we
 can use them directly to update the \ac{dom} using the browser's
 \lstinline{setAttribute} \ac{api} and return the new value.
 
-\subsection{Incremental Resolving for Cooperating Constraint Solvers}
+\subsection{Incremental Re-Solving for Cooperating Constraint Solvers}
 \label{sec:coop-incr-resolv}
 Some applications involve repeatedly re-satisfying the same set of
 constraints with differing input values.  A common such case is an
@@ -838,10 +837,10 @@ of constraint solvers support this using so-called \emph{edit
 input to the solver.
 
 The original \langname design did not include support for incremental
-resolving at the language level - it was up to the solver library to
+re-solving at the language level - it was up to the solver library to
 provide access to such functionality. However, to integrate with our
 cooperating solvers architecture, \langname/JS includes support for
-incremental resolving through a solver-independent \lstinline{edit}
+incremental re-solving through a solver-independent \lstinline{edit}
 function that takes the variables to be edited and returns a callback
 function. The process that produces new values can use this callback
 to input new values into the solvers for the variables to be edited.
@@ -855,7 +854,7 @@ solvers' set of edit variables. Finally, the \lstinline{edit} function
 creates a callback function and returns it. This callback can then be
 used to feed new values into the solvers.
 
-To support incremental resolving with cooperating solvers, two
+To support incremental re-solving with cooperating solvers, two
 restrictions apply: first, all variables that are edited must only be
 in regions of solvers that support edit constraints. Second, while the
 edit callback is used, no new constraints can be created. These are
@@ -865,7 +864,7 @@ statically known for the duration of the edit.
 
 These restrictions do not limit the generality of the approach, only
 the applicability of the optimization of incremental
-resolving. Programs that cannot, for some reason, adhere to these
+re-solving. Programs that cannot, for some reason, adhere to these
 restrictions can still use normal assignment.
 
 %% FORMERLY:
@@ -904,7 +903,7 @@ Assignment to objects that are constrained in \langname/JS is the core
 concept that binds the declarative constraints and imperative code
 together. Whereas in standard imperative code assignment writes a value
 to a memory location, assignments in \langname add equality
-constraints on constrained objects and trigger resatisfaction. The new
+constraints on constrained objects and trigger re-satisfaction. The new
 equality constraint may be unsatisfiable, in which case the assignment
 is not executed and a runtime exception is generated.
 
@@ -982,7 +981,7 @@ the solvers fail to satisfy their constraints with the new value, an
 exception is generated (and all read-only constraints are re-enabled as
 above).
 
-For all remaining constraints, the variable is not solveable in their
+For all remaining constraints, the variable is not solvable in their
 solvers. Consequently, its value was treated as a constant in their
 constraint expressions. With the new value, these have to be
 recalculated. To do so, the old variable value is remembered and the
@@ -1118,7 +1117,7 @@ variables connected to the variable that is assigned.
 
 In \langname/R, lazy variables were an optimization. 
 \todo{Alan: is there a principled reason for this?}
-\todo{Tim: writing to all fields that are affected by a resatisfied
+\todo{Tim: writing to all fields that are affected by a re-satisfied
   constraint is in O(N) where N is the number of variables in the
   solver (all of which we have to at least test, at which point we may
   as well just write to them) - compared to the O(1) of normal
@@ -1241,7 +1240,7 @@ Constraint meta-protocol was used to create edit variables, constrain
 them to be equal to the supplied variables, and update them from the
 stream.
 
-To support cooperating incremental resolving
+To support cooperating incremental re-solving
 (\cf{\autoref{sec:coop-incr-resolv}}) \langname/JS, there are two
 changes to this scheme. First, to support edit constraints within a
 single thread, the edit method, instead taking a stream of values,
@@ -1261,13 +1260,13 @@ solvers and the supplied variables, in order:
 \item[beginEdit] This method is called once for each solver
   participating in the edit before the callback is returned. In
   Cassowary, this initializes the edit constants array and prepares
-  the solver for fast resolving when these constants change. In
+  the solver for fast re-solving when these constants change. In
   DeltaBlue, the solver generates an execution plan to solve the
   constraints starting with the EditConstraints as input.
 \end{description}
 
 Now the callback can be used to input new values into the system and
-trigger resolving. The callback will call
+trigger re-solving. The callback will call
 \textbf{\lstinline{resolveArray}} on each solver with the new values
 and update the object's storage (so other observers and hooks around
 the values still work). Because the solver's execution plan is fixed
@@ -1376,7 +1375,7 @@ of applications. It implements a number of features from the original
 definition and object-oriented code, automatic maintenance of
 constraints, integration with the existing syntax and semantics, an
 interface to add new solvers and a constraint solver constructs such
-as read-only variables and incremental resolving. There are a number
+as read-only variables and incremental re-solving. There are a number
 of directions for future work.
 
 \paragraph{Constant Read-only Variables}
@@ -1392,7 +1391,7 @@ solution to the following expression:
 always(function() { return o.resistance * o.current == o.voltage }
 \end{code}
 However, if \lstinline{o.current} is determined by an upstream solver
-(for example, it is connected to an input field wiht DeltaBlue), it
+(for example, it is connected to an input field with DeltaBlue), it
 should be treated as constant in this constraint and Cassowary should
 be able to solve it.
 
@@ -1466,7 +1465,7 @@ downwards.  Finally, set the temperature display to the height of the
 mercury.
 
 In the constraint-version, we specify the following constraints
-(solver argument ommitted for brevity):
+(solver argument omitted for brevity):
 \begin{code}
 always(function() { return display.number == mercury.top });
 always(function() { return white.top == thermometer.top });
@@ -1501,3 +1500,20 @@ for (var i = 0; i < this.Iterations; i++) {
 %%% mode: latex
 %%% TeX-master: t
 %%% End: 
+
+% LocalWords:  Babelsberg JS Author1 Author2 Author3  ocp vm Luminance ThingLab
+% LocalWords:  screenshots colorchooser luminance wheatstone Kirchhoff's et al
+% LocalWords:  colorchanger Felgentreff runtime api infeasible Javascript Z3 de
+% LocalWords:  incr resolv futurework checkable booleans dsl LivelyKernel facto
+% LocalWords:  KScript superset boolean 's accessors bytecodes lookup Smalltalk
+% LocalWords:  accessor getter CLSimplexSolver ConstrainedVariable getCelsius
+% LocalWords:  updateCelsius setInterval kPa browsers' dom smt acyclic el versa
+% LocalWords:  jQuery tooHotWarning deltablue celsius setAttribute DeltaBlue V8
+% LocalWords:  solvers' unsatisfiable assignee constrainedvariable parseFloat
+% LocalWords:  aCassowarySolver aDeltaBlueSolver ConstraintInterpreter Chakra
+% LocalWords:  SquirrelFish SpiderMonkey JScript UglifyJS environments' eval na
+% LocalWords:  subclasses ConstrainedVariables unary LinearInequality beginEdit
+% LocalWords:  constraintVariableFor constraintSolver suggestValue prepareEdit
+% LocalWords:  addEditVar EditConstraint EditConstraints resolveArray endEdit
+% LocalWords:  finishEdit 10x 100x 1000x 000x layouting Prolog multi ively cb
+% LocalWords:  ctx

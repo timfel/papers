@@ -237,7 +237,7 @@ cannot set red, green, and blue values outside the range 0--1.
 
 \begin{figure}
   \centering
-  \includegraphics[width=.5\linewidth]{colorchooser.png}
+  \includegraphics[width=.4\linewidth]{colorchooser.png}
   \caption{Color Palette Chooser with Hue and Luminance Goals}
   \label{fig:colorchooser}
 \end{figure}
@@ -845,10 +845,14 @@ them.
 
 In this architecture, the regions must form an acyclic graph so that
 solving can simply proceed from the upstream to the downstream
-regions, propagating variable values. This prohibits loops and a
-system that oscillates without finding a solution. To create this graph, the system
-determines an order for the solvers based on the dependencies between
-the constraints. The programmer can make this explicitly control the
+regions, propagating variable values. \autoref{fig:regions} shows an
+example configuration. Solving proceeds from the left and each solver
+propagates values for its variables to downstream solvers that need
+them. The downstream solvers can only read, not write to those
+variables. This architecture prohibits loops and a system that
+oscillates without finding a solution. To create this graph, the
+system determines an order for the solvers based on the dependencies
+between the constraints. The programmer can explicitly control the
 position of a solver in this graph, or the libraries can provide
 information so the system can create the order without the
 programmer's support. Applications can use multiple instances of the
@@ -856,6 +860,13 @@ same solver type that are used one after the other (for example, for a
 problem that first uses Cassowary to solve simultaneous linear
 constraints, then DeltaBlue for local propagation constraints, then
 Cassowary again).
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.9\linewidth]{RegionsDiagram.png}
+  \caption{Regions propagating variable values downstream}
+  \label{fig:regions}
+\end{figure}
 
 Once the solver regions are sorted, solving proceeds from the furthest upstream
 region.  Each region will determine values for the variables it can
@@ -893,14 +904,17 @@ propagation solvers need formulas for all writable variables that
 state their dependencies and how to update the variable. In this case,
 we want the Celsius value to be used as input for the color, but not
 vice versa, so we only provide one formula. The only dependency here
-is on the return value of \lstinline{converter.getCelsius()}. The
-dependencies are passed as arguments to the formula function, so we
-can use them directly to update the \ac{dom} using the browser's
-\lstinline{setAttribute} \ac{api} and return the new value. These
-functions, just like the predicates for Cassowary, are evaluated in
-constraint construction mode which wraps variables with property
-accessors -- the function \lstinline{formula} is simply a function
-defined by DeltaBlue.
+is on the return value of \lstinline{converter.getCelsius()}, passed
+explicitly in line 4. Note that this could be omitted \langname/R,
+because its version of DeltaBlue supports deducing the dependencies
+from the formula function -- a feature we have not yet implemented
+here. The dependencies are passed as arguments to the formula
+function, so we can use them directly to update the \ac{dom} using the
+browser's \lstinline{setAttribute} \ac{api} and return the new
+value. These functions, just like the predicates for Cassowary, are
+evaluated in constraint construction mode which wraps variables with
+property accessors -- the function \lstinline{formula} is simply a
+function defined by DeltaBlue.
 
 \subsection{Incremental Re-Solving for Cooperating Constraint Solvers}
 \label{sec:coop-incr-resolv}
@@ -933,17 +947,15 @@ creates a callback function and returns it. This callback can then be
 used to feed new values into the solvers.
 
 As an example, suppose we wanted to connect the Celsius value of our
-temperature converter to a graphical slider. We alias the original
-\lstinline{onDrag} method and create a new one that calls the original
-function (which updates the slider's \lstinline{value}) and then
-inputs the new value into the edit callback.
+temperature converter to a graphical slider. We wrap the original
+\lstinline{onDrag} (which updates the slider's \lstinline{value}) to
+input the new value into the edit callback, too.
 \begin{code}
-var callback = edit(converter, ['C']),
-    onDragWithoutCallback = slider.onDrag;
-slider.onDrag = function (evt) {
-    onDragWithoutCallback(evt);
+var callback = edit(converter, ['C']);
+slider.onDrag = slider.onDrag.wrap(function (originalOnDrag, evt) {
+    originalOnDrag(evt);
     callback([slider.value]);
-}
+});
 \end{code}
 
 Two restrictions apply to the use of incremental re-solving with
@@ -1087,41 +1099,44 @@ enabled constraints (depending on the implementation of the
 participating solvers, they may not deterministically find the same
 solution to the same set of constraints).
 
-\paragraph{Deferred Assignment of Connected Variables}
-\label{sec:deferred-assignment}
-\langname/R included an optimization to defer copying the values from
-a solver to the object-oriented variable location after
-assignment. Instead of copying all affected variables immediately, the
-variables' would be copied when they are next used in imperative
-code. This optimization cannot be used with our cooperating constraint
-solver architecture. Consider the following two constraints:
-\begin{code}
-var obj = {a: 0, b: 0, c: false};
-always({solver: cassowary}, function() {
-    return obj.a + obj.b >= 20
-});
-always({solver: deltablue}, function() {
-  obj.c.formula([obj.b], function (b) { return b > 15 });
-});
-obj.a = 1;
-\end{code}
-When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
-first constraint. However, to trigger DeltaBlue to solve the second
-constraint, the new value for \lstinline{obj.b} has to be copied
-immediately, rather than when \lstinline{obj.b} is next
-read. Otherwise, a failure to satisfy the second constraint may only
-be encountered later in the execution, when its cause is in the
-assignment.
+% \paragraph{Deferred Assignment of Connected Variables}
+% \label{sec:deferred-assignment}
+% \langname/R included an optimization to defer copying the values from
+% a solver to the object-oriented variable location after
+% assignment. Instead of copying all affected variables immediately, the
+% variables' would be copied when they are next used in imperative
+% code. This optimization cannot be used with our cooperating constraint
+% solver architecture. Consider the following contrived example:
+% \begin{code}
+% var obj = {a: 10, b: 10, c: true};
+% always({solver: cassowary}, function() {
+%     return obj.a + obj.b == 20
+% });
+% always({solver: deltablue}, function() {
+%   obj.c.formula([obj.b], function (b) {
+%     if (b == 13) throw "unlucky";
+%     return b < 10;
+%   });
+% });
+% obj.a = 7;
+% \end{code}
+% When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
+% first constraint. However, to trigger DeltaBlue to solve the second
+% constraint, the new value for \lstinline{obj.b} has to be copied
+% immediately, rather than when \lstinline{obj.b} is next
+% read. Otherwise, a failure to satisfy the second constraint is only
+% encountered later in the execution, when its cause is in the
+% assignment.
 
 \subsubsection{Changing the Type of Variables}
 Most constraint solvers only provide support for a limited number of
-domains (such as reals or booleans). When variables are used in
+type domains (such as reals or booleans). When variables are used in
 constraints, their current values determine whether they can be
 represented as a variable in the solver, or as a constant. This means
 that the type of a variable cannot change once it is used in a
 constraint. Instead, a new constraint has to be created.
 
-Changing the domain of a variable, although possible in a dynamic
+Changing the type of a variable, although possible in a dynamic
 language, is a relatively uncommon operation.  When it does occur, the
 variable is removed from all solvers, all its constraints are
 disabled, and its constraint expressions are re-executed in constraint

@@ -514,12 +514,29 @@ typically soft constraints, with a very low priority, thus expressing
 frame axioms, i.e.\ the desire that things remain the same unless
 there are some other constraints that force them to change.)
 
-The \langname/R design allows programmers to express constraints
-concisely using the abstractions of the Ruby language.  However, it
-only runs on a modified Ruby \ac{vm}. To express constraints in this
-way in existing environments where \ac{vm} modifications are not
-feasible, the design has to be extended to support an \langname-style
-constraints without \ac{vm} support.
+\langname/R was implemented by modifying the Ruby \ac{vm}.  It uses
+two interpretation modes: imperative evaluation mode and constraint
+construction mode.  The interpreter normally operates in imperative
+evaluation mode.  In the absence of constraints, this is the standard
+Ruby \ac{vm}.  However, if the interpreter encounters a \load or
+\store instruction for a variable with a constraint on it, rather than
+directly loading or storing into the variable, it calls the
+appropriate constraint solver to retrieve the variable's value or to
+solve an equality constraint between the variable and the new value.
+When a constraint is being added, the interpreter switches to
+constraint construction mode.  It continues to evaluate expressions
+using message sends, but rather than computing the result, it builds
+up a network of primitive constraints that represent the constraint
+being added, keeping track of the dependencies in the process.
+
+To support this, the Ruby \ac{vm} was extended to support
+\emph{constrained variables}.  These variables refer to different
+objects depending on the context they are used in.  One is the normal
+object-oriented binding used in the host language execution.  The other
+is a constraint object that can be used by a solver for constraint
+construction and solving.  Variables become constrained variables only
+when they are used in a constraint, minimizing the performance impact
+for parts of the program where only normal variables are accessed.
 
 \section{Object Constraint Programming Without VM Support}
 \label{sec:design}
@@ -537,67 +554,28 @@ To provide practical support for \acrlong{ocp} in
 the underlying \ac{vm}. This enables us to run \langname/JS in modern
 browsers and use it in a variety of practical Web applications.
 
-\todo{integrate the following paragraphs with the text:}
-The original \langname/R system employs two interpretation modes:
-imperative evaluation mode and constraint construction mode.  The
-interpreter normally operates in imperative evaluation mode.  In the
-absence of constraints, this is the standard Ruby \ac{vm}.  However,
-if the interpreter encounters a \load or \store instruction for a
-variable with a constraint on it, rather than directly loading or
-storing into the variable, it calls the appropriate constraint solver
-to retrieve the variable's value or to solve an equality constraint
-between the variable and the new value.  When a constraint is being
-added, the interpreter switches to constraint construction mode.  It
-continues to evaluate expressions using message sends, but rather than
-computing the result, it builds up a network of primitive constraints
-that represent the constraint being added, keeping track of the
-dependencies in the process.
+For \langname/JS, since we don't have access to the \ac{vm}, we cannot
+redefine the operation of \load and \store instructions to handle
+variables with constraints on them.  Instead, the underlying
+\javascript interpreter is used for imperative evaluation mode.  To
+intercept accesses and assignments to constrained variables, we
+replace the normal property accessors with new accessors that interact
+correctly with the constraint solver.  To get the value of a
+constrained variable, the accessor gets the value for that variable
+from its solver.  For a store, the setter in general calls the
+appropriate constraint solver to solve an equality constraint between
+the variable and its new value for a store.
 
-For \langname/JS, since we don't have access to the virtual machine,
-another technique is needed.  Instead, the underlying \javascript
-interpreter is used for imperative evaluation mode.  To intercept
-accesses and assignments to constrained variables, we replace the
-normal property accessors with new ones that interact correctly with
-the constraint solvers, again calling the appropriate constraint
-solver to solve an equality constraint between the variable and the
-new value for a store, or getting the value from the solver for that
-variable for a load.  When a constraint is being added, we evaluate
-the constraint expression to build up the network of primitive
-constraints by using a modified \javascript interpreter (written in
-\javascript) --- since this is a much less common activity, and one
-that doesn't occur in inner loops, the performance penalty from using
-an interpreter written in an interpreted language is not an issue.
+For constraint construction mode, we used a custom \javascript
+interpreter, itself written in \javascript.  This custom interpreter
+is of course much slower than the underlying one.  However, since
+evaluating code in constraint construction mode is a much less common
+activity, and one that doesn't occur in inner loops, the performance
+penalty is not a significant issue.
 
-
-\subsection{Babelsberg/JS}
-\label{sec:vm-support}
-
-\langname/R was built as an extension to a Ruby \ac{vm}. The extension
-is two-fold:
-\begin{itemize}
-\item The \ac{vm} was extended to support \emph{constrained
-    variables}. These variables refer to different objects depending
-  on the context they are used in. One is the normal object-oriented
-  binding used in the host language execution. The other is a
-  constraint object that can be used by a solver for constraint
-  construction and solving. Variables become constrained variables
-  only when they are used in a constraint, minimizing the performance
-  impact for parts of the program where only normal variables
-  are accessed.
-%% ALAN TODO: check for overlap with new paragraphs in intro
-\item The \langname/R interpreter distinguishes between different
-  execution modes: normal \emph{imperative execution} and
-  \emph{constraint construction}. A primitive --- \lstinline{always}
-  --- was added to execute a closure in constraint construction
-  mode. In this mode, the bytecodes for \load and \store were modified
-  to refer to the constraint objects of constrained variables. Normal
-  variables are automatically promoted to constrained variables in
-  this mode. During imperative execution, assignments to constrained
-  variables trigger recalculation of the constraints.
-\end{itemize}
-
-We have thus identified the following requirements for implementing
-the \langname scheme without \ac{vm} support:
+Generalizing our approach, we have thus identified the following
+requirements for implementing the \langname scheme without \ac{vm}
+support:
 \begin{itemize}
 \item The host language must support a means to intercept variable
   lookup, so names can refer to different objects.
@@ -610,42 +588,45 @@ the \langname scheme without \ac{vm} support:
   of a block of code to implement the constraint construction mode.
 \end{itemize}
 
-The first requirement is partially supported in \javascript for object
-fields using property accessors. We limit ourselves to constraining
-field storage in \langname/JS, but not storage into local variables
-(some compiled languages such as, for example, C\# also support
-property accessors and other dynamic languages like, for example,
-Python or Smalltalk support \emph{method wrappers} to accomplish the
-same within the same limitations of only constraining field
-access). As in the original design, it does not matter whether the
-fields are constrained directly or they are used in the execution of a
-method that was constrained to produce a certain result. A property
-that is accessed in the execution of a constraint expression is
-wrapped with property accessor that intercept lookup and storage.
+The first requirement is only partially supported in \javascript,
+namely for object fields using property accessors.  We therefore limit
+ourselves to constraining field storage in \langname/JS, but not
+storage into local variables.  (Some compiled OO languages, for
+example C\#, also support property accessors; and other dynamic OO
+languages, such as Python and Smalltalk, support \emph{method
+  wrappers} to enable intercepting variable lookup, again within the
+limitation of only constraining field access.)  As with the original
+\langname/R design, it does not matter whether the fields are
+constrained directly or they are used in the execution of a method
+that was constrained to produce a certain result. A property that is
+accessed in the execution of a constraint expression is wrapped with
+property accessor that intercept lookup and storage.
 
-To execute code in a constraint construction mode, we use a modified
-\javascript interpreter written in \javascript and a source code
-transformation The transformation is an implementation detail and can
-be omitted. In \langname/JS, it merely provides a more convenient
-syntax.Languages that provide access to the calling context could
-provide this syntax without a transformation.
+%% left this out for this section - seemed low-level, and we discuss
+%% it later:
+%%
+%% To execute code in a constraint construction mode, we use a modified
+%% \javascript interpreter written in \javascript and a source code
+%% transformation The transformation is an implementation detail and can
+%% be omitted. In \langname/JS, it merely provides a more convenient
+%% syntax.Languages that provide access to the calling context could
+%% provide this syntax without a transformation.
 
 \subsubsection{Property Accessors for Constrained Objects}
 \label{sec:prop-access-constr}
 When an object has been used in a constraint, its constrained
-properties have been replaced with property accessors. The property
-getter is a simple wrapper around the solver variable. Instead of
-returning the field value of the object, it returns the value of the
-variable in the solver data structure.
-
-The property setter distinguishes two cases.  If the variable is
+properties have been replaced with property accessors. The
+\emph{property getter} is a simple wrapper around the solver
+variable. Instead of returning the field value of the object, it
+returns the value of the variable in the solver data structure.  The
+\emph{property setter} distinguishes two cases.  If the variable is
 writable from a solver, an equality constraint for that solver is
 created and the updated constraint system is solved, potentially
-triggering other solvers.  On the other hand, if 
-the variable is not writable (either
-because it is of a type that no available solver supports or because
-it has been marked as read-only by the programmer), its new
-value is stored, and all dependent constraints are recalculated.
+triggering other solvers.  On the other hand, if the variable is not
+writable (either because it is of a type that no available solver
+supports or because it has been marked as read-only by the
+programmer), its new value is stored, and all dependent constraints
+are recalculated.
 
 %% This was:
 %%   (either because it is of a type that no available solver supports or
@@ -686,19 +667,26 @@ expressing the constraint and information about the context into a
 custom \javascript interpreter. This interpreter is used to evaluate
 expressions in constraint construction mode, which is provided as part
 of the \langname/JS library.  The custom interpreter creates property
-accessors for the \lstinline{C}, \lstinline{F}, \lstinline{K}, and
-\lstinline{R} fields of the \lstinline{converter} object.  Within the
+accessors (getters and setters)
+for the \lstinline{C}, \lstinline{F}, \lstinline{K}, and
+\lstinline{R} fields of the \lstinline{converter} object.  The appropriate
+accessor is then called whenever some other part of the program uses
+one of those fields.
+
+However, within the
 constraint expression, accesses to these fields do not use these
 accessors, but instead return \emph{ConstrainedVariable}
 objects. Messages are then sent to these objects, and instead of
-calculating values, create relations that can be satisfied by a
+calculating values, build up networks of primitive
+constraints that can then be satisfied by a
 solver. The \lstinline{always} statement returns a
 \lstinline{Constraint} object that provides meta-level access to the
 asserted relations, using the protocol described in
 \cite{FelgBorningJot2014-submitted}.
 
 In this example, the constraints are on the fields of the
-object. However, constraints in \langname can also invoke methods
+object. However, constraints in \langname/JS (as with
+any instance of the \langname scheme) can also invoke methods
 that perform computations. For example, imagine the converter uses the
 \lstinline{getCelsius} method to return a cached temperature value
 that is updated in regular intervals from a Web service:
@@ -727,8 +715,10 @@ By placing the constraint on the result of sending messages rather
 than on fields, \langname respects object encapsulation.  The value
 returned from the message send in this example is simply a float, but
 return values can also be arbitrary objects and computed values. For
-example, we could contrive that we want to constrain the maximum
-pressure of a volume of dry air with a fixed density.
+example, we could constrain the maximum
+pressure of a volume of dry air with a fixed density, which would
+effectively limit the maximum temperature to around
+36$^{\circ}$ Celsius.
 \begin{code}
 converter.pressure = function () {
     var gas_constant_dry_air = 287.058, // J/(kg * K)
@@ -740,13 +730,11 @@ always({solver: cassowary}, function() {
     return converter.pressure() <= 115 // kPa
 });
 \end{code}
-(This will effectively limit the maximum temperature to around
-36$^{\circ}$ Celsius)
 
 \subsection{Cooperating Constraint Solvers}
 \label{sec:cooperating-solvers}
 
-Note that the above temperature converter has no graphical
+The temperature converter described above has no graphical
 representation. Cassowary only works on reals, yet in order to
 visualize the temperature scales, we need to convert the values into
 strings and update the Web browsers' \ac{dom} using the appropriate
@@ -755,25 +743,34 @@ can invoke arbitrary methods to satisfy the constraints, in this case
 by calling the \ac{api}.  (The constraints that define the temperature
 converter are simple enough that we could have used a local
 propagation solver for all of them, but this is unsatisfactory for
-many problems, since local propagation cannot handle such situations
+many problems, such as the Wheatstone bridge example in \autoref{fig:wheatstone},
+since local propagation cannot handle such situations
 as simultaneous equations or inequalities.)
 
 There is currently no single solver that can efficiently handle all
 constraints that arise in a typical application (and it seems unlikely
-that one exists).  To address this, we instead provide an architecture
-for cooperating constraint solvers that allows the problem to be
+that one exists).  To address this, we extend the work presented in
+\cite{FelgBorningJot2014-submitted} to include an architecture
+for cooperating constraint solvers, allowing a problem to be
 partitioned among multiple solvers.  For this example, we use two
 solvers: one for linear arithmetic on the reals, and one for local
 propagation constraints.
 
-A large body of work exists that describes approaches to integrate
-different constraint solvers around \ac{smt}
-\cite{nelson-oppen-1979}. In the work presented here, we chose to
-implement a design for cooperating solvers that partitions constraints
-into regions which are connected through read-only variables
-\cite{borning2012architectures}.
+Our architecture for cooperating solvers partitions constraints into
+regions which are connected through read-only variables, using the
+design described in \cite{borning2012architectures}.  This approach is
+in contrast to the more commonly-used \ac{smt} technique for
+supporting cooperating constraint solvers \cite{nelson-oppen-1979},
+which uses inferred equality constraints as the means for the
+cooperating solvers to communicate.  (This includes the case when
+neither of the equated variables yet has a specific value.)  Our
+experience so far indicates that the former approach is more suited to
+our domain, in which variables do alway have specific values, and in
+which we want to support edit constraints for incremental re-solving.
+\todo{Ugh - not sure the above paragraph is that clear??  Anyway, I
+  wanted to explain why we weren't using Nelson/Oppen.}
 
-In this extension to \langname, each constraint belongs to exactly one
+In the cooperating solvers architecture, each constraint belongs to exactly one
 solver. All constraints that belong to the same solver 
 are in the same
 region. While constraints belong to exactly one region, variables may
@@ -795,32 +792,34 @@ that solver.
 %% and how this interacts with cooperating solvers.
 
 In this architecture, the regions must form an acyclic graph so that
-solving can simply proceed from the higher to the lower regions,
-propagating variable values. To create this graph, the system has to
-find an order for the solvers based on the dependencies between the
-constraints. The programmer can make this explicitly control the
+solving can simply proceed from the upstream to the downstream
+regions, propagating variable values. To create this graph, the system
+determines an order for the solvers based on the dependencies between
+the constraints. The programmer can make this explicitly control the
 position of a solver in this graph, or the libraries can provide
 information so the system can create the order without the
 programmer's support. Applications can use multiple instances of the
-same solver type that are used after one another (this can be used,
-for example, to break up non-linear constraints into multiple linear
-constraints and solve them with Cassowary).
+same solver type that are used one after the other (for example, for a
+problem that first uses Cassowary to solve simultaneous linear
+constraints, then DeltaBlue for local propagation constraints, then
+Cassowary again).
 
-Once the solver regions are sorted, solving proceeds from the topmost
-region. Each region will determine values for the variables it can
+Once the solver regions are sorted, solving proceeds from the furthest upstream
+region.  Each region will determine values for the variables it can
 write to, and the downstream regions will adjust to accommodate the
 new values assigned to read-only variables from higher level
-regions. Soft constraints are solved by region -- that is, if a soft
-constraint in a higher regions restricts a variable to a certain
-value, then a lower region must use that value and can in fact not
-distinguish if this value was determined by a required or a
-preferential constraint. If constraints in a lower region cannot be
-solved due to a higher level preferential constraint, we do not
-backtrack.
+regions. Soft constraints are solved for just within each region ---
+in keeping with the theory of hard and soft constraints in the
+presence of read-only variables \cite{borning1992constraint},
+if a soft constraint in an upstream region restricts a variable to a
+certain value, then a downstream region must use that value and can in
+fact not distinguish if this value was determined by a required or a
+soft constraint. If constraints in a downstream region cannot be
+satisfied due to an upstream soft constraint, we do not backtrack.
 
-For our temperature converter, we can now provide some graphical
-representation. We want the color of a \textsc{div} element to change
-when the temperature is above 30$^{\circ}$ C.
+Given these additional capabilities, we can now add a graphical
+representation to our temperature converter. We want the color of a
+\textsc{div} element to change when the temperature is above 30$^{\circ}$ C.
 \begin{code}
 var el = jQuery("#tooHotWarning");
 
@@ -841,7 +840,7 @@ propagation solver needs formulas for all writable variables that
 state dependencies and how to update the variable. In this case, we
 want the Celsius value to be used as input for the color, but not
 vice versa, so we only provide one formula. The only dependency here
-is the return value of \lstinline{converter.getCelsius()}. The
+is on the return value of \lstinline{converter.getCelsius()}. The
 dependencies are passed as arguments to the formula function, so we
 can use them directly to update the \ac{dom} using the browser's
 \lstinline{setAttribute} \ac{api} and return the new value.
@@ -853,61 +852,45 @@ constraints with differing input values.  A common such case is an
 interactive graphical application with a constrained figure, where we
 move some part of the figure with the mouse.  For such applications,
 it is important to re-solve the constraints efficiently, and a number
-of constraint solvers support this using so-called \emph{edit
+of constraint solvers, including 
+DeltaBlue and Cassowary, support this using so-called \emph{edit
   constraints} that allow a new value for a variable to be repeatedly
 input to the solver.
 
 The original \langname design did not include support for incremental
-re-solving at the language level - it was up to the solver library to
+re-solving at the language level --- it was up to the solver library to
 provide access to such functionality. However, to integrate with our
-cooperating solvers architecture, \langname/JS includes support for
+cooperating solvers architecture, \langname/JS does include support for
 incremental re-solving through a solver-independent \lstinline{edit}
 function that takes the variables to be edited and returns a callback
 function. The process that produces new values can use this callback
 to input new values into the solvers for the variables to be edited.
 
-The \lstinline{edit} function gathers all constraints the passed
-variables participate in. Only variables that occur solely in solvers
-that support edit constraints can be edited, otherwise an exception is
-raised. All read-only annotations in the solvers for downstream regions are
-disabled for these variables, at the same time, they are added to the
-solvers' set of edit variables. Finally, the \lstinline{edit} function
+The \lstinline{edit} function gathers all the constraints in which the
+passed variables participate.  Only variables that occur solely in
+solvers that support edit constraints can be edited; otherwise an
+exception is raised.  The read-only annotations for variables in the
+solvers for downstream regions are converted to edit constraints,
+reflecting the fact that the upstream regions will be providing new
+values for these variables.  Finally, the \lstinline{edit} function
 creates a callback function and returns it. This callback can then be
 used to feed new values into the solvers.
 
-To support incremental re-solving with cooperating solvers, two
-restrictions apply: first, all variables that are edited must only be
-in regions of solvers that support edit constraints. Second, while the
-edit callback is used, no new constraints can be created. These are
-required, because edit constraints are an optimization that depends on
-the state of the solvers and the graph of connected variables to be
-statically known for the duration of the edit.
-
-These restrictions do not limit the generality of the approach, only
-the applicability of the optimization of incremental
-re-solving. Programs that cannot, for some reason, adhere to these
-restrictions can still use normal assignment.
-
-%% FORMERLY:
-%% \item updates read-only constraints for changed variables in
-%%   downstream regions, triggering those solvers. (this part is
-%%   potentially slow. we can optimize it by creating edit constraints
-%%   for those connected variables as well. question is, what do we do if
-%%   we interleave creating new constraints and calling the edit callback
-%%   - do we just disallow that?)
-%% 
-%% Alan says: yes, we should just disallow this (raise an error if the
-%% programmer tries to do it).  Edit constraints are just an
-%% optimization -- we can accomplish the same thing without them, just
-%% by removing and adding constraints to set the variable's value.  So
-%% if we have a program that does do this interleaving (which seems
-%% like an unlikely case) the programmer has to write it out
-%% explicitly and not use edit constraints.
+Two restrictions apply to the use of incremental re-solving with
+cooperating solvers: first, all variables that are edited must be only
+in regions of solvers that support edit constraints; and second, while
+the edit callback is used, no new constraints can be created.  (Edit
+constraints are just a technique for optimizing the sequence of
+repeatedly replacing a constraint that a variable equal a constant
+with a new constraint with a new constant.  Thus, if the restrictions
+aren't met, it is still possible to express and solve the desired
+constraints, just not as efficiently.)
 
 \section{Implementation in Lively Kernel}
 \label{sec:implementation}
 
-We have implemented \langname/JS in the Lively Kernel environment. We
+We have implemented \langname/JS in the Lively Kernel environment
+\cite{lively-kernel-2008}.  We
 provide pure \javascript implementations of DeltaBlue and Cassowary as
 constraint solvers and extend the LivelyKernel \javascript interpreter
 to evaluate constraint expressions. The code is not Lively specific --
@@ -979,19 +962,16 @@ a 3-step process:
 
 \paragraph{Set Value}
 If the new value is the same as the old, we simply return.  Otherwise,
-we disable all read-only constraints on the assigned variable. This
-happens if the variable has been marked read-only by the programmer or
-automatically, because it appeared in multiple solvers (only one of
-which can be allowed write access). Read-only constraints are equality
-constraints or required stay constraints (for solvers that support the
-latter).
+we convert all read-only constraints on the assigned variable either
+to required stay constraints (for solvers that support them) or to
+equality constraints.
 
 If the assigned value has an external variable, \ie it is constrained
 by a solver that can handle its type (for example a real in
-Cassowary), the new value is input into the most upstream solver as an
-equality constraint and this solver is executed to produce a new
-value. If the primary solver cannot satisfy its constraints with the
-new value, the read-only constraints are re-enabled and an exception is
+Cassowary), the new value is input into the furthest upstream solver
+using an equality constraint and this solver is executed to produce a
+new value. If the solver cannot satisfy its constraints with the new
+value, the read-only constraints are re-enabled and an exception is
 generated. Afterwards, the equality constraint for assignment is
 removed.
 
@@ -1037,39 +1017,45 @@ solvers), this new state will be one that satisfies all previously
 enabled constraints.
 
 \subsubsection{Changing the Type of Variables}
-Most constrain solvers only provide support for a limited number of
-domains (like reals or booleans). When variables are used in
+Most constraint solvers only provide support for a limited number of
+domains (such as reals or booleans). When variables are used in
 constraints, their current values determine whether they can be
 represented as a variable in the solver, or as a constant. This means
 that the type of a variable cannot change once it is used in a
 constraint. Instead, a new constraint has to be created.
 
 Changing the domain of a variable, although possible in a dynamic
-language, is a rare operation. When it does happen, however, the
-variable is removed from all solvers, and all its constraints are
-disabled and the constraint expressions have to be re-executed with
-the ConstraintInterpreter (creating new solver-specific
-representations along the way) to create new constraints.
+language, is a relatively uncommon operation.  When it does occur, the
+variable is removed from all solvers, all its constraints are
+disabled, and its constraint expressions are re-executed in constraint
+construction mode, thus creating new solver-specific representations.
 
-This makes changing the type of a constrained variable potentially
-slow. Our ConstraintInterpreter is not optimized for performance
-(because it is run only at constraint construction) -- recalculating
-many constraints is many thousand times slower than running the same
-code natively. If any of the constraints fail, we have to re-assign
-the old value and recalculate all constraints on the variable once
-more.
+%% removed the following - doesn't seem that central, since we just
+%% said this is uncommon:
+%%
+%%
+%% This makes changing the type of a constrained variable potentially
+%% slow. Our ConstraintInterpreter is not optimized for performance
+%% (because it is run only at constraint construction) -- recalculating
+%% many constraints is many thousand times slower than running the same
+%% code natively. If any of the constraints fail, we have to re-assign
+%% the old value and recalculate all constraints on the variable once
+%% more.
 
-We believe this performance penalty to be acceptable for two reasons:
-first, it is likely to be infrequent, as even in dynamic languages
-most variables are only assigned once \todo{cite self?
-  perscheid?}. Second, optimizing just-in-time compilers in current
-\acp{vm} often assume the same\todo{cite}, and deoptimize if it does
-occur. For good performance in a dynamically typed program, it is thus
-not desirable to have variables change types often, regardless of
-whether they are constrained or not.
+%% We believe this performance penalty to be acceptable for two reasons:
+%% first, it is likely to be infrequent, as even in dynamic languages
+%% most variables are only assigned once \todo{cite self?
+%%   perscheid?}. Second, optimizing just-in-time compilers in current
+%% \acp{vm} often assume the same\todo{cite}, and deoptimize if it does
+%% occur. For good performance in a dynamically typed program, it is thus
+%% not desirable to have variables change types often, regardless of
+%% whether they are constrained or not.
 
 \subsubsection{Assigning Mutable Objects}
 \label{sec:assign-compl-objects}
+
+\todo{rework this in terms of split stays}
+
 The described semantics do not specify how assignment of mutable
 objects should be handled. In our temperature slider example, we only
 used the mouse's horizontal location to move the slider along the
@@ -1174,6 +1160,8 @@ solvers. However, the optimization can still be applied to variables
 whose transitive closure of connected variables is local to one
 region.
 
+\todo{clarify the above section, as we discussed}
+
 \subsection{Constraint Construction}
 \label{sec:constr-constr}
 When a programmer writes a function that contains a constraint
@@ -1191,11 +1179,11 @@ the constraint expression in the callers binding. Instead, those names
 have to be passed explicitly.
 
 \langname/JS provides a source transformation based on
-\emph{UglifyJS}\footnote{http://lisperator.net/uglifyjs/}, that
+\emph{UglifyJS}\footnote{http://lisperator.net/uglifyjs/}, which
 collects names from the context and modifies the source code to pass
 those names into the constraint expression. This source transformation
 is enabled automatically when a programmer uses \langname/JS in the
-Lively Kernel environments' \emph{Object Editor}. For other
+Lively Kernel's Object Editor. For other
 \javascript code, they have to provide a context object explicitly.  I
 we only supported constraints that only access fields of objects in
 the scope and do not call user defined functions, we could also have
@@ -1203,6 +1191,8 @@ rewritten the source code and evaluated the constraint expression
 using \javascript's \lstinline{eval} function, which has access to the
 enclosing scope. Using a custom interpreter, however, allows us to
 easily instrument the execution of user-defined functions.
+
+\todo{clean up the above paragraph}
 
 Given a context, a function, and a solver, the ConstraintInterpreter
 executes the expressions in the function to create the constraint. The
@@ -1254,7 +1244,7 @@ other solvers it is read-only.
 
 \subsection{Determining Cooperating Solver Regions}
 \label{sec:determ-inter-solv}
-The architecture for cooperating constraint solvers mandates that each
+The architecture for cooperating constraint solvers requires that each
 variable must be read-only in all but one of the regions that it
 occurs in. Furthermore, the regions and associated solvers must form
 an acyclic graph.
@@ -1267,7 +1257,7 @@ same solvers in different regions to solve problems that require the
 back and forth between types of solvers.
 
 The variable is marked read-only for all solvers except the one in the
-highest region, the \emph{defining solver}. This means that new values
+furthest upstream region, the \emph{defining solver}. This means that new values
 are assigned by calling \lstinline{suggestValue} on the defining
 solver, and that all other solvers are triggered (in descending order
 of regions) once the defining solver has recalculated its constraints,
@@ -1286,10 +1276,11 @@ them to be equal to the supplied variables, and update them from the
 stream.
 
 To support cooperating incremental re-solving
-(\cf{\autoref{sec:coop-incr-resolv}}) \langname/JS, there are two
+(\cf{\autoref{sec:coop-incr-resolv}}) in \langname/JS, there are two
 changes to this scheme. First, to support edit constraints within a
-single thread, the edit method, instead taking a stream of values,
-returns a callback to input new values into the solvers. Second, since
+single thread, the edit method 
+returns a callback to input new values into the solvers,
+rather than taking a stream of values. Second, since
 the language design now support edit constraints explicitly, the
 solvers have to provide a specific edit constraint \ac{api}.
 
@@ -1393,7 +1384,7 @@ micro-benchmarks show that, in extreme cases, the object-constraint
 versions are many hundred times slower than the purely imperative
 solution. However, using edit constraints, repeated solving of
 constraints can give acceptable performance. Considering that
-\langname/JS is aimed at imperative programmers that want to express
+\langname/JS is intended for imperative programmers who want to express
 constraints in some parts of their programs, we expect that most of
 the time the \ac{vm} will not be solving constraints in tight loops,
 but running mostly imperative code intermingled with constraint
@@ -1415,14 +1406,16 @@ without using edit constraints.
 \section{Future Work and Conclusion}
 \label{sec:futurework}
 \label{sec:conclusions}
-We have presented a design to implement an object-constraint language
-without \ac{vm} support and an implementation in \javascript, called
-\langname/JS. We implement a number of features from the original
+We have presented a design to implement an object constraint
+programming language
+without \ac{vm} support, and an implementation in \javascript, called
+\langname/JS. We have implemented a number of features from the original
 \ac{ocp} design, such as unified language constructs for constraint
 definition and object-oriented code, automatic maintenance of
 constraints, integration with the existing syntax and semantics, an
 interface to add new solvers and a constraint solver constructs such
-as read-only variables and incremental re-solving. There are a number
+as read-only variables and incremental re-solving; and also extended
+the design to support cooperating constraint solvers. There are a number
 of directions for future work.
 
 \paragraph{Constant Read-only Variables}
@@ -1442,6 +1435,9 @@ However, if \lstinline{o.current} is determined by an upstream solver
 should be treated as constant in this constraint and Cassowary should
 be able to solve it.
 
+\todo{The above seems too low level.  Let's either delete it or figure
+  out a higher-level way to say it.}
+
 \paragraph{Debugging, Explanation, and Solver Selection}
 It is currently difficult to tell why a solver may not be able to
 satisfy a given constraint, why it produced an unexpected result, or
@@ -1454,21 +1450,22 @@ constraint automatically.
 \paragraph{Other \langname/R features}
 \label{sec:other-babelsb-feat}
 \langname/R included support for more \ac{ocp} features that we have
-ignored in this work. Specifically, we should add support for identity
+omitted for now in this work. Specifically, we want to add support for identity
 \cite{lopez-ecoop-1994}, class, and message protocol
 constraints. Furthermore, to control when solving is invoked,
 \langname/R provided multi-assignments to update multiple values
-simultaneously before a solver is invoked again. Finally, we don't
-provide the convenience methods \lstinline{once} and
+simultaneously before a solver is invoked again. Finally, we plan to add
+the convenience methods \lstinline{once} and
 \lstinline{assert...during...} to control the duration of constraints,
 although these could be trivially added using the meta-protocol of
 \lstinline{Constraint} objects.
 
 \langname/JS, compared with the original \langname/R implementation,
 can be applied more directly to existing problems. It runs unmodified
-in different Web browsers, integrates with the existing imperative
-language and libraries, and has proven useful to express constraints
-explicitly in different application domains.
+in different Web browsers, and integrates with the existing imperative
+language and libraries.  The work reported here is quite recent, and
+we expect to continue to evolve both the language and its
+implementation as as we gain more experience with it.
 
 % \section*{Acknowledgments}
 \bibliographystyle{splncs.bst}

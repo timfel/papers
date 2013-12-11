@@ -1110,50 +1110,46 @@ construction mode, thus creating new solver-specific representations.
 \subsubsection{Assigning Mutable Objects}
 \label{sec:assign-compl-objects}
 
-\todo{rework this in terms of split stays}
-
 The described semantics do not specify how assignment of mutable
-objects should be handled. In our temperature slider example, we only
-used the mouse's horizontal location to move the slider along the
-horizontal axis. In this case, the assignment is a primitive,
-immutable value and the solver has to adjust other variables to
-satisfy the constraints. However, if we change the \ac{api} to accept
-the mouse location as a point, the expected result is less clear. We
-are asking the system to adjust the slider to equal a mutable object
--- in this case the system should not change the mutable object to
-satisfy constraints (we still want the slider to follow the mouse, not
-vice-versa).
+objects should be handled. In our temperature converter, we connect
+the slider value to the Celsius value. In this case, the assignment is
+a primitive, immutable value and the solver has to adjust other
+variables to satisfy the constraints. The case is less clear when a
+mutable object is constrained and consequently assigned. Consider the
+following midpoint line:
+\begin{code}
+var line = {start: pt(0,0), end: pt(1,1), midpoint = pt(0,0)};
+always({solver: cassowary}, function() {
+  var center = line.start.getPosition().
+                 addPt(line.end.getPosition()).scaleBy(0.5);
+  return line.midpoint.getPosition().eqPt(center);
+});
 
-There are situations in which the system should still be allowed to
-change assigned objects to satisfy constraints. To use constraints for
-input rectification \cite{long-rectification-2012}, programmers may
-expect the system to fix the assigned object, rather than reject the
-assignment.
+line.midpoint = pt(1, 1);
+\end{code}
+If we assign a new value to \lstinline{midpoint}, the system can
+update the \lstinline{start} or \lstinline{end} points. But the
+assignment asserts equality between \lstinline{midpoint} and
+\lstinline{pt(1, 1)} -- both mutable objects -- not their
+\lstinline{x} and \lstinline{y} parts. So the solver could also modify
+the parts of the newly assigned point to satisfy the constraint. This
+problem has been described by Borning et.al.\ as the \emph{split-stay
+  problem} \cite{borning-split-stay-2000}. Because all variables have
+weak stay constraints on them, the solver is as likely to modify
+(parts of) the input object as it is to modify the rest of the system.
 
-To support both scenarios, \langname/JS first marks the assigned
-objects as read-only for the solvers and tries to satisfy all
-constraints without changing the input data. For example this means
-that the slider will continue to follow the mouse as long as the mouse
-does not leave the confines of the slider widget. If the assignment of
-a mutable object fails, it is re-tried without the read-only
-restriction on the object. If we try to drag the slider outside of its
-container, the mouse pointer will be adjusted to stay inside,
-``sticking'' the mouse to the widget. In any case, after the
-assignment has happened, the additional read-only constraints are
-removed again.
+On the other hand, there are situations in which the system should
+still be allowed to change assigned objects to satisfy constraints. To
+use constraints for input rectification
+\cite{long-rectification-2012}, programmers may expect the system to
+fix the assigned object, rather than reject the assignment.
 
-Note that, if the object marked as read-only has references to other
-parts of the system (rather than just immediate values, like a point),
-we could accidentally mark parts as read-only that should be modified
-for the assignment. In these cases, the programmer might not expect
-all objects references by the assigned one to be marked read-only, but
-only those that are only reachable through the object. However, we
-have found our solution to be useful and meet expectations when
-working with the user interface, where objects that are simply
-structures of primitive data (such as rectangles, points, ...) are
-commonly assigned. For more complex cases, for example, when parts of
-an assigned object are shared with other objects, the programmer has
-to be explicit.
+To support both scenarios, \langname/JS marks the assigned objects'
+parts with strong stay constraints. This means that, as long as other
+constraints allow, the solver will not change the new position for the
+midpoint. This solution usually meets expectations in our
+experience. For more complex cases it may not always produce the
+desired result, in which case the programmer has to be explicit.
 
 \subsection{Constraint Construction}
 \label{sec:constr-constr}

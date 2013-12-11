@@ -1337,23 +1337,42 @@ white rectangle) as well as a number displaying the current value
 should be updated.
 
 We compare the performance of a purely imperative solution using
-branches and assignments, a constraint version that assigns new mouse
-locations in a loop, and a version with the same set of constraints,
-but using edit constraints (\cf{\autoref{sec:app-performance}}).
+branches and assignments, a constraint version that uses the Cassowary
+library from imperative code, and a version with the same set of
+constraints in \langname/JS (\cf{\autoref{sec:app-performance}}). Both
+of the constraint versions use edit constraints.
 
 All numbers are the average execution time in milliseconds $\pm$ the
-standard deviation. We ran each set of iterations 10 times.
+standard deviation. We ran each set of iterations 10 times on Firefox
+27 on a 3.2 Ghz Intel Core i5.
 \begin{table}
   \centering
   \setlength{\tabcolsep}{3pt}
   \begin{tabular}{l|ccc}
-    & Imperative & Constrained Assignment & Edit Constraints \\
+    & Imperative & Library & \langname/JS \\
     \hline\\
-    10x & 0.498 $\pm$ 0.2 & 504 $\pm$ 123 & 48.1 $\pm$ 3.69  \\
-    100x & 0.6 $\pm$ 0.3 & 5516 $\pm$ 1913 & 64.2 $\pm$ 8.91 \\
-    1000x & 0.899 $\pm$ 0.298 & 33397 $\pm$ 6812 & 117 $\pm$ 10.2 \\
+    100x & 1.47 $\pm$ 0.128 & 24 $\pm$ 0.486  & 109  $\pm$ 2.29 \\
+    1,000x & 1.62 $\pm$ 0.0922 & 143  $\pm$ 4.26 & 214 $\pm$ 4.89 \\
+    10,000x & 1.86 $\pm$ 0.382 & 1445 $\pm$ 270 & 1311 $\pm$ 304 \\
   \end{tabular}
 \end{table}
+This micro-benchmark show that, in extreme cases, the
+object-constraint versions are many hundred times slower than the
+purely imperative solution. However, \langname/JS is comparable to the
+library-based approach. Using a library has less overhead for few
+iterations (where creating the constraints takes a large portion of
+the time in \langname/JS). In both cases -- using edit constraints --
+repeated solving of constraints can give acceptable
+performance. Considering that \langname/JS is intended for imperative
+programmers who want to express constraints in some parts of their
+programs, we expect that most of the time the \ac{vm} will not be
+solving constraints in tight loops, but running mostly imperative code
+intermingled with constraint re-satisfaction. Furthermore, we think
+the benefits for comprehensibility, code size, and robustness justify
+the performance impact in some system parts. The imperative code is
+more complex because it has to make all cases explicit using branches,
+it is hard to tell whether the solution is optimal or complete, and
+the constraints are hard to derive from the code.
 
 To test how purely object-oriented parts of a system are affected if
 we pass objects with constraints to them, we measured the overhead of
@@ -1366,26 +1385,18 @@ with equality constraints on each variable.
   \begin{tabular}{l|cc}
     & Unconstrained Access & Constrained Access \\
     \hline\\
-    1,000x & 1 $\pm$ 0.447 & 8.1 $\pm$ 2.34 \\
-    10,000x & 1 $\pm$ 0.447 & 73.3 $\pm$ 15.1 \\
-    100,000x & 4.5 $\pm$ 0.48 & 676.8 $\pm$ 63.9 \\
+    1,000x & 3.31 $\pm$ 0.289 & 8.57 $\pm$ 1.08 \\
+    10,000x & 20.4 $\pm$ 0.694 & 29.8 $\pm$ 1.82 \\
+    100,000x & 189 $\pm$ 5.83 & 241 $\pm$ 15.9 \\
   \end{tabular}
 \end{table}
+These results are comparable to those for \langname/R and show that
+the overhead for reading constrained objects in purely imperative
+parts of the code is minimal.
 
-These results are comparable to those for \langname/R. These
-micro-benchmarks show that, in extreme cases, the object-constraint
-versions are many hundred times slower than the purely imperative
-solution. However, using edit constraints, repeated solving of
-constraints can give acceptable performance. Considering that
-\langname/JS is intended for imperative programmers who want to express
-constraints in some parts of their programs, we expect that most of
-the time the \ac{vm} will not be solving constraints in tight loops,
-but running mostly imperative code intermingled with constraint
-re-satisfaction. We think the benefits for comprehensibility, code
-size, and robustness justify the performance impact in some system
-parts. In our example applications -- the circuit simulation, color
-palette chooser, and temperature converter presented above, as well as
-a simple particle simulation, an available-to-promise function, and a
+In our example applications -- the circuit simulation, color palette
+chooser, and temperature converter presented above, as well as a
+simple particle simulation, an available-to-promise function, and a
 layouting example -- the overhead of constraints was much less
 pronounced and they provided interactive performance, often even
 without using edit constraints.
@@ -1616,8 +1627,11 @@ for (var i = 0; i < this.Iterations; i++) {
 }
 \end{code}
 
-In the constraint-version, we specify the following constraints
-(solver argument omitted for brevity):
+In the constraint library and \langname/JS versions, we specify the
+same constraints and use an edit constraint in the same manner, once
+through the Cassowary \ac{api} and once in the syntax of \langname/JS.
+Given below is the \langname/JS version (solver argument omitted for
+brevity).
 \begin{code}
 always(function() { return display.number == mercury.top });
 always(function() { return white.top == thermometer.top });
@@ -1629,15 +1643,7 @@ always(function() { return mercury.bottom == thermometer.bottom });
 always({priority: "strong"}, function() {
     return mercury.top == mouse.location_y
 });
-\end{code}
-We then iterate and assign na\"ively:
-\begin{code}
-for (var i = 0; i < this.Iterations; i++) {
-    ctx.mouse.location_y = i
-}  
-\end{code}
-Or, using edit constraints:
-\begin{code}
+
 var cb = edit(ctx.mouse, ["location_y"]);
 for (var i = 0; i < this.Iterations; i++) {
    cb(i);
@@ -1645,7 +1651,7 @@ for (var i = 0; i < this.Iterations; i++) {
 \end{code}
 
 To compare accessor performance with and without constraints, we
-measured the following two loop individually:
+measured the following two loops individually:
 \begin{code}
 var o = {get a() {return 0}, get b() {return 0}, get c() {return 0}},
     oc = {a: 0, b: 0, c: 0};

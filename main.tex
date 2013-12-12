@@ -202,7 +202,8 @@ Figures \ref{fig:wheatstone} and \ref{fig:colorchooser} are
 screenshots from our prototype system that illustrate the kinds of
 capabilities we want.  Both are constructed in the Lively Kernel
 environment \cite{lively-kernel-2008}, an entirely web-based
-programming environment built on \javascript.
+programming environment built on \javascript
+(\cf{\autoref{sec:app-examples}}).
 
 \autoref{fig:wheatstone} shows a constraint-based simulation of
 Wheatstone Bridge being constructed. (A Wheatstone Bridge is used to
@@ -600,22 +601,23 @@ browsers and use it in a variety of practical Web applications.
 
 For \langname/JS, since we do not have access to the \ac{vm}, we
 cannot redefine the operation of \load and \store instructions to
-handle variables with constraints on them.  Instead, the normal
-\javascript interpreter is used for imperative evaluation mode.  To
-intercept accesses and assignments to constrained variables, we
-replace the wrap properties with property accessors that interact
-correctly with the constraint solver.  To get the value of a
-constrained variable, the accessor gets the value for that variable
-from its solver.  For a store, the setter in general calls the
-appropriate constraint solver to solve an equality constraint between
-the variable and its new value for a store.
+handle variables with constraints on them.  Instead, the unmodified
+\javascript \ac{vm} is used only for imperative evaluation mode.  To
+intercept accesses and assignments to constrained variables, we wrap
+properties with property accessors that interact correctly with the
+constraint solver.  To get the value of a constrained variable, the
+accessor gets the value for that variable from its solver.  For a
+store, the setter in general calls the appropriate constraint solver
+to solve an equality constraint between the variable and its new value
+for a store.
 
-For constraint construction mode, we used a custom \javascript
+For constraint construction mode, we use a custom \javascript
 interpreter, itself written in \javascript.  This custom interpreter
-is of course much slower than the underlying one.  However, since
-evaluating code in constraint construction mode is a much less common
-activity, and one that doesn't occur in inner loops, the performance
-penalty is not a significant issue.
+is significantly (about three orders of magnitude) slower than the
+underlying one.  However, since evaluating code in constraint
+construction mode is a much less common activity, and one that doesn't
+occur in inner loops, the performance penalty is not a significant
+issue.
 
 Generalizing our approach, we have thus identified the following
 requirements for implementing the \langname scheme without \ac{vm}
@@ -660,22 +662,23 @@ property accessor that intercepts lookup and storage.
 \label{sec:prop-access-constr}
 When an object has been used in a constraint, its constrained
 properties have been replaced with property accessors. The
-\emph{property getter} is a simple wrapper around the solver
-variable. Instead of returning the field value of the object, it
-returns the value of the variable in the solver data structure.  The
-\emph{property setter} distinguishes two cases.  If the variable is
-writable from a solver, an equality constraint for that solver is
-created and the updated constraint system is solved, potentially
-triggering other solvers.
-On the other hand, if the variable is not writable (either because it
-is of a type that no available solver supports or because it has been
-marked as read-only by the programmer), its new value is stored, and
-all dependent constraints are recalculated. These dependent
-constraints have treated the variable as a constant (because they
-cannot modify it). To recalculate them, the constraints are
-deactivated in the solvers, and the expressions that created them are
-re-evaluated in constraint construction mode to create new constraints
-based on the new value.  (The implementation of edit constraints
+\emph{property getter} is a simple wrapper that reads from the solver
+variable in the most upstream region that the field is referenced in
+(\cf{\ref{sec:cooperating-solvers}}). Instead of returning the field
+value of the object, it returns the value of that variable in the
+solver data structure.  The \emph{property setter} distinguishes two
+cases.  If the variable is writable from a solver, an equality
+constraint for that solver is created and the updated constraint
+system is solved, potentially triggering other solvers.  On the other
+hand, if the variable is not writable (either because it is of a type
+that no available solver supports or because it has been marked as
+read-only by the programmer), its new value is stored, and all
+dependent constraints are recalculated. These dependent constraints
+have treated the variable as a constant (because they cannot modify
+it). To recalculate them, the constraints are deactivated in the
+solvers, and the expressions that created them are re-evaluated in
+constraint construction mode to create new constraints based on the
+new value.  (The implementation of edit constraints
 (\autoref{sec:coop-incr-resolv}) handles the situation of repeated
 changes much more efficiently.)
 
@@ -764,10 +767,9 @@ By placing the constraint on the result of sending messages rather
 than on fields, \langname respects object encapsulation.  The value
 returned from the message send in this example is simply a float, but
 return values can also be arbitrary objects and computed values. For
-example, we could constrain the maximum
-pressure of a volume of dry air with a fixed density, which would
-effectively limit the maximum temperature to around
-36$^{\circ}$ Celsius.
+example, we could constrain the maximum pressure of a volume of dry
+air with a fixed density and gas constant, which would effectively
+limit the maximum temperature to around 36$^{\circ}$ Celsius.
 \begin{code}
 converter.pressure = function () {
     var gasConstantDryAir = 287.058, // J/(kg * K)
@@ -859,7 +861,7 @@ Cassowary again).
 
 \begin{figure}
   \centering
-  \includegraphics[width=0.9\linewidth]{RegionsDiagram.png}
+  \includegraphics[width=\linewidth]{RegionsDiagram.png}
   \caption{Regions propagating variable values downstream}
   \label{fig:regions}
 \end{figure}
@@ -901,20 +903,21 @@ state their dependencies and how to update the variable. In this case,
 we want the Celsius value to be used as input for the color, but not
 vice versa, so we only provide one formula. The only dependency here
 is on the return value of \lstinline{converter.getCelsius()}, passed
-explicitly in line 4. 
-%%% seems sort of low level .... commented out
-%% Note that this could be omitted \langname/R,
-%% because its version of DeltaBlue supports deducing the dependencies
-%% from the formula function -- a feature we have not yet implemented
-%% here. 
-The dependencies are passed as arguments to the formula
-function, so we can use them directly to update the \ac{dom} using the
-browser's \lstinline{setAttribute} \ac{api} and return the new
-value. These functions, just like the predicates for Cassowary, are
-evaluated in constraint construction mode which wraps variables with
-property accessors -- the function \lstinline{formula} is simply a
-function defined by DeltaBlue.
-\todo{Tim - OK to comment out the line about deducing dependencies?}
+explicitly in line 4 (note that this could be omitted \langname/R,
+because its version of DeltaBlue supports deducing the dependencies
+from the formula function -- a feature we have not yet implemented
+here).
+%%% seems sort of low level .... commented out -Alan
+%%% but Jens didn't understand why its required to pass the
+%%% dependencies, so I'd like mentioning that there is no reason other
+%%% than implementor lazyness -Tim
+The dependencies are passed as arguments to the formula function, so
+we can use them directly to update the \ac{dom} using the browser's
+\lstinline{setAttribute} \ac{api} and return the new value. These
+functions, just like the predicates for Cassowary, are evaluated in
+constraint construction mode which wraps variables with property
+accessors -- the function \lstinline{formula} is simply a function
+defined by DeltaBlue.
 
 \subsection{Incremental Re-Solving for Cooperating Constraint Solvers}
 \label{sec:coop-incr-resolv}
@@ -1063,18 +1066,15 @@ the solvers fail to satisfy their constraints with the new value, an
 exception is generated and all read-only constraints are re-enabled as
 above.
 
-\todo{incomplete sentence follows}
-
-All remaining constraints that cannot handle the variable.
-Consequently, its value was treated as a constant in their constraint
-expressions. With the new value, these have to be recalculated. The
-old variable value is remembered and the new value is stored. These
-constraints are disabled, their expressions re-evaluated in constraint
-construction mode, and then the constraints are
-re-enabled. Afterwards, the old value is restored into the
-variable. If any constraint in this set fails to run its expression or
-cannot be satisfied with the new value, the old value is also restored
-and an exception is generated.
+All remaining constraints are in solvers that cannot handle the type
+of variable. Consequently, its value was treated as a constant in
+their constraint expressions. With the new value, these have to be
+recalculated. The old variable value is remembered and the new value
+is stored. These constraints are disabled, their expressions
+re-evaluated in constraint construction mode, and then the constraints
+are re-enabled. If any constraint in this set fails to run its
+expression or cannot be satisfied with the new value, the old value is
+restored and an exception is generated.
 
 \paragraph{Update Connected Variables}
 Finally, we have to update the variables connected to the assigned
@@ -1089,59 +1089,53 @@ changed.
 Note that at this point, assignment can only fail for variables that
 are in solvers that have not run yet. These are only solvers that the
 primary assignee is not part of. If any one of these solvers cannot
-satisfy their constraints with the new value, no storage of new values
-into memory has taken place (we have reverted the only storage of new
-values after recalculating constraint expressions in the second
-step). So, to cancel assignment at this time, we need to assign the
-old value to the primary assignee to revert all solvers' states. While
-this may leave the system in a different state than it was in before
-assignment this new state will be one that satisfies all previously
-enabled constraints (depending on the implementation of the
-participating solvers, they may not deterministically find the same
-solution to the same set of constraints).
+satisfy their constraints with the new value, we restore the old
+value, re-satisfy the constraints, and raise an exception. While this
+may leave the system in a different state than it was in before
+assignment (depending on the implementation of the participating
+solvers, they may not deterministically find the same solution to the
+same set of constraints) the system will still be in a state that
+satisfies all previous constraints.
 
-% \paragraph{Deferred Assignment of Connected Variables}
-% \label{sec:deferred-assignment}
-% \langname/R included an optimization to defer copying the values from
-% a solver to the object-oriented variable location after
-% assignment. Instead of copying all affected variables immediately, the
-% variables' would be copied when they are next used in imperative
-% code. This optimization cannot be used with our cooperating constraint
-% solver architecture. Consider the following contrived example:
-% \begin{code}
-% var obj = {a: 10, b: 10, c: true};
-% always({solver: cassowary}, function() {
-%     return obj.a + obj.b == 20
-% });
-% always({solver: deltablue}, function() {
-%   obj.c.formula([obj.b], function (b) {
-%     if (b == 13) throw "unlucky";
-%     return b < 10;
-%   });
-% });
-% obj.a = 7;
-% \end{code}
-% When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
-% first constraint. However, to trigger DeltaBlue to solve the second
-% constraint, the new value for \lstinline{obj.b} has to be copied
-% immediately, rather than when \lstinline{obj.b} is next
-% read. Otherwise, a failure to satisfy the second constraint is only
-% encountered later in the execution, when its cause is in the
-% assignment.
+\paragraph{Deferred Assignment of Connected Variables}
+\label{sec:deferred-assignment}
+\langname/R included an optimization to defer copying the values from
+a solver to the object-oriented variable location after
+assignment. Instead of copying all affected variables immediately, the
+variables' would be copied when they are next used in imperative
+code. This optimization cannot be used with our cooperating constraint
+solver architecture. Consider the following contrived example:
+\begin{code}
+var obj = {a: 10, b: 10, c: true};
+always({solver: cassowary}, function() {
+    return obj.a + obj.b == 20
+});
+always({solver: deltablue}, function() {
+  obj.c.formula([obj.b], function (b) {
+    if (b == 13) throw "unlucky";
+    return b < 10;
+  });
+});
+obj.a = 7;
+\end{code}
+When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
+first constraint. However, to trigger DeltaBlue to solve the second
+constraint, the new value for \lstinline{obj.b} has to be copied
+immediately, rather than when \lstinline{obj.b} is next
+read. Otherwise, a failure to satisfy the second constraint is only
+encountered sometime later in the execution and difficult to trace
+back to the assignment that caused it.
 
 \subsubsection{Changing the Type of Variables}
 Most constraint solvers only provide support for a limited number of
 type domains (such as reals or booleans).  When variables are used in
 constraints, their current values determine how they are handled by
 the solvers.  Changing the type of a variable, although possible in a
-dynamic language, is a relatively uncommon operation.  When it does
-occur, the variable is removed from all solvers, all its constraints
-are disabled, and its constraint expressions are re-executed in
-constraint construction mode, thus creating new solver-specific
-representations.
-
-\todo{please check the above shortened description of changing the
-  type of variables}
+dynamic language, is a relatively uncommon operation, so slow
+performance is acceptable.  When it does occur, the variable is
+removed from all solvers, all its constraints are disabled, and its
+constraint expressions are re-executed in constraint construction
+mode, thus creating new solver-specific representations.
 
 %% removed the following - doesn't seem that central, since we just
 %% said this is uncommon:
@@ -1168,9 +1162,9 @@ representations.
 \label{sec:assign-compl-objects}
 
 In the implemention described above, so far we have been dealing with
-immutable, atomic objects, such as integers and floats.  For example,
-in the temperature converter, we connected the slider value to the
-Celsius value; and the assignment is a primitive, immutable value and
+immutable, atomic objects, such as integers and floats.  In the
+temperature converter, we connected the slider value to the Celsius
+value; and the assignment is a primitive, immutable float value and
 the solver has to adjust other variables to satisfy the
 constraints. However, we also need to address the case of mutable
 objects with substructure.  Consider the following midpoint line:
@@ -1238,7 +1232,7 @@ scope and do not call user defined functions, we could have rewritten
 the code and evaluated the constraint expression using \javascript's
 \lstinline{eval} function, which has access to the enclosing
 scope. Using a custom interpreter, however, allows us to easily
-instrument the execution of user-defined functions, so we can use
+instrument the execution of most user-defined functions, so we can use
 normal object-oriented methods in constraint expressions.}
 
 Given a context, a function, and a solver, the ConstraintInterpreter
@@ -1396,8 +1390,8 @@ We compare the performance of a purely imperative solution using
 branches and assignments, a constraint version that calls the Cassowary
 constraint satisfaction
 library from imperative code, and a version with the same set of
-constraints in \langname/JS (\cf{Appendix \ref{sec:app-performance}}). Both
-of the constraint versions use edit constraints.
+constraints in \langname/JS. %(\cf{Appendix \ref{sec:app-performance}})
+Both of the constraint versions use edit constraints.
 
 All numbers are the average execution time in milliseconds $\pm$ the
 standard deviation. We ran each set of iterations 10 times on Firefox
@@ -1537,7 +1531,7 @@ implementation as as we gain more experience with it.
 \appendix
 
 \section{Examples}
-\label{sec:examples-1}
+\label{sec:app-examples}
 
 \paragraph{Color Chooser}
 \label{sec:color-chooser}
@@ -1663,64 +1657,64 @@ TwoLeadedObject.subclass('Voltmeter', {
 });
 \end{code}
 
-\section{Benchmarks}
-\label{sec:app-performance}
-For comparing purely imperative to purely constraint-oriented
-performance we started with the following imperative version.
-\begin{code}
-for (var i = 0; i < this.Iterations; i++) {
-    mouse.location_y = i
-    var old = mercury.top
-    mercury.top = mouse.location_y
-    if (mercury.top > thermometer.top)
-        mercury.top = thermometer.top
-    if (old < mercury.top) // move gray rect upwards (draws over the white)
-        gray.top = mercury.top
-    else // move white rect downwards (draws over the gray)
-        white.bottom = mercury.top
-    display.number = mercury.top
-}
-\end{code}
+% \section{Benchmarks}
+% \label{sec:app-performance}
+% For comparing purely imperative to purely constraint-oriented
+% performance we started with the following imperative version.
+% \begin{code}
+% for (var i = 0; i < this.Iterations; i++) {
+%     mouse.location_y = i
+%     var old = mercury.top
+%     mercury.top = mouse.location_y
+%     if (mercury.top > thermometer.top)
+%         mercury.top = thermometer.top
+%     if (old < mercury.top) // move gray rect upwards (draws over the white)
+%         gray.top = mercury.top
+%     else // move white rect downwards (draws over the gray)
+%         white.bottom = mercury.top
+%     display.number = mercury.top
+% }
+% \end{code}
 
-In the constraint library and \langname/JS versions, we specify the
-same constraints and use an edit constraint in the same manner, once
-through the Cassowary \ac{api} and once in the syntax of \langname/JS.
-Given below is the \langname/JS version.  (The solver argument is omitted for
-brevity.)
-\begin{code}
-always(function() { return display.number == mercury.top });
-always(function() { return white.top == thermometer.top });
-always(function() { return white.bottom == mercury.top });
-always(function() { return gray.top == mercury.top });
-always(function() { return gray.bottom == mercury.bottom });
-always(function() { return mercury.top <= thermometer.top });
-always(function() { return mercury.bottom == thermometer.bottom });
-always({priority: "strong"}, function() {
-    return mercury.top == mouse.location_y
-});
+% In the constraint library and \langname/JS versions, we specify the
+% same constraints and use an edit constraint in the same manner, once
+% through the Cassowary \ac{api} and once in the syntax of \langname/JS.
+% Given below is the \langname/JS version.  (The solver argument is omitted for
+% brevity.)
+% \begin{code}
+% always(function() { return display.number == mercury.top });
+% always(function() { return white.top == thermometer.top });
+% always(function() { return white.bottom == mercury.top });
+% always(function() { return gray.top == mercury.top });
+% always(function() { return gray.bottom == mercury.bottom });
+% always(function() { return mercury.top <= thermometer.top });
+% always(function() { return mercury.bottom == thermometer.bottom });
+% always({priority: "strong"}, function() {
+%     return mercury.top == mouse.location_y
+% });
 
-var cb = edit(ctx.mouse, ["location_y"]);
-for (var i = 0; i < this.Iterations; i++) {
-   cb(i);
-}
-\end{code}
+% var cb = edit(ctx.mouse, ["location_y"]);
+% for (var i = 0; i < this.Iterations; i++) {
+%    cb(i);
+% }
+% \end{code}
 
-To compare accessor performance with and without constraints, we
-measured the following two loops individually:
-\begin{code}
-var o = {get a() {return 0}, get b() {return 0}, get c() {return 0}},
-    oc = {a: 0, b: 0, c: 0};
-always({solver: cassowary, ctx: {oc: oc}}, function() {
-   return oc.a == 0 && oc.b == 0 && oc.c == 0
-});
+% To compare accessor performance with and without constraints, we
+% measured the following two loops individually:
+% \begin{code}
+% var o = {get a() {return 0}, get b() {return 0}, get c() {return 0}},
+%     oc = {a: 0, b: 0, c: 0};
+% always({solver: cassowary, ctx: {oc: oc}}, function() {
+%    return oc.a == 0 && oc.b == 0 && oc.c == 0
+% });
 
-for (var i = 0; i < this.Iterations; i++) {
-   sum = o.a + o.b + o.c;
-}
-for (var i = 0; i < this.Iterations; i++) {
-   sum = oc.a + oc.b + oc.c;
-}
-\end{code}
+% for (var i = 0; i < this.Iterations; i++) {
+%    sum = o.a + o.b + o.c;
+% }
+% for (var i = 0; i < this.Iterations; i++) {
+%    sum = oc.a + oc.b + oc.c;
+% }
+% \end{code}
 
 \end{document}
 

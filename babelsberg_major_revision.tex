@@ -1,0 +1,345 @@
+\section{Introduction}
+\label{sec:introduction}
+\todo{Can be kept as is, I would say.  Review: Change wording in
+  contributions to differentiate ourselves more from CIP /
+  Kaleidoscope - it currently isn't very prominent that we get rid of
+  constraint constructors}
+
+Constraints and constraint programming occur in a variety of
+application domains within computer science and related fields,
+including graphics, CAD/CAM, planning and operations research,
+artificial intelligence, user interface toolkits, and programming
+languages. A \emph{constraint} in these domains is a relation that
+should hold, for example: that there be a minimum of 10 pixels
+horizontal space between two buttons on a screen, that a resistor in
+an electrical circuit simulation obey Ohm's Law, that a maximum of 10
+parts per hour can be produced by a machine in a factory, that all of
+the digits in a row or column or subregion of a Sudoku puzzle must be
+different, or that the height of a bar in a bar chart correspond to a
+value produced by a simulation. Constraints are declarative: they
+specify \emph{what} should be the case rather than \emph{how} to
+achieve it.  They thus provide flexibility in the way they can be
+employed, since a single constraint can typically be used in multiple
+ways.
+
+A number of features are desirable in constraint programming to solve
+a useful set of problems.  Unfortunately it is in general much easier
+to state constraint problems than to solve them --- some problems are
+extremely difficult, and others are undecidable.  (For example,
+suppose we have a constraint that $x^n+y^n=z^n$ for integers $x$, $y$,
+and $z$, with $n>2$.  Waiting 358 years for the solver to determine
+that the constraint is unsatisfiable is problematic.  Or as another
+example, a language that allows the programmer to state 
+the Post Correspondence Problem as a constraint
+would thus allow undecidable constraints to
+be specified.)  On the other hand, for some restricted but
+very useful classes of constraints, quite efficient solvers are
+available.  Therefore, practical solvers solvers impose restrictions
+on the kinds of constraints they can solve, for example, by supporting
+only floats and not integers or requiring numeric equalities to be
+linear.
+
+So, in general, a variety of solvers are
+needed, depending on the type domain and particular characteristics of
+the constraints.  It is also useful to have these solvers interoperate
+to find a solution to a particular problem. Furthermore, in some
+application domains, it is useful to support soft as well as hard
+constraints, that is, constraints that should be satisfied if possible
+and constraints that must be satisfied. Finally, in the presence of
+frequent changes incremental solvers are required that can efficiently
+re-solve a set of constraints.  Interactive graphical systems are an
+example of all of these: they include constraints on complex objects
+such as points and areas as well as floats and integers, soft
+constraints to express preferences regarding the layout, and require
+incremental solvers to efficiently re-solve constraints repeatedly as
+a part of the figure is moved.
+
+There are two main options how to use constraints in imperative
+programs. The most common way is via a constraint satisfaction
+library.  This means that no changes are required to the underlying
+programming language, but has the disadvantage that, besides writing
+the constraints, the solver needs to be invoked explicitly at
+appropriate times during the execution. If it is not, the programmer
+may inadvertently ignore or bypass the constraints.  An alternate
+technique is to support constraints directly in the underlying
+programming language.  This addresses the problem of inadvertently
+bypassing the constraint system, because the programming language
+ensures that the solver is invoked whenever neccessary. This approach
+also typically provides a more convenient syntax for writing
+constraints, either using a separate \ac{dsl} embedded in the host
+language (with the drawback of having to learn essentially two
+programming languages), or (as in the work reported here) by allowing
+constraints to be written in the host language itself, of course at
+the cost of having to support a new or extended programming
+language.
+
+Prior approaches of the latter kind typically provide a unified
+runtime, a semantics for the interactions between declarative and
+imperative code, and a linguistic symbiosis. As an extension of these,
+this work additionally unifies the programming constructs for
+encapsulation and abstraction by using only object-oriented methods,
+classes, and inheritance for defining behavior and structure in both
+the imperative and declarative paradigm.
+
+We present our design for integrating constraints with a dynamic,
+object-oriented language that preserves a familiar imperative
+programming model, called \langname, and describe an implementation of
+that design as an extension to Ruby~\cite{flanagan2008ruby}, called
+\toolname. Key contributions for \langname with respect to language
+design are as follows.
+
+\begin{itemize}
+\item The semantic model for \langname is a direct extension of the
+  object-oriented model (with dynamic typing, object encapsulation,
+  classes and instances or prototypes with methods, and message
+  sends).  It supports placing constraints on the results of message
+  sends rather than just on object attributes --- thus, we argue,
+  being more compatible with object-oriented encapsulation and
+  abstraction than prior approaches in \ac{cip}.
+\item The syntax of \langname is a strict superset of that of the base
+  language -- with only one minor extension to allow a question-mark
+  as method name -- making it easy for the programmer to write and
+  read constraints and object-oriented code.
+\item \langname includes constructs that allow specifying soft as well
+  as hard constraints, and that support incremental solving.
+\end{itemize}
+
+Additional contributions with respect to implementation techniques are
+as follows.
+
+\begin{itemize}
+\item We present a technique for implementing object constraint
+  languages, which uses a primitive to switch the interpreter between
+  imperative evaluation, constraint construction, and constraint
+  solving modes.  In imperative evaluation mode, the interpreter
+  operates in the standard fashion, except that \load and \store
+  operations on variables with constraints obtain the value from the
+  constraint solver or send the new value to the solver (which may
+  trigger a cascade of other changes to satisfy the constraints).  In
+  constraint construction mode, the expression that defines the
+  constraint is evaluated, not for its value, but rather to build up a
+  network of primitive constraints that represent the constraint being
+  added.  The interpreter keeps track of dependencies in the process,
+  so that, as needed, the solver can be activated or the code to
+  construct the constraint can be re-evaluated.
+\item \langname provides an architecture for constraint solvers that
+  supports multiple constraint solvers, which makes it straightforward
+  to add new solvers, and that does not privilege the solvers provided
+  with the basic implementation (they are simply the solvers that are
+  in the initial library).
+\item We describe a working prototype system, integrated with a state
+  of the art Ruby virtual machine and \ac{jit} compiler. In the
+  absence of constraints, the performance of a program written in the
+  host language (Ruby) is only modestly impacted.
+\end{itemize}
+
+\toolname is a general-purpose object constraint language, and we have
+implemented a variety of example programs, including a video streaming
+example with both hard and soft constraints on performance,
+interactive graphical layout examples (which exercise soft constraints
+and incrementality), electrical circuit simulations, and solvers for
+puzzles such as Eight Queens and cryptarithmetic.
+
+\section{Background}
+\label{sec:background-related-work}
+
+Programs frequently have some set of constraints that should hold.
+This could be that all parts in an electrical circuit simulation obey
+the laws of physics, that the rows in a Sudoku include each digit from
+0 to 9, or that a streamed video play smoothly in the presence of
+changing CPU and network load.
+
+\todo{We should start with the part about constraints in programs, and
+  give a few examples. Show differences between one-way and multi-way
+  constraints, constraint domains, give examples for solvers that can
+  solve these.
+
+  Review: Then make clear that we are interested not in enumerating
+  solutions, but just in finding any solution - then reference
+  self-healing/resilient systems/data-structure repair (Rinard
+  et.al.)}
+
+These constraints have different properties (domain, dynamicism,
+one-way, multi-way). In this work, we only consider dynamic
+constraints and system invariants to support writing resilient and
+self-healing systems, not enumerating solutions to a constraint model.
+
+For each of these, a number of different solvers may be used to solve
+them...
+
+For imperative languages, the usual approach to dealing with such
+constraints is to leave it entirely up to the programmer to ensure
+that they are satisfied --- the constraints are either just in
+comments and documentation, or perhaps in the form of
+machine-checkable assertions.  For the latter case, programmers
+typically write assertions to fail early if these constraints are
+unexpectedly not satisfied~\cite{rinard2005exploring}.
+
+\section{Related Work}
+The background section should have introduced the rectangle
+constraints. Now give a solution in imperative terms for that. Give a
+logic programming solution. Compare, mention again that we want to use
+it in an imperative setting, an re-use the OO methods for area and
+visibility.
+
+Rewrite the solution using the pure-library approach.
+
+Rewrite using a DSL
+
+Rewrite using dataflow
+
+Rewrite using CIP
+
+Review: Rewrite using Ilog, Squander, or a similar
+annotation/pre-post-condition/macro system Review: Look at Kaplan
+
+Rewrite using OCP to introduce next section (?)
+
+\section{Object Constraint Programming}
+\label{sec:object-constraint-programming}
+What is OCP? It is an integration of constraints with OO. It is
+similar to CIP, but instead of adding separate constructs for
+constraint-constructors and -structures, we re-use object-oriented
+methods and types. The only two semantic extensions are for constraint
+creation and solving - everything else is just convenience or library
+code.
+
+Review: we offer an informal description of our two semantic
+extensions. This work is very recent, and we are still determining
+details by using this in applications. A detailed, formal semantics
+isn't useful at this point.
+
+\subsection{Constraint Construction - the always primitive}
+\label{sec:constr-constr-always}
+This section should describe that OCP proposes the always method as a
+mechanism similar to "eval", but that does not evaluate the code and
+return the result, but instead constructs a constraint from the
+expression in the code. In the process, all variables that are found
+to contribute to the expression are marked as constraint variables,
+and a representation for them is created that can be passed to a
+solver
+
+\subsubsection{Restrictions on Constraint Expressions}
+\label{sec:restr-constr-expr}
+No side-effects
+
+\subsubsection{Constraints and Control Structures}
+structures work, but only if all variables are in single-assignment
+form (so loops with counters do not qualify)
+
+\subsubsection{Constraints on Identity, Type, or Protocol}
+Just explain that these can be checked
+
+\subsubsection{Preferential Constraints}
+Explain why we want them, and that they are solver specific.
+
+Review: Ideally, solvers use the same language for preferences (high,
+medium, low? Strong, medium, weak?), but it is ultimately up to the
+library (and the arguments are passed to the library - they have no
+meaning for the always-primitive)
+
+Review: these are not required, but very useful
+
+Review: Solvers are free to throw an exception when asked for a
+preference constraint that they don't support (i.e. Z3 and not
+required)
+	
+\subsection{Reading and Writing Constrained Variables}
+This section should describe the semantics reading a constrained
+variable (it is read from the solver instead), and writing a
+constrained variable (either the new value is put into a solver, or
+the expression is re-calculated)
+	
+\subsubsection{Stay Constraints}
+\subsubsection{Read-only Variables}
+A syntax for this is nice - we provide one for Babelsberg/R (ref Impl
+section on Constrained Variables), but it is not necessary
+\subsubsection{Incremental Resatisfaction}
+This is needed because … (explain) It is, in this work, not
+semantically significant, and can be implemented in library code. An
+example of such an implementation is given in the implementation
+section
+			
+Review: "edit" is not a language construct, just a library method
+
+\subsection{Solving Constraints}
+All constraints must be solved, but generally, solving is hard - we
+propose that solvers are provided as libraries for easy
+extensibility. The set of solvers should be chosen per application by
+the programmer - just as he chooses other libraries appropriate for
+the application. Solvers register themselves for specific types, and
+are then automatically used for those. The programmer can also specify
+a specific solver when calling always.
+	
+Solvers receive additional options passed to always (such as weight
+and priority) - it is up to the solvers to throw an error. For
+example, Z3 does not support preferential constraints, so it should
+throw an error
+	
+Review: Solvers have to figure out how to map types. Z3 only supports
+reals, but the C-API already maps these to C-doubles, so we just use
+that interpretation (although there may be rounding errors, we just
+don't care - if it doesn't work for you, use something else)
+
+\subsection{Constraint Meta-Objects, controlling constraint duration
+  and properties}
+Explain what these are for - they provide access to enable/disable
+constraints, change their strength, change their solver
+	
+\section{Implementation}
+Review: Ruby is chosen because it was available and easily
+extended. We have an implementation in Javascript, too.
+
+\subsection{Constrained Variables}
+Read-only constraint impl, stay constraint impl, syntactic extension
+
+Review: GC
+
+\subsection{Execution Contexts}
+Review: this needs code examples
+
+\subsection{Implementing Edit Constraints}
+
+\subsection{Adding New Solvers}
+Review: Array Solver
+	
+\section{Evaluation}
+\subsection{Performance Evaluation}
+Review: the JIT removes the overhead of accessing unconstrained
+variables. The remaining overhead is an artifact of the code that is
+not JITted
+
+Review: we assume that most programs will not only execute constraints
+- to rewrite a program in this way would mean to rewrite it in prolog
+(or another logic programming language) - of course they can use the
+new features extensively - but constraints ultimately don't "do" much
+(in terms of user-visible side-effects like drawing to the screen or
+writing to disk). Programs that do these things have other bottlenecks
+than constraint solving performance.
+
+Review: The difference between edit/non-edit is expected, because the
+"planning" is basically re-run everytime
+
+Review: the constraint version is more generic (we can tweak any
+value, not just the mouse location), but lets assume this refactoring
+did not try to make the code more general, just the constraints more
+readable
+
+\subsection{Comparison with other approaches}
+Review: Array Solver benchmark
+
+Review: Linked List (identity constraints) benchmark
+
+Review: DeltaBlue example
+
+Review: Video streaming app - less details, just report that solving
+costs X time, and mention that overall time per frame is Y (with Y
+much larger X)
+	
+\section{Conclusion and Future Work}
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "babelsberg_jot"
+%%% End:

@@ -176,11 +176,137 @@ typically write assertions to fail early if these constraints are
 unexpectedly not satisfied~\cite{rinard2005exploring}.
 
 \section{Related Work}
-The background section should have introduced the rectangle
-constraints. Now give a solution in imperative terms for that. Give a
-logic programming solution. Compare, mention again that we want to use
-it in an imperative setting, an re-use the OO methods for area and
-visibility.
+Consider a graphical rectangle implemented as a pair of points --
+origin and extent -- with a method to test whether the origin is in
+the visible (i.e. positive) part of the coordinate system, and a
+method to calculate its area.
+\begin{code}
+class Rectangle
+  attr_accessor :origin, :extent
+
+  def visible?
+    origin.x >= 0 and origin.y >= 0
+  end
+
+  def area
+    extent.x * extent.y
+  end
+end
+\end{code}
+
+Suppose this rectangle encompasses some information that we want to
+make sure remains on screen entirely. To that end, the area of the
+rectangle should never be less than 100 square pixels and its origin
+should remain visible. The constraints are that the
+\lstinline{visible?} method always returns true, and the area method
+always returns a value $\geq$ 100. (Note that the \lstinline{visible?}
+method contains two inequalities to form a conjunctive constraint --
+both conditions must be satisfied to satisfy the constraint.  It would
+be straightforward to include two additional tests that
+\lstinline{origin.x + extent.x <= DISPLAYWIDTH} and
+\lstinline{origin.y + extent.y <= DISPLAYHEIGHT}; these are omitted
+for simplicity.)
+
+In an imperative, object-oriented language like Ruby, we can ensure
+that these constraints are satisfied, for example, using
+aspect-oriented programming \cite{kiczales1997aspect} to intercept
+writes to either origin or extent (lines 9--10) and execute corrective
+code (lines 3--5).
+\begin{code}
+class RectAspect < Aspect
+  def ensure_constraints(method, rect, status, *args)
+    rect.origin.x = 0 if rect.origin.x < 0
+    rect.origin.y = 0 if rect.origin.y < 0
+    rect.extent.x = 100.0 / rect.extent.y if rect.area < 100
+  end
+end
+
+RectAspect.new.wrap(Rectangle, :postAdvice, "extent=")
+RectAspect.new.wrap(Rectangle, :postAdvice, "origin=")
+\end{code}
+
+However, the above code has a number of problems:
+\begin{itemize}
+\item The constraints are expressed in a form that makes them
+  non-obvious -- the branch conditions have to be carefully checked to
+  ensure they catch all undesired states, and the reader has to infer
+  the constraint from the conditions (for example, that the checks for
+  non-negativeness express the visibility constraint.)
+\item All modifications that may invalidate the constraints have to be
+  intercepted --- if the advice is insufficient or not executed at the
+  correct times, the constraints may be violated through parts of the
+  execution.
+\item There are multiple possible solutions to the constraints, but
+  which one should be selected is not explicit in the code.  (For
+  example, a rectangle with area 200 instead of 100 would also satisfy
+  the minimum area constraint.)  Without a declarative specification,
+  it is nontrivial to decide whether this code will find the optimal
+  solution. In the presence of competing soft constraints, \ie
+  multiobjective optimizations, finding a solution becomes even harder
+  (these concepts are introduced in depth in \autoref{TODO}).
+\end{itemize}
+
+
+\subsection{Constraint Satisfaction Libraries}
+
+To address the aforementioned problems, another approach is to use a
+library that provides one or more constraint solvers that allow us to
+express our constraints explicitly. There is a huge range of solvers
+that can be called directly from the imperative code.  One way of
+classifying them is by the \emph{type domain} of the constraints (for
+example, real numbers or finite domains or arbitrary objects); whether
+the solver can solve constraints in a general way or just select from
+a given set of functions (\eg given $c=a+b$, can it solve for any $a$,
+$b$, or $c$; or can it only find a value for $c$ from the dataflow);
+and whether the solver supports soft constraints as well as hard
+(required) ones\todo{this is the second time we mention these without
+  explanation}.
+
+A few solvers of particular interest for the programming language
+community are \zthree~\cite{de2008z3}, a state-of-the-art SMT solver
+from Microsoft Research designed for theorem proving (\eg for program
+verification), and kodkod~\cite{torlak2007kodkod} for constraints over
+finite domains.  Solvers for use in interactive graphics systems
+include Cassowary~\cite{badros-tochi-2001}, an incremental solver for
+linear equality and inequality constraints that supports soft
+constraints as well as hard ones, the Aukland Layout
+Editor~\cite{lutteroth2008end}, which includes support for a GUI
+builder using constraints, and earlier work on
+DeltaBlue~\cite{freeman-benson-phoenix-1989}, which supports multi-way
+local propagation constraints and soft constraints.  There is also a
+range of commercial solvers and applications, such as the CPLEX
+optimizer for mathematical programming~\cite{optimization1993using}.
+
+For example, the following code rewrites the previous solution that
+relied on state changing operations and branches, to use the \zthree
+library to solve our constraints (lines 6 and 9). Additional code is
+required to copy state between solver and rectangle.
+\begin{code}
+class RectAspect < Aspect
+  def ensure_constraints(method, rect, status, *args)
+    ctx = Z3::Context.new
+    ctx << Z3::Variable.new("origin_x", rect.origin.x)
+    ctx << Z3::Variable.new("origin_y", rect.origin.y)
+    ctx << Z3::Constraint.new("origin_x >= 0 && origin_y >= 0")
+    ctx << Z3::Variable.new("extent_x", rect.extent.x)
+    ctx << Z3::Variable.new("extent_y", rect.extent.y)
+    ctx << Z3::Constraint.new("extent_x * extent_y >= 100")
+    ctx.solve
+    rect.extent.x = ctx["extent_x"]
+    rect.extent.y = ctx["extent_y"]
+  end
+end
+
+RectAspect.new.wrap(Rectangle, :postAdvice, "extent=")
+RectAspect.new.wrap(Rectangle, :postAdvice, "origin=")
+\end{code}
+
+Using a solver allows programmers to express constraints about the
+system in terms of a solver-specific type domain (\eg reals, booleans,
+uninterpreted function symbols) the solver understands. If the problem
+is expressible in a type domain for which a solver is available (as
+the above code is) the constraints can be written clearly.
+
 
 Rewrite the solution using the pure-library approach.
 

@@ -307,19 +307,251 @@ uninterpreted function symbols) the solver understands. If the problem
 is expressible in a type domain for which a solver is available (as
 the above code is) the constraints can be written clearly.
 
+\subsection{Domain-specific Languages for Constraints}
 
-Rewrite the solution using the pure-library approach.
+For specialized application domains constraints are sometimes
+available via separate \acp{dsl}. For user interface layouts \acp{dsl}
+describe relations between visible objects that can be automatically
+maintained by the runtime.  Examples are
+\textsc{css}~\cite{lie-css-book}, the Mac OS
+X~\cite{AppleCocoaAutoLayout} layout specification language (which
+uses Cassowary to solve the constraints), and the Python GUI framework
+\emph{Enaml}~\cite{Enaml}. These allow programmers to express
+relations such as distances between objects or parent/child
+alignments. These constraints are automatically re-satisfied by the
+runtime when imperative code changes the user interface.
 
-Rewrite using a DSL
+The following is an example of an \emph{Enaml} specification for our
+problem:
+\begin{code}[language=python]
+enameldef Main(Window):
+    Container:
+        constraints = [
+            # the rectangle area is called contents in enamel
+            contents_top >= 0, contents_left >= 0,
+            (contents_bottom - contents_top) *
+              (contents_right - contents_left) >= 100
+        ]
+\end{code}
 
-Rewrite using dataflow
+\ac{dsl} allow programmers to use constraints in specific application
+domains without having to write boilerplate code for triggering
+constraint solving. They have found widespread adoption and renewed
+interest recently in particular through the Mac OS X layout system.
 
-Rewrite using CIP
+\subsection{Dataflow Constraints and FRP}
 
-Review: Rewrite using Ilog, Squander, or a similar
-annotation/pre-post-condition/macro system Review: Look at Kaplan
+Some languages have built-in support for data flow, which allows
+programmers to express unidirectional constraints between objects and
+their parts. Examples of such systems are
+Scratch~\cite{resnick2009scratch},
+LivelyKernel/Webwerkstatt~\cite{lincke2012lively}, and
+KScript~\cite{ohshima2012report}.
 
-Rewrite using OCP to introduce next section (?)
+The following uses LivelyKernel connections to observe changes to
+\texttt{origin} and \texttt{extent} in a Rectangle \texttt{rect}.  On
+each change, the transformation function is executed with the current
+and the previous value and returns the new value for the field.
+\begin{code}[language=java]
+connect(rect, "origin", rect, "origin",
+        function(origin, prevOrigin) {
+            if (this.isVisible()) return prevOrigin;
+            else return origin;
+        })
+connect(rect, "extent", rect, "extent",
+        function(extent, prevExtent) {
+            if (this.area() < 100) return prevExtent;
+            else return extent;
+        })
+\end{code}
+
+Although these systems are not constraint solvers, programmers can use
+constraint solvers (in the hook function passed to
+\lstinline{connect}) to calculate new values and some systems, like
+KScript, already integrate a constraint solver to use in the
+connection. These approaches provide one answer to the question of 
+when to trigger constraint solving.
+
+\subsection{Integrating Constraints with a Programming Language}
+
+Another approach to supporting constraints --- and the one adopted in
+the work reported here --- is to integrate constraint support with a
+general purpose programming language.  Again, there is a substantial body of
+prior work in this area.  
+
+One of the earliest examples for this approach is the Constraint Logic
+Programming scheme~\cite{jaffar-popl-1987}. This scheme and its
+instances evolved from logic programming, for example CLP($\cal
+R$)~\cite{jaffar-toplas-1992} provides constraints over real numbers
+in Prolog. These languages are in the logic programming family, and in
+their standard form have no notion of state or state change. Another
+language of this kind is Concurrent Constraint
+Programming~\cite{saraswat-book}.
+
+Such languages have significant advantages, such as a clean semantics,
+but at the same time sacrifice familiar capabilities and programming
+style.  Our goal here is to support a more standard object-oriented,
+imperative programming style and syntactic integration of constraint
+and imperative programming.  With these goals, \langname follows the
+work by Freeman-Benson, Lopez, and Borning on
+\ac{cip}~\cite{freeman-benson-ecoop-1992,lopez-ecoop-1994,lopez-oopsla-1994,lopez-asi-1994}
+and the Kaleidoscope language. Systems related to Kaleidoscope include
+Siri~\cite{horn-oopsla-1992}, Turtle~\cite{grabmuller2004turtle}, and
+\textsc{Soul}~\cite{d2004seamless}. BackTalk~\cite{roy1997reifying} is
+another system that aims to integrate a rich set of constraint solvers
+with imperative languages, but without syntactic integration.
+
+There is also a body of work that uses constraints in other ways in
+standard programming languages.  For example, in Plan B, Samimi, Aung, and
+Millstein \cite{samimi-ecoop-2010} use specifications as ``reliable
+alternatives'' to implementations, so that if an assertion fails, the
+system can use the specification as input to a constraint solver and
+continue execution.  Similarly, Demsky and Rinard~\cite{demsky2006goal}
+use constraint solvers to correct a faulty program state automatically
+and continue running.  (Thus, by replacing assertions with
+constraints, undesirable program states can be corrected by the
+runtime.)
+
+\subsubsection*{Constraint Imperative Programming in Kaleidoscope}
+Because the current work shares many of its motivations with
+Kaleidoscope, it also shares important design aspects that were
+developed over the iterations of the Kaleidoscope language.
+
+Kaleidoscope supported standard classes and instances, and in
+addition, integrated constraints with the language itself.  To support
+this, it included built-in constraints over primitive objects (such as
+floats) and constraints over user-defined objects, which were provided
+by \emph{constraint constructors}.  For example, the \lstinline{+}
+constraint for Points could be defined using a constraint constructor
+\lstinline{a+b=c} that then expanded this into constraints on the
+\lstinline{x} and \lstinline{y} instance variables of the three points
+\lstinline{a}, \lstinline{b}, and \lstinline{c}.  Separately, the
+language also provided methods.  Both constraint constructors and
+standard methods were selected using multi-method semantics.  This
+accommodated, for example, the case of a constraint constructor call
+\lstinline{a+b=c} in which \lstinline{b} and \lstinline{c} were known
+and \lstinline{a} was unknown.
+
+In contrast to Kaleidoscope, \langname provides a simpler semantic
+model, directly extending a standard object-oriented model with
+ordinary methods using standard object-oriented message dispatch,
+rather than special constraint constructors and multi-methods.  The
+implementation includes an integration with a state of the art virtual
+machine and \ac{jit}, so that in the absence of constraints, the
+performance of a program written in the host language is only modestly impacted.
+
+This work's treatment of mutable state and time in \langname is very
+similar to the later incarnations of Kaleidoscope. The first version
+of Kaleidoscope, Kaleidoscope'90~\cite{freeman-benson-iccl-1992}, used
+a \emph{refinement} model, in which variables held a stream of values,
+related to each other by constraints.  Variables typically had a
+low-priority \emph{stay} constraint so that they retained their value
+over time, \eg \mbox{$x_t = x_{t-1}?$}.  (The question mark is a
+read-only annotation: the constraint solver wasn't allowed to change
+the past to satisfy constraints on the present.)  There were
+facilities to access both the current and previous states of a
+variable.  Object identity was only an implementation issue in
+Kaleidoscope'90, and not semantically significant.
+% , because a variable would never change its identity (it was a
+% stream uniquely identified by its name), but only assume different
+% values over time. -- may need to re-add this, if questions arise
+% (Yoshiki didn't understand the sentence above without any further
+% explanation
+Later versions of the language (\eg Kaleidoscope'93)
+\cite{lopez-ecoop-1994,lopez-oopsla-1994} switched to a
+\emph{perturbation} model, in which destructive assignment can change
+the state of objects (perhaps making previously satisfied constraints
+unsatisfied), and the system perturbs or adjusts values to reach a new
+state that best satisfies the constraints. Instead of streams of
+values, a variable in Kaleidoscope'93 referred to a single object, as
+in a more conventional languages.  Kaleidoscope'93 also made object
+identity a part of the language semantics, including support for
+identity constraints as well as equality constraints.
+
+%% add note about multiple cooperating solvers if implemented
+
+%% Our rectangle example can be expressed using Kaleidoscope as follows:
+%% \begin{code}
+%% class Rectangle
+%%   constructor area = (n: Integer)
+%%     always: extent.x * extent.y = n
+%%   end
+
+%%   constructor visible?
+%%     always: origin.x >= 0
+%%     always: origin.y >= 0
+%%   end
+%% end
+
+%% rect = Rectangle.new
+%% always: rect.area = 100
+%% always: rect.visible?
+%% \end{code}
+
+%% The above code states constraints clearly, and \emph{constraint
+%%   constructors} modularize the calculated properties visiblity and
+%% area so they can be used in constraint expressions.
+
+
+%  However, two different
+% problems arise:
+% \begin{itemize}
+% \item constraints can be expressed only on state which is exposed to
+%   the constraint \ac{dsl}
+% \item because the constraints are specified in separate languages,
+%   they are hard to reason about in imperative code and it becomes easy
+%   to accidentally write imperative code that will interfere with the
+%   layout engine
+% \item constraint \acp{dsl} such as these offer a predetermined set of
+%   constraints for only a few special domain objects, so this approach
+%   cannot be generalized
+% \end{itemize}
+
+% This approach, while clearly expressing the constraints, is not
+% satisfactory for two reasons:
+% \begin{itemize}
+% \item constraints are expressed on object state, which has to be
+%   copied between objects and the solver
+% \item advice code is still required to capture all modifications that
+%   may invalidate the constraints to trigger the solver
+% \end{itemize}
+
+% The problems with these approaches are:
+% \begin{itemize}
+% \item relations are uni-directional and binary, so \emph{m:n}
+%   relations cannot be expressed and have to be satisfied by some other
+%   mechanism
+% \item connections observe state changes and trigger further state
+%   changes. For the second constraint, it would be better if the
+%   connection could be between the (dynamic) result of the
+%   \texttt{area} method
+% \end{itemize}
+
+% However, through these constructors a two problems
+% appear:
+% \begin{description}
+% \item[Behavior is duplicated] Developers have add \emph{constraint
+%     constructors} to their objects before they can be used in
+%   constraints. If they want to constrain the area and also access it in
+%   from imperative code, they have to duplicate code.
+% \item[Solvers are predetermined] Due to the deep integration \ac{cip}
+%   languages offer only a fixed set of solvers, and are thus only
+%   usable for certain domains.
+% \end{description}
+
+The rest of this paper is structured as follows. In
+\autoref{sec:object-constraint-programming}, we present the features
+of the language; how these features are implemented is described in
+\autoref{sec:implementation}. \autoref{sec:evaluation} presents our
+performance evaluation, applications written in \toolname, and a
+comparison of \langname's features with related
+approaches. \autoref{sec:conclusion} describes future work and
+concludes.
+
+\todo{Review: Rewrite using Ilog, Squander, or a similar
+  annotation/pre-post-condition/macro system Review: Look at Kaplan}
+
+\todo{Rewrite using OCP to introduce next section (?)}
 
 \section{Object Constraint Programming}
 \label{sec:object-constraint-programming}

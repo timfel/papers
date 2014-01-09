@@ -176,6 +176,7 @@ typically write assertions to fail early if these constraints are
 unexpectedly not satisfied~\cite{rinard2005exploring}.
 
 \section{Related Work}
+\label{sec:related-word}
 Consider a graphical rectangle implemented as a pair of points --
 origin and extent -- with a method to test whether the origin is in
 the visible (i.e. positive) part of the coordinate system, and a
@@ -582,40 +583,224 @@ support constraint creation and solving.  As this work is relatively
 recent, we offer here only an informal description of these semantic
 changes and the semantics of our constraints.
 
+\subsection{Specifying Constraints as a Language Primitive}
+\label{sec:constr-constr-always}
+Our first semantic extension to the standard object oriented language
+is the addition of a new primitive, \lstinline{always}. This primitive
+takes a closure or block of code --- the constraint is that this code
+should evaluate to true. The primitive evaluates the block in an
+interpretation mode that collects all objects that contribute to the
+expression and creates a representation of the operations between them
+that a solver can use to satisfy the constraint.
+
 As a first example, consider the following class
-\lstinline{TemperatureConverter}, which maintains the appropriate
-relation between instance variables holding Centigrade and Fahrenheit
-values.
+\lstinline{TemperatureConverter} in \toolname, which maintains the
+appropriate relation between instance variables holding Centigrade and
+Fahrenheit values.
 
 \begin{code}
 class TemperatureConverter
   attr_accessor :centigrade, :fahrenheit
-  def initialize                                                                
-    # set the temperature to a well-known value
-    @centigrade = 100.0
+  def initialize
+    @centigrade = @fahrenheit = 0.0
     always { centigrade * 1.8 == fahrenheit - 32.0 }
     # constraint added and solver triggered during `always'
   end
-end                                                                           
+end
 \end{code}
 
-\subsection{Constraint Construction - the always primitive}
-\label{sec:constr-constr-always}
-This section should describe that OCP proposes the always method as a
-mechanism similar to "eval", but that does not evaluate the code and
-return the result, but instead constructs a constraint from the
-expression in the code. In the process, all variables that are found
-to contribute to the expression are marked as constraint variables,
-and a representation for them is created that can be passed to a
-solver
+A constraint constructed through \lstinline{always} is activated
+immediately.  We assign floating-point numbers to the two fields, so
+that \toolname uses a solver for floats based on their run-time
+type. However, we didn't need to give them values that satisfy the
+constraints --- one or both are changed to keep the constraint
+satisfied.
 
-\subsubsection{Restrictions on Constraint Expressions}
-\label{sec:restr-constr-expr}
-No side-effects
+If we make a new instance of \lstinline{TemperatureConverter} and
+change either the Centigrade or Fahrenheit temperature, the other
+value will be changed as well to keep the constraint satisfied:
+
+\begin{code}
+t = TemperatureConverter.new(100.0)
+t.centigrade = 100.0 # triggers solver, which changes t.fahrenheit to 212.0
+\end{code}
+
+% There may be multiple constraints that together specify the desired
+% solution.  For example, here are two constraint from a
+% \lstinline{Resistor} class that uses Ohm's Law:
+
+% \begin{code}
+%   always { lead1.current + lead2.current == 0.0 }
+%   always { lead1.voltage - lead2.voltage == resistance*lead1.current }
+% \end{code}
+
+% In combination with other constraints on the behavior of
+% batteries, wires, and grounds, and Kirchhoff's Law constraints for the
+% connections among them, these serve to specify the behavior of
+% electrical circuits such as a Wheatstone bridge.  In this case,
+% finding a solution involves solving a set of linear equations.  (See
+% \autoref{sec:electrical-circuits} in the appendix
+% for a listing of these classes, along with example circuits.)
+
+In this example, the constraints are on the results of sending the
+messages \lstinline{centigrade} and \lstinline{fahrenheit}. These
+methods are just accessors to the corresponding fields.  However,
+constraints can also include methods that perform other
+computations. For example, the rectangle from
+\autoref{sec:related-work} exposes its area as a computed property via
+the \lstinline{area} method. In \toolname, we can use existing Ruby
+methods from the \lstinline{Rectangle} class to specify constraints:
+
+\begin{code}
+rect = Rectangle.new
+always { rect.area >= 100 }
+always { rect.visible? }
+\end{code}
+
+The first constraint says that the result returned from calling the
+\lstinline{area} method should always be greater than or equal to 100,
+and if, for example, another part of the program assigns to the height
+of the rectangle, if necessary the width will be adjusted
+automatically to keep the constraint satisfied. The \lstinline{always}
+primitive discovers that the \lstinline{x} and \lstinline{y} values of
+the \lstinline{extent} object are multiplied to get the result of the
+\lstinline{area}, and that this result should be greater or equal to
+100. This relation is passed as a constraint to a float solver.
+
+Similarly, if a negative location is assigned to the origin, it will
+be moved back to keep the rectangle visible.\footnote{There are
+  multiple possible locations that satisfy the
+  \lstinline{rect.visible?} constraint; here the system will move the
+  origin as little as possible from the assigned location but so that
+  the constraint is satisfied.  The same holds for the area
+  constraint.  This behavior is a result of soft ``stay'' constraints
+  that specify that, if it is necessary to change the value of a
+  variable to satisfy other constraints, it should be changed as
+  little as possible.  These are left implicit in this example, but
+  can also be stated explicitly if desired.  See Section
+  \ref{sec:soft-constraints}.}
+
+By placing the constraint on the result of sending messages rather
+than on fields, the system also respects object encapsulation.  The
+values returned from the message sends in the rectangle example are
+both primitive types (float and boolean), but they can also be
+arbitrary objects.  For example, we could add a constraint on the
+rectangle's center (a computed rather than a stored value, and a point
+rather than a primitive type):
+
+\begin{code}
+always { rect.center == Point.new(100,100) }
+\end{code}
+
+\subsection{Restrictions on Constraints}
+\label{sec:constraint-restrictions}
+When the programmer uses a method in \langname in a constraint, the
+underlying implementation generates a corresponding set of (generally
+simpler) constraints that can in turn be handed to an appropriate
+solver.  Different language constructs in the methods can give rise to
+different sets of constraints, which may be more or less difficult for
+the solver.  For example, conjunctions and disjunctions in the method
+give rise to conjunctions and disjunctions in the constraints handed
+to the solver, and of the currently provided solvers, only \zthree
+can accommodate these.
+
+There are however three important restrictions on constraints that
+apply to all solvers.
+
+First, evaluating the expression that defines the constraint should return a
+boolean --- the constraint is that the expression evaluates to true.
+
+Second, the constraint expression should either be free of side
+effects, or if there are side effects, they should be benign (for
+example, doing caching).  Also, repeatedly evaluating the constraint
+expression should return the same thing (so an expression involving a
+random number generator wouldn't qualify), but does not have to be a
+pure function, only behave as one to the caller. This restriction is
+needed to provide the correct semantics for constraints.
+
+Third, variables used in methods that will be called in a constraint
+must be used in a single-assignment fashion.  As an example of why
+this restriction is needed, consider the following method:
+\begin{code}
+def bad_method(x)
+  sum = x
+  sum = sum+2
+  sum
+end
+\end{code}
+
+Suppose we try to satisfy the constraint
+\lstinline{10==bad_method(a)}. The system would then construct a
+constraint \lstinline{sum==x} for the first line in the method, and
+\lstinline{sum==sum+2} for the second (which is unsatisfiable).
+
+\langname tracks assignments during constraints, so instead of a
+general error, it can report if a variable is assigned multiple times
+in a constraint.  A way to address this issue would be to treat multiply
+assigned variables in constraints as distinct variables (\eg $x_t$,
+$x_{t+1}$, etc.), which are connected through equality constraints,
+similar to the original Kaleidoscope'90 refinement approach.
+However, we believe that the additional complexity of
+keeping track of successive versions of a variable outweighs the
+additional expressiveness, and do not support such a feature.
+(Note that for straight-line code it's easy to add additional variables
+to satisfy this restriction.  Loops with such multiply assigned variables
+need to be converted to recursions --- see the following section for
+an example.)
 
 \subsubsection{Constraints and Control Structures}
-structures work, but only if all variables are in single-assignment
-form (so loops with counters do not qualify)
+Expressions to create constraints are simply statements in the host
+language, and so can appear in conditionals, loops, recursive methods,
+and so forth.  Constraints themselves can also include iterations and
+conditionals.  For example, here is a definition of the
+\lstinline{sum} method for arrays that creates a set of addition
+constraints relating the array elements and their sum, using partial
+sums as intermediate variables.\footnote{The \lstinline{sum} method
+  makes of the \lstinline{inject} (known also as \lstinline{reduce} or
+  \lstinline{fold}) method instead of, for example, a call to
+  \lstinline{each} that repeatedly assigns to a local variable, so
+  that we satisfy \langname's single assignment rule for variables
+  used in constraints. Because each block activation creates a
+  separate scope, each partial sum is a separate variable.}
+
+\begin{code}
+class Array
+  def sum
+    inject(0) { |partial_sum, x| partial_sum + x }
+  end
+end
+\end{code}
+
+Similar constructs can be used in representing more complicated
+structures.  For example, the Kirchhoff's Law constraint in the
+electrical circuit examples listed in \autoref{sec:electrical-circuits} uses
+\lstinline{inject} to constrain the sum of the currents in $n$
+connected leads to be 0.
+
+We ship a simple local propagation solver for constraints on float
+arrays. Constraints on the elements interact correctly with other
+constraints on the sum and values.  For example, the programmer can
+use the solver to find a value for one element, given the sum and
+values for the others:
+
+\begin{code}
+a = [0.0, 0.0, 0.0]
+always { a[0] == 10 }
+always { a[2] == 20 }
+always { a.sum == 60 }
+\end{code}
+
+This gives the solution \lstinline{a[1] = 30}.
+We also have constraints on the length of an array, and the array as a
+whole.  For example, for arrays \lstinline{a} and \lstinline{b}:
+
+\begin{code}
+always { a.length == 10 }
+always { a == b } # == is content equality for Ruby arrays
+\end{code}
+
+%% What about the examples with cycles that won't work?  How does the
+%% programmer know what will work and what won't?
 
 \subsubsection{Constraints on Identity, Type, or Protocol}
 Just explain that these can be checked

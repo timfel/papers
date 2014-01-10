@@ -583,7 +583,7 @@ support constraint creation and solving.  As this work is relatively
 recent, we offer here only an informal description of these semantic
 changes and the semantics of our constraints.
 
-\subsection{Specifying Constraints as a Language Primitive}
+\subsection{Constraints as a Language Primitive}
 \label{sec:constr-constr-always}
 Our first semantic extension to the standard object oriented language
 is the addition of a new primitive, \lstinline{always}. This primitive
@@ -610,7 +610,9 @@ end
 \end{code}
 
 A constraint constructed through \lstinline{always} is activated
-immediately.  We assign floating-point numbers to the two fields, so
+immediately. The primitive also returns a \emph{Constraint} object
+that provides the interface to enable, disable, and inspect the
+constraint. We assign floating-point numbers to the two fields, so
 that \toolname uses a solver for floats based on their run-time
 type. However, we didn't need to give them values that satisfy the
 constraints --- one or both are changed to keep the constraint
@@ -773,9 +775,9 @@ end
 
 Similar constructs can be used in representing more complicated
 structures.  For example, the Kirchhoff's Law constraint in the
-electrical circuit examples listed in \autoref{sec:electrical-circuits} uses
-\lstinline{inject} to constrain the sum of the currents in $n$
-connected leads to be 0.
+electrical circuit examples listed in
+\autoref{sec:electrical-circuits} uses \lstinline{inject} to constrain
+the sum of the currents in $n$ connected leads to be 0.
 
 We ship a simple local propagation solver for constraints on float
 arrays. Constraints on the elements interact correctly with other
@@ -803,21 +805,79 @@ always { a == b } # == is content equality for Ruby arrays
 %% programmer know what will work and what won't?
 
 \subsubsection{Constraints on Identity, Type, or Protocol}
-Just explain that these can be checked
+We can also write constraints on properties of objects such as their
+identity, class, and the messages that it responds to.  For example:
+
+\begin{code}
+x.equal?(y)  # an identity constraint
+# some constraints on the class or message protocol of an object:
+a.class==Point  
+a.kind_of?(Point)
+a.instance_of?(Point)
+a.respond_to?(:theta)
+\end{code}
+
+If we are only using such constraints as tests, it is straightforward
+to check them. Satisfying identity constraints is straightforward, but
+should be handled with a specialized solver. In our current
+implementation, identity constraints are supported with a built-in
+solver. For \lstinline{a.class} and \lstinline{a.instance_of?}, if
+\lstinline{a} is already bound, the constraint is just a test; if it
+is unbound, then the constraint could be satisfied by creating a new
+instance of the appropriate class, binding it to \lstinline{a}, and
+calling the \lstinline{allocate} method of the appropriate class.
+Finally, \lstinline{a.kind_of?}  and \lstinline{a.respond_to?} are
+only available as tests.  (One could imagine satisfying
+\lstinline{a.kind_of?} by backtracking through the possible classes of
+which \lstinline{a} is an instance, but this seems complicated and
+without a clear use case.  The situation for \lstinline{a.respond_to?}
+is similar.)
+
+Note that a nice benefit of this design is that type declarations or
+their equivalent are just constraints.
 
 \subsubsection{Preferential Constraints}
-Explain why we want them, and that they are solver specific.
+\label{sec:soft-constraints}
+The concept of a constraint has been extended with \emph{preferential}
+constraints by Borning
+et.al. \cite{borning-lisp-symbolic-computation-1992}. Preferential
+constraints allow solvers to trade off constraints that cannot be
+satisfied at the same time by assigning them different
+priorities. Constraints may be soft as well as hard (required), and a
+number of constraint solvers, including Cassowary and DeltaBlue,
+support these priorities.
 
-Review: Ideally, solvers use the same language for preferences (high,
-medium, low? Strong, medium, weak?), but it is ultimately up to the
-library (and the arguments are passed to the library - they have no
-meaning for the always-primitive)
+Constraint systems may be under- or overconstrained --- while the
+prior may lead to the solver finding unexpected solutions, the latter
+may produce no solutions at all, because the solver cannot satisfy all
+constraints at the same time. Preferential constraints allow us to
+declare overconstrained systems, but allow the solver to violate some
+constraints, if it cannot find a solution that satisfies the entire
+constraint system.
 
-Review: these are not required, but very useful
+Although not required for the integration in \langname, soft
+constraints are useful, for example, in interactive graphical
+applications to represent a requirement that two icons be separated by
+a minimum of 10 pixels (a required constraint) and the desire that
+they be 50 pixels apart if possible (a soft constraint).  Soft
+constraints can have different priorities, with the higher-priority
+constraints satisfied in preference to lower-priority ones.
 
-Review: Solvers are free to throw an exception when asked for a
-preference constraint that they don't support (i.e. Z3 and not
-required)
+As an example, a soft constraint $a+b=c$, with priority
+\lstinline{high}, would be written in \toolname as
+\begin{code}
+always(priority: :high) {a+b==c}
+\end{code}
+
+Only some constraint solvers support soft constraints, so whether soft
+constraints can be handled depends on which solver is in use. While a
+common name scheme and mapping to solver specific priorities might be
+provided, in \langname it is up to the solver to interpret the
+priority (and maybe ignore it or raise an exception if the priority
+cannot be interpreted.) The Cassowary and DeltaBlue solvers use
+symbolic priorities (low, medium, high, required), but this is
+considered a property of the solver. Also, the choice of how soft
+constraints are traded off is a property of the selected solver.
 	
 \subsection{Reading and Writing Constrained Variables}
 This section should describe the semantics reading a constrained
@@ -826,16 +886,113 @@ constrained variable (either the new value is put into a solver, or
 the expression is re-calculated)
 	
 \subsubsection{Stay Constraints}
+An important application of soft constraints is to express the desire
+that parts of a system should remain the same unless there is some
+reason they should change (for example to satisfy some higher priority
+constraints).  This is a central issue when combining constraints with
+imperative programming to specify how constraints interact with state
+change.  For example, in interactive graphical applications, when
+moving one part of a constrained figure, the user generally expects
+other parts to remain where they are unless there is some reason for
+them to change to satisfy the constraints.  A desire that something
+remain the same if possible is represented as a \emph{stay
+  constraint}, which may have an associated priority.  For example,
+this stay constraint says that we prefer that x keep its value, if
+possible, when satisfying other constraints:
+
+\begin{code}
+always { x.stay(:low) }
+\end{code}
+
+For those solvers that support soft constraints, \langname
+automatically adds a lowest-priority stay constraint to every constrained
+variable so that it keeps its old value if possible when satisfying
+the other constraints.
+
 \subsubsection{Read-only Variables}
-A syntax for this is nice - we provide one for Babelsberg/R (ref Impl
-section on Constrained Variables), but it is not necessary
+Some variables should not be modified by the solver (for example, in
+an interactive application, dragged objects should follow the mouse,
+not vice-versa). To express this, \langname includes support for
+\emph{read-only variables}. Semantically, a read-only variable has an
+additional, required equality constraint. This constraint is updated
+only if the variable is assigned from imperative code to reflect the
+new value, but not to satisfy the constraint in which it occurs. (See
+reference \cite{borning-lisp-symbolic-computation-1992} for a formal
+definition of read-only variables.  While the formal definition allows
+cycles through read-only variables, in practice we haven't found use
+cases for this, and it is confusing for programmers, so in \langname
+we disallow this.)
+
+In \toolname, variables are marked as read-only by sending the
+question-mark method ({\bfseries\emph{?}}) to them in a constraint
+expression. Ruby does not normally allow the questionmark as a method
+name -- here, \toolname extends Ruby's syntax to support this. Having
+a convenient syntax for this is not necessary, and the JavaScript
+implementation of \langname uses a global function \lstinline{ro}
+instead.
+
+Read-only variables are useful, for example, for parameterized
+constraints so the solver knows not to change the parameter to satisfy
+the constraint:
+\begin{code}
+class Rectangle
+  def fix_size(desiredsize)
+    always { self.area == desiredsize.? }
+  end
+end
+\end{code}
+
+Without the annotation, a solver could choose to
+change the local variable \lstinline{desiredsize} rather than the
+receiver.
+
+% Read-only variables also play a central role in our architecture for
+% cooperating constraint solvers, serving as ``gateways'' to control
+% information flow among the solvers.  See
+% \autoref{sec:cooperating-solvers}.
+
 \subsubsection{Incremental Resatisfaction}
-This is needed because … (explain) It is, in this work, not
-semantically significant, and can be implemented in library code. An
-example of such an implementation is given in the implementation
-section
-			
-Review: "edit" is not a language construct, just a library method
+Some applications involve repeatedly re-satisfying the same set of
+constraints with differing input values.  A common such case is an
+interactive graphical application with a constrained figure, where we
+move some part of the figure with the mouse.  For such applications,
+it is important to re-solve the constraints efficiently, and a number
+of constraint solvers support this using so-called \emph{edit
+  constraints} that allow a new value for a variable to be repeatedly
+input to the solver.
+
+\langname does not support edit constraints at a language level.
+Instead, an \lstinline{edit} method is provided as part of the
+Cassowary solver library that is included in the current version of
+\toolname. The library uses the meta-level \ac{api} of the
+\lstinline{Constraint} class to query which variables participate in a
+constraint, creates edit constraints for them, and feeds the stream
+into the resulting edit variables.  Other libraries with support for
+incremental resolving can provide similar methods. Users thus can take
+advantage of incremental solvers when available to re-satisfy
+constraints very quickly.
+
+The provided \lstinline{edit} method takes a variable to be edited, a
+stream (an object that responds to \lstinline{next}) that provides the
+new values, and optionally a priority.  For example, suppose we make
+an instance of \lstinline{TemperatureConverter}.  Then we can give 100
+new values to \lstinline{centigrade}, and have \lstinline{fahrenheit}
+change correspondingly each time (this is useful, for example, if we
+combine this with a graphical slider that a user can drag to input new
+values):
+
+\begin{code}
+converter = TemperatureConverter.new
+enumerator = (0..99).each
+edit(enumerator) {converter.centigrade}
+\end{code}
+
+The stream need not contain only primitive types --- a common case in
+interactive graphics is a stream of new point values for a location of
+something being moved.
+%   The
+% implementation of edit constraints is discussed in
+% \autoref{sec:implementing-edit-constraints}.
 
 \subsection{Solving Constraints}
 All constraints must be solved, but generally, solving is hard - we

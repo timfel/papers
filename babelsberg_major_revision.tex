@@ -587,11 +587,11 @@ changes and the semantics of our constraints.
 \label{sec:constr-constr-always}
 Our first semantic extension to the standard object oriented language
 is the addition of a new primitive, \lstinline{always}. This primitive
-takes a closure or block of code --- the constraint is that this code
-should evaluate to true. The primitive evaluates the block in an
-interpretation mode that collects all objects that contribute to the
-expression and creates a representation of the operations between them
-that a solver can use to satisfy the constraint.
+takes a closure and the constraint is that the closure should evaluate
+to true. The \lstinline{always} primitive evaluates the closure using
+a modified interpreter that collects all objects that contribute to
+the expression and creates a representation of the operations between
+them that a solver can use to satisfy the constraint.
 
 As a first example, consider the following class
 \lstinline{TemperatureConverter} in \toolname, which maintains the
@@ -694,7 +694,7 @@ rather than a primitive type):
 always { rect.center == Point.new(100,100) }
 \end{code}
 
-\subsection{Restrictions on Constraints}
+\subsubsection{Restrictions on Constraints}
 \label{sec:constraint-restrictions}
 When the programmer uses a method in \langname in a constraint, the
 underlying implementation generates a corresponding set of (generally
@@ -879,35 +879,98 @@ symbolic priorities (low, medium, high, required), but this is
 considered a property of the solver. Also, the choice of how soft
 constraints are traded off is a property of the selected solver.
 	
-\subsection{Reading and Writing Constrained Variables}
-This section should describe the semantics reading a constrained
-variable (it is read from the solver instead), and writing a
-constrained variable (either the new value is put into a solver, or
-the expression is re-calculated)
-	
+\subsection{Constrained Variables}
+Our other semantic extension is how assignment is handled in the
+\acrlong{ocp} language. In an \ac{ocp} program, variables that are
+used in constraints become \emph{constrained variables}. Each variable
+is determined by at most one solver, and the variable value is stored
+in a solver specific data structure. Reading such variables returns
+solver determined values and assigning to such variables triggers the
+solver and may raise an exception, if the assignment would violate a
+constraint.
+
+The \lstinline{always} primitive executes its closure argument with
+modified interpreter that tracks which objects contribute to the
+constraint. Each variable that is accessed in the execution of the
+closure is converted into a constrained variable. Then, depending on
+the run-time type of the variable, the interpreter checks which of the
+available solvers can solve constraints over this type, \eg Cassowary
+for floats. If a suitable solver is available, the variable is
+replaced with a solver-specific object that represents this variable
+in the solvers' data structures. This solver object replaces the
+actual value of the variable.
+
+A solver object should respond to the subset of the interface of the
+associated \ac{oo} value that its solver can solve. For example,
+Cassowary can solve linear constraints over float values, so the
+Cassowary variables returned for floats respond to the methods
+\lstinline{+}, \lstinline{-}, \lstinline{*}, and \lstinline{/}, but
+not \lstinline{sin} or \lstinline{**}. If a programmer tries to assert
+a constraint using those latter methods, an exception will be raised.
+
+Constrained variables for which no solver exists are used as constants
+in the execution of the constraint expression. When these variables
+change, the constraint expression has to be recalculated entirely.
+
+Assignments to variables in constraints assert equality
+constraints. This is necessary to support constructing new objects in
+the predicate that connect values. However, this also means that all
+code blocks encountered during constraint construction have to be in
+single assignment form (\autoref{sec:constraint-restrictions}).
+
+\subsubsection{Reading and Writing Constrained Variables}
+When constrained variables that were replaced with solver objects are
+read, their actual value is retrieved from the solver --- it is up to
+the solver to convert the internal representation into a
+representation suitable for the \ac{oo} language (\eg, converting
+reals into floats). Variables that were used in constraints, but not
+replaced with solver objects are read normally.
+
+Assigning to a constrained variable also distinguishes these two
+cases. If the variable was replaced with a solver object, instead of
+storing the supplied value directly, a required equality constraint
+between the variable and the new value is added to the solver. If the
+solver can satisfy the equality, the constraint is removed and the
+assignment succeeded. If the solver cannot satisfy its constraints
+with the new value, the equality constraint is removed and an
+exception is raised.
+
+In the second case, the variable is used in a constraint, but no
+solver is available to determine its value (\eg, a string that was
+used in a constraint when no string solver was available). The value
+of such variables is treated as constant in the constraint. If the
+variable is assigned, all constraints it participated in are disabled,
+and their closures are re-executed to create new constraints. This,
+too, may lead to a situation where some solvers cannot satisfy their
+constraints. In that case, the old constraints are re-enabled, the
+assignment is undone, and an exception is raised.
+
 \subsubsection{Stay Constraints}
-An important application of soft constraints is to express the desire
-that parts of a system should remain the same unless there is some
-reason they should change (for example to satisfy some higher priority
-constraints).  This is a central issue when combining constraints with
-imperative programming to specify how constraints interact with state
-change.  For example, in interactive graphical applications, when
-moving one part of a constrained figure, the user generally expects
-other parts to remain where they are unless there is some reason for
-them to change to satisfy the constraints.  A desire that something
-remain the same if possible is represented as a \emph{stay
-  constraint}, which may have an associated priority.  For example,
-this stay constraint says that we prefer that x keep its value, if
-possible, when satisfying other constraints:
+In imperative languages, programmers expect their variables to retain
+their values, unless some assignment operation changes them. A central
+issue when combining constraints with imperative programming is to
+specify how constraints interact with state change, and to express the
+desire that parts of a system should remain the same unless there is
+some reason they should change (for example to satisfy some higher
+priority constraints).
+
+For example, in interactive graphical applications, when moving one
+part of a constrained figure, the user generally expects other parts
+to remain where they are unless there is some reason for them to
+change to satisfy the constraints.  A desire that something remain the
+same if possible is represented as a \emph{stay constraint}, which may
+have an associated priority.  For example, this stay constraint says
+that we prefer that x keep its value, if possible, when satisfying
+other constraints:
 
 \begin{code}
 always { x.stay(:low) }
 \end{code}
 
 For those solvers that support soft constraints, \langname
-automatically adds a lowest-priority stay constraint to every constrained
-variable so that it keeps its old value if possible when satisfying
-the other constraints.
+automatically adds a lowest-priority stay constraint to every
+constrained variable so that it keeps its old value if possible when
+satisfying the other constraints.
 
 \subsubsection{Read-only Variables}
 Some variables should not be modified by the solver (for example, in

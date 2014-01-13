@@ -995,29 +995,85 @@ something being moved.
 % \autoref{sec:implementing-edit-constraints}.
 
 \subsection{Solving Constraints}
-All constraints must be solved, but generally, solving is hard - we
-propose that solvers are provided as libraries for easy
-extensibility. The set of solvers should be chosen per application by
-the programmer - just as he chooses other libraries appropriate for
-the application. Solvers register themselves for specific types, and
-are then automatically used for those. The programmer can also specify
-a specific solver when calling always.
-	
-Solvers receive additional options passed to always (such as weight
-and priority) - it is up to the solvers to throw an error. For
-example, Z3 does not support preferential constraints, so it should
-throw an error
-	
-Review: Solvers have to figure out how to map types. Z3 only supports
-reals, but the C-API already maps these to C-doubles, so we just use
-that interpretation (although there may be rounding errors, we just
-don't care - if it doesn't work for you, use something else)
+\label{sec:solvers}
+Given a set of constraints, we need to find a solution to them.
+\langname provides an architecture that supports multiple constraint
+solvers, that makes it straightforward to add new solvers, and that
+doesn't privilege the solvers provided with the basic implementation.
+(They are simply the solvers that are in the initial library.)  In the
+current implementation of \toolname, the available solvers are
+Cassowary, \zthree, a solver for float and integer arrays, and
+DeltaBlue.
 
-\subsection{Constraint Meta-Objects, controlling constraint duration
-  and properties}
-Explain what these are for - they provide access to enable/disable
-constraints, change their strength, change their solver
-	
+Currently, programmers must explicitly indicate which solvers are
+available in a given program --- just as they choose other libraries
+appropriate for the application. Solvers register themselves for
+specific types, and are then chosen eagerly based on the run-time type
+of the variables that occur in the constraint, and only one solver can
+be registered for a particular type. The programmer can also specify a
+specific solver when calling \lstinline{always}, by passing the
+desired solver as the first argument. Additional arguments to
+\lstinline{always}, such as priorities or propagation methods, are
+passed to and interpreted by the solver.
+
+In cases where different solvers can handle the same types (for
+example, both \zthree and Cassowary handle constraints on reals), the
+programmer has to decide which solver to use by activating only the
+desired one. In some cases, this choice may simply be a matter of
+preference, however, other restrictions apply. For example, Cassowary
+cannot solve nonlinear equations, the developer has to know about this
+restriction and choose \zthree. For interactive graphical applications
+where preferential constraint are needed, Cassowary has to be used,
+because \zthree does not support soft constraints. Finally, developer
+must be aware that while those two solvers work on reals, their
+implementations represent results as double-precision floating point
+numbers, so rounding errors may occur. \langname leaves the issue of
+choosing the right precision up to the solver.
+
+Developers can write constraints that are too difficult to solve, or
+for which no solver exists. In that case, the constraint expression is
+simply evaluated as a test that is repeatedly checked by the runtime
+whenever a variable changes that may change the result of the test. If
+the test fails, an exception is raised explaining that no solver for
+the constraint was available.
+
+We are currently working on adding support for cooperating constraint
+solvers, so that several solvers can work together to find a solution
+to the constraints.  See \autoref{sec:cooperating-solvers}.
+
+\subsection{Constraint Duration and Activation}
+\label{sec:constraint-durations-and-activation}
+Constraints have \emph{durations} during which they are active.  So
+far, we've been using the \lstinline{always} duration, which declares
+that its constraint becomes active when the \lstinline{always}
+statement is evaluated and remains active indefinitely after that.
+
+As mentioned in \autoref{sec:constr-constr-always}, the
+\lstinline{always} primitive returns a \emph{Constraint} object that
+provides meta-level access to control constraint activation. \langname
+provides two additional methods to control the duration of constraints
+conveniently. The \lstinline{once} method activates a constraint,
+satisfies, and then retracts it. This is useful to initialize a system
+state to satisfy a constraint. The \lstinline{assert-during} construct
+takes a closure and activates a constraint for the duration of the
+evaluation of the closure.
+
+A related issue is \emph{when} constraint satisfaction is invoked.
+\langname's default behavior is that constraints are immediately
+satisfied or re-satisfied whenever there is a change to one of the
+constrained variables.  Sometimes this is not the desired behavior,
+for example, when there is a sequence of assignments that change the
+state of an object, with the object being in a temporarily
+inconsistent state in the midst of the assignments.  To handle this,
+\langname includes a construct to allow a sequence of assignments to
+be made, with solving invoked only after all the assignments have been
+made.  Ruby provides multi-assignments to store values into multiple
+variables in a single statement, and this is used in \toolname to
+implement this construct.  If multiple variables that have constraints
+on them are assigned using multi-assignment, all values are assigned
+before the solver is triggered. If any constraints cannot be
+satisfied, all assignments are immediately undone.
+
 \section{Implementation}
 Review: Ruby is chosen because it was available and easily
 extended. We have an implementation in Javascript, too.

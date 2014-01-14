@@ -1024,24 +1024,43 @@ of constraint solvers support this using so-called \emph{edit
   constraints} that allow a new value for a variable to be repeatedly
 input to the solver.
 
-\langname does not support edit constraints at a language level.
-Instead, an \lstinline{edit} method is provided as part of the
-Cassowary solver library that is included in the current version of
-\toolname. The library uses the meta-level \ac{api} of the
-\lstinline{Constraint} class to query which variables participate in a
-constraint, creates edit constraints for them, and feeds the stream
-into the resulting edit variables.  Other libraries with support for
-incremental resolving can provide similar methods. Users thus can take
-advantage of incremental solvers when available to re-satisfy
-constraints very quickly.
+Edit constraints prepare the internal data structures of the solver
+for fast resolving when specific variables change. For a local
+propagation solver, this means that the execution plan is
+pre-calculated from the edit variables. In Cassowary, the Simplex
+tableau is setup so that new values can be input efficiently. For
+\langname, this means that only one edit can be active for a given
+solver. To assign new values to variables other than those that are
+being edited, the edit constraint has to be removed and a new one
+including all the variables that are expected to change has to be
+created.
+
+\langname does not support edit constraints at a language level, and
+provides no special syntax for it.  Instead, an \lstinline{edit}
+method is provided as part of the Cassowary solver library that is
+included in the current version of \toolname. The library uses the
+meta-level \ac{api} of the \lstinline{Constraint} class to query which
+variables participate in a constraint, creates edit constraints for
+them, and feeds the stream into the resulting edit variables.  Other
+libraries with support for incremental resolving can provide similar
+methods. Users thus can take advantage of incremental solvers when
+available to re-satisfy constraints very quickly.
 
 The provided \lstinline{edit} method takes a variable to be edited, a
 stream (an object that responds to \lstinline{next}) that provides the
-new values, and optionally a priority.  For example, suppose we make
-an instance of \lstinline{TemperatureConverter}.  Then we can give 100
-new values to \lstinline{centigrade}, and have \lstinline{fahrenheit}
-change correspondingly each time (this is useful, for example, if we
-combine this with a graphical slider that a user can drag to input new
+new values, and optionally a priority (the priority defaults to the
+highest non-required one --- \lstinline{:required} is used, the system
+raises an exception if the new edit value can't be used.) When the
+stream is empty, it removes the edit constraint and returns.  Note
+that this works if the stream is being fed from another process that
+provides new values only when available --- the process that has the
+edit constraint should just block until one is available.
+
+For example, suppose we make an instance of
+\lstinline{TemperatureConverter}.  Then we can give 100 new values to
+\lstinline{centigrade}, and have \lstinline{fahrenheit} change
+correspondingly each time (this is useful, for example, if we combine
+this with a graphical slider that a user can drag to input new
 values):
 
 \begin{code}
@@ -1052,10 +1071,8 @@ edit(enumerator) {converter.centigrade}
 
 The stream need not contain only primitive types --- a common case in
 interactive graphics is a stream of new point values for a location of
-something being moved.
-%   The
-% implementation of edit constraints is discussed in
-% \autoref{sec:implementing-edit-constraints}.
+something being moved.  The implementation of edit constraints is
+discussed in \autoref{sec:implementing-edit-constraints}.
 
 \subsection{Solving Constraints}
 \label{sec:solvers}
@@ -1138,21 +1155,27 @@ before the solver is triggered. If any constraints cannot be
 satisfied, all assignments are immediately undone.
 
 \section{Implementation}
-\label{sec:implementation} 
-We first provide an overview of the key features of the implementation
-before plunging into the details.  The interpreter normally operates
-in imperative evaluation mode.  In the absence of constraints, this is
-a standard Ruby \ac{vm}.  The Ruby \ac{vm} we use as a basis for
-\toolname is \emph{Topaz}~\cite{FelgentreffTopazWroclove2013}, an
-experimental \ac{vm} built using the \emph{PyPy/RPython}
+\label{sec:implementation}
+The Ruby \ac{vm} we use as a basis for \toolname is
+\emph{Topaz}~\cite{FelgentreffTopazWroclove2013}, an experimental
+\ac{vm} built using the \emph{PyPy/RPython}
 toolchain~\cite{rigo2006pypy}. This has allowed us to extend the
 interpreter and use RPython's \ac{vm}-generation toolchain to create a
-\ac{vm} including a fast \ac{jit} and garbage collector.
+\ac{vm} including a fast \ac{jit} and garbage collector.  We first
+provide an overview of the key features of the implementation before
+plunging into the details.
+
+The Topaz Ruby \ac{vm} is written in RPython, a restricted,
+object-oriented subset of Python. Topaz executes Ruby code using a
+class \lstinline{Interpreter} that uses a custom bytecode set. To
+store variables, the interpreter uses \lstinline{Cells} --- these
+objects provide an indirection to store values that are referenced in
+block closures.
 
 The changes we made to the Topaz \ac{vm} are two-fold.  First, we
 modified the interpreter to support a \emph{constraint construction
   mode} (\cf {\autoref{sec:constraint-construction-impl}}) and a
-primitive to enter this mode.  Second, we extended the interpreter to
+primitive to enter this mode.  Second, we extended the cells to
 support \emph{constrained variables} (\cf
 {\autoref{sec:constrained-variables-impl}}) by allowing the same name
 to refer to multiple objects, one an object-oriented value and the
@@ -1165,16 +1188,19 @@ not visible to the programmer.)
 Ruby provides five types of variables: locals, instance variables,
 class variables, globals, and constants.  (While constants are
 supposed to be assigned only once, it is not an error condition to
-re-assign a constant in Ruby.)  Of these, we allow 3 as constrained
-variables: locals, instance variables, and class variables.
+re-assign to a constant in Ruby.)  Of these, we allow three as
+constrained variables: locals, instance variables, and class
+variables.
 
-Variables are constrained by using them in a constraint expression. In
-Topaz, all locals are stored in a closure cell structure and we simply
-had to add a second field for solver objects. Instance and class
-variables are stored in an array and Topaz uses map
-transitions~\cite{chambers1989efficient} to access them
-efficiently. For \toolname, we have added a transition to store solver
-objects as well as ordinary objects in these maps.
+Variables are constrained by using them in a constraint expression. A
+constraint expression is passed to the \lstinline{always} primitive as
+a block closure. Locals referenced in closures are stored in a closure
+cell, to which we added a second field to store solver objects. To
+speed up access to instance and class variables, Topaz uses map
+transitions~\cite{chambers1989efficient}. For \toolname, we have added
+a transition to store solver objects as well as ordinary objects in
+these maps, so read access to solver objects is no slower than access
+to ordinary objects, once the \ac{jit} has warmed up.
 
 Read-only constraint impl, stay constraint impl, syntactic extension
 
@@ -1185,6 +1211,44 @@ Review: GC
 
 \subsection{Implementing Edit Constraints}
 \label{sec:implementing-edit-constraints}
+Edit constraints are used to support incremental constraint
+satisfaction, and are important to achieve good performance in
+interactive applications.  The \lstinline{edit} method provided as
+part of \toolname's Cassowary library adds edit constraints and
+repeatedly updates them with values from a stream.
+
+Cassowary as shipped in the \toolname standard library allows the
+variables and stream to hold user-defined objects, not just primitive
+types. The library uses the \ac{api} of the \lstinline{Constraint}
+class to access the constraint values associated with variable names,
+creates edit constraints for them, and feeds the stream into the
+resulting edit variables.
+
+To use Cassowary as the solver, we need edit variables that are Floats
+(\eg the x and y values of a midpoint), but we also want to do this in
+an object-oriented way that respects encapsulation. To support this,
+the client passes an array of method names for the return values that
+should be updated in the edit constraint (\eg lstinline{x} and
+\lstinline{y} for a point --- those values may be calculated or direct
+accessors.)  Cassowary creates new edit variables, and adds an
+equality constrained to the return values of the methods. Thus, the
+internal storage layout of the class does not matter, because the
+equality constraint is asserted simply through the \lstinline{always}
+primitive.
+
+In the following example, the mouse locations or the mouse point might
+store their x and y values directly, or might be points represented
+using polar coordinates.  In either case, the edit constraints apply
+to the return values of their respective x and y methods:
+\begin{code}
+edit(stream: mouse.locations.each,
+     accessor: [:x, :y]) { mouse_point }
+\end{code}
+
+In a DeltaBlue-specific edit method, the edit constraints returned
+could be simpler, \eg the point would be simply updated rather than
+dealing with its x and y coordinates separately, and the data flow
+plan would update the objects related to the mouse point.
 
 \subsection{Adding New Solvers}
 \label{sec:solver-interface}

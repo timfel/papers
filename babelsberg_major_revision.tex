@@ -1202,12 +1202,82 @@ a transition to store solver objects as well as ordinary objects in
 these maps, so read access to solver objects is no slower than access
 to ordinary objects, once the \ac{jit} has warmed up.
 
-Read-only constraint impl, stay constraint impl, syntactic extension
-
-Review: GC
+\todo{Review: GC}
 
 \subsection{Execution Contexts}
 \label{sec:constraint-construction-impl}
+
+\todo{Read-only, stay, syntax extension}
+
+To implement the different execution modes --- \emph{imperative
+  execution}, and \emph{constraint construction} --- we extended the
+default interpreter, and added \lstinline{ConstraintInterpreter} as a
+subclass. The ConstraintInterpreter changes how locals, instance
+variable, and class variable accessed.
+
+\subsubsection{Imperative Execution}
+This is the normal execution mode, implemented in the Topaz
+interpreter. We have extended the \store and \load bytecodes with an
+additional check whether a variable refers to an ordinary object or a
+solver object. In the latter case, instead of reading or changing the
+value of the variable, the \emph{solver object} for the variable
+receives the messages \lstinline{value} or \lstinline{suggest_value},
+respectively. As long as all constraints are satisfied, this
+difference is not visible to the programmer. However, while direct,
+destructive assignment to a normal variable in imperative programs
+always succeeds, \lstinline{suggest_value} triggers one or more
+solvers. If any solver fails to satisfy its constraints with the new
+value, an exception is raised. This exception is propagated by the
+\ac{vm}, and needs to be handled by the programmer. The variable
+retains its original value.
+
+As described in \autoref{sec:constraint-durations-and-activation}, in
+\toolname, if multiple variables that have constraints on them are
+assigned using multi-assignment, all values are assigned before a
+solver is triggered, and all assignments are undone if an exception is
+raised during solving.
+
+\subsubsection{Constraint Construction}
+The initializer for constraint objects --- usually called through
+\lstinline{always} --- activates an execution context for constraint
+construction. In this mode, variable values are replaced with solver
+objects in \load instructions (if they do not already have one). This
+solver object is created by sending \lstinline{for_constraint} to the
+current variable value. This method is expected to return an object
+that responds to \lstinline{value} and \lstinline{suggest_value}
+(where during execution of the latter it would use a solver to
+re-satisfy constraints). For values that do not respond to
+\lstinline{for_constraint}, a generic solver object is left that
+removes and recalculates all constraint it occurs in when its value
+changes.
+
+\store instructions in this mode create equality constraints. This is
+necessary to support constructing new objects in the predicate that
+connect values. However, this also means that all code blocks
+encountered during constraint construction have to be in single
+assignment form (\cf{\autoref{sec:constraint-restrictions}}).
+
+Note that to support solvers written in the host language, the \ac{vm}
+needs a way to distinguish code that should be executed in this mode
+from code that should not. We currently expect solvers to be
+subclasses of \lstinline{ConstraintObject}. We use this class as a
+marker to leave the constraint execution context when we enter solver
+code.
+
+\paragraph{Constraint Solving}
+This mode is simply a flag that is active whenever code runs in the
+dynamic extent of a method of a \lstinline{ConstraintObject}. It
+prevents nested sends of \lstinline{suggest_value} to avoid recursions
+in the solver. This is necessary to support solvers written in
+Ruby. This means, that solvers themselves cannot use constraints in
+their implementation\footnote{If we wanted to support other
+  cooperating paradigms in addition to constraint-oriented
+  programming, we would need to extend this to support different
+  execution contexts in a more general way.}
+
+\subsubsection*{Constraint Construction Example}
+\label{sec:constraint-construction-example}
+
 
 \subsection{Implementing Edit Constraints}
 \label{sec:implementing-edit-constraints}

@@ -52,6 +52,7 @@
 \newacronym{vcs}{\textsc{vcs}}{version control system}
 \newacronym{vm}{\textsc{vm}}{virtual machine}
 \newacronym{xhr}{\textsc{xhr}}{XMLHttpRequest}
+\newacronym{ui}{\textsc{ui}}{user interface}
 
 \newcommand\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
 \RequirePackage{xspace}
@@ -415,27 +416,30 @@ set, as described in service-oriented applications of
 \section{Record and Refinement}
 \label{sec:approach}
 
+Recall the example of a flight booking service bug in
+\autoref{sec:background}. The bug occurred ``sometimes'', indicating
+some source of non-determinism. From such a bug report, developers
+create hypotheses as to its cause. Using our approach, developers can
+test whether communication timing dependencies are the source of this
+non\-/deterministic failure, using \emph{communication recording},
+\emph{anomaly analysis}, and \emph{refinement of remote data}.
 
 \subsection{Communication Recording}
 \label{sec:minimal-recording}
 
-From a bug report, developers create hypotheses as to its cause. Using
-our approach, developers can test whether communication timing
-dependencies are the source of this non\-/deterministic failure. For
-such failures, observations from the live system are
-essential~\cite{altekar2009odr}, because long-running systems will
-over time accumulate state changes and encounter situations unforeseen
-during development~\cite{Geels2006Replay}. Thus, we record information
-in the live system, including information about executions that
-exhibit the failure.
-
-Developers need to establish causes from effects to debug failures in
-any system, and to do so, the order in which events occur is
-essential~\cite{lamport1978time}. For a truly parallel system, we can
-create a partial order using \emph{Lamport Clocks}. This order is called the
-\emph{logical schedule}~\cite{Konuru2000} in which the events
-occurred. Figure~\ref{fig:comm-sched} shows such a schedule for our
-example system. In this schedule, two requests arrive at the Web
+For non-deterministic failures in a distributed setting, observations
+from the live system are essential~\cite{altekar2009odr}, because
+long-running systems will over time accumulate state changes and
+encounter situations unforeseen during
+development~\cite{Geels2006Replay}. Thus, we record information in the
+live system, including information about executions that exhibit the
+failure.  Developers need to establish causes from effects to debug
+failures in any system, and to do so, the order in which events occur
+is essential~\cite{lamport1978time}. For a truly parallel system, we
+can create a partial order using \emph{Lamport Clocks}. This order is
+called the \emph{logical schedule}~\cite{Konuru2000} in which the
+events occurred. Figure~\ref{fig:comm-sched} shows such a schedule for
+our example system. In this schedule, two requests arrive at the Web
 server. The first is sent on to the cache, which queries the crawler,
 and eventually returns the data to the Web server. Then the second Web
 request arrives at the cache, and is served from cached data. Upon
@@ -449,6 +453,82 @@ clients.
   \label{fig:comm-sched}
 \end{figure}
 
+To be useful for debugging, the logical schedules we record have to be
+sufficiently detailed to capture differences across multiple
+executions. Assuming that servers are otherwise deterministic, we have
+to record order, direction, and communication partners for each
+network event in a distributed application. This can be done with
+little overhead both in space and time during the actual
+execution. The necessary information overhead we have to encode into
+each event consists of 8 byte Lamport clocks~\cite{Geels2006Replay},
+with the first bit as a sign byte to tell incoming from outgoing
+events. Additionally, we include \textsc{IP} addresses and port
+numbers to identify the communication partners, which adds 4 bytes for
+the port and 16 bytes for the address, in the worst case of
+\textsc{IPv6} addressing. For an application that keeps the last
+1,000,000 requests stored in its logs, this amounts only to about 26
+MiB in additional storage space. The additional time required to
+encode this information is negligible, inducing a slowdown of only 1\%
+in our \toolname, with most of the time spent waiting for network \io
+operations.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{l | c c}
+    Benchmark & Avg Executions/5s & $\sigma$ \\
+    \hline
+    Normal execution & 8.51 & 0.31 \\
+    Recording & 8.39 & 0.12 \\
+  \end{tabular}
+  \caption{Executions of a script that exercises the described flight
+    booking bug. We ran the script 50s and averaged the number of
+    executions per 5s}
+  \label{tab:tracing-bench}
+\end{table}
+
+Figure~\ref{fig:architecture_1} shows how the different modules
+collaborate during recording. The Path Tools suite runs test cases, so
+the developer writes a test case that (``sometimes'') reproduces the
+bug. We call this test case a \emph{diagnosis script}. This script
+creates \ac{http} traffic. The \lstinline{HTTPSocket} class is
+responsible for sending this traffic to the network. We have created a
+Context/S layer for recording that layers the \lstinline{HTTPSocket}
+class and records a process-local trace of the network communication,
+before passing the traffic on.
+
+Network traces in \toolname include an integer id as Lamport clock,
+the first 500 bytes of the message, as well as \textsc{IP} address,
+\textsc{url}, and port for both sender and receiver for all sent and
+received \ac{http} requests. These are saved in a process-local
+structure and are not sent on the network. The recording layer also
+adds the current Lamport clock ``time'' as an application defined
+\ac{http} header to each outgoing request, and reads it from incoming
+requests. This is \ac{http} specific, and for protocols that do not
+have room for custom data, a more general approach---such as
+prepending magic bytes to the payload---can be
+used~\cite{Konuru2000}.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.7\textwidth]{screenshots/recording.png}
+  \caption{\toolname integration in PathMap tool}
+  \label{fig:pathmap}
+\end{figure}
+
+Activation of the recording layer is completely transparent to the
+users of \toolname. When they run a test case as a diagnosis script
+through the PathMap tool (\cf{\autoref{fig:pathmap}\textcircled{\small
+    1}}), \toolname asks how often the script should be executed (this
+number has to be chosen from experience, finding a number of
+executions that shows around a dozen failures seems to work well -- so
+for a script that fails 10\% of the time, 100 runs are ok.)
+
+After each recording, \toolname merges the traces from different
+processes into a list, sort events by id, and assigns the result of
+the test case to the trace. This way, each trace consists of a list of
+events that include communication partners and a Lamport clock, as
+well as a test result. Test results are gathered and shown in a banner
+in the \ac{ui} (\autoref{fig:pathmap}\textcircled{\small 2}.)
 
 \paragraph{Schedule Shaper}
 \label{sec:traffic-shaper}
@@ -680,58 +760,6 @@ time-dependent, in which case our approach is not applicable.
 \label{sec:implementation}
 
 
-\subsection{Communication Recording}
-\todo{more detail, how are layers activated, by whom, which parts of
-  the system are unaffected, i.e. development tools}
-
-To be useful for debugging, the communication schedules we record have
-to be sufficiently detailed to capture differences across multiple
-executions. Assuming that servers are otherwise deterministic, we have
-to record order, direction, and communication partners for each
-network event in a distributed application. This can be done with
-little overhead both in space and time during the actual
-execution. The necessary information overhead we encode into each
-event consists of 8 byte Lamport clocks~\cite{Geels2006Replay}, with
-the first bit as a sign byte to tell incoming from outgoing
-events. Additionally, we include \textsc{IP} addresses and port
-numbers to identify the communication partners, which adds 4 bytes for
-the port and 16 bytes for the address, in the worst case of
-\textsc{IPv6} addressing. For an application that keeps the last
-1,000,000 requests stored in its logs, this amounts only to about 26
-MiB in additional storage space. The additional time required to
-encode this information is negligible, inducing a slowdown of only 1\%
-in our \toolname, with most of the time spent waiting for network \io
-operations.
-
-\begin{table}[h]
-  \centering
-  \begin{tabular}{l | c c}
-    Benchmark & Avg Executions/5s & $\sigma$ \\
-    \hline
-    Normal execution & 8.51 & 0.31 \\
-    Recording & 8.39 & 0.12 \\
-  \end{tabular}
-  \caption{Executions of a script that exercises the described flight
-    booking bug. We ran the script 50s and averaged the number of
-    executions per 5s}
-  \label{tab:tracing-bench}
-\end{table}
-
-
-Figure~\ref{fig:architecture_1} shows how the different modules
-collaborate during recording. A diagnosis script creates \ac{http}
-traffic and the recording layer creates a process-local trace of the
-network communication before passing the traffic on to the
-application. Network traces include an integer id as Lamport clock,
-the first 500 bytes of the message, as well as \textsc{IP} address,
-\textsc{url}, and port for both sender and receiver for all sent and
-received \ac{http} requests. This layer also adds the current Lamport
-clock ``time'' as an application defined \ac{http} header to each
-outgoing request. This is \ac{http} specific, and for protocols that
-do not have room for custom data, another approach---such as
-prepending magic bytes to the payload---can be
-used~\cite{Konuru2000}. After recording, we merge the traces from
-different processes and sort events by id in \toolname.
 
 \subsection{Anomaly Detection}
 \todo{explain how we iterated over the algorithm -- short feedback

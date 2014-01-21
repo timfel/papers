@@ -81,6 +81,12 @@
     pdfkeywords=\dockeywords
 }
 
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\tableautorefname{Table}
+\def\figureautorefname{Figure}
+
 \begin{document}
 
 
@@ -229,8 +235,7 @@ in Squeak/Smalltalk~\cite{Ingalls1997} are:
 The rest of this paper is structured as follows:
 Section~\ref{sec:background} introduces the background for our tool.
 Section~\ref{sec:approach} illustrates our approach with the help of
-an example. Section~\ref{sec:implementation} explains \toolname and
-gives an overview of its implementation.
+an example, and explains \toolname and its implementation.
 % Section~\ref{sec:evaluation} evaluates our approach using the
 % prototype in terms of performance and usability.
 Section~\ref{sec:related-work} presents related work and
@@ -489,99 +494,9 @@ operations.
 Figure~\ref{fig:architecture_1} shows how the different modules
 collaborate during recording. The Path Tools suite runs test cases, so
 the developer writes a test case that (``sometimes'') reproduces the
-bug. We call this test case a \emph{diagnosis script}. This script
-creates \ac{http} traffic. The \lstinline{HTTPSocket} class is
-responsible for sending this traffic to the network. We have created a
-Context/S layer for recording that layers the \lstinline{HTTPSocket}
-class and records a process-local trace of the network communication,
-before passing the traffic on.
-
-Network traces in \toolname include an integer id as Lamport clock,
-the first 500 bytes of the message, as well as \textsc{IP} address,
-\textsc{url}, and port for both sender and receiver for all sent and
-received \ac{http} requests. These are saved in a process-local
-structure and are not sent on the network. The recording layer also
-adds the current Lamport clock ``time'' as an application defined
-\ac{http} header to each outgoing request, and reads it from incoming
-requests. This is \ac{http} specific, and for protocols that do not
-have room for custom data, a more general approach---such as
-prepending magic bytes to the payload---can be
-used~\cite{Konuru2000}.
-
-\begin{figure}
-  \centering
-  \includegraphics[width=0.7\textwidth]{screenshots/recording.png}
-  \caption{\toolname integration in PathMap tool}
-  \label{fig:pathmap}
-\end{figure}
-
-Activation of the recording layer is completely transparent to the
-users of \toolname. When they run a test case as a diagnosis script
-through the PathMap tool (\cf{\autoref{fig:pathmap}\textcircled{\small
-    1}}), \toolname asks how often the script should be executed (this
-number has to be chosen from experience, finding a number of
-executions that shows around a dozen failures seems to work well -- so
-for a script that fails 10\% of the time, 100 runs are ok.)
-
-After each recording, \toolname merges the traces from different
-processes into a list, sort events by id, and assigns the result of
-the test case to the trace. This way, each trace consists of a list of
-events that include communication partners and a Lamport clock, as
-well as a test result. Test results are gathered and shown in a banner
-in the \ac{ui} (\autoref{fig:pathmap}\textcircled{\small 2}.)
-
-\paragraph{Schedule Shaper}
-\label{sec:traffic-shaper}
-
-The first goal of record and refinement is to enable consistent
-reproduction of failures in the live system by removing the network as
-a source of non-determinism. From the data recorded during multiple
-executions, we constrain the system to those communication schedules
-that exhibit the failure. For this we use a \emph{traffic
-  shaper}~\cite{IetfShaper}, which, for each node, controls the
-interaction with \io devices and mediates application access to the
-network.
-
-The scheduler has to control all network access by applications. We
-achieve this control by wrapping the runtime's network \ac{api}. All
-data sent or received through that \ac{api} is treated according to
-the recorded schedules. For this, the scheduler buffers each
-event. Once all events that are expected to occur before a buffered
-event have appeared according to the schedule, the buffered event is
-released. In the case of a single-threaded server, any interaction
-with the network is served from the buffer if possible, and only
-executes the wrapped functions if no suitable event is available. The
-scheduler will keep executing the wrapped function and add the result
-to its buffer until a suitable event is available. On a multi-threaded
-server, events are held back using semaphores that are signaled when
-the previous event is released.
-
-Our scheduler has to deal with situations in which no event occurs
-that matches a required schedule. Such situations will cause an
-application to wait for the network and appear to ``hang''. In cases
-where a given schedule cannot be reproduced in the live system, for
-example if a server that appears in the schedule has been taken
-offline, we argue that developers have to be able to inspect the
-scheduler operations to understand the situation. Appropriate
-heuristics such as timeouts or conditions for giving up on a replay
-attempt are developer configurable.
-
-% constrain the communication in the system to failing communication
-% schedules
-% tame non-determinism -> make sporadic failure deterministic
-% shaper: Intermediate layer b/w framework and runtime/system
-% Buffers events until the right event is found
-% releases events in order, as many as are available
-% forces multi-threaded server into buffer by use of semaphores
-% heuristics and additional info for developers (timeouts, unscheduled
-% events, current buffer status)
-
-\subsection{Anomaly Detection}
-\label{sec:anomaly-detection}
-
-To determine whether network races are the culprit of a failure, we
-require developers to write a \emph{diagnosis script}. Such a script
-is similar to a test case:
+bug. We call this test case a \emph{diagnosis script}. The purpose of
+this script is to create \ac{http} traffic that might trigger the
+bug, as in the example below:
 \begin{lstlisting}[%
   basicstyle=\scriptsize,%
   emph={testBugReport001},%
@@ -616,6 +531,63 @@ between successful and failing communication schedules can be used to
 reduce the number of network events that developers need to consider
 during debugging.
 
+The \lstinline{HTTPSocket} class is responsible for handling \ac{http}
+traffic. We have created a Context/S layer for recording that layers
+this class and, for each send and receive, records a process-local
+trace of the network communication, before passing the traffic on.
+Network traces in \toolname include an integer id as Lamport clock,
+the first 500 bytes of the message, as well as \textsc{IP} address,
+\textsc{url}, and port for both sender and receiver for all sent and
+received \ac{http} requests. These are saved in a process-local
+structure and are not sent on the network. The recording layer also
+adds the current Lamport clock ``time'' as an application defined
+\ac{http} header to each outgoing request, and reads it from incoming
+requests. This is \ac{http} specific, and for protocols that do not
+have room for custom data, a more general approach---such as
+prepending magic bytes to the payload---can be used~\cite{Konuru2000}.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.7\textwidth]{screenshots/recording.png}
+  \caption{\toolname integration in PathMap tool}
+  \label{fig:pathmap}
+\end{figure}
+
+Activation of the recording layer is completely transparent to the
+users of \toolname. When they run a test case as a diagnosis script
+through the PathMap tool (\cf{\autoref{fig:pathmap}\textcircled{\small
+    1}}), \toolname asks how often the script should be executed (this
+number has to be chosen from experience, finding a number of
+executions that shows around a dozen failures seems to work well -- so
+for a script that fails 10\% of the time, 100 runs are ok.)
+
+After each recording, \toolname merges the traces from different
+processes into a list, sort events by id, and assigns the result of
+the test case to the trace. This way, each trace consists of a list of
+events that include communication partners and a Lamport clock, as
+well as a test result. Test results are gathered and shown in a banner
+in the \ac{ui} (\autoref{fig:pathmap}\textcircled{\small 2}.)
+
+% constrain the communication in the system to failing communication
+% schedules
+% tame non-determinism -> make sporadic failure deterministic
+% shaper: Intermediate layer b/w framework and runtime/system
+% Buffers events until the right event is found
+% releases events in order, as many as are available
+% forces multi-threaded server into buffer by use of semaphores
+% heuristics and additional info for developers (timeouts, unscheduled
+% events, current buffer status)
+
+\subsection{Anomaly Detection}
+\label{sec:anomaly-detection}
+
+% \begin{figure}
+%   \centering
+%   \includegraphics[width=0.7\linewidth]{diagrams/diff_v3.png}
+%   \caption{Anomaly detection for two schedules}
+%   \label{fig:comm-comparison}
+% \end{figure}
+
 For our anomaly detection, we repeatedly apply the
 \ac{lcs}~\cite{Bischof2008AiA} differencing algorithm to groups of
 communication schedules. First, we determine \acp{lcs} of all
@@ -634,29 +606,38 @@ executions to detect anomalies. Assuming otherwise deterministic
 servers, successful schedules will exhibit fewer anomalies and thus a
 sufficiently large number of failing and successful executions will
 ensure that the anomaly detection can exclude variances that have
-little or no impact on the failure.
-% This needs some validiation and explanation
+little or no impact on the failure. If the servers exhibit other
+non-determinism, additional detection of such is required to discards
+unsuitable executions, \eg if a load balancer is present, the test
+script has to fail if a different server is used
 
-% If the servers exhibit other non-determinism, additional detection
-% of such is required to discards unsuitable executions, \eg if a load
-% balancer is present, the test script has to fail if a different
-% server is used
+\toolname uses the PathFinder tool from the Path Tools suite to
+display anomalies. After data for a test case has been recorded,
+developers can select a test case to open the PathFinder tool. This
+tool shows a call tree for the selected test case and normally allows
+developers to examine the arguments and return values of each method
+in the execution history of a test. \toolname extends PathFinder and
+shows a differencing view above the execution history. This view shows
+the difference between all runs, between the passing runs, and between
+the failures separately. Shown in \autoref{fig:anomalies} is the
+outcome for our example bug: across all (passing and failing) runs,
+the first incoming and outgoing traffic for the topmost communication
+endpoint are identified as problematic. Developers should then begin
+their investigation with the anomalous events or events immediately
+surrounding them.
 
-\begin{figure}
+\begin{figure*}
   \centering
-  \includegraphics[width=0.7\linewidth]{diagrams/diff_v3.png}
-  \caption{Anomaly detection for two schedules}
-  \label{fig:comm-comparison}
-\end{figure}
-
-% assume failures are caused by non-determinism in communication schedule
-% use reproduction in live system for recording
-% what to record?
-% ordering of events is paramount -> human reasoning
-% assume servers are deterministic in themselves -> communication schedule suffices for replay
-% record lamport schedule (reference to previous work)
-% end up with communication schedules that lead to failures (more
-% often -> statistically?)
+  \includegraphics[width=\linewidth]{screenshots/diffing.png}
+  \caption{Highlighted anomalies}
+  \label{fig:anomalies}
+\end{figure*}
+% \begin{figure*}
+%   \centering
+%   \includegraphics[width=\linewidth]{diagrams/prototype_diff.png}
+%   \caption{Highlighted anomalies}
+%   \label{fig:anomalies}
+% \end{figure*}
 
 \subsection{Refinement of Remote Data}
 \label{sec:data-refinement}
@@ -668,36 +649,124 @@ reviewed and understood the high-level dependencies, they need to
 understand how they are expressed at the source code level to fix the
 failure.
 
+\paragraph{Schedule Selection}
+\label{sec:traffic-shaper}
+The first goal of is to enable consistent reproduction of failures in
+the live system by removing the network as a source of
+non-determinism. From the data recorded during multiple executions,
+developers can select one of the failing schedules to constrain the
+system to this particular communication schedule. For this we use
+another Context/S layer that implements a \emph{traffic
+  shaper}~\cite{IetfShaper}, which, for each node, controls the
+interaction with \io devices and mediates application access to the
+network. If the system repeatedly exhibits the failure when it is
+constrained to this communication schedule, non-determinism on the
+network is likely the culprit.
+
+The scheduler controls all network access by applications by wrapping
+Squeak's network \ac{api}. All data sent or received through that
+\ac{api} is treated according to the recorded schedules. For this, the
+scheduler buffers each event. Once all events that are expected to
+occur before a buffered event have appeared according to the schedule,
+the buffered event is released. In the case of a single-threaded
+server, any interaction with the network is served from the buffer if
+possible, and only executes the wrapped functions if no suitable event
+is available. The scheduler will keep executing the wrapped function
+and add the result to its buffer until a suitable event is
+available. On a multi-threaded server, events are held back using
+semaphores that are signaled when the previous event is released.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_2}
+  \caption{Scheduling and Refinement}
+  \label{fig:architecture_2}
+\end{figure}
+
+\autoref{fig:architecture_2} shows that the schedule is selected from
+\toolname, and then the diagnosis script is re-run. The schedule layer
+keeps a thread-safe input and output buffer to re-order network events
+as required. A schedule contains a recorded trace with queries to the
+refinement layer. 
+
+Our scheduler has to deal with situations in which no event occurs
+that matches a required schedule. Such situations will cause an
+application to wait for the network and appear to ``hang''. In cases
+where a given schedule cannot be reproduced in the live system, for
+example if a server that appears in the schedule has been taken
+offline, we argue that developers have to be able to inspect the
+scheduler operations to understand the situation. Appropriate
+heuristics such as timeouts or conditions for giving up on a replay
+attempt are developer configurable.
+
+\paragraph{Call Tree Inspection}
+\label{sec:call-tree-inspection}
 Using our scheduler, developers can inspect specific failing
-communication schedules for further analysis. The scheduler provides
-an interface to add queries to events.  The first time a developer
-re-runs a schedule, \toolname adds a query to record the stack at the
-time each event is released. When this schedule is applied to the live
-system, our scheduler records which methods are active before each
-event is released and returns that data to our debugging tool. A
+communication schedules for further analysis by expanding the anomaly
+detection view. Each differential schedule is the parent node of a
+tree of schedules from which it is the difference. Developers expand
+this tree and select any one of the failing schedules to re-run
+it. For each schedule, labels on the left hand side reports how many
+runs had this particular communication schedule, how many events are
+in this schedule, and which endpoints were encountered in the
+communication.
+
+The first time a developer re-runs a schedule, \toolname adds a layer
+to record the stack at the time each event is released. The process
+that generates that event leverages the reflective capabilities of
+Smalltalk to gather execution data. When a schedule is applied to the
+live system, our scheduler records which methods are active before
+each event is released and returns that data to our debugging tool. A
 developer can then select an event in the communication view, and the
 debugging tool will present a partial call tree that corresponds to
-the selected event (\cf{Section~\ref{sec:data-refinement}}).
+the selected event.
 
 Developers can explore the call tree and request additional
 information about method arguments and return values, as well as
 instance variables of objects. Based on the recorded stack, \toolname
 displays the method source code, if it is available. If developers try
-to inspect, for example, a method argument, our tool attaches a query
-to the scheduler in the live system. The scheduler wraps the
-corresponding method and creates deep copies of its arguments and
-return values during the next re-execution, which are then returned to
-the debugging tool\footnote{For copying objects, we rely on Smalltalk’s 
-\texttt{veryDeepCopy} protocol, which relieves us of the burden of 
-dealing with details of copying. If necessary, this protocol also allows 
-developers to adapt the analyzed object depth to their needs.}. Developers 
-can drill into object references
-analogously.%  \todo{actually hook this up}
+to inspect, for example, a method argument, PathFinder wraps the
+corresponding method on the on local system, and creates deep copies
+of its arguments and return values during the next re-execution, which
+are then returned to the debugging tool\footnote{For copying objects,
+  we rely on Smalltalk’s \texttt{veryDeepCopy} protocol, which
+  relieves us of the burden of dealing with details of copying. If
+  necessary, this protocol also allows developers to adapt the
+  analyzed object depth to their needs.}. In future work, \toolname
+will implement a layer (including distributed activation, just as for
+the trace recording layer) to wrap the methods on remote systems as
+well, and record method arguments and return values on the remote
+system.
 
-This approach is an extension of step-wise runtime
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{screenshots/refine.png}
+  \caption{Refinement events in the network schedule (top) to show the
+    corresponding application methods (bottom)}
+  \label{fig:refinement}
+\end{figure}
+
+In Figure~\ref{fig:refinement} we show the result of a developer
+clicking the event after the two problematic events from
+\autoref{fig:anomalies}. If the source code for the displayed methods
+is available in the image running the debugger, the application method
+closest to the event automatically opens below. The first event
+(\textcircled{\small 1}) is colored in blue, which means it is an
+\emph{incoming} event (probably the answer to the first outgoing
+request.) Here, it is the answer to a request to the
+\lstinline{/overview/} \text of the data warehouse, as we can see from
+the code. Checking the next event, we find that an unrelated endpoint
+sends an update to the data warehouse. Such an update may have
+invalidated the data the test script received in the overview. The bug
+then might be, that the client requests details from an overview that
+has been invalidated by an intermediate update.
+
+To check this hypothesis, developers can then select method arguments
+or receiver instance variables for inspection. This approach is an
+extension of step-wise runtime
 analysis~\cite{Perscheid2010}. Developers can follow the information
-available in the live system until they understand the failure,
-without causing a significant one-time overhead. The overhead of each
+available in the system until they understand the failure, without
+causing a significant one-time overhead. The overhead of each
 exploration step is small, because we only selectively record
 information that developers request.
 
@@ -756,99 +825,12 @@ time-dependent, in which case our approach is not applicable.
 % oh no
 % no recorder => easy to get bad schedule
 
-\section{Implementation}
-\label{sec:implementation}
-
-
-
-\subsection{Anomaly Detection}
-\todo{explain how we iterated over the algorithm -- short feedback
-  loops}
-
-For anomaly detection, \toolname requires developers to write a
-diagnosis script which can be executed to gather communication
-schedules. If the script includes assertions that check for the
-presence of a failure, \toolname automatically compares and highlights
-anomalies of the failures as shown in
-Figure~\ref{fig:anomalies}. Developers can then begin their
-investigation with these anomalous events.
-
-\begin{figure*}
-  \centering
-  \includegraphics[width=\linewidth]{diagrams/prototype_diff.png}
-  \caption{Highlighted anomalies}
-  \label{fig:anomalies}
-\end{figure*}
-
-% \todo{Implementation genauer Beschreiben?}
-
-% record: Squeak/Smalltalk, contextS, wrap framework methods, track
-% sender/receiver/lamportId, some content -> implementable on other
-% runtimes with other COP impls
-
-\subsection{Refinement of Remote Data}
-
-\begin{figure}
-  \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/architecture_2}
-  \caption{Scheduling and Refinement}
-  \label{fig:architecture_2}
-\end{figure}
-
-The scheduler layer, when active, constrains the system to a
-particular communication schedule. Figure~\ref{fig:architecture_2}
-shows that the schedule is selected from \toolname, and then the
-diagnosis script is re-run. The schedule layer keeps a thread-safe
-input and output buffer to re-order network events as required. A
-schedule contains a recorded trace with queries to the refinement
-layer. Developers can inspect an event more closely by selecting it
-graphically, and \toolname will activate the scheduler layers for each
-process with the corresponding schedule and queries. The first time a
-developer selects an event, a query is added to record method
-invocations around it. The process that generates that event leverages
-the reflective capabilities of Smalltalk to gather execution data and
-return it to the \toolname debugger, which combines recorded method
-invocations and visualizes them in a call tree. 
-
-\begin{figure}
-  \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/refinement.png}
-  \caption{Refinement of an event in the network schedule (top) to
-    show the corresponding application method (bottom)}
-  \label{fig:refinement}
-\end{figure}
-
-In Figure~\ref{fig:refinement} we show the result of a developer clicking
-event \textcircled{\small 1}. If the source code for the displayed
-methods is available in the image running the debugger, the
-application method closest to the event automatically
-opens. Developers can then select method arguments or receiver
-instance variables for inspection, which causes other queries to
-execute.
-\todo{screenshot title includes PathFinder - replace with \toolname?}
-
 %\begin{figure}
 %  \centering
 %  \includegraphics[width=0.8\textwidth]{diagrams/ImplementationOverview}
 %  \caption{The Path Tools framework is integrated into the Squeak/Smalltalk development environment and consists of a dynamic analysis framework and the Path tool suite}
 %  \label{fig:pathToolsArchitecture}
 %\end{figure}
-
-
-\todo{maybe compare to eclipse debugger extensions we did in orchideo??}
-
-
-% shaper: contextS, process-global schedule, heuristics preferences
-% (timeouts, drop or delay unscheduled messages), schedule is either
-% active or not, schedule items each include sender/receiver/some
-% content
-
-% data refinement: schedule items include an optional query (only
-% hardwired queries) -> keep stack, keep method arguments ... (uses
-% smalltalk reflection, not sure how to implement in java)
-
-% \section{Evaluation}
-% \label{sec:evaluation}
 
 % In this section, we evaluate our prototype in terms of performance and
 % with a case-study.

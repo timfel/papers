@@ -92,8 +92,9 @@ design are as follows.
   language -- with only one minor extension to allow a question-mark
   as method name -- making it easy for the programmer to write and
   read constraints and object-oriented code.
-\item \langname includes constructs that allow specifying soft as well
-  as hard constraints, and that support incremental solving.
+\item \langname includes meta-level facilities that allow libraries to
+  construct soft as well as hard constraints, and constraints that
+  support incremental solving.
 \end{itemize}
 
 Additional contributions with respect to implementation techniques are
@@ -184,7 +185,7 @@ class Rectangle
   def area
     extent.x * extent.y
   end
-end
+end%*\label{code:rectangle}*)
 \end{code}
 
 Suppose this rectangle encompasses some information that we want to
@@ -240,19 +241,19 @@ However, the above code has a number of problems:
   \autoref{sec:soft-constraints}).
 \end{itemize}
 
-\subsection{Constraint Satisfaction Libraries}
+\subsection{Constraint Solver Libraries}
 
 To address the aforementioned problems, another approach is to use a
 library that provides one or more constraint solvers that allow us to
-express our constraints explicitly. There is a huge range of solvers
+express our constraints explicitly. There is a huge range of libraries
 that can be called directly from the imperative code.  One way of
 classifying them is by the \emph{type domain} of the constraints (for
 example, real numbers or finite domains or arbitrary objects); whether
-the solver can solve constraints in a general way or just select from
-a given set of functions (\eg given $c=a+b$, can it solve for any $a$,
-$b$, or $c$; or can it only find a value for $c$ from the dataflow);
-and whether the solver supports particular features, such as soft and
-hard (required) constraints.
+their solver can solve constraints in a general way or just select
+from a given set of functions (\eg given $c=a+b$, can it solve for any
+$a$, $b$, or $c$; or can it only find a value for $c$ from the
+dataflow); and whether the solver supports particular features, such
+as incremental solving.
 
 A few solvers of particular interest for the programming language
 community are \zthree~\cite{de2008z3}, a state-of-the-art SMT solver
@@ -658,11 +659,10 @@ messages \lstinline{centigrade} and \lstinline{fahrenheit}. These
 methods are just accessors to the corresponding fields.  However,
 constraints can also include methods that perform other
 computations. For example, the rectangle from
-\autoref{sec:background-related-work} exposes its area as a computed
-property via the \lstinline{area} method, and the fact that it is on
-screen is computed in the \lstinline{visible?} predicate. In
-\toolname, we can use these existing Ruby methods class to specify
-constraints:
+\autopageref{code:rectangle} exposes its area as a computed property
+via the \lstinline{area} method, and the fact that it is on screen is
+computed in the \lstinline{visible?} predicate. In \toolname, we can
+use these existing Ruby methods class to specify constraints:
 
 \begin{code}
 rect = Rectangle.new
@@ -772,7 +772,8 @@ sums as intermediate variables.\footnote{The \lstinline{sum} method
   uses \lstinline{inject} (known also as \lstinline{reduce} or
   \lstinline{fold}) instead of, for example, a call to
   \lstinline{each} that repeatedly assigns to a local variable, so
-  that we satisfy \langname's single assignment rule.}
+  that we satisfy \langname's single assignment rule.} Similar
+constructs can be used in representing more complicated structures.
 
 \begin{code}
 class Array
@@ -782,11 +783,10 @@ class Array
 end
 \end{code}
 
-Similar constructs can be used in representing more complicated
-structures.  For example, the Kirchhoff's Law constraint in the
-electrical circuit examples listed in
-\autoref{sec:electrical-circuits} uses \lstinline{inject} to constrain
-the sum of the currents in $n$ connected leads to be 0.
+% For example, the Kirchhoff's Law constraint in the
+% electrical circuit examples listed in
+% \autoref{sec:electrical-circuits} uses \lstinline{inject} to constrain
+% the sum of the currents in $n$ connected leads to be 0.
 
 We ship a simple local propagation solver for constraints on float
 arrays. Constraints on the elements interact correctly with other
@@ -828,8 +828,10 @@ always { a.respond_to?(:theta) }
 
 Identity constraints, in our current implementation, are supported
 with a built-in local propagation solver. They are useful for defining
-circular data structures (for example a circular linked list)
-\cite{lopez-ecoop-1994}.
+data structures (for example a circular linked list) or when modeling
+aspects of the real world \cite{lopez-ecoop-1994}. For example, it is
+clearly different if two train tickets are valid for the \emph{same}
+or an \emph{equal} train.
 
 For \lstinline{a.class} and \lstinline{a.instance_of?}, if
 \lstinline{a} is already bound, the constraint is just a test; if it
@@ -1101,36 +1103,60 @@ available in a given program --- just as they choose other libraries
 appropriate for the application. Solvers register themselves for
 specific types, and are then chosen eagerly based on the run-time type
 of the variables that occur in the constraint, and only one solver can
-be registered for a particular type. The programmer can also specify a
-specific solver when calling \lstinline{always}, by passing the
-desired solver as the first argument. Additional arguments to
-\lstinline{always}, such as priorities or propagation methods, are
-passed to and interpreted by the solver.
+be registered for a particular type. Note that developers must be
+aware that solvers may represent types differently internally. For
+example, \zthree works on reals, but its C \ac{api} represent results
+as double-precision floating point numbers, so rounding errors may
+occur.
 
 In cases where different solvers can handle the same types (for
 example, both \zthree and Cassowary handle constraints on reals), the
 programmer has to decide which solver to use by activating only the
-desired one. In some cases, this choice may simply be a matter of
-preference, however, other restrictions apply. For example, Cassowary
-cannot solve nonlinear equations, the developer has to know about this
-restriction and choose \zthree. For interactive graphical applications
-where preferential constraint are needed, Cassowary has to be used,
-because \zthree does not support soft constraints. Finally, developer
-must be aware that while those two solvers work on reals, their
-implementations represent results as double-precision floating point
-numbers, so rounding errors may occur. \langname leaves the issue of
-choosing the right precision up to the solver.
+desired one. The simplest way to do this is to only include the
+desired library. There is also the option to provide the solver as an
+additional argument to \lstinline{always}. In some cases, this choice
+may simply be a matter of preference, however, other restrictions
+apply. For example, Cassowary cannot solve nonlinear equations, the
+developer has to know about this restriction and choose \zthree:
+\begin{code}
+# non-linear constraint cannot be solved with Cassowary
+always(solver: Z3::Instance) { a ** 2.0 < 16 }
+\end{code}
+
+For opaque data structures (like, for example, an
+\textsc{SDL}\footnote{\url{http://libsdl.org/}} window), the solver
+cannot set properties directly, but has to use the correct \ac{api}
+instead. In that case, a local propagation solver like DeltaBlue must
+be used and, besides a predicate, a list of setter functions must be
+provided. The following constraint will make a rectangle fill the
+\textsc{SDL} window, or the window will be shrunk to fit the
+rectangle.
+\begin{code}
+always(solver: DeltaBlue::Solver::Instance,
+       priority: :high,
+       predicate: {window.extent == rectangle.extent}) {[
+  window.extent <-> { window.set_video_mode(rectangle.extent) },
+  rectangle.extent <-> { rectangle.extent = window.get_video_mode }
+]}
+\end{code}
+
+Additional arguments to \lstinline{always} are passed to and
+interpreted by the solver. In this case, the \lstinline{predicate} and
+\lstinline{priority} arguments are passed to DeltaBlue and not
+interpreted by \langname.
 
 Developers can write constraints that are too difficult to solve, or
 for which no solver exists. In that case, the constraint expression is
-simply evaluated as a test that is repeatedly checked by the runtime
-whenever a variable changes that may change the result of the
-test\todo{reference Eifel?}. If the test fails, an exception is raised
-explaining that no solver for the constraint was available.
+simply evaluated as a test that is checked by the runtime whenever a
+variable changes that may change the result of the test\todo{reference
+  Eifel?}. If the test fails, an exception is raised explaining that
+no solver for the constraint was available.
 
 We are currently working on adding support for cooperating constraint
 solvers, so that several solvers can work together to find a solution
-to the constraints.  See \autoref{sec:cooperating-solvers}.
+to constraints that connect variables from different domains
+\cite{borning-coop-solvers-2012}.
+% .  See \autoref{sec:cooperating-solvers}.
 
 \subsection{Constraint Duration and Activation}
 \label{sec:constraint-durations-and-activation}
@@ -1406,7 +1432,7 @@ takes the name under which the variable is accessed as an argument,
 and should return an object that implements a subset of the interfaces
 that the solver can reason about, as well as the methods
 \lstinline{value} and \lstinline{suggest_value} (as described in
-\cf{\label{sec:constraint-construction-impl}}.)
+\cf{\autoref{sec:constraint-construction-impl}}.)
 
 The Cassowary extends the Float class:
 \begin{code}
@@ -1709,7 +1735,7 @@ constraints.
 % sys         0.005       0.003       0.000       0.004       0.008
 % own         0.008       0.001       0.007       0.008       0.011
 
-\paragraph{Object-oriented Performance}
+\paragraph{Performance of Pure Object-oriented Code}
 
 For imperative code performance, we ran a number of tests from the
 metatracing \acp{vm} experiment~\cite{bolz2013impact} against the

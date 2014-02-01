@@ -1338,9 +1338,11 @@ construction. In this mode, variable values are replaced with their
 associated solver objects in \load instructions. These solver objects
 are created by sending \lstinline{for_constraint} to the current
 variable value. This method should return an object that
-responds to \lstinline{value} and \lstinline{suggest_value} (where
-during execution of the latter it would use a solver to re-satisfy
-constraints).  For values that do not respond to
+responds to \lstinline{value} and \lstinline{suggest_value}. 
+The \lstinline{value} method extracts the value from a solver's
+internal representation, while \lstinline{suggest_value} sends the
+candidate value to a solver and requests that it re-satisfy the 
+constraints.  For values that do not respond to
 \lstinline{for_constraint}, a generic solver object is returned that removes 
 and recalculates all constraints in which it occurs whenever its value
 changes.
@@ -1362,13 +1364,14 @@ enter solver code.
 \paragraph{Constraint Solving}
 This mode is simply a flag that is active whenever code runs in the
 dynamic extent of a method of a \lstinline{ConstraintObject}. It
-prevents nested sends of \lstinline{suggest_value} from causing recursions
-in the solver. This is necessary to support solvers written in
-Ruby. This implies that solvers themselves cannot use constraints in
+prevents nested sends of \lstinline{suggest_value} from causing
+recursive calls to 
+the solver. This is necessary to support solvers written in
+Ruby, but implies that solvers themselves cannot use constraints in
 their implementation.\footnote{If we wanted to support other
   cooperating paradigms in addition to constraint-oriented
-  programming, we would need to extend this to support different
-  execution contexts in a more general way.}
+  programming, we would generalize this technique to support additional
+  execution contexts.}
 
 \subsubsection*{Constraint Construction Example}
 \label{sec:constraint-construction-example}
@@ -1435,13 +1438,13 @@ any side-effects in constraints should be benign, as noted in
 \subsection{Implementing Edit Constraints}
 \label{sec:implementing-edit-constraints}
 Edit constraints are used to support incremental constraint
-satisfaction, and are important to achieve good performance in
+satisfaction, and are important for achieving good performance in
 interactive applications.  The \lstinline{edit} method provided as
 part of \toolname's Cassowary library adds edit constraints and
 repeatedly updates them with values from a stream.
 
 Cassowary as shipped in the \toolname standard library allows the
-variables and stream to hold user-defined objects, not just primitive
+variables and stream to hold user-defined objects as well as primitive
 types. The library uses the \ac{api} of the \lstinline{Constraint}
 class to access the constraint values associated with variable names,
 creates edit constraints for them, and feeds the stream into the
@@ -1451,42 +1454,47 @@ To use Cassowary as the solver, we need edit variables that are Floats
 (\eg the x and y values of a midpoint), but we also want to do this in
 an object-oriented way that respects encapsulation. To support this,
 the client passes an array of method names for the return values that
-should be updated in the edit constraint (\eg lstinline{x} and
+should be updated in the edit constraint (\eg \lstinline{x} and
 \lstinline{y} for a point --- those values may be calculated or direct
 accessors.)  Cassowary creates new edit variables, and adds an
-equality constrained to the return values of the methods. Thus, the
-internal storage layout of the class does not matter, because the
-equality constraint is asserted simply through the \lstinline{always}
-primitive.
+equality constraint to the return values of the methods. Thus, the
+internal storage layout of the class is not visible to the programmer
+from outside the object, because the
+equality constraint is simply asserted on the results of message sends
+using the \lstinline{always} primitive.
 
 In the following example, the mouse locations or the mouse point might
 store their x and y values directly, or might be points represented
 using polar coordinates.  In either case, the edit constraints apply
-to the return values of their respective x and y methods:
+to the return values of their respective \lstinline{x} and \lstinline{y}
+methods:
 \begin{code}
 edit(stream: mouse.locations.each,
      accessor: [:x, :y]) { mouse_point }
 \end{code}
 
 In a DeltaBlue-specific edit method, the edit constraints returned
-could be simpler, \eg the point would be simply updated rather than
+could be simpler, since DeltaBlue local propagation methods can apply
+to user-defined objects such as points, not just to floats.
+The point would be simply updated rather than
 dealing with its x and y coordinates separately, and the data flow
-plan would update the objects related to the mouse point.
+plan would update the objects constrained to be equal to the point
+that represents the mouse location.
 
 \subsection{Adding New Solvers}
 \label{sec:solver-interface}
-During constraint construction, the \ac{vm} sends
-\lstinline{for_constraint} to each variable value encountered during
+During constraint construction, the \ac{vm} sends the
+\lstinline{for_constraint} message to each variable value encountered during
 the execution. User code can add solvers to the system by dynamically
-adding a \lstinline{for_constraint} method to those classes that the
-solver can work with, making use of Ruby's open classes. This method
+adding a \lstinline{for_constraint} method to those classes for which the
+solver is applicable, making use of Ruby's open classes. This method
 takes the name under which the variable is accessed as an argument,
 and should return an object that implements a subset of the interfaces
 that the solver can reason about, as well as the methods
 \lstinline{value} and \lstinline{suggest_value} (as described in
 \cf{\autoref{sec:constraint-construction-impl}}.)
 
-The Cassowary extends the Float class:
+The Cassowary solver extends the Float class:
 \begin{code}
   def for_constraint(name)
     v = Cassowary::Variable.new(name: name, value: self)
@@ -1501,8 +1509,8 @@ object. The \ac{vm} then sends messages to this object instead of the
 Float object in the context of the constraint execution.
 
 In the case of immutable objects (such as floats and integers), the
-\ac{vm} returns the solver determined variable value
-directly. However, for mutable objects, solver libraries can provide
+\ac{vm} directly returns the variable value determined by the solver.
+However, for mutable objects, solver libraries can provide
 the method \lstinline{assign_constraint_value} to update the ordinary
 object. \toolname provides a solver over numeric arrays, which uses
 \lstinline{assign_constraint_value} to update the array contents. In
@@ -1555,9 +1563,9 @@ semantic properties for an object constraint language.
 \label{sec:performance-evaluation}
 
 There are four questions we are interested in regarding performance:
-a) how does constraint solving performance compare to writing
+a) how does constraint solving performance compare with writing
 imperative code to satisfy constraints, b) how does \toolname
-performance compare to other languages, c) how is object-oriented
+performance compare with other languages, c) how is object-oriented
 performance affected by our extensions to the \ac{vm}, and d) how does
 a practical application perform if refactored to use constraints.
 
@@ -1646,7 +1654,7 @@ previously optimal solution.
 \end{table}
 
 \autoref{fig:thermometer-benchmark} shows that the naive
-object-constraint version is usually many hundred times slower than
+object-constraint version is usually many hundreds of times slower than
 the purely imperative solution. Using edit constraints, repeated
 solving of constraints is much faster. Keep in mind that these results
 use a solver that is also written in pure Ruby, which is by itself
@@ -1658,12 +1666,13 @@ Unfortunately, good benchmarks to measure the intended usage of
 languages that integrate constraints with imperative programming are
 difficult to find. Papers for such languages that evaluate performance
 use classical constraint solving problems. For our comparison, we
-selected three such problems: the \emph{Send-More-Money} puzzle
-\cite{dudeney1924send}, a layouting example from the Turtle
+selected three such problems: the \emph{Send-More-Money}
+cryptarithmetic problem
+\cite{dudeney1924send}, a layout example from the Turtle
 distribution (without preferential constraints), and the
-\emph{Animals}\footnote{Spent 100\$ to buy 100 pets. You must buy at
-  least 1 of each pet. Dogs cost 25\$, cats 1\$ and mice
-  0.25\textcent} puzzle. We ran these benchmarks on Turtle, Kaplan,
+\emph{Animals}\footnote{Spent \$100 to buy 100 pets. You must buy at
+  least 1 of each pet. Dogs cost \$25, cats \$1, and mice
+  \$0.25.} puzzle. We ran these benchmarks on Turtle, Kaplan,
 and \toolname as examples of \ac{cip} languages; as well as on
 SWI-Prolog's \textsc{clp} library, to compare the performance of
 constraint-imperative with constraint-logic programming.
@@ -1696,8 +1705,9 @@ Each benchmark was run in a loop to allow the \ac{jit} in Kaplan and
 % \end{table}
 
 \autoref{fig:cip-benchmark} shows that the \ac{cip} languages are
-comparable in performance, but Prolog is a better choice for these
-problems where no imperative features are used. Both \toolname and
+comparable in performance, but Prolog with a constraint satisfaction
+library is a better choice for these
+problems when no imperative features are used. Both \toolname and
 Kaplan use \zthree in these benchmarks, so the difference in
 performance between them is due to the overhead of creating the
 constraints.
@@ -1802,19 +1812,21 @@ unmodified \emph{Topaz} Ruby \ac{vm} and the \emph{JRuby} \ac{vm}.
 
 For purely imperative code, \toolname is consistently less than 1.5
 times slower in these benchmarks than the unmodified \ac{vm}
-(\autoref{fig:metatracing-benchmark}). The only benchmark where we are
-doing significantly worse than Topaz is
+(\autoref{fig:metatracing-benchmark}). The only benchmark for which
+\toolname is significantly worse than Topaz is
 \emph{Binarytrees}. Binarytrees is a strongly recursive benchmark,
-which Topaz' (and thus \toolname's \ac{jit}) is bad at optimizing
-(which is why JRuby does better in this benchmark). The overhead in
+at which Topaz' (and thus \toolname's \ac{jit}) is bad at optimizing
+(which is why JRuby does better for this benchmark). The overhead in
 \toolname is due to an additional test each time a variable is
 accessed, to check whether this variable participates in a
 constraint. An annotation in the \ac{vm}~\cite{bolz2011runtime} allows
 the \ac{jit} to remove this test when there are no constraints on
 variables in the loop. The \ac{jit} consequently removes the check if
 it is not needed, so all the overhead we are seeing in these results
-is in code that has not been jitted. Binarytrees is just especially
-bad here, because very little code is jitted in this benchmark.
+is in code that has not been compiled by the \ac{jit}. 
+Binarytrees is especially bad here, because very little code is 
+compiled by the \ac{jit} for this benchmark.
+\todo{removed references to 'jitted' - OK?}
 
 Considering that JRuby and Topaz are, for these benchmarks, currently
 the fastest Ruby \acp{vm}, we consider \toolname to be very performant
@@ -1833,7 +1845,7 @@ number of variables:
   frame. If it takes longer, the quality should be automatically
   reduced to ensure smooth playback.
 \item[System Load] The overall system load of the encoding system
-  should be less than 80\%, to retain enough resources for other tasks.
+  should be less than 80\%, to retain sufficient resources for other tasks.
 \item[Quality Bounds] Whatever users choose as preferred quality, the
   quality cannot be below 0 or above 100\%.
 \end{description}
@@ -1848,14 +1860,14 @@ spent encoding and streaming video, both versions performed
 equivalently well. Most code was shared between the versions, only the
 code to adjust the quality was replaced with constraints.
 
-Both versions spent on average 43.9ms encoding each frame and sending
-it to the client. Also for both versions, 0.064ms were spent fetching
+Both versions spent on average 43.9 ms encoding each frame and sending
+it to the client. Also for both versions, 0.064 ms were spent fetching
 the current load and reading the preference file. The imperative
-version spent an additional 0.461ms adjusting the quality after each
-frame, whereas the object-constraint version used 2.23ms for that. In
+version spent an additional 0.461 ms adjusting the quality after each
+frame, whereas the object-constraint version used 2.23 ms for that. In
 relation to the frame encoding time, the impact of constraint solving
 was small, and the imperative code managed to encode and play 22.5
-frames per second on average versus 21.6fps for the object-constraint
+frames per second on average versus 21.6 fps for the object-constraint
 code.
 
 % \begin{figure}[h!]
@@ -1909,9 +1921,10 @@ code.
 %% just use capitals
 
 \paragraph{VM Hooks for Customizing Constraint Construction}
-This benchmark also demonstrates how the \ac{vm} hook methods
-\lstinline{for_constraint} and \lstinline{assign_constraint_value} are
-useful not only for solvers, but also when users want to provide a
+This benchmark also demonstrates how the 
+\lstinline{for_constraint} and \lstinline{assign_constraint_value} 
+\ac{vm} hook methods are
+useful not only for solvers, but also when programmers want to provide a
 particular interpretation of certain application domain objects in
 their constraints. We used this express constraints on the contents of
 a preference file and the last execution time of the frame encoding
@@ -1966,7 +1979,7 @@ objects in the type domain of a particular solver.
 
 \subsection{Comparison with other approaches}
 \label{sec:comparison}
-\langname has a number of properties that we think are desirable for
+\langname has a number of properties that we regard as desirable for
 an object-constraint programming
 language. \autoref{tab:cmp-constraint-lang-approaches} shows these
 properties and compares \ac{ocp} to related approaches presented in
@@ -2004,8 +2017,9 @@ semantics. For example, \ac{frp} and \ac{cip} languages use
 respectively to support constraints. Here, propagation hooks are the
 functions connecting variables that are called when one variable
 changes to compute a new value for the downstream variable. Constraint
-constructors are the concept in Kaleidoscope to build higher order
-constraints. In the simplest case these are rewrite rules to convert
+constructors are the concept used in Kaleidoscope to build 
+constraints on user-defined objects. 
+In the simplest case these are rewrite rules to convert
 constraints on complex objects into primitive constraints for a
 solver. In Kaleidoscope, messages in constraint expressions are
 dispatched to constraint constructors using multi-method lookup

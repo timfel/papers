@@ -4,7 +4,7 @@ Constraints and constraint programming occur in a variety of
 application domains within computer science and related fields,
 including graphics, CAD/CAM, planning and operations research,
 artificial intelligence, user interface toolkits, and programming
-languages. A \emph{constraint} in these domains is a relation that
+languages. A \emph{constraint} is a relation that
 should hold, for example: that there be a minimum of 10 pixels
 horizontal space between two buttons on a screen, that a resistor in
 an electrical circuit simulation obey Ohm's Law, that a maximum of 10
@@ -167,27 +167,272 @@ unexpectedly not satisfied~\cite{rinard2005exploring}.
 
 \subsection{Hard and Soft Constraints}
 
-\todo{Alan to write this section}
+As noted in the introduction, in some application domains, it is
+important to support soft as well as hard constraints, that is,
+constraints that should be satisfied if possible and constraints that
+must be satisfied.  In \langname we use the semantics for hard and
+soft constraints presented in reference
+\cite{borning-lisp-symbolic-computation-1992}, which we briefly
+review here.  
 
-\begin{verbatim}
-outline:
-  what is a constraint
-  hard and soft constraints
-  comparators (how to trade off soft constraints when not all of them
-     can be satisfied) 
-  in Babelsberg, whether soft constraints can be accomodated, and
-     which comparator to use, is a property of the solver
-  read-only variables (declarative theory of these)
-\end{verbatim}
+Informally, we consider collections of constraints, each labeled with
+a \emph{priority}.  There is a distinguished priority \emph{required},
+which denotes constraints that must be satisfied in any solution.
+There are an arbitrary number of other priorities for soft
+constraints.  The priorities are totally ordered, with higher-priority
+constraints satisfied in preference to lower-priority ones.  While
+both the theory and the constraint solvers that we use can accommodate
+an arbitrary number of priorities, in practice programmers tend to
+employ only a small number of priorities in stylized ways.  In the
+examples in this section, we will use the priorities
+\lstinline{required}, \lstinline{high}, \lstinline{medium}, and
+\lstinline{low} --- again, though, the theory and solvers can easily
+accommodate other priorities if desired.
+
+For example, consider the following constraints over the reals:
+
+\begin{center}
+\begin{tabular}{rl}
+required &     $x+y=10$ \\
+high     &     $x=8$ \\
+low      &     $x=0$ \\
+low      &     $y=0$
+\end{tabular}
+\end{center}
+
+There is a single solution that best satisfies the constraints, namely
+$\{x \mapsto 8, y \mapsto 2\}$, since this satisfies both the required
+and high-priority constraints (and no other solution does so).
+
+Soft constraints can have an associated \emph{error function} that
+returns 0 iff the constraint is satisfied.  A simple error function
+just returns 0 if the constraint is satisfied, and 1 if it is not; but
+for reals, we often use a \emph{metric} function whose value increases
+smoothly the further the variable's value is from the desired one.
+For example, the metric error for a constraint $x=y$ is simply
+$|x-y|$, while the error for $x \leq y$ is $x-y$ if $x$ is greater
+than $y$, and otherwise 0.  For example, consider the following
+constraints:
+
+\begin{center}
+\begin{tabular}{rl}
+required &  $10 \leq x \leq 20$ \\
+high     &  $15 \leq x$ \\
+low      &  $x=5$
+\end{tabular}
+\end{center}
+
+Using a metric error function, the solution is $\{x \mapsto 15\}$,
+since this completely satisfies the required and high-priority
+constraints, and minimizes the error for the low-priority one.
+
+We might have two constraints with the same priority that cannot be
+satisfied simultaneously:
+
+\begin{center}
+\begin{tabular}{rl}
+required &     $x+y=10$ \\
+medium   &     $x=0$ \\
+medium   &     $y=0$
+\end{tabular}
+\end{center}
+
+Reference \cite{borning-lisp-symbolic-computation-1992} describes a
+number of different \emph{comparators} for specifying the desired
+solution.  Two comparators of particular interest here are
+\emph{locally-predicate-better} and \emph{weighted-sum-better}.
+Locally-predicate-better finds a Pareto-optimal solution, that is, a
+solution such that any other solution would cause a
+currently-satisfied constraint with priority $p$ to be unsatisfied,
+and further, that no higher-priority constraints would become
+satisfied.  Weighted-sum-better finds solutions that minimize the
+weighted sum of the errors for the highest-priority constraints; if
+there are multiple solutions considering just the required and
+highest-priority constraints, we consider the next highest priority,
+and so on.  In the above example, there are two
+locally-predicate-better solutions, $\{x \mapsto 0, y \mapsto 10\}$
+and $\{x \mapsto 10, y \mapsto 0\}$.  If the weights on the two
+medium-priority constraints are the same, there are an infinite number
+of weighted-sum-better solutions, namely all $x \in [0,10], y \in
+[0,10]$ such that $x+y=10$.  However, if we make the weight on say the
+$x=0$ slightly higher, we get a single solution, namely $\{x \mapsto
+0, y \mapsto 10\}$.
+
+In \langname, we are interested in solvers that find \emph{a} solution
+to a collection of constraints, so if there are multiple solutions,
+the solver is permitted to select one arbitrarily.  (This is in
+contrast to logic programming and constraint logic programming
+languages, in which we want all solutions, perhaps found by
+backtracking.)
+
+Formally, a constraint is a relation over some domain $\cal D$\@.  The
+domain $\cal D$ determines the constraint predicate symbols $\Pi_{\cal
+  D}$ of the language, so that a constraint is an expression of the
+form $p(t_{1} , \ldots , t_{n} )$ where $p$ is an $n$-ary symbol in
+$\Pi_{\cal D}$ and each $t_{i}$ is a term.
+
+A \emph{labeled constraint} is a constraint labeled with a priority,
+written \mbox{$p c$}, where $p$ is a priority and $c$ is a constraint.
+For clarity in writing labeled constraints, we give symbolic names to
+the different priorities.  We then map each of these names onto the
+integers $0 \ldots n$, where $n$ is the number of non-required
+priorities.  Priority 0, with the symbolic name \lstinline{required}, is
+always reserved for required constraints.
+
+Constraint a multiset $H$ of labeled constraints.  Let $H_0$ denotes
+the required constraints in $H\!$, with their labels removed.  In the
+same way, we define the sets $H_1, H_2, \ldots, H_n$ for levels $1, 2,
+\ldots, n$.  We also define $H_k = \emptyset$ for $k>n$.
+
+A \emph{solution} to a set of labeled constraints $H$ is a valuation
+for the free variables in $H\!$, i.e., a function that maps the free variables
+in $H$ to elements in the domain $\cal D$.  We wish to define the set $S$
+of all solutions to $H\!$.  Clearly, each valuation in $S$ must be such that,
+after it is applied, all the required constraints hold.  In addition, we desire
+each valuation in $S$ to be such that it satisfies the non-required
+constraints as well as possible, respecting their relative strengths.  To
+formalize this desire, we first define the set $S_{0}$ of valuations such
+that all the $H_{0}$ constraints hold.  Then, using $S_{0}$, we define the
+desired set $S$ by eliminating all potential valuations that are worse than
+some other potential valuation using the comparator predicate \emph{better}.
+(In the definition, $c \theta$ denotes the boolean result of applying the
+valuation $\theta$ to $c$, and we say that ``$c \theta$ holds'' if $c
+\theta = \mbox{\bf true}$.)
+\begin{eqnarray*}
+S_{0} & = &
+  \left\{ \theta \mid \forall c \in H_{0} \; c \theta \mbox{ holds} \right\} \\
+S & = & 
+  \left\{ \theta \mid \theta \in S_{0} \wedge
+       \forall \sigma \in S_{0} \; \neg \mbox{\em better\/}(\sigma, \theta,H)
+       \right\}
+\end{eqnarray*}
+
+We now define the locally-predicate-better and weighted-sum-better
+comparators.  As also noted above, we use an error function $e(c
+\theta)$ that returns a non-negative real number indicating how nearly
+constraint $c$ is satisfied for a valuation $\theta$.  This function
+must have the property that $e(c \theta) = 0$ if and only if $c
+\theta$ holds.  For any domain $\cal D$, we can use the trivial error
+function that returns 0 if the constraint is satisfied and 1 if it is
+not.  A comparator that uses this error function is a \emph{predicate}
+comparator.  For a domain that is a metric space, we can use its
+metric in computing the error instead of the trivial error function.
+Such a comparator is a \emph{metric} comparator.
+
+The first of the comparators, \emph{locally-better}, considers each
+constraint in $H$ individually to find Pareto-optimal solutions.
+
+{\bf Definition.}  A valuation $\theta$ is \emph{locally-better} than
+another valuation $\sigma$ if, for each of the constraints through some
+level $k-1$, the error after applying $\theta$ is equal to that after
+applying $\sigma$, and at level $k$ the error is strictly less for at least
+one constraint and less than or equal for all the rest.
+\begin{eqnarray*}
+\lefteqn{\mbox{\em locally-better\/} (\theta,\sigma,H) \equiv } \\
+  &  \lefteqn{\exists k>0 \mbox{\rm \ \ such that}} \\
+  & & \forall i \in 1 \ldots k-1 \; \forall p \in H_i \;\;
+          e(p \theta) = e(p \sigma) \\
+  & & \wedge \;\; \exists q \in H_k \;\; e(q \theta) < e(q \sigma)  \\
+  & & \wedge \;\; \forall r \in H_k \;\; e(r \theta) \leq e(r \sigma)
+\end{eqnarray*}
+
+\emph{Locally-predicate-better} is then \emph{locally-better} using
+the trivial error function that returns 0 if the constraint is
+satisfied and 1 if it is not.
+
+Next, we define a schema \emph{globally-better} for global comparators.
+The schema is parameterized by a function $g$ that combines the errors
+of all the constraints $H_i$ at a given level.
+
+{\bf Definition.}  A valuation $\theta$ is \emph{globally-better} than
+another valuation $\sigma$ if, for each level through some level $k-1$, the
+combined errors of the constraints after applying $\theta$ is
+equal to that after applying $\sigma$, and at level $k$ it is strictly less.
+\begin{eqnarray*}
+\lefteqn{\mbox{\em globally-better\/}(\theta,\sigma,H,g) \equiv } \\
+  & \lefteqn{\exists k > 0 \mbox{\rm \ \ such that}} \\
+  & & \forall i \in 1 \ldots k-1 \;\;
+      g(\theta,H_i) = g(\sigma,H_i) \\
+  & & \wedge \;\; g(\theta,H_k) < g(\sigma,H_k)
+\end{eqnarray*}
+
+Using \emph{globally-better}, we now define \emph{weighted-sum-better}
+by selecting a particular combining function $g$.  The weight for
+constraint $p$ is denoted by $w_p$.  Each weight is a positive real
+number.
+
+\begin{eqnarray*}
+\mbox{\em weighted-sum-better\/}(\theta,\sigma,H)  & \equiv &
+  \mbox{\em globally-better\/}(\theta,\sigma,H,g)  \\
+  \mbox{\rm where\ \ } g(\tau,H_i) & \equiv & 
+	\sum_{p \in H_i} w_p e(p \tau) \\
+\end{eqnarray*}
+
+Different constraint solvers find solutions for different comparators.
+In our work to date, the two solvers we use that accommodate soft
+constraints are DeltaBlue, which finds locally-predicate-better
+solutions, and Cassowary, which finds weighted-sum-better solutions.
+(When there are infinitely many solutions, as in the above example
+with the two medium constraints $x=0$ and $y=0$, Cassowary has the
+additional property that it finds solutions that ``tilt'' toward one
+constraint or the other, so that it would either the solution
+$x=0$, $y=10$ or else $x=10$, $y=0$ --- but not for example $x=3.6$
+and $y=6.4$, even though that is also a weighted-sum-better solution.)
+
+In \langname, the comparator to be used is thus named by the choice of
+constraint solver.
+
+Orthogonal to the notion of hard and soft constraints, a variable in a
+particular constraint can be annotated as \emph{read-only}.
+Intuitively, when choosing the best solutions to a constraint
+hierarchy, constraints should not be allowed to affect the choice of
+values for their read-only variables, \ie information can flow out of
+the read-only variables, but not into them.  (Alternatively we can say
+that constraints are only allowed to affect the choice of values for
+their unannotated variables.)  However, we still want the constraints
+to be satisfied if possible (respecting their strengths).  In
+particular, required constraints must be satisfied, even if they
+contain read-only annotations.  Reference
+\cite{borning-lisp-symbolic-computation-1992} presents a formal,
+declarative specification of read-only annotations, adapted from
+formalizations of read-only annotations in committed-choice logic
+languages \cite{maher-iclp-1987}, but the above intuitive
+description is sufficient for the current purpose.
+
+A \emph{one-way constraint}, as used in many existing systems,
+including the ubiquitous spreadsheet, can be represented by annotating
+all but one of the constrained variables as read-only.
 
 \subsection{Support for State Change and Incrementality}
 
-\todo{Alan to write this section}
-\begin{verbatim}
-outline:
-  stay constraints
-  edit constraints
-\end{verbatim}
+When used in interactive graphical applications, as well as in other
+systems involving change over time, it is important to provide the
+constraint equivalent of ``frame axioms'' that specify that parts
+retain their old values as the system changes; without such
+constraints, we would often get counter-intuitive behavior, such as a
+constrained figure collapsing to a point.  \emph{Stay constraints}
+provide such a mechanism.  As far as the theory of hard and soft
+constraints is concerned, a stay constraint is simply an equality
+constraint $v=c$ for variable $v$ and constant $c$, typically with a
+low priority.  Operationally, $c$ will be the value of $v$ at the
+previous time step.
+
+To support incrementality, we also introduce the notion of an
+\emph{edit constraint}.  Formally, this again is simply an equality
+constraint $v=c$ for variable $v$ and constraint $c$.  Operationally,
+it is used to model rapidly changing an input value, for example in
+response to the cursor position (where in this case $v$ and $c$ would
+both hold points: $v$ would be a point in a diagram being moved, and
+$c$ would be the cursor postion).  Edit constraints typically have a
+high (but not required) priority --- the system will attempt to
+accommodate the edit action, but may be prevented from doing so, for
+example if a figure would leave the allowed display rectangle as a
+result of attempting to move it too far.
+
+Both DeltaBlue and Cassowary treat stay and edit constraints
+specially, allowing very fast incremental re-satisfaction of a
+collection of constraints as new edit values stream into the system
+(and the weak stay constraints provide basic stability).
 
 \section{Related Work}
 \label{sec:related-word}

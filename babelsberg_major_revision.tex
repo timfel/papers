@@ -166,6 +166,7 @@ typically write assertions to fail early if these constraints are
 unexpectedly not satisfied~\cite{rinard2005exploring}.
 
 \subsection{Hard and Soft Constraints}
+\label{sec:soft-constraint-theory}
 
 As noted in the introduction, in some application domains, it is
 important to support soft as well as hard constraints, that is,
@@ -404,6 +405,7 @@ including the ubiquitous spreadsheet, can be represented by annotating
 all but one of the constrained variables as read-only.
 
 \subsection{Support for State Change and Incrementality}
+\label{sec:state-change}
 
 When used in interactive graphical applications, as well as in other
 systems involving change over time, it is important to provide the
@@ -432,7 +434,12 @@ result of attempting to move it too far.
 Both DeltaBlue and Cassowary treat stay and edit constraints
 specially, allowing very fast incremental re-satisfaction of a
 collection of constraints as new edit values stream into the system
-(and the weak stay constraints provide basic stability).
+(and the weak stay constraints provide basic stability). Edit
+constraints prepare the internal data structures of the solver for
+fast resolving when specific variables change. For DeltaBlue, this
+involves pre-calculating the execution plan from the edit variables.
+For Cassowary, the Simplex tableau is set up so that it can be
+efficiently re-optimized given new values for the edit variables.
 
 \section{Related Work}
 \label{sec:related-word}
@@ -502,9 +509,8 @@ However, the above code has a number of problems:
   the minimum area constraint.)  Without a declarative specification,
   it is nontrivial to decide whether this code will find the optimal
   solution. In the presence of competing soft constraints, \ie
-  multiobjective optimizations, finding a solution becomes even harder.
-  (These concepts are discussed in more detail in
-  \autoref{sec:soft-constraints}.)
+  multiobjective optimizations, finding a solution becomes even harder
+  (as discussed in \autoref{sec:soft-constraint-theory}.)
 \end{itemize}
 
 \subsection{Constraint Solver Libraries}
@@ -976,12 +982,10 @@ be moved back to keep the rectangle visible.\footnote{There are
   \lstinline{rect.visible?} constraint; here the system will move the
   origin as little as possible from the assigned location but so that
   the constraint is satisfied.  The same holds for the area
-  constraint.  This behavior is a result of soft ``stay'' constraints
-  that specify that, if it is necessary to change the value of a
-  variable to satisfy other constraints, it should be changed as
-  little as possible.  These are left implicit in this example, but
-  can also be stated explicitly if desired.  See Section
-  \ref{sec:soft-constraints}.}
+  constraint.  This behavior is a result of soft ``stay''
+  constraints. These are left implicit in this example, but can also
+  be stated explicitly if desired.  See Section
+  \ref{sec:soft-constraint-theory}.}
 
 By placing the constraint on the result of sending messages rather
 than on fields, the system also respects object encapsulation.  The
@@ -1156,24 +1160,12 @@ their equivalent are just constraints.
 
 \subsubsection{Soft Constraints}
 \label{sec:soft-constraints}
-The concept of a constraint has been extended with \emph{soft} or
-\emph{preferential} constraints.  In some formalizations, soft
-constraints can have different priorities, with the higher-priority
-constraints satisfied in preference to lower-priority ones
-\cite{borning-lisp-symbolic-computation-1992}.  A number of constraint
-solvers, including Cassowary and DeltaBlue, support such soft
-constraints with multiple priorities.  Although not required for the
-integration in \langname, soft constraints are useful, for example, in
-interactive graphical applications to represent a requirement that two
-icons be separated by a minimum of 10 pixels (a required constraint)
-and the desire that they be 50 pixels apart if possible (a soft
-constraint).
-\todo{Tim: a reviewer noted that only an example is not enough, and a
-  proposed a general explanation with over/underconstrained
-  systems. do you think the above is enough?}
-\todo{Alan: we should write more here - I'll put something in}
-As an example, a soft constraint $a+b=c$, with priority
-\lstinline{high}, would be written in \toolname as
+As noted in \autoref{sec:soft-constraints-theory}, soft constraints
+are useful, for example, in interactive graphical
+applications. Although not generally required for \ac{cip} languages,
+most support soft constraints. As an example, a soft constraint
+$a+b=c$, with priority \lstinline{high}, would be written in \toolname
+as
 \begin{code}
 always(priority: :high) {a+b==c}
 \end{code}
@@ -1181,11 +1173,10 @@ always(priority: :high) {a+b==c}
 In \langname, whether soft constraints can be accommodated, the
 different priorities available for soft constraints, and how soft
 constraints are traded off are all considered properties of the
-solver.  (Only some constraint solvers support soft constraints, and
-different solvers have different ways of trading off constraints in
-the event that not all constraints with a given priority can be
-satisfied.)  In our current implementation, we provide the symbolic
-priorities \lstinline{low}, \lstinline{medium}, \lstinline{high}, and
+solver. Solvers that cannot accommodate constraint priorities should
+throw an exception when passed a priority. In our current
+implementation, we provide a mapping of the symbolic priorities
+\lstinline{low}, \lstinline{medium}, \lstinline{high}, and
 \lstinline{required}, for the Cassowary and DeltaBlue solvers.  (Our
 initial experience with \toolname, and considerable prior experience
 with Cassowary and DeltaBlue, imply that only a small number of
@@ -1260,21 +1251,16 @@ assignment is undone, and an exception is raised.
 
 \subsubsection{Stay Constraints}
 In imperative languages, programmers expect their variables to retain
-their values, unless some assignment operation changes them. A central
-issue when combining constraints with imperative programming is to
-specify how constraints interact with state change, and to express the
-desire that parts of a system should remain the same unless there is
-some reason they should change (for example to satisfy some higher
-priority constraints).
-
-For example, in interactive graphical applications, when moving one
-part of a constrained figure, the user generally expects other parts
-to remain where they are unless there is some reason for them to
-change to satisfy the constraints.  A desire that something remain the
-same if possible is represented as a \emph{stay constraint}, which may
-have an associated priority.  For example, this stay constraint says
-that we prefer that x keep its value, if possible, when satisfying
-other constraints:
+their values, unless some assignment operation changes them.
+\autoref{sec:state-change} describes how constraints interact with
+state change. For example, in interactive graphical applications, when
+moving one part of a constrained figure, the user generally expects
+other parts to remain where they are unless there is some reason for
+them to change to satisfy the constraints.  A desire that something
+remain the same if possible is represented as a \emph{stay
+  constraint}, which may have an associated priority.  For example,
+this stay constraint says that we prefer that x keep its value, if
+possible, when satisfying other constraints:
 
 \begin{code}
 always { x.stay(:low) }
@@ -1334,32 +1320,24 @@ Some applications involve repeatedly re-satisfying the same set of
 constraints with differing input values.  A common case is an
 interactive graphical application with a constrained figure, where we
 move some part of the figure with the mouse.  For such applications,
-it is important to re-solve the constraints efficiently, and a number
-of constraint solvers support this using so-called \emph{edit
-  constraints} that allow a new value for a variable to be repeatedly
-input to the solver.
+it is important to re-solve the constraints
+efficiently. \autoref{sec:state-change} introduced \emph{edit
+  constraints}, which prepare the internal state of a solver for rapid
+re-satisfaction. For \langname, this means that only one edit can be
+active for a given solver. To assign new values to variables other
+than those that are being edited, the edit constraint has to be
+removed and a new one including all the variables that are expected to
+change has to be created.
 
-Edit constraints prepare the internal data structures of the solver
-for fast resolving when specific variables change. For a local
-propagation solver, this involved pre-calculating the execution plan 
-from the edit variables.  For Cassowary, the Simplex
-tableau is set up so that it can be efficiently re-optimized given new values
-for the edit variables.  For
-\langname, this means that only one edit can be active for a given
-solver. To assign new values to variables other than those that are
-being edited, the edit constraint has to be removed and a new one
-including all the variables that are expected to change has to be
-created.
-
-To support edit constraints in \toolname, an \lstinline{edit}
-method is provided as part of the Cassowary solver library.
-The library uses the
-meta-level \ac{api} of the \lstinline{Constraint} class to query which
-variables participate in a constraint, creates edit constraints for
-them, and feeds the stream into the resulting edit variables.  Other
-libraries with support for incremental resolving can provide similar
-methods. Users thus can take advantage of incremental solvers when
-available to re-satisfy constraints very quickly.
+In \toolname, edit constraints must used explicitly with a particular
+solver. An \lstinline{edit} method is provided as part of the
+Cassowary library.  This method uses the meta-level \ac{api} of the
+\lstinline{Constraint} class to query which variables participate in a
+constraint, creates edit constraints for them, and feeds the stream
+into the resulting edit variables.  Other libraries with support for
+incremental resolving can provide similar methods. Users thus can take
+advantage of incremental solvers when available to re-satisfy
+constraints very quickly.
 
 The provided \lstinline{edit} method takes a variable to be edited, a
 stream (an object that responds to \lstinline{next}) that provides the
@@ -2095,7 +2073,6 @@ it is not needed, so all the overhead we are seeing in these results
 is in code that has not been compiled by the \ac{jit}. 
 Binarytrees is especially bad here, because very little code is 
 compiled by the \ac{jit} for this benchmark.
-\todo{removed references to 'jitted' - OK?}
 
 Considering that JRuby and Topaz are, for these benchmarks, currently
 the fastest Ruby \acp{vm}, we consider \toolname to be very performant
@@ -2353,7 +2330,6 @@ implementation approach in \toolname uses different execution contexts
 for constraint construction/solving and imperative code. Combined with
 a state of the art \ac{jit}, this gives performance for pure \ac{oo}
 code that is generally comparable to that of a standard \ac{oo} \ac{vm}.
-\todo{cut ``as used for other approaches'' - ok?}
 
 \section{Conclusion and Future Work}
 \label{sec:conclusion}

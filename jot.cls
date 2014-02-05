@@ -128,11 +128,13 @@
 \newcounter{jot@numauthors}\setcounter{jot@numauthors}{0}
 \newcounter{jot@numaffiliations}\setcounter{jot@numaffiliations}{0}
 \newtoks\jot@tmp@aff
+\newtoks\jot@tmp@afftwo
 \newtoks\jot@tmp@pic
 
 % parsing the key/val argument of \author
 \newif\ifjot@authorbio@nowrap
 \define@key{jot@author@keys}{affiliation}[\@empty]{\jot@tmp@aff\expandafter{#1}}
+\define@key{jot@author@keys}{affiliationtwo}[\@empty]{\jot@tmp@afftwo\expandafter{#1}}
 \define@key{jot@author@keys}{photo}[\@empty]{\jot@tmp@pic\expandafter{#1}}
 \define@key{jot@author@keys}{nowrap}[true]{\csname jot@authorbio@nowrap#1\endcsname}
 
@@ -146,7 +148,7 @@
         \g@addto@macro\jot@runningauthor{\running@and}%
     \fi
     \g@addto@macro\jot@runningauthor{#2}%
-    \jot@tmp@aff{\@empty}\jot@tmp@pic{\@empty}%
+    \jot@tmp@aff{\@empty}\jot@tmp@afftwo{\@empty}\jot@tmp@pic{\@empty}%
     \jot@authorbio@nowrapfalse
     \setkeys{jot@author@keys}{#1}%
     \ifx\the\jot@tmp@aff\@empty \ClassWarning{jot.cls}{No affiliation given for #2}\fi
@@ -156,6 +158,7 @@
     \expandafter\jot@addto@authors\expandafter{\expandafter{\jot@tmp@id}}%
     \jot@addto@authors{{#2}}%
     \expandafter\jot@addto@authors\expandafter{\expandafter{\the\jot@tmp@aff}}%
+    \expandafter\jot@addto@authors\expandafter{\expandafter{\the\jot@tmp@afftwo}}%
     \jot@addto@authors{{#3}}
     \ifjot@authorbio@nowrap
         \jot@addto@authorbios{\jot@format@shortauthorbio}%
@@ -329,14 +332,15 @@
 \def\running@and{, }
 
 \newcommand\jot@name@author[4]{#2}
-\newcommand\jot@format@author[4]{% id, name, affiliations, bio
+\newcommand\jot@format@author[5]{% id, name, affiliation, affiliationtwo, bio
     \ifx #4\relax % meh, {} is not \@empty ??
         \relax #2%
     \else
         \hyperlink{jot:authorbio:#1}{#2}%
     \fi
     % list of footnote-like links to affiliations
-    \ifx#3\@empty\else\rlap{\setkeys{jot@affiliation@keys}{#3}}\fi}
+    \ifx#3\@empty\else\rlap{\hskip0.1ex\setkeys{jot@affiliation@keys}{#3}}\fi
+    \ifx#4\@empty\else\rlap{\hskip1ex\raisebox{0.4em}{\footnotesize ,}\hskip0.2ex\setkeys{jot@affiliation@keys}{#4}}\fi}
 
 \newcommand\jot@ref@affiliation[1]{%
     \hyperlink{jot:affiliation:#1}{\strut\textsuperscript{\csname jot@affiliationnum@#1\endcsname}}}

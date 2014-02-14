@@ -1,0 +1,493 @@
+\documentclass{article}
+\setlength{\topmargin}{-0.25 in}
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{8.5 in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\parindent}{0.0in}
+\setlength{\parskip}{7pt plus 1pt}
+
+\begin{document}
+
+\title{A Formal Semantics for Babelsberg}
+\author{Todd Millstein and Alan Borning and \ldots}
+\date{\today}
+
+\maketitle
+
+\section{Introduction}
+
+\emph{This draft is intended to evolve into a VPRI Memo.}
+
+Babelsberg \cite{felgentreff-babelsberg-tr} is a family of object
+constraint languages, with current instances being Babelsberg/R (a
+Ruby extension), and Babelsberg/JS (a Javascript extension).  There
+have been a number of confusing issues with respect to constraints and
+object identity.  In an effort to understand these better, we are
+constructing a formal operational semantics for Babelsberg.  The
+results to date are promising, and we hope they will feed back into
+the language design and implementation.
+
+We approach this problem incrementally, first presenting a formal semantics
+for a very simple constraint imperative language, and then building up
+to a full object constraint language.  The languages are:
+
+\begin{itemize}
+
+\item Babelsberg/Int (the only datatype is integers)
+\item Babelsberg/Records (Babelsberg with integers, booleans, and 
+immutable records)
+\item Babelsberg/MRecords (Babelsberg with integers, booleans, and 
+mutable records)
+\item Babelsberg/UID (Babelsberg with integers, booleans, and
+  mutable records that live on the heap and so have an identity, can
+  be aliased, etc.)
+\item Babelsberg/Objects (Babelsberg with mutable objects, classes,
+  methods, messages, and inheritance)
+\end{itemize}
+
+In each case, we first provide an informal discussion and examples,
+and then the formal semantics.
+
+We've found it helpful to approach the problem incrementally in
+this fashion.  After the ideas have been refined, we plan to write a
+paper for a conference or journal.  (This might only include a formal
+semantics for Babelsberg/Objects, depending on whether it easily
+stands on its own.)
+
+\section{Constraints}
+
+The semantics for each of these languages includes a step in which we
+assert that some set of values for variables is a correct solution to
+a collection of hard and soft constraints.  There is a constraint
+solver that is a black box as far as the rest of the formal semantics
+is concerned, and which handles all the issues regarding finding a
+solution, dealing with conflicting soft constraints, and so forth.
+
+We use the semantics for hard and soft constraints presented in
+\cite{borning-lisp-symbolic-computation-1992}.  The JOT paper on
+Babelsberg \cite{felgentreff-babelsberg-tr} that is currently under
+review has a description of the relevant theory as well.
+
+We always find a single best solution --- if there are multiple
+solutions, the solver is free to pick any one of them.  (Providing
+answers rather than solutions, and backtracking among multiple
+answers, as with constraint logic programming, is left for future work.)
+
+The way we trade off conflicting soft constraints is defined by a
+\emph{comparator}.  The two most relevant comparators are
+locally-predicate-better (LPB) and weighted-sum-better (WSB)\@.
+Locally-predicate-better only cares whether a constraint is satisfied
+or not (not how far off the value is from the desired one).  Any
+Pareto-optimal solution is OK -- for example, a solution that
+satisfies one weak constraint and violates three weak constraints is
+OK, as is the solution that satisfies the three weak constraints and
+violates one.  The DeltaBlue solver finds a LPB solution.
+Weighted-sum-better considers the weighted sum of the errors of
+constraints with a given soft priority, and picks a solution that
+minimizes the sum.  If there is more than one solution and there are
+additional lower priority constraints, we then consider the
+lower-priority ones to winnow down the possible solutions, priority by
+priority.  For this comparator we need an error in satisfying a
+constraint, which should be 0 iff the constraint is satisfied.
+Cassowary finds WSB solutions.
+
+Note that strict inequality constraints with metric comparators can be
+problematic in the presence of soft constraints, since they can lead
+to no solutions.  Consider:
+\begin{verbatim}
+required x>10
+weak x=5
+\end{verbatim}
+This set of constraints has no solution --- for any potential solution
+that satisfies \verb|x>10|, we can find another that better satisfies
+\verb|x=5|.  For this reason, our examples usually use non-strict
+inequalities. 
+
+In all of the languages, the constraint solver satisfies the
+constraints at each time step, but does not itself need to know about
+time.  Instead, time is built into the semantic rules, and as far as
+the solver is concerned is handled at each step by adding weak stay
+constraints that variables keep their old values.
+
+So to summarize, the formal semantics handles time, while the solver
+handles solving the constraints and dealing with hard and soft
+constraints.
+
+\section{Babelsberg/Int}
+
+In this language, we only have one datatype: integers.  There is an
+\emph{environment} that maps names to integer values.
+
+Here is an example.
+
+\begin{verbatim}
+x := 3;
+x := 4;
+always x>=10;
+\end{verbatim}
+
+After evaluating the first statement the environment has the binding
+$x=3$.  After the second statement we hand the following constraints
+to the solver to find a new value for $x$:
+\begin{verbatim}
+weak x=3 
+required x=4
+\end{verbatim}
+
+The weak $x=3$ constraint is the stay constraint that $x$ retain its
+previous value, while the required $x=4$ constraint comes from the
+second assignment.  This has the solution $x=4$, which becomes the new
+environment.  After the third statement, which adds the always
+constraint, we have the constraints:
+\begin{verbatim}
+weak x=4
+required x>=10
+\end{verbatim}
+
+If we use a metric comparator such as weighted-sum-better (WSB) we get
+the solution $x=10$, since this minimizes the error for the weak
+constraint.  If we use LPB, then any $x \in [10,\inf)$ is a solution,
+  and the system is free to select any of them.
+
+\section{Babelsberg/Records}
+
+For this next language, we augment the Babelsberg/Int language with
+booleans and immutable records.
+
+Records are represented as lists of name/value pairs in curly braces:
+\begin{verbatim}
+  {x:5, y:10}
+\end{verbatim}
+
+The fields can be either integers or other records, which of course
+lets us make lists, trees, etc.  For example here is the list [1,2,3]:
+
+\begin{verbatim}
+  {head: 1, tail: {head: 2, tail: {head: 3, tail: {}}}}
+\end{verbatim}
+
+There is no notion of object identity Babelsberg/Records --- we can
+test whether two records are equal, but whether or not they are
+identical is an implementation issue and not part of the semantics.
+
+The syntax is extended to include record constructors and field
+access.  Here are examples of expressions, assignment statements, and
+constraints involving records:
+
+\begin{verbatim}
+ p := {x:2, y:5};   /* assign a record to p */
+ a := p.x;          /* access a field of a record and assign it to a variable */
+ q := p;            /* q is now a copy of p (or maybe it's shared; we can't tell
+                       the difference) */
+ always p.x = 100;  /* a constraint on a record field */
+ always r = p;      /* an equality constraint between two records */
+\end{verbatim}
+
+There is no static type checking - checking is all done dynamically.
+Our model includes structural compatibility checks on constraints.
+These allow us to desugar all of the record constraints (recursively)
+into constraints on the individual components.  Thus, the solver does
+not need to know anything about records.  (The alternative of having
+the solver know about records was rejected, since it is more complex
+and seems to lead to some odd cases.)
+
+The structural compatibility checks are assertions that are checked
+before doing desugaring records that check whether a variable holds a
+record, and whether the record has the necessary fields.  These
+assertions are checked, but the system doesn't change anything to
+enforce them --- instead, if they are violated it's just an error.
+
+Here are a few examples.
+
+\begin{verbatim}
+ p := {x:2, y:5};
+ always p.x = 100;
+\end{verbatim}
+After the always constraint, \verb|p| is \verb|{x:100, y:5}|.  As
+noted above, we desugar the record constraints, so that the
+constraints after the always are:
+\begin{verbatim}
+ weak px=2
+ weak py=5
+ required px = 100
+\end{verbatim}
+These constraints have the solution \verb|px=100, py=5|, which is then
+reassembled into \verb|p = {x:100, y:5}|.
+
+We can also initialize a record variable with an always constraint that
+defines its entire structure, as in the following program.
+\begin{verbatim}
+ p := {x:2, y:5};
+ always q = p;
+\end{verbatim}
+\emph{(Question: do we want to allow this?  Or require that we first assign
+to q?  That seems sort of silly.)}
+
+If we allow the above program, this one should also be OK:
+\begin{verbatim}
+ always p = {x:2, y:5};
+\end{verbatim}
+
+On the other hand, the following constraint on its own fails the
+structural compatibility check that p is a record with an x field,
+since we didn't first initialize p.
+\begin{verbatim}
+ always p.x = 100;
+\end{verbatim}
+
+The following program passes the structural compatibility checks, but
+fails with an unsatisfiable constraint error, since we are requiring
+that x be both 100 and 2:
+\begin{verbatim}  
+ p := {x:0, y:0};
+ always p.x = 100;
+ p := {x:2, y:5};
+\end{verbatim}
+
+In some of the above examples, we initialized a record variable with a
+required always constraint that defines its entire structure.  The
+always constraint doesn't need to be required:
+\begin{verbatim} 
+always weak p = {x:3}
+\end{verbatim}
+This desugars into a weak constraint that \verb|px=3|, but also
+requires that p be a record with a single field named x.  The
+desugaring doesn't have any notion of priorities, so this is a
+requirement.  Thus, the following program fails a structural
+compatibility check:
+
+\begin{verbatim} 
+always weak p = {x:3};
+always weak p = {y:4}
+\end{verbatim}
+
+However, the following program is OK:
+\begin{verbatim} 
+always weak p = {x:3};
+always weak p = {x:4}
+\end{verbatim}
+
+This desugars to the constraints \verb|weak px=3| and \verb|weak px=4|.
+Using the LPB comparator, there are two possible answers:
+\verb|p={x:3}| or \verb|p={x:4}|.  A WSB comparator would allow x to
+take on any value in $[3,4]$, although Cassowary would produce either 3
+or 4 (but not something in between).
+
+Here's another example that fails a structural compatibility check:
+\begin{verbatim}
+ always weak a.x = 3
+ always weak b.y = 10
+ always weak a=b
+\end{verbatim}
+
+%% As discussed above, our model includes structural compatibility checks
+%% on constraints, which allow us to desugar all of the record
+%% constraints (recursively) into constraints on the individual
+%% components.  This means that the solver need not know anything about
+%% records.  The alternative of having the solver know about records was
+%% rejected, since it is more complex and seems to lead to some odd
+%% cases.
+
+%% For completeness, we outline that rejected alternative in this
+%% subsection. 
+
+%% If the solver does know about records, we need to extend the
+%% comparators to handle them.  For LPB, there are at least two
+%% possibilities:
+
+%% First, an equality constraint between records is either satisfied or
+%% it's not. For example consider a constraint \verb|p=q| when
+%% \verb|p={x:0, y:1}| and \verb|q={x:0, y:2}|, versus when
+%% \verb|q={a:1000}|.  In both cases the constraint is unsatisfied, and
+%% there is no reason to prefer one of these solutions over the other.
+
+%% Second, an equality constraint between records is unfolded into
+%% multiple constraints on the fields, each of which is satisfied or not.
+%% In the above example, for the first case we have \verb|p.x=q.x|
+%% (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case we
+%% have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y| (unsatisfied),
+%% and an additional constraint \verb|p.a=q.a| (unsatisfied).  
+%% The first solution would be preferred over the second under LPB.
+
+%% Or we could consider WSB (or another metric comparator).  The error
+%% for \verb|{x:5}={x:5}| or \verb|{x:5}={x:6}| is clear enough.  But
+%% what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}|?
+%% Is the error for \verb|{x:0}={x:1000000000}| less than for
+%% \verb|{x:0}={y:0}|?  We could come up with a definition, but it's not
+%% clear it's that useful.
+
+%% A final complication is that we would probably want some sort of
+%% minimality condition on records.  Consider:
+%% \begin{verbatim}
+%% p.x = 5;
+%% \end{verbatim}
+%% We want the solution to be \verb|p={x:5}|, but not e.g.
+%% \verb|p={x:5, y:1000}|.
+
+\section{Babelsberg/MRecords}
+
+Our next language is Babelsberg/MRecords, which involves extending
+Babelsberg/Records to allow mutable records.  Syntactically, we simply
+allow field acccesses as l-values, e.g.
+\begin{verbatim}
+ p := {x:0, y:0};
+ p.x := 100;
+\end{verbatim}
+
+After the second assignment, this desugars to the constraints
+\verb|weak px=0|, \verb|weak py=0|, \verb|px=100|, which after putting
+the record back together has the solution \verb|p={x:100, y:0}|.  This
+doesn't seem to add any complications to the semantics.
+
+There is still no notion of object identity.  Consider:
+\begin{verbatim}
+ p := {x:0, y:0};
+ q := p;
+ p.x := 100;
+\end{verbatim}
+Now \verb|p={x:100, y:0}|, but \verb|q={x:0, y:0}|.
+
+Interestingly, if we have ``once'' constraints in addition to
+``always'' constraints, we can simulate assigning to the field of a
+record just with constraints --- we don't need mutable records as
+such:
+
+\begin{verbatim}
+ p := {x:0, y:0};
+ once p.x = 100;
+\end{verbatim}
+
+\section{Babelsberg/UID}
+
+Our next step is to replace records that are simply values with
+mutable records that live on the heap and so have an identity, can be
+aliased, and so forth.  (For simplicity, we drop records that are
+simply values from Babelsberg/UID, although one could have a language
+with both kinds.)  To emphasize that we now allocate records on the
+heap, we use the keyword \verb|new| when creating one:
+
+\begin{verbatim}
+ p := new {x:0, y:0};
+\end{verbatim}
+
+Now variables in the environment hold pointers, which in turn
+reference records in the heap.  The following example illustrates the
+difference from Babelsberg/MRecords:
+
+\begin{verbatim}
+ p := new {x:0, y:0};
+ q := p;
+ p.x := 100;
+\end{verbatim}
+Unlike in the previous example, now \verb|p| and \verb|q| are aliased,
+so after the program runs we have \verb|p=q={x:100, y:0}|, with
+\verb|p| and \verb|q| identical (not just equal).
+
+\subsection{Identity Constraints}
+
+Perhaps we can have identity constraints, in addition to assignments:
+\begin{verbatim}
+ p := new {x:0, y:0};
+ always p==q;  /* where == is object identity */
+ q := new {a:10};
+\end{verbatim}
+Now both \verb|p| and \verb|q| refer to the same record
+\verb|{a:10}|.  (If the constraint had been an equality constraint
+rather than an identity constraint, the assignment to \verb|q| would
+have failed the structural compatibility check, which would have
+expected it to be a record with \verb|x| and \verb|y| fields.)
+
+To keep things simple, it may be useful to have a convention that
+identity constraints are either just checks when they are first
+created, or where at least one side is a fresh variable.  Otherwise we
+may have unexpectedly unsatisfiable identity constraints.  Consider:
+
+\begin{verbatim}
+ p := new {x:0, y:0};
+ q := new {z:0};
+ always p.x = 10;
+ always q.z = 100;
+ always p==q; 
+\end{verbatim}
+Up to the final identity constraint, this should be fine.  But the
+final constraint is unsatisfiable (unless the solver creates a new
+object, which isn't allowed with the current semantics).
+
+We might also have priorities on identity constraints:
+\begin{verbatim}
+ p := new {x:0, y:0};
+ q := new {z:0};
+ always p.x = 10;
+ always q.z = 100;
+ always p==r; 
+ always weak q==r; 
+\end{verbatim}
+Here, the weak identity constraint \verb|always weak q==r| can't be satisfied.
+
+\section{Babelsberg/Objects}
+
+In this final language, we add classes, inheritance, methods, and
+messages.  This allows us to write constraints on the results of
+message sends, as in the actual languages Babelsberg/R and
+Babelsberg/JS\@.  For example constraints on the center of a
+rectangle r:
+\begin{verbatim}
+always r.center.x = 100;
+always r.center.y = 50;
+\end{verbatim}
+apply to the result of sending the message \verb|center| to \verb|r|,
+and \verb|center| may be computed rather than being stored.  Even the
+\verb|x| message to a point might compute the x value, if the point is
+stored in polar coordinates.  
+
+\emph{In the implementation, methods invoked in a constraint are
+  evaluated in constraint construction mode, so that the system builds
+  up a network of primitive constraints that represents the
+  user-defined method.  The semantics should presumably mirror this
+  process.}
+
+Issue: DeltaBlue can operate on whole objects, not just primitives
+like floats.  How does that get accommodated?
+
+\section{Additional Issues}
+
+\emph{This section is rough and incomplete.}
+
+Actual Babelsberg/R code often involves creating new objects in
+constraints.  For example, the above constraints on the center of a
+rectangle are more clearly written as
+
+\begin{verbatim}
+always r.center = Point.new(100,50);
+\end{verbatim}
+
+We could view this as sugar for:
+
+\begin{verbatim}
+temp := Point.new(100,50);
+always r.center = temp;
+\end{verbatim}
+
+Similarly, expressions involving point arithmetic create new points on
+the fly:
+
+\begin{verbatim}
+always r.center = p1+p2;
+\end{verbatim}
+
+The interpreter converts this on the fly to:
+
+\begin{verbatim}
+always r.center.x = p1.x+p2.x;
+always r.center.y = p1.y+p2.y;
+\end{verbatim}
+
+An alternative: there are some objects that are like immutable records
+(e.g. points), so Babelsberg/Rec semantics works.  ID of these objects
+not significant.  Do we care about sharing?
+
+\bibliographystyle{plain}
+\bibliography{constraints}
+
+\end{document}

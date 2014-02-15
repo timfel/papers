@@ -7,6 +7,21 @@
 \setlength{\parindent}{0.0in}
 \setlength{\parskip}{7pt plus 1pt}
 
+\usepackage{bcprules}
+\usepackage{xcolor}				% Allow for color (annotations)
+
+\def\tdm#1{\textcolor{blue}{\textsf{TDM: #1}}}
+
+\newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
+\newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
+\newcommand{\step}[5]{{\tt #1;#2} $\vdash$ {\tt #3} $\Longrightarrow$
+  {\tt #4;#5}}
+
+\newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
+\newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
+
+\newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
+
 \begin{document}
 
 \title{A Formal Semantics for Babelsberg}
@@ -149,6 +164,96 @@ If we use a metric comparator such as weighted-sum-better (WSB) we get
 the solution $x=10$, since this minimizes the error for the weak
 constraint.  If we use LPB, then any $x \in [10,\inf)$ is a solution,
   and the system is free to select any of them.
+
+\subsection{Formalism}
+
+\subsubsection{Syntax}
+
+A program is a statement defined by the
+following syntax:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & x := e $\mid$ [weak] always C $\mid$ s;s \\
+{\rm Expression} & e & ::= & b $\mid$ n $\mid$ x $\mid$ e op e \\
+{\rm Constraint} & C & ::= & e \\
+{\rm Boolean} & b & ::= & true $\mid$ false \\
+{\rm Number} & n & ::= & {\rm numeric constants} \\
+{\rm Variable} & x & ::= & {\rm variable names} \\
+{\rm Operator} & op & ::= & + $\mid$ - $\mid$ >= $\mid$ $\cdots$ \\\\
+
+{\rm Values} & v & ::= & b $\mid$ n
+\end{tabular}
+\end{tt}
+
+\subsubsection{Semantics}
+
+The semantics is defined by several judgments, defined below.  These judgments
+depends on the notion of an {\em environment}, which is a partial
+function from variables to values.  Metavariable {\tt E} ranges over
+environments.  We also assume that each operator {\tt op} comes with
+an associated semantic function, denoted {\tt [[op]]}.
+
+\judgment{\eval{E}{e}{v}}
+
+``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
+  E}.''
+
+\inferax{E-Bool}{\eval{E}{b}{b}}
+
+\inferax{E-Num}{\eval{E}{n}{n}}
+
+\inferrule{E-Bool}{E(x) = v}{\eval{E}{x}{v}}
+
+\inferrule{E-Op}{\eval{E}{e$_1$}{v$_1$} \andalso
+\eval{E}{e$_1$}{v$_1$} \andalso
+v$_1$ [[op]] v$_2$ = v}
+{\eval{E}{e$_1$ op e$_2$}{v}}
+
+\judgment{\solve{E}{C}}
+
+``Environment {\tt E} is a {\em model} of constraint {\tt C}.''
+
+This judgment represents a call to the constraint solver, which we
+treat as a black box.  In particular, the proposition 
+\solve{E}{C} denotes that {\tt E} is a solution to the constraints
+{\tt C} (and further one that is optimal according to the solver's
+semantics, as discussed earlier).  We assume that the logic of the
+solver includes propositional logic with arithmetic constraints and
+that it supports the distinction between strong and weak constraints.
+\tdm{Please check, Alan!}
+
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
+
+``Statement {\tt s} transforms environment {\tt E} and global
+constraint {\tt C} to environment {\tt E$'$} and global constraint
+{\tt C$'$}.''
+
+A ``state'' of execution includes a concrete portion, represented by
+the environment, and a symbolic portion, represented by the
+constraint.  Intuitively, the environment comes from constraint solving during the
+evaluation of the immediately preceding statement, and the 
+constraint records the ``always'' constraints that have been
+declared so far during execution. 
+
+In the rules below we use the notation stay({\tt E}) to denote a
+conjunction of constraints of the form {\tt weak x=v} for
+each {\tt x} in the domain of {\tt E}, where {\tt E}({\tt x}) = {\tt v}.
+
+\inferrule{S-Asgn}{\eval{E}{e}{v} \andalso
+\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x=v)}}
+{\step{E}{C}{x := e}{E$'$}{C}}
+
+
+\inferrule{S-Always}{
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
+{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}}
+
+
+\inferrule{S-Seq}{\step{E}{C}{s}{E$_0$}{C$_0$} \andalso
+\step{E$_0$}{C$_0$}{s$'$}{E$'$}{C$'$}}
+{\step{E}{C}{s;s$'$}{E$'$}{C$'$}}
 
 \section{Babelsberg/Records}
 

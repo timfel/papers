@@ -16,6 +16,7 @@
 \newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
 \newcommand{\step}[5]{{\tt #1;#2} $\vdash$ {\tt #3} $\Longrightarrow$
   {\tt #4;#5}}
+\newcommand{\tc}[3]{{\tt #1} $\vdash$ {\tt #2} : {\tt #3}}
 
 \newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
 \newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
@@ -166,6 +167,7 @@ constraint.  If we use LPB, then any $x \in [10,\inf)$ is a solution,
   and the system is free to select any of them.
 
 \subsection{Formalism}
+\label{intformal}
 
 \subsubsection{Syntax}
 
@@ -203,11 +205,11 @@ an associated semantic function, denoted {\tt [[op]]}.
 
 \inferax{E-Num}{\eval{E}{n}{n}}
 
-\inferrule{E-Bool}{E(x) = v}{\eval{E}{x}{v}}
+\inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\eval{E}{x}{v}}
 
 \inferrule{E-Op}{\eval{E}{e$_1$}{v$_1$} \andalso
-\eval{E}{e$_1$}{v$_1$} \andalso
-v$_1$ [[op]] v$_2$ = v}
+\eval{E}{e$_2$}{v$_2$} \andalso
+{\tt v$_1$ [[op]] v$_2$} = {\tt v}}
 {\eval{E}{e$_1$ op e$_2$}{v}}
 
 \judgment{\solve{E}{C}}
@@ -231,7 +233,8 @@ constraint {\tt C} to environment {\tt E$'$} and global constraint
 
 A ``state'' of execution includes a concrete portion, represented by
 the environment, and a symbolic portion, represented by the
-constraint.  Intuitively, the environment comes from constraint solving during the
+constraint.  The environment is standard, while the constraint is not
+part of the state of a computation in most languages.  Intuitively, the environment comes from constraint solving during the
 evaluation of the immediately preceding statement, and the 
 constraint records the ``always'' constraints that have been
 declared so far during execution. 
@@ -444,6 +447,117 @@ the program works.
 %% We want the solution to be \verb|p={x:5}|, but not e.g.
 %% \verb|p={x:5, y:1000}|.
 
+\subsection{Formalism}
+\label{recformal}
+
+\subsubsection{Syntax}
+
+The syntax from Section~\ref{intformal} is augmented now to support
+records and record operations:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Expression} & e & ::= & $\cdots$ $\mid$
+\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
+{\rm Label} & l & ::= & {\rm record label names} \\\\
+
+{\rm Values} & v & ::= & $\cdots$ $\mid$
+\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
+\end{tabular}
+\end{tt}
+
+\subsubsection{Semantics}
+
+\judgment{\eval{E}{e}{v}}
+
+Expression evaluation is updated in the standard way to support records.
+
+\inferrule{E-Rec}{\eval{E}{e$_1$}{v$_1$} $\cdots$
+  \eval{E}{e$_n$}{v$_n$}}
+{\eval{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
+
+\inferrule{E-Field}{\eval{E}{e}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n}
+{\eval{E}{e.l$_i$}{v$_i$}}
+
+\judgment{\solve{E}{C}}
+
+This judgment represents the solver, as before.  However, now
+constraints can refer to records and record operations, and we do not want to assume that the solver
+directly supports records.  Therefore, all constraints on records get
+``exploded'' into constraints on the individual components of the
+records.  \tdm{Should we define this transformation more formally?}
+For example, the constraint {\tt p = \{x:2, y:5\}} gets translated to
+the constraint {\tt px = 2 $\wedge$ py=5}, and similarly the
+constraint {\tt p.x = 100} becomes {\tt px = 100}.
+
+\judgment{\tc{E}{e}{T}}
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt E}.''
+
+We use a nonstandard form of typechecking to perform the structural
+compatibility check.  It is nonstandard because it happens
+dynamically on an expression, in the context of the current run-time
+environment.  Otherwise the rules are straightforward.  We use the
+following syntax for types:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & Num $\mid$ Bool $\mid$ 
+\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
+\end{tabular}
+\end{tt}
+
+We assume that each operator {\tt op} comes with
+an associated typing function, denoted typeof$_{\tt op}$, which is a
+partial function from a pair of types (representing the types of the
+operands) to a type (representing the type of the result).
+
+\inferax{T-Bool}{\tc{E}{b}{Bool}}
+
+\inferax{T-Num}{\tc{E}{n}{Num}}
+
+\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
+
+\inferrule{T-Op}{\tc{E}{e$_1$}{T$_1$} \andalso
+\tc{E}{e$_2$}{v$_2$} \andalso
+typeof$_{\tt op}$({\tt T$_1$}, {\tt T$_2$}) = {\tt T}}
+{\tc{E}{e$_1$ op e$_2$}{T}}
+
+Note: The intention is that typeof$_{\tt =}$ will only allow two
+records to be compared for equality if they have the same type.  This
+prevents nondeterminism that would otherwise occur in a constraint
+that equates two record variables {\tt p} and {\tt q}.
+
+\inferrule{T-Rec}{\tc{E}{e$_1$}{T$_1$} $\cdots$
+  \tc{E}{e$_n$}{T$_n$}}
+{\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+
+\inferrule{E-Field}{\tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n}
+{\tc{E}{e.l$_i$}{T$_i$}}
+
+The above rule is a key one, ensuring that a field of a record can only be
+referred to if it already exists in that record.
+
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
+
+The semantics for executing statements is identical to what we had before,
+except that now we ``typecheck'' an {\tt always} constraint to ensure
+that it meets our structural compatibility requirements.  Therefore,
+we simply keep the rules {\sc S-Asgn} and {\sc S-Seq} as is but replace the rule {\sc S-Always} with the following one,
+which adds the compatibility check:
+
+
+\inferrule{S-Always}{\tc{E}{C$_0$}{Bool} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
+{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}}
+
+The compatibility check also ensures that a
+constraint is in fact a boolean-valued expression.
+
 \section{Babelsberg/MRecords}
 
 Our next language is Babelsberg/MRecords, which involves extending
@@ -476,6 +590,42 @@ such:
  p := {x:0, y:0};
  once p.x = 100;
 \end{verbatim}
+
+\tdm{But ``once'' can't do everything that assignment does.  For
+  instance, {\tt once p.x = z}, where {\tt z} is a variable, doesn't have the directionality
+  constraint that
+  {\tt p.x := z} has:  the directionality of the latter is ensured by
+  evaluating {\tt z} to some value {\tt v} and then solving the constraint {\tt p.x = v}.}
+
+\subsection{Formalism}
+\label{mrecformal}
+
+\subsubsection{Syntax}
+
+The syntax from Section~\ref{recformal} is augmented now to support
+assignment of record components:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & $\cdots$ $\mid$ x.l := e
+\end{tabular}
+\end{tt}
+
+\subsubsection{Semantics}
+
+The semantics from Section~\ref{recformal} is similarly augmented now
+to support assignment of record components.  That simply requires the
+addition of one new rule to the semantics of statement evaluation:
+
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
+
+\inferrule{S-AsgnField}{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v} \andalso
+\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}
+{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}}
+
+Note that we perform a structural compatibility check to ensure that
+the field being mutated already exists in the record denoted by {\tt x}.
 
 \section{Babelsberg/UID}
 

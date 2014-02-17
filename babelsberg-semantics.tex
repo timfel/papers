@@ -349,19 +349,24 @@ constraints involving records:
 There is no static type checking - checking is all done dynamically.
 Our model includes structural compatibility checks on constraints.
 These allow us to desugar all of the record constraints (recursively)
-into constraints on the individual components.  Thus, the solver does
-not need to know anything about records.  (The alternative of having
-the solver know about records was rejected, since it is more complex
-and seems to lead to some odd cases, including requiring that the
-constraint solver spontaneously generate new records.  For
-completeness, we outline this rejected alternative in Section
-\ref{sec:structural-compatability-check-alternatives}.)
+into constraints on the individual components.  Thus, the record
+constructs are all handled by the semantic rules, and the constraint
+solver does not need to know anything about records.  The alternative
+of having the solver itself know about records was rejected, since it
+is more complex and seems to lead to some odd cases, including
+requiring that the constraint solver spontaneously generate new
+records.  (For completeness, we outline this rejected alternative in 
+Appendix \ref{sec:structural-compatability-check-alternatives}.)
 
 The structural compatibility checks are assertions that are checked
 before doing desugaring records that check whether a variable holds a
 record, and whether the record has the necessary fields.  These
 assertions are checked, but the system doesn't change anything to
-enforce them --- instead, if they are violated it's just an error.
+enforce them --- if one is violated it's just an error.  Instead, the
+programmer must ensure that a record with the expected fields is
+assigned to a variable used in record constraints, just as a
+programmer would need to ensure that a record with the expected fields
+was assigned to a record-valued variable in a standard language.
 
 Here are a few examples.
 
@@ -570,60 +575,6 @@ which adds the compatibility check:
 
 The compatibility check also ensures that a
 constraint is in fact a boolean-valued expression.
-
-\subsection{Alternatives to Structural Compatability Checks}
-\label{sec:structural-compatability-check-alternatives}
-
-As discussed above, our model includes structural compatibility checks
-on constraints, which allow us to desugar all of the record
-constraints (recursively) into constraints on the individual
-components.  This means that the solver need not know anything about
-records.  The alternative of having the solver know about records was
-rejected, since it is more complex and seems to lead to some odd
-cases, including requiring that the constraint solver spontaneously
-generate new records.  For completeness, we outline that rejected
-alternative in this subsection.
-
-If the solver does know about records, we need to extend the
-comparators to handle them.  For LPB, there are at least two
-possibilities:
-\begin{enumerate}
-\item An equality constraint between records is either satisfied or
-  it's not. For example consider a constraint \verb|p=q| when
-  \verb|p={x:0, y:1}| and \verb|q={x:0, y:2}|, versus when
-  \verb|q={a:1000}|.  In both cases the constraint is unsatisfied, and
-  there is no reason to prefer one of these solutions over the other.
-
-\item An equality constraint between records is unfolded into multiple
-  constraints on the fields, each of which is satisfied or not.  In
-  the above example, for the first case we have \verb|p.x=q.x|
-  (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case
-  we have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y|
-  (unsatisfied), and an additional constraint \verb|p.a=q.a|
-  (unsatisfied).  The first solution would be preferred over the
-  second under LPB.
-\end{enumerate}
-
-We also considered WSB for records.  The error for \verb|{x:5}={x:5}|
-or \verb|{x:5}={x:6}| is clear enough (0 and 1 respectively).  But
-what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}|?
-We need to determine an error for additional or mismatched fields, and
-it needs to be such that it can be meaningfully compared with the
-error for values of fields.  Is the error for
-\verb|{x:0}={x:1000000000}| less than for \verb|{x:0}={y:0}|?  We
-could come up with a definition, but it's not clear it's that useful.
-
-A final complication is that we would want a minimality condition on
-records.  Consider:
-\begin{verbatim}
-p.x = 5;
-\end{verbatim}
-We want the solution to be \verb|p={x:5}|, but not e.g.
-\verb|p={x:5, y:1000}|.
-
-These issues, along the lack of clear use cases for having a solver
-that can solve for records, led us to reject the alternative outlined
-in this subsection.
 
 \section{Babelsberg/MRecords}
 
@@ -994,5 +945,79 @@ not significant.  Do we care about sharing?
 
 \bibliographystyle{plain}
 \bibliography{constraints}
+
+\appendix
+\newpage
+
+\section{Alternatives to Structural Compatability Checks}
+\label{sec:structural-compatability-check-alternatives}
+
+Our model includes structural compatibility checks on constraints,
+which allow us to desugar all of the record constraints (recursively)
+into constraints on the individual components.  This means that the
+solver need not know anything about records.  The alternative of
+having the solver know about records was rejected, since it is more
+complex and seems to lead to some odd cases, including requiring that
+the constraint solver spontaneously generate new records.  For
+completeness, we outline that rejected alternative in this subsection.
+
+We first consider records in Babelsberg/Records (immutable records, no UIDs).
+
+If the solver does know about records, we need to extend the
+comparators to handle them.  For LPB, there are at least two
+possibilities:
+\begin{enumerate}
+\item An equality constraint between records is either satisfied or
+  it's not. For example consider a constraint \verb|p=q| when
+  \verb|p={x:0, y:1}| and \verb|q={x:0, y:2}|, versus when
+  \verb|q={a:1000}|.  In both cases the constraint is unsatisfied, and
+  there is no reason to prefer one of these solutions over the other.
+
+\item An equality constraint between records is unfolded into multiple
+  constraints on the fields, each of which is satisfied or not.  In
+  the above example, for the first case we have \verb|p.x=q.x|
+  (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case
+  we have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y|
+  (unsatisfied), and an additional constraint \verb|p.a=q.a|
+  (unsatisfied).  The first solution would be preferred over the
+  second under LPB.
+\end{enumerate}
+
+We also considered WSB for records.  The error for \verb|{x:5}={x:5}|
+or \verb|{x:5}={x:6}| is clear enough (0 and 1 respectively).  But
+what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}|?
+We need to determine an error for additional or missing fields, and
+this error needs to be such that it can be meaningfully compared with
+the error for values of fields.  Is the error for
+\verb|{x:0}={x:1000000000}| less than for \verb|{x:0}={y:0}|?  We
+could come up with a definition, but it's not clear it's that useful.
+
+Another complication is that we would want a minimality condition on
+records.  Consider:
+\begin{verbatim}
+p.x = 5;
+\end{verbatim}
+We want the solution to be \verb|p={x:5}|, but not e.g.
+\verb|p={x:5, y:1000}|.
+
+These issues, along the lack of clear use cases for having a solver
+that can solve for records, led us to reject the alternative outlined
+in this subsection.
+
+If we move to Babelsberg/UID, an additional odd feature of having the
+solver know about records rather than using structural compatability
+checks is that the solver may need to spontaneously generate new
+records with their own UIDs\@.  Consider:
+
+\begin{verbatim}
+a := {x:1};
+b := a;
+always a.x=1;
+always b.x=2;
+\end{verbatim}
+
+At first, {\tt a} and {\tt b} refer to the same record, but after the
+second {\tt always} constraint, we need to create a new record and
+point {\tt b} to it.
 
 \end{document}

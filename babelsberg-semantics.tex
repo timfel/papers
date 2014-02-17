@@ -18,6 +18,12 @@
   {\tt #4;#5}}
 \newcommand{\tc}[3]{{\tt #1} $\vdash$ {\tt #2} : {\tt #3}}
 
+\newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
+\newcommand{\solveH}[3]{{\tt #1;#2} $\models$ {\tt #3}}
+\newcommand{\stepH}[7]{{\tt #1;#2;#3} $\vdash$ {\tt #4} $\Longrightarrow$
+  {\tt #5;#6;#7}}
+\newcommand{\tcH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} : {\tt #4}}
+
 \newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
 \newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
 
@@ -184,7 +190,7 @@ following syntax:
 {\rm Variable} & x & ::= & {\rm variable names} \\
 {\rm Operator} & op & ::= & + $\mid$ - $\mid$ >= $\mid$ $\cdots$ \\\\
 
-{\rm Values} & v & ::= & b $\mid$ n
+{\rm Value} & v & ::= & b $\mid$ n
 \end{tabular}
 \end{tt}
 
@@ -461,7 +467,7 @@ records and record operations:
 \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
 {\rm Label} & l & ::= & {\rm record label names} \\\\
 
-{\rm Values} & v & ::= & $\cdots$ $\mid$
+{\rm Value} & v & ::= & $\cdots$ $\mid$
 \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
 \end{tabular}
 \end{tt}
@@ -521,7 +527,7 @@ operands) to a type (representing the type of the result).
 \inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
 
 \inferrule{T-Op}{\tc{E}{e$_1$}{T$_1$} \andalso
-\tc{E}{e$_2$}{v$_2$} \andalso
+\tc{E}{e$_2$}{T$_2$} \andalso
 typeof$_{\tt op}$({\tt T$_1$}, {\tt T$_2$}) = {\tt T}}
 {\tc{E}{e$_1$ op e$_2$}{T}}
 
@@ -619,10 +625,10 @@ addition of one new rule to the semantics of statement evaluation:
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}}
 
-\inferrule{S-AsgnField}{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v} \andalso
-\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}
-{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}}
+\infrule[S-AsgnField]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
+\mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
+{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}}}
 
 Note that we perform a structural compatibility check to ensure that
 the field being mutated already exists in the record denoted by {\tt x}.
@@ -692,7 +698,173 @@ We might also have priorities on identity constraints:
  always p==r; 
  always weak q==r; 
 \end{verbatim}
-Here, the weak identity constraint \verb|always weak q==r| can't be satisfied.
+Here, the weak identity constraint \verb|always weak q==r| can't be
+satisfied.
+
+\subsection{Formalism}
+
+Since this version is significantly different than the prior formalisms, we present
+it in its entirety rather than as a delta from those ones.
+
+\subsubsection{Syntax}
+
+The syntax is modified in a few ways, all standard.  First, records are not
+expressions and there are also no record values.  Instead records are
+created via  a {\tt new} statement, which allocates the record on the heap
+and returns a {\em reference} to it.  We introduce
+a metavariable {\tt r} ranging over mutable references, which are a new
+kind of value in the language.  It is convenient to consider
+references to be expressions, but we assume they are never used in
+source programs.  \tdm{Not sure if we need that assumption.}
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & x := e $\mid$ x.l := e $\mid$ x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}
+$\mid$ [weak] always C $\mid$ s;s \\
+{\rm Expression} & e & ::= & b $\mid$ n $\mid$ x $\mid$ e op e $\mid$
+e.l $\mid$ r \\
+{\rm Constraint} & C & ::= & e \\
+{\rm Boolean} & b & ::= & true $\mid$ false \\
+{\rm Number} & n & ::= & {\rm numeric constants} \\
+{\rm Variable} & x & ::= & {\rm variable names} \\
+{\rm Operator} & op & ::= & + $\mid$ - $\mid$ >= $\mid$ $\cdots$ \\
+{\rm Label} & l & ::= & {\rm record label names} \\\\
+
+{\rm Value} & v & ::= & b $\mid$ n $\mid$ r \\
+{\rm Reference} & r & ::= & {\rm mutable references}
+\end{tabular}
+\end{tt}
+
+\subsubsection{Semantics}
+
+In addition to an environment, the semantics now requires a {\em
+  heap}, which is a partial function from mutable references to record
+``objects'' of the form {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}.
+Heaps are ranged over by metavariable {\tt H}.
+Most of the updates to the original rules are standard and straightforward.
+
+\judgment{\evalH{E}{H}{e}{v}}
+
+``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
+  E} and heap {\tt H}.''
+
+\inferax{E-Bool}{\evalH{E}{H}{b}{b}}
+
+\inferax{E-Num}{\evalH{E}{H}{n}{n}}
+
+\inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalH{E}{H}{x}{v}}
+
+\inferrule{E-Op}{\evalH{E}{H}{e$_1$}{v$_1$} \andalso
+\evalH{E}{H}{e$_2$}{v$_2$} \andalso
+{\tt v$_1$ [[op]] v$_2$} = {\tt v}}
+{\evalH{E}{H}{e$_1$ op e$_2$}{v}}
+
+\inferrule{E-Field}{\evalH{E}{H}{e}{r} \andalso {\tt H}({\tt r}) =
+  {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} 
+    \andalso 1 $\leq$ i $\leq$ n}
+{\evalH{E}{H}{e.l$_i$}{v$_i$}}
+
+\inferax{E-Ref}{\evalH{E}{H}{r}{r}}
+
+\judgment{\solveH{E}{H}{C}}
+
+``Environment {\tt E} and heap {\tt H} are a model of constraint {\tt C}.''
+
+As before, this judgment represents a call to the constraint solver.
+We again ``explode'' constraints on records into constraints on the
+individual components, but in a slightly different way than before due
+to their heap allocation.  
+For example, suppose variable {\tt p} maps to reference {\tt r} in the
+environment.  Then the constraint
+ {\tt p = \{x:2, y:5\}} gets translated to
+the constraint {\tt rx = 2 $\wedge$ ry=5}, and similarly the
+constraint {\tt p.x = 100} becomes {\tt rx = 100}.  By using the
+reference {\tt r} rather than the variable name {\tt p}, we ensure
+that any modifications to the record stored in {\tt r} will also be
+``seen'' through all aliases of {\tt p}.  \tdm{More formal definition
+  of our approach?}
+
+
+\judgment{\tcH{E}{H}{e}{T}}
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt E} and heap {\tt H}.''
+
+
+\inferax{T-Bool}{\tcH{E}{H}{b}{Bool}}
+
+\inferax{T-Num}{\tcH{E}{H}{n}{Num}}
+
+\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tcH{E}{H}{v}{T}}{\tcH{E}{H}{x}{T}}
+
+\inferrule{T-Op}{\tcH{E}{H}{e$_1$}{T$_1$} \andalso
+\tcH{E}{H}{e$_2$}{T$_2$} \andalso
+typeof$_{\tt op}$({\tt T$_1$}, {\tt T$_2$}) = {\tt T}}
+{\tcH{E}{H}{e$_1$ op e$_2$}{T}}
+
+
+\inferrule{E-Field}{\tcH{E}{H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n}
+{\tcH{E}{H}{e.l$_i$}{T$_i$}}
+
+\inferrule{T-Ref}{{\tt H}({\tt r}) = {\tt
+    \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso \tcH{E}{H}{v$_1$}{T$_1$} $\cdots$
+  \tcH{E}{H}{v$_n$}{T$_n$}}
+{\tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+
+Note that the above rule does not work as intended in the presence of
+cyclic records, which are now possible.  In that case, we will simply
+not be able to find a finite derivation and so will raise an error
+even when the given record satisfies our intended structural
+compatibility check.  This should be fixable by keeping track of
+references that have already been ``visited'' in order to know when to
+stop, and by adding a kind of recursive record type to represent the
+structure of cyclic records.
+
+
+\judgment{\stepH{E}{H}{C}{s}{E$'$}{H$'$}{C$'$}}
+
+``Statement {\tt s} transforms environment {\tt E}, heap {\tt H}, and global
+constraint {\tt C} to environment {\tt E$'$}, heap {\tt H'}, and global constraint
+{\tt C$'$}.''
+
+In the rules below, stay({\tt E}) denotes, as earlier,  a
+conjunction of constraints of the form {\tt weak x=v} for
+each {\tt x} in the domain of {\tt E}, where {\tt E}({\tt x}) = {\tt v}.
+The notation stay({\tt H}) is analogous except that these record
+constraints are ``exploded'' as discussed earlier.  For example, if
+{\tt H}({\tt r}) = {\tt \{x:2, y:5\}}, then the constraints
+{\tt weak rx = 2} and {\tt weak ry=5} are included in stay({\tt H}).
+Finally, dom({\tt H}) denotes the domain of {\tt H}.
+
+\inferrule{S-Asgn}{\evalH{E}{H}{e}{v} \andalso
+\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
+{\stepH{E}{H}{C}{x := e}{E$'$}{H$'$}{C}}
+
+\infrule[S-AsgnField]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
+\mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
+{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E$'$}{H$'$}{C}}}
+
+
+\infrule[S-AsgnNew]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
+    \andalso r $\not\in$ dom({\tt H})} \\ 
+\mbox{\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm
+    stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
+{\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E$'$}{H$'$}{C}}}
+
+Recall that the constraint {\tt r =
+  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} in the above rule is shorthand for $n$
+constraints of the form {\tt rl$_i$ = v$_i$}.
+
+\inferrule{S-Always}{\tcH{E}{H}{C$_0$}{Bool} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\solveH{E$'$}{H$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
+{\stepH{E}{H}{C}{[weak] always C$_0$}{E$'$}{H$'$}{C$'$}}
+
+\inferrule{S-Seq}{\stepH{E}{H}{C}{s}{E$_0$}{H$_0$}{C$_0$} \andalso
+\stepH{E$_0$}{H$_0$}{C$_0$}{s$'$}{E$'$}{H$'$}{C$'$}}
+{\stepH{E}{H}{C}{s;s$'$}{E$'$}{H$'$}{C$'$}}
 
 \section{Babelsberg/Objects}
 

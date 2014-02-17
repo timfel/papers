@@ -352,7 +352,10 @@ These allow us to desugar all of the record constraints (recursively)
 into constraints on the individual components.  Thus, the solver does
 not need to know anything about records.  (The alternative of having
 the solver know about records was rejected, since it is more complex
-and seems to lead to some odd cases.)
+and seems to lead to some odd cases, including requiring that the
+constraint solver spontaneously generate new records.  For
+completeness, we outline this rejected alternative in Section
+\ref{sec:structural-compatability-check-alternatives}.)
 
 The structural compatibility checks are assertions that are checked
 before doing desugaring records that check whether a variable holds a
@@ -366,9 +369,9 @@ Here are a few examples.
  p := {x:2, y:5};
  always p.x = 100;
 \end{verbatim}
-After the always constraint, \verb|p| is \verb|{x:100, y:5}|.  As
-noted above, we desugar the record constraints, so that the
-constraints after the always are:
+After executing the two statements, \verb|p| is \verb|{x:100, y:5}|.
+To find this solution, we desugar the record constraints, so that after
+evaluating the \verb|always p.x = 100| statement the constraints are:
 \begin{verbatim}
  weak px=2
  weak py=5
@@ -383,8 +386,9 @@ defines its entire structure, as in the following program.
  p := {x:2, y:5};
  always q = p;
 \end{verbatim}
-\emph{(Question: do we want to allow this?  Or require that we first assign
-to q?  That seems sort of silly.)}
+\ab{Do we want to allow this?  The alternative of requiring that we
+  first assign to q before adding the always q=p constraint seems sort
+  of silly.}
 
 If we allow the above program, this one should also be OK:
 \begin{verbatim}
@@ -434,7 +438,7 @@ This desugars to the constraints \verb|weak px=3| and \verb|weak px=4|.
 Using the LPB comparator, there are two possible answers:
 \verb|p={x:3}| or \verb|p={x:4}|.  A WSB comparator would allow x to
 take on any value in $[3,4]$, although Cassowary would produce either 3
-or 4 (but not something in between).
+or 4 (but not something in between), i.e., the same solutions as LPB.
 
 Here's another example that fails a structural compatibility check:
 \begin{verbatim}
@@ -455,51 +459,6 @@ had been different:
  always weak a=b
 \end{verbatim}
 the program works.
-
-
-%% As discussed above, our model includes structural compatibility checks
-%% on constraints, which allow us to desugar all of the record
-%% constraints (recursively) into constraints on the individual
-%% components.  This means that the solver need not know anything about
-%% records.  The alternative of having the solver know about records was
-%% rejected, since it is more complex and seems to lead to some odd
-%% cases.
-
-%% For completeness, we outline that rejected alternative in this
-%% subsection. 
-
-%% If the solver does know about records, we need to extend the
-%% comparators to handle them.  For LPB, there are at least two
-%% possibilities:
-
-%% First, an equality constraint between records is either satisfied or
-%% it's not. For example consider a constraint \verb|p=q| when
-%% \verb|p={x:0, y:1}| and \verb|q={x:0, y:2}|, versus when
-%% \verb|q={a:1000}|.  In both cases the constraint is unsatisfied, and
-%% there is no reason to prefer one of these solutions over the other.
-
-%% Second, an equality constraint between records is unfolded into
-%% multiple constraints on the fields, each of which is satisfied or not.
-%% In the above example, for the first case we have \verb|p.x=q.x|
-%% (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case we
-%% have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y| (unsatisfied),
-%% and an additional constraint \verb|p.a=q.a| (unsatisfied).  
-%% The first solution would be preferred over the second under LPB.
-
-%% Or we could consider WSB (or another metric comparator).  The error
-%% for \verb|{x:5}={x:5}| or \verb|{x:5}={x:6}| is clear enough.  But
-%% what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}|?
-%% Is the error for \verb|{x:0}={x:1000000000}| less than for
-%% \verb|{x:0}={y:0}|?  We could come up with a definition, but it's not
-%% clear it's that useful.
-
-%% A final complication is that we would probably want some sort of
-%% minimality condition on records.  Consider:
-%% \begin{verbatim}
-%% p.x = 5;
-%% \end{verbatim}
-%% We want the solution to be \verb|p={x:5}|, but not e.g.
-%% \verb|p={x:5, y:1000}|.
 
 \subsection{Formalism}
 \label{recformal}
@@ -611,6 +570,60 @@ which adds the compatibility check:
 
 The compatibility check also ensures that a
 constraint is in fact a boolean-valued expression.
+
+\subsection{Alternatives to Structural Compatability Checks}
+\label{sec:structural-compatability-check-alternatives}
+
+As discussed above, our model includes structural compatibility checks
+on constraints, which allow us to desugar all of the record
+constraints (recursively) into constraints on the individual
+components.  This means that the solver need not know anything about
+records.  The alternative of having the solver know about records was
+rejected, since it is more complex and seems to lead to some odd
+cases, including requiring that the constraint solver spontaneously
+generate new records.  For completeness, we outline that rejected
+alternative in this subsection.
+
+If the solver does know about records, we need to extend the
+comparators to handle them.  For LPB, there are at least two
+possibilities:
+\begin{enumerate}
+\item An equality constraint between records is either satisfied or
+  it's not. For example consider a constraint \verb|p=q| when
+  \verb|p={x:0, y:1}| and \verb|q={x:0, y:2}|, versus when
+  \verb|q={a:1000}|.  In both cases the constraint is unsatisfied, and
+  there is no reason to prefer one of these solutions over the other.
+
+\item An equality constraint between records is unfolded into multiple
+  constraints on the fields, each of which is satisfied or not.  In
+  the above example, for the first case we have \verb|p.x=q.x|
+  (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case
+  we have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y|
+  (unsatisfied), and an additional constraint \verb|p.a=q.a|
+  (unsatisfied).  The first solution would be preferred over the
+  second under LPB.
+\end{enumerate}
+
+We also considered WSB for records.  The error for \verb|{x:5}={x:5}|
+or \verb|{x:5}={x:6}| is clear enough (0 and 1 respectively).  But
+what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}|?
+We need to determine an error for additional or mismatched fields, and
+it needs to be such that it can be meaningfully compared with the
+error for values of fields.  Is the error for
+\verb|{x:0}={x:1000000000}| less than for \verb|{x:0}={y:0}|?  We
+could come up with a definition, but it's not clear it's that useful.
+
+A final complication is that we would want a minimality condition on
+records.  Consider:
+\begin{verbatim}
+p.x = 5;
+\end{verbatim}
+We want the solution to be \verb|p={x:5}|, but not e.g.
+\verb|p={x:5, y:1000}|.
+
+These issues, along the lack of clear use cases for having a solver
+that can solve for records, led us to reject the alternative outlined
+in this subsection.
 
 \section{Babelsberg/MRecords}
 

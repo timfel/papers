@@ -171,13 +171,11 @@ all but one of the constrained variables as read-only.
 
 In all of the languages, the constraint solver satisfies the
 constraints at each time step, but does not itself need to know about
-time.  Instead, time is built into the semantic rules, and as far as
-the solver is concerned is handled at each step by adding weak stay
-constraints that variables keep their old values.
-
-So to summarize, the formal semantics handles time, while the solver
-handles solving the constraints and dealing with hard and soft
-constraints.
+time.  Instead, time is built into the semantic rules; as far as the
+solver is concerned, time is handled at each step by adding weak stay
+constraints that variables keep their old values.  In other words, the
+formal semantics handles time, while the solver handles solving the
+constraints and dealing with hard and soft constraints.
 
 \section{Babelsberg/Int}
 
@@ -362,7 +360,8 @@ Appendix \ref{sec:structural-compatability-check-alternatives}.
 The structural compatibility checks are assertions that are checked
 before doing desugaring records that check whether a variable holds a
 record, and whether the record has the necessary fields.  These
-assertions are checked, but the system doesn't change anything to
+assertions are checked, but unlike normal constraints
+the system doesn't change anything to
 enforce them --- if one is violated it's just an error.  Instead, the
 programmer must ensure that a record with the expected fields is
 assigned to a variable used in record constraints, just as a
@@ -376,8 +375,11 @@ Here are a few examples.
  always p.x = 100;
 \end{verbatim}
 After executing the two statements, \verb|p| is \verb|{x:100, y:5}|.
-To find this solution, we desugar the record constraints, so that after
-evaluating the \verb|always p.x = 100| statement the constraints are:
+Here is how the system determines this result.  The structural
+compatibility check for the \verb|always| constraint is that \verb|p|
+has an \verb|x| field.  We desugar the record constraint, so that
+after evaluating the \verb|always p.x = 100| statement the constraints
+are:
 \begin{verbatim}
  weak px=2
  weak py=5
@@ -386,26 +388,38 @@ evaluating the \verb|always p.x = 100| statement the constraints are:
 These constraints have the solution \verb|px=100, py=5|, which is then
 reassembled into \verb|p = {x:100, y:5}|.
 
-We can also initialize a record variable with an always constraint that
-defines its entire structure, as in the following program.
+Here are a few examples that fail the structural compatibility checks.
+
 \begin{verbatim}
  p := {x:2, y:5};
  always q = p;
 \end{verbatim}
-\ab{Do we want to allow this?  The alternative of requiring that we
-  first assign to q before adding the always q=p constraint seems sort
-  of silly.}
+There is a check before the \verb|always| constraint that \verb|q|
+have \verb|x| and \verb|y| fields, which fails.  To fix this, we could
+initialize \verb|q| appropriately:
+\begin{verbatim}
+ p := {x:2, y:5};
+ q := p;
+ always q = p;
+\end{verbatim}
 
-If we allow the above program, this one should also be OK:
+(Experience with Babelsberg/R indicates that requiring this
+initialization is annoying.  We can avoid the problem, as is described
+in Section \ref{sec:record-convenience-features}.  However, doing so
+clutters up the semantics a bit, and since our goal with
+Bablesberg/Records is to illuminate the semantics rather than to
+design a practical language, we don't include this in our formal
+semantics.)
+
+Similarly, we can't simply assert a constraint on a record \verb|p|:
 \begin{verbatim}
  always p = {x:2, y:5};
 \end{verbatim}
 
-On the other hand, the following constraint on its own fails the
-structural compatibility check that p is a record with an x field,
-since we didn't first initialize p.
+Rather, we need to initialize \verb|p| first:
 \begin{verbatim}
- always p.x = 100;
+ p := {x:2, y:5};
+ always p = {x:2, y:5};
 \end{verbatim}
 
 The following program passes the structural compatibility checks, but
@@ -417,34 +431,22 @@ that x be both 100 and 2:
  p := {x:2, y:5};
 \end{verbatim}
 
-In some of the above examples, we initialized a record variable with a
-required always constraint that defines its entire structure.  The
-always constraint doesn't need to be required:
-\begin{verbatim} 
-always weak p = {x:3}
-\end{verbatim}
-This desugars into a weak constraint that \verb|px=3|, but also
-requires that p be a record with a single field named x.  The
-desugaring doesn't have any notion of priorities, so this is a
-requirement.  Thus, the following program fails a structural
-compatibility check:
-
-\begin{verbatim} 
-always weak p = {x:3};
-always weak p = {y:4}
-\end{verbatim}
-
 However, the following program is OK:
 \begin{verbatim} 
-always weak p = {x:3};
-always weak p = {x:4}
+ p := {x:0};
+ always weak p = {x:3};
+ always weak p = {x:4}
 \end{verbatim}
 
-This desugars to the constraints \verb|weak px=3| and \verb|weak px=4|.
-Using the LPB comparator, there are two possible answers:
-\verb|p={x:3}| or \verb|p={x:4}|.  A WSB comparator would allow x to
-take on any value in $[3,4]$, although Cassowary would produce either 3
-or 4 (but not something in between), i.e., the same solutions as LPB.
+This desugars to the constraints \verb|weak px=3| and
+\verb|weak px=4|, plus \verb|weak px=0| representing the stay
+constraint.  Using the LPB comparator, there are three possible
+answers: \verb|p={x:0}|, \verb|p={x:3}| or \verb|p={x:4}|.  A WSB
+comparator would allow x to take on any value in $[0,4]$, although
+Cassowary would produce either 1, 3 or 4 (but not something in
+between), i.e., the same solutions as LPB.  (If we made the
+\verb|always| constraints slightly higher priority than the stay, the
+solutions would be either \verb|p={x:3}| or \verb|p={x:4}|.)
 
 Here's another example that fails a structural compatibility check:
 \begin{verbatim}
@@ -577,6 +579,27 @@ which adds the compatibility check:
 The compatibility check also ensures that a
 constraint is in fact a boolean-valued expression.
 
+\subsection{Convenience Features}
+\label{sec:record-convenience-features}
+
+As illustrated by some of the above examples, we need to initialize a
+record variable with a suitable value before using it in an
+\verb|always| constraint, even if the \verb|always| constraint would
+define its entire structure.  As mentioned above, in practice this is
+annoying, and so in the actual Babelsberg/R language we allow an
+\verb|always| constraint to define the structure of an uninitialized
+variable.  If we supported this in Babelsberg/Records as well, this
+program would be legal:
+\begin{verbatim}
+ p := {x:2, y:5};
+ always q = p;
+\end{verbatim}
+
+as would this one:
+\begin{verbatim}
+ always p = {x:2, y:5};
+\end{verbatim}
+
 \section{Babelsberg/MRecords}
 
 Our next language is Babelsberg/MRecords, which involves extending
@@ -590,7 +613,7 @@ allow field acccesses as l-values, e.g.
 After the second assignment, this desugars to the constraints
 \verb|weak px=0|, \verb|weak py=0|, \verb|px=100|, which after putting
 the record back together has the solution \verb|p={x:100, y:0}|.  This
-doesn't seem to add any complications to the semantics.
+doesn't add any particular complications to the semantics.
 
 There is still no notion of object identity.  Consider:
 \begin{verbatim}
@@ -599,25 +622,6 @@ There is still no notion of object identity.  Consider:
  p.x := 100;
 \end{verbatim}
 Now \verb|p={x:100, y:0}|, but \verb|q={x:0, y:0}|.
-
-Interestingly, if we have ``once'' constraints in addition to
-``always'' constraints, we can simulate assigning to the field of a
-record just with constraints --- we don't need mutable records as
-such:
-
-\begin{verbatim}
- p := {x:0, y:0};
- once p.x = 100;
-\end{verbatim}
-
-\tdm{But ``once'' can't do everything that assignment does.  For
-  instance, {\tt once p.x = z}, where {\tt z} is a variable, doesn't have the directionality
-  constraint that
-  {\tt p.x := z} has:  the directionality of the latter is ensured by
-  evaluating {\tt z} to some value {\tt v} and then solving the constraint {\tt p.x = v}.}
-\ab{Ah, we need to add read-only annotations. With those, I think it
-  can.  (I added something about read-only annotations in the
-  ``Constraints'' section.)}
 
 \subsection{Formalism}
 \label{mrecformal}
@@ -649,6 +653,32 @@ addition of one new rule to the semantics of statement evaluation:
 Note that we perform a structural compatibility check to ensure that
 the field being mutated already exists in the record denoted by {\tt x}.
 
+\subsection{Simulating Mutable Records}
+
+Interestingly, if we have read-only variables, and ``once''
+constraints in addition to ``always'' constraints, we can simulate
+assigning to the field of a record just with constraints --- we don't
+need mutable records as such.  Consider:
+
+\begin{verbatim}
+ p := {x:0, y:0};
+ once p.x = 100;
+\end{verbatim}
+
+The \verb|once| constraint takes the place of an assignment to
+\verb|p.x|.  If the right hand side of the assignment is a variable or
+an expression, we need to annotate the variable (or all the variables
+in the expression) as read-only to achieve the directionality of the
+assignment. For example:
+
+\begin{verbatim}
+ p := {x:0, y:0};
+ once p.x = z?;
+\end{verbatim}
+
+(Without the read-only annotation on \verb|z|, the solver might change
+\verb|z| rather than \verb|p.x| to satisfy the constraint.)
+
 \section{Babelsberg/UID}
 
 Our next step is to replace records that are simply values with
@@ -662,9 +692,12 @@ heap, we use the keyword \verb|new| when creating one:
  p := new {x:0, y:0};
 \end{verbatim}
 
-Now variables in the environment hold pointers, which in turn
-reference records in the heap.  The following example illustrates the
-difference from Babelsberg/MRecords:
+Now variables in the environment that have a record type hold
+pointers, which in turn reference records in the heap.  The following
+example illustrates the difference from Babelsberg/MRecords:
+
+\ab{Todd: please check wording above - I'm assuming integers and
+  booleans don't live in the heap.}
 
 \begin{verbatim}
  p := new {x:0, y:0};
@@ -677,7 +710,13 @@ so after the program runs we have \verb|p=q={x:100, y:0}|, with
 
 \subsection{Identity Constraints}
 
-Perhaps we can have identity constraints, in addition to assignments:
+\ab{I think the formal semantics doesn't account for identity
+  constraints.  If so, we should either move this section to after the
+  formal semantics, and indicate that it consists of speculative ideas
+  about a possible extension; or else say that we do have identity
+  constraints and account for them in the semantics.}
+
+Perhaps we can have identity constraints, in addition to equality constraints:
 \begin{verbatim}
  p := new {x:0, y:0};
  always p==q;  /* where == is object identity */
@@ -691,8 +730,9 @@ expected it to be a record with \verb|x| and \verb|y| fields.)
 
 To keep things simple, it may be useful to have a convention that
 identity constraints are either just checks when they are first
-created, or where at least one side is a fresh variable.  Otherwise we
-may have unexpectedly unsatisfiable identity constraints.  Consider:
+created, or at least one side of the identity is a fresh variable.
+Otherwise we may have unexpectedly unsatisfiable identity constraints.
+Consider:
 
 \begin{verbatim}
  p := new {x:0, y:0};
@@ -909,7 +949,9 @@ like floats.  How does that get accommodated?
 
 \section{Additional Issues}
 
-\emph{This section is rough and incomplete.}
+\emph{This section is currently a holding pen for things that aren't
+  workd out.  These should eventually be worked out, and the text
+  moved to another part of the memo; or deleted.}
 
 Actual Babelsberg/R code often involves creating new objects in
 constraints.  For example, the above constraints on the center of a
@@ -941,7 +983,7 @@ always r.center.y = p1.y+p2.y;
 \end{verbatim}
 
 An alternative: there are some objects that are like immutable records
-(e.g. points), so Babelsberg/Rec semantics works.  ID of these objects
+(e.g. points), so Babelsberg/Records semantics works.  ID of these objects
 not significant.  Do we care about sharing?
 
 How should we handle arrays?  There are a number of odd cases that
@@ -954,9 +996,9 @@ strong a[10] = 100;
 weak a.length = 2;
 \end{verbatim}
 If this is legal, we want to satisfy the strong constraint in
-preference to the weak one.  How big is \verb|a|?  If indices start at
-1, then 10 seems more reasonable than 11 or 100.  But we need a
-minimality condition to enforce this.  
+preference to the weak one.  How big is \verb|a|?  Assuming array
+indices start at 1, a length of 10 seems more reasonable than 11 or
+100.  But we need a minimality condition to enforce this.
 
 Proposal: the length of an array is part of its structure, and we use
 the same structural compatability checks for the existence of array
@@ -970,8 +1012,6 @@ structure as being a more stringent notion of type: it includes the
 usual properties of a type, plus some others that are usually checked
 at runtime.  (As another example, if we are using records to represent
 linked lists, the length of the linked list is part of its structure.)  
-
-
 
 \bibliographystyle{plain}
 \bibliography{constraints}

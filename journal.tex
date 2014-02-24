@@ -122,6 +122,8 @@
 
 \section{Introduction}
 \label{sec:introduction}
+
+\todo{more Path tools focus}
 An increasing number of companies develop distributed Web
 applications~\cite{kondo2009cost}. 
 % EYPaaSSurvey2012
@@ -219,16 +221,21 @@ our prototype \toolname and its integration with our Path tools
 debugging suite. The contributions with respect to our implementation
 in Squeak/Smalltalk~\cite{Ingalls1997} are:
 
+\todo{revise}
+
 \begin{itemize}
+
+\item An architectural overview of our Path tools suite that provides
+  generic debugging tools that we adapted for record and refinement
+  debugging.
+
+\item EXTENSION: An architecture that decouples the recording from the analysis,
+  and refinement phases so we can experiment and test each area
+  without having to re-run the entire distributed system.
+
 \item A technique that allows us safely modify core library code
   for network communication in a self-sustaining development
   environment.
-\item An architecture that decouples the recording from the analysis,
-  and refinement phases so we can experiment and test each area
-  without having to re-run the entire distributed system.
-%\item An architectural overview of our Path tools suite that provides
-%  generic debugging tools that we adapted for record and refinement
-%  debugging.
 \end{itemize}
 
 \todo{Adapt structure later}
@@ -333,7 +340,74 @@ The less fortunate customer may then complain in a bug report like this:
 
 
 %%%---------------------------------------------------------------------------------------------------%%%
-\subsection{The Path Tools Framework: Debugging Reproducible Failures}
+
+\subsection{Squeak/Smalltalk: A Self-sustaining Environment}
+
+\todo{revise}
+
+As a consequence for extending the Path tools framework, \toolname also benefits from the underlying Squeak/Smalltalk development environment~\cite{Ingalls1997}.
+Squeak is an open source implementation of the dynamic object-oriented programming language Smalltalk which only consists of objects. % and is image-based. 
+%This means that the complete system with all of its objects is persistently stored on disk. 
+It is possible to enrich arbitrary objects with additional information such as their execution in network communications and to preserve this knowledge for later purposes. 
+Squeak further offers a comprehensive development environment, a flexible and extendable user interface, and rich meta-programming facilities. 
+As everything is written in Smalltalk, we have full access to all implementation details so that we can easily analyze, debug, and change the entire system. 
+%Squeak is used in a wide range of projects ranging from Web applications to several research prototypes. 
+%We also use this platform for teaching our students object-oriented programming by implementing small games and Web applications. 
+%For all these reasons, Squeak is an ideal basis for building our own debugging tools and to evaluate our approach with the help of our students and the community.
+
+%%%---------------------------------------------------------------------------------------------------%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Debugging Reproducible Failures}
+\label{sec:pathTools}
+
+\subsection{Reproduce Motivating Example}
+
+The Path Tools suite runs test cases, so
+the developer writes a test case that (``sometimes'') reproduces the
+failure. We call this test case a \emph{diagnosis script}. The purpose of
+this script is to create \ac{http} traffic that might trigger the
+failure, as in the example below:
+\begin{lstlisting}[%
+  basicstyle=\scriptsize,%
+  emph={testBugReport001},%
+  emphstyle=\bfseries,%
+  showstringspaces=false,%
+  frame=tb,%
+  columns=flexible]
+  testBugReport001
+    | priceTable flightIdIdx flightId price reservation |
+    priceTable  := (HTTPSocket
+                    httpGetDocument: 'http://localhost:4567/search'
+                    args: {'origin' -> {'Berlin'}.
+                           'destination' -> {'Amsterdam'}.
+                           'date' -> {Date today printString}}) content.
+    price       := (table
+                    copyFrom: (table indexOfSubCollection: '<td>' startingAt: priceEndIdx - 9)
+                    to: (table indexOfSubCollection: ' EUR')) asInteger.
+    flightIdIdx := table content indexOfSubCollection: 'data-id="'.
+    flightId    := (table content copyFrom: idIdx to: idIdx + 20) asInteger.
+    reservation := (HTTPSocket
+                    httpPostDocument: 'http://localhost:4567/flights/', id, '/reserve'
+                    args: nil) content
+    self assert: (reservation endsWith: price asString).
+\end{lstlisting}
+
+In our example, the script mimics the behavior of a customer who
+reserves a seat on an airplane. It communicates with the Web server
+via \ac{http}, and asserts that the returned data has the correct
+rates. We use assertions to classify recorded network communication
+schedules in relation to whether they produce a failure. Variances
+between successful and failing communication schedules can be used to
+reduce the number of network events that developers need to consider
+during debugging.
+
+\subsection{Test-driven Fault Navigation}
+
+%\subsection{The Path Tools Framework: Debugging Reproducible Failures}
 
 To debug such difficult failures, the Path tools framework implements the \emph{test-driven fault navigation}~\cite{Perscheid13,Perscheid} that provides developers an interconnected guide for debugging reproducible failures.
 By analyzing passing and failing tests cases, the test-driven fault navigation integrates anomalies into a breadth-first search for systematically leading developers back to root causes. 
@@ -356,48 +430,7 @@ Second, we extend PathFinder with a pane for the network schedule and connect th
 Thus, with these small adaptations \toolname has access to execution histories of network nodes and the Path tools framework has been enlarged for debugging non-deterministic failures in distributed applications. 
 
 
-\subsection{Squeak/Smalltalk: A Self-sustaining Environment}
-
-As a consequence for extending the Path tools framework, \toolname also benefits from the underlying Squeak/Smalltalk development environment~\cite{Ingalls1997}.
-Squeak is an open source implementation of the dynamic object-oriented programming language Smalltalk which only consists of objects. % and is image-based. 
-%This means that the complete system with all of its objects is persistently stored on disk. 
-It is possible to enrich arbitrary objects with additional information such as their execution in network communications and to preserve this knowledge for later purposes. 
-Squeak further offers a comprehensive development environment, a flexible and extendable user interface, and rich meta-programming facilities. 
-As everything is written in Smalltalk, we have full access to all implementation details so that we can easily analyze, debug, and change the entire system. 
-%Squeak is used in a wide range of projects ranging from Web applications to several research prototypes. 
-%We also use this platform for teaching our students object-oriented programming by implementing small games and Web applications. 
-%For all these reasons, Squeak is an ideal basis for building our own debugging tools and to evaluate our approach with the help of our students and the community.
-
-%%%---------------------------------------------------------------------------------------------------%%%
-\subsection{Context-oriented Programming in Smalltalk: ContextS}
-%\subsection{Context/S for Scoping Core Changes}
-\label{sec:cont-scop-core}
-
-To debug our motivating failure, \toolname has to analyze the behavior of distributed applications. 
-For that reason, we wrap Smalltalk's distributed \ac{api}, e.\,g. \ac{http}, with \emph{ContextS}~\cite{Hirschfeld2008}, a \ac{cop}~\cite{Appeltauer2009} implementation for Squeak.
-\ac{cop} is an extension to object-oriented programming that provides a \emph{layer} construct for encapsulating cross-cutting behavioral variations of a system. 
-Layers can adapt classes and methods and can be composed at runtime.
-
-%To debug our motivating failure, \toolname has to work for distributed applications that use \ac{http} to communicate. 
-%For that reason, we wrapped the Squeak \ac{http} \ac{api} with \emph{ContextS}~\cite{Hirschfeld2008}, a \ac{cop}~\cite{Appeltauer2009} implementation for Squeak. 
-%\ac{cop} is an extension to object-oriented programming that provides a \emph{layer} construct for encapsulating cross-cutting behavioral variations of a system. 
-%Layers can adapt classes and methods and can be composed at runtime.
-
-%Many dynamic languages -- object-oriented languages like Ruby and Smalltalk, but also Scheme-like languages -- allow developers to override or extend core functionality through a technique dubbed ``monkey-patching''. 
-%However, we have found \ac{cop} to be a better option for developing tools that need to adapt core parts of the programming environment and language for two reasons. 
-We argue that \ac{cop} is a proper option for developing tools that need to adapt core parts of the programming environment and language for two reasons. 
-First, the changes to the core system are dynamically scoped, so we can constrain the adaption to our tool only. 
-This way, as Lincke et.al.~have found~\cite{lincke2012scoping}, we do not have to worry if tools may rely on subtleties of the original implementation -- they will not see
-our adaptions. 
-Second, layers as a separate entity can be independently source-controlled -- that means that we were able to continuously update our adaptions in the running system without breaking existing running instances.
-
-Our ContextS layers dynamically enable recording and scheduling in the live system for communication originating from our tool. 
-For example, the layers adapt all methods that read and write \ac{http} requests to and from a socket. 
-This includes both communication triggered directly from \toolname, as well as communication received from a system that is running \toolname. 
-In the first case, the layer is enabled using the normal dynamic scoping of \ac{cop}, for the second case, the layer is enabled when a custom \ac{http} header field is
-set, as described in service-oriented applications of \ac{cop}~\cite{appeltauer2013declarative}.
-This implementation approach can be applied analogously to other \ac{api}s as well as in other programming languages for which a \ac{cop}~\cite{Appeltauer2009} mechanism is available. 
-
+\subsection{Path Tools Implementation}
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -479,44 +512,9 @@ operations.
 \end{table}
 
 Figure~\ref{fig:architecture_1} shows how the different modules
-collaborate during recording. The Path Tools suite runs test cases, so
-the developer writes a test case that (``sometimes'') reproduces the
-failure. We call this test case a \emph{diagnosis script}. The purpose of
-this script is to create \ac{http} traffic that might trigger the
-failure, as in the example below:
-\begin{lstlisting}[%
-  basicstyle=\scriptsize,%
-  emph={testBugReport001},%
-  emphstyle=\bfseries,%
-  showstringspaces=false,%
-  frame=tb,%
-  columns=flexible]
-  testBugReport001
-    | priceTable flightIdIdx flightId price reservation |
-    priceTable  := (HTTPSocket
-                    httpGetDocument: 'http://localhost:4567/search'
-                    args: {'origin' -> {'Berlin'}.
-                           'destination' -> {'Amsterdam'}.
-                           'date' -> {Date today printString}}) content.
-    price       := (table
-                    copyFrom: (table indexOfSubCollection: '<td>' startingAt: priceEndIdx - 9)
-                    to: (table indexOfSubCollection: ' EUR')) asInteger.
-    flightIdIdx := table content indexOfSubCollection: 'data-id="'.
-    flightId    := (table content copyFrom: idIdx to: idIdx + 20) asInteger.
-    reservation := (HTTPSocket
-                    httpPostDocument: 'http://localhost:4567/flights/', id, '/reserve'
-                    args: nil) content
-    self assert: (reservation endsWith: price asString).
-\end{lstlisting}
+collaborate during recording. 
 
-In our example, the script mimics the behavior of a customer who
-reserves a seat on an airplane. It communicates with the Web server
-via \ac{http}, and asserts that the returned data has the correct
-rates. We use assertions to classify recorded network communication
-schedules in relation to whether they produce a failure. Variances
-between successful and failing communication schedules can be used to
-reduce the number of network events that developers need to consider
-during debugging.
+%%%% test report
 
 The \lstinline{HTTPSocket} class is responsible for handling \ac{http}
 traffic. We have created a Context/S layer for recording that layers
@@ -893,6 +891,37 @@ time-dependent, in which case our approach is not applicable.
 
 % % industry example of such a failure
 % % re-implementation of setup in Smalltalk, debugging with our tools
+
+
+\section{Scoping Core Library Modification} %Context-oriented Programming in Smalltalk: ContextS}
+%\subsection{Context/S for Scoping Core Changes}
+\label{sec:cont-scop-core}
+
+To debug our motivating failure, \toolname has to analyze the behavior of distributed applications. 
+For that reason, we wrap Smalltalk's distributed \ac{api}, e.\,g. \ac{http}, with \emph{ContextS}~\cite{Hirschfeld2008}, a \ac{cop}~\cite{Appeltauer2009} implementation for Squeak.
+\ac{cop} is an extension to object-oriented programming that provides a \emph{layer} construct for encapsulating cross-cutting behavioral variations of a system. 
+Layers can adapt classes and methods and can be composed at runtime.
+
+%To debug our motivating failure, \toolname has to work for distributed applications that use \ac{http} to communicate. 
+%For that reason, we wrapped the Squeak \ac{http} \ac{api} with \emph{ContextS}~\cite{Hirschfeld2008}, a \ac{cop}~\cite{Appeltauer2009} implementation for Squeak. 
+%\ac{cop} is an extension to object-oriented programming that provides a \emph{layer} construct for encapsulating cross-cutting behavioral variations of a system. 
+%Layers can adapt classes and methods and can be composed at runtime.
+
+%Many dynamic languages -- object-oriented languages like Ruby and Smalltalk, but also Scheme-like languages -- allow developers to override or extend core functionality through a technique dubbed ``monkey-patching''. 
+%However, we have found \ac{cop} to be a better option for developing tools that need to adapt core parts of the programming environment and language for two reasons. 
+We argue that \ac{cop} is a proper option for developing tools that need to adapt core parts of the programming environment and language for two reasons. 
+First, the changes to the core system are dynamically scoped, so we can constrain the adaption to our tool only. 
+This way, as Lincke et.al.~have found~\cite{lincke2012scoping}, we do not have to worry if tools may rely on subtleties of the original implementation -- they will not see
+our adaptions. 
+Second, layers as a separate entity can be independently source-controlled -- that means that we were able to continuously update our adaptions in the running system without breaking existing running instances.
+
+Our ContextS layers dynamically enable recording and scheduling in the live system for communication originating from our tool. 
+For example, the layers adapt all methods that read and write \ac{http} requests to and from a socket. 
+This includes both communication triggered directly from \toolname, as well as communication received from a system that is running \toolname. 
+In the first case, the layer is enabled using the normal dynamic scoping of \ac{cop}, for the second case, the layer is enabled when a custom \ac{http} header field is
+set, as described in service-oriented applications of \ac{cop}~\cite{appeltauer2013declarative}.
+This implementation approach can be applied analogously to other \ac{api}s as well as in other programming languages for which a \ac{cop}~\cite{Appeltauer2009} mechanism is available. 
+
 
 \section{Related Work}
 \label{sec:related-work}

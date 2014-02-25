@@ -322,6 +322,7 @@ because now fewer seats are available and the crawler updated the cache.
 The less fortunate customer may then complain in a bug report like this:
 
 \begin{quote}
+\label{quote:bugreport}
   Sometimes, when I try to book a flight on your website, it is added
   to my cart just fine, but with a different price than what was
   displayed in the list when I clicked it.
@@ -455,30 +456,32 @@ Thus, with these small adaptations \toolname has access to execution histories o
 \section{Record and Refinement}
 \label{sec:approach}
 
-Recall the example of a flight booking service failure in
-\autoref{sec:background}. The failure occurred ``sometimes'', indicating
-some source of non-determinism. From such a bug report, developers
-create hypotheses as to its cause. Using our approach, developers can
-test whether communication timing dependencies are the source of this
-non\-/deterministic failure, using \emph{communication recording},
-\emph{anomaly analysis}, and \emph{refinement of remote data}.
+\todo{connect this to the previous section} Recall the original bug
+report for the flight booking service failure on Page
+\pageref{quote:bugreport}. The failure occurred ``sometimes'',
+indicating some source of non-determinism.
+
+The original Path Tools design, however, relies on being able to
+reproduce failures reliably. In this section, we present an extension
+to Path Tools with \emph{record and refinement} to debug
+non-deterministic failures on the network.  Using our approach,
+developers can test whether communication timing dependencies are the
+source of this non\-/deterministic failure, using \emph{communication
+  recording}, \emph{anomaly analysis}, and \emph{refinement of remote
+  data}.
 
 \subsection{Communication Recording}
 \label{sec:minimal-recording}
 
-For non-deterministic failures in a distributed setting, observations
-from the live system are essential~\cite{altekar2009odr}, because
-long-running systems will over time accumulate state changes and
-encounter situations unforeseen during
-development~\cite{Geels2006Replay}. Thus, we record information in the
-live system, including information about executions that exhibit the
-failure.  Developers need to establish causes from effects to debug
-failures in any system, and to do so, the order in which events occur
-is essential~\cite{lamport1978time}. For a truly parallel system, we
-can create a partial order using \emph{Lamport Clocks}. This order is
-called the \emph{logical schedule}~\cite{Konuru2000} in which the
-events occurred. Figure~\ref{fig:comm-sched} shows such a schedule for
-our example system. In this schedule, two requests arrive at the Web
+For non-deterministic failures in a distributed setting, developers
+need to establish causes from effects. To debug failures in any
+system, the order in which events occur is
+essential~\cite{lamport1978time}. For a truly parallel system such as
+a system distributed over the network, we can create a partial order
+using \emph{Lamport Clocks}. This order is called the \emph{logical
+  schedule}~\cite{Konuru2000} in which the events
+occurred. Figure~\ref{fig:comm-sched} shows such a schedule for our
+example system. In this schedule, two requests arrive at the Web
 server. The first is sent on to the cache, which queries the crawler,
 and eventually returns the data to the Web server. Then the second Web
 request arrives at the cache, and is served from cached data. Upon
@@ -528,22 +531,29 @@ operations.
 Figure~\ref{fig:architecture_1} shows how the different modules
 collaborate during recording. 
 
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_1}
+  \caption{Communication Recording Phase}
+  \label{fig:architecture_1}
+\end{figure}
+
 %%%% test report
 
 The \lstinline{HTTPSocket} class is responsible for handling \ac{http}
-traffic. We have created a Context/S layer for recording that layers
-this class and, for each send and receive, records a process-local
-trace of the network communication, before passing the traffic on.
-Network traces in \toolname include an integer id as Lamport clock,
-the first 500 bytes of the message, as well as \textsc{IP} address,
-\textsc{url}, and port for both sender and receiver for all sent and
-received \ac{http} requests. These are saved in a process-local
-structure and are not sent on the network. The recording layer also
-adds the current Lamport clock ``time'' as an application defined
-\ac{http} header to each outgoing request, and reads it from incoming
-requests. This is \ac{http} specific, and for protocols that do not
-have room for custom data, a more general approach---such as
-prepending magic bytes to the payload---can be used~\cite{Konuru2000}.
+traffic. We have instrumented this class to record a process-local
+trace of the network communication for each send and receive, before
+passing the traffic on.  Network traces in \toolname include an
+integer id as Lamport clock, the first 500 bytes of the message, as
+well as \textsc{IP} address, \textsc{url}, and port for both sender
+and receiver for all sent and received \ac{http} requests. These are
+saved in a process-local structure and are not sent on the
+network. The recording layer also adds the current Lamport clock
+``time'' as an application defined \ac{http} header to each outgoing
+request, and reads it from incoming requests. This is \ac{http}
+specific, and for protocols that do not have room for custom data, a
+more general approach---such as prepending magic bytes to the
+payload---can be used~\cite{Konuru2000}.
 
 \begin{figure}
   \centering
@@ -552,20 +562,18 @@ prepending magic bytes to the payload---can be used~\cite{Konuru2000}.
   \label{fig:pathmap}
 \end{figure}
 
-Activation of the recording layer is completely transparent to the
-users of \toolname. When they run a test case as a diagnosis script
-through the PathMap tool (\cf{\autoref{fig:pathmap}\textcircled{\small
-    1}}), \toolname asks how often the script should be executed (this
-number has to be chosen from experience, finding a number of
-executions that shows around a dozen failures seems to work well -- so
-for a script that fails 10\% of the time, 100 runs are ok.)
-
-After each recording, \toolname merges the traces from different
-processes into a list, sort events by id, and assigns the result of
-the test case to the trace. This way, each trace consists of a list of
-events that include communication partners and a Lamport clock, as
-well as a test result. Test results are gathered and shown in a banner
-in the \ac{ui} (\autoref{fig:pathmap}\textcircled{\small 2}.)
+When developers run a test case as a diagnosis script through the
+PathMap tool (\cf{\autoref{fig:pathmap}\textcircled{\small 1}}),
+\toolname asks how often the script should be executed (this number
+has to be chosen from experience, finding a number of executions that
+shows around a dozen failures seems to work well -- so for a script
+that fails 10\% of the time, 100 runs are ok.)  After each recording,
+\toolname merges the traces from different processes into a list, sort
+events by id, and assigns the result of the test case to the
+trace. This way, each trace consists of a list of events that include
+communication partners and a Lamport clock, as well as a test
+result. Test results are gathered and shown in a banner in the \ac{ui}
+(\autoref{fig:pathmap}\textcircled{\small 2}.)
 
 % constrain the communication in the system to failing communication
 % schedules
@@ -655,26 +663,25 @@ The first goal of is to enable consistent reproduction of failures in
 the live system by removing the network as a source of
 non-determinism. From the data recorded during multiple executions,
 developers can select one of the failing schedules to constrain the
-system to this particular communication schedule. For this we use
-another Context/S layer that implements a \emph{traffic
-  shaper}~\cite{IetfShaper}, which, for each node, controls the
-interaction with \io devices and mediates application access to the
-network. If the system repeatedly exhibits the failure when it is
-constrained to this communication schedule, non-determinism on the
-network is likely the culprit.
+system to this particular communication schedule. For this we
+implement a \emph{traffic shaper}~\cite{IetfShaper}, which, on each
+node, mediates application access to the network. If the system
+repeatedly exhibits the failure when it is constrained to this
+communication schedule, non-determinism on the network is likely the
+culprit.
 
-The scheduler controls all network access by applications by wrapping
-Squeak's network \ac{api}. All data sent or received through that
-\ac{api} is treated according to the recorded schedules. For this, the
-scheduler buffers each event. Once all events that are expected to
-occur before a buffered event have appeared according to the schedule,
-the buffered event is released. In the case of a single-threaded
-server, any interaction with the network is served from the buffer if
-possible, and only executes the wrapped functions if no suitable event
-is available. The scheduler will keep executing the wrapped function
-and add the result to its buffer until a suitable event is
-available. On a multi-threaded server, events are held back using
-semaphores that are signaled when the previous event is released.
+The scheduler controls all network access by wrapping Squeak's network
+\ac{api}. All data sent or received through that \ac{api} is treated
+according to the recorded schedules. For this, the scheduler buffers
+each event. Once all events that are expected to occur before a
+buffered event have appeared according to the schedule, the buffered
+event is released. In the case of a single-threaded server, any
+interaction with the network is served from the buffer if possible,
+and only executes the wrapped functions if no suitable event is
+available. The scheduler will keep executing the wrapped function and
+add the result to its buffer until a suitable event is available. On a
+multi-threaded server, events are held back using semaphores that are
+signaled when the previous event is released.
 
 \begin{figure}
   \centering
@@ -684,10 +691,9 @@ semaphores that are signaled when the previous event is released.
 \end{figure}
 
 \autoref{fig:architecture_2} shows that the schedule is selected from
-\toolname, and then the diagnosis script is re-run. The schedule layer
+\toolname, and then the diagnosis script is re-run. The traffic shaper
 keeps a thread-safe input and output buffer to re-order network events
-as required. A schedule contains a recorded trace with queries to the
-refinement layer. 
+as required.
 
 Our scheduler has to deal with situations in which no event occurs
 that matches a required schedule. Such situations will cause an
@@ -703,7 +709,7 @@ attempt are developer configurable.
 \label{sec:call-tree-inspection}
 Using our scheduler, developers can inspect specific failing
 communication schedules for further analysis by expanding the anomaly
-detection view. Each differential schedule is the parent node of a
+detection view.  Each differential schedule is the parent node of a
 tree of schedules from which it is the difference. Developers expand
 this tree and select any one of the failing schedules to re-run
 it. For each schedule, labels on the left hand side reports how many
@@ -711,7 +717,7 @@ runs had this particular communication schedule, how many events are
 in this schedule, and which endpoints were encountered in the
 communication.
 
-The first time a developer re-runs a schedule, \toolname adds a layer
+The first time a developer re-runs a schedule, \toolname adds a query
 to record the stack at the time each event is released. The process
 that generates that event leverages the reflective capabilities of
 Smalltalk to gather execution data. When a schedule is applied to the
@@ -721,22 +727,19 @@ developer can then select an event in the communication view, and the
 debugging tool will present a partial call tree that corresponds to
 the selected event.
 
-Developers can explore the call tree and request additional
-information about method arguments and return values, as well as
-instance variables of objects. Based on the recorded stack, \toolname
-displays the method source code, if it is available. If developers try
-to inspect, for example, a method argument, PathFinder wraps the
-corresponding method on the on local system, and creates deep copies
-of its arguments and return values during the next re-execution, which
-are then returned to the debugging tool\footnote{For copying objects,
-  we rely on Smalltalk’s \texttt{veryDeepCopy} protocol, which
-  relieves us of the burden of dealing with details of copying. If
-  necessary, this protocol also allows developers to adapt the
-  analyzed object depth to their needs.}. In future work, \toolname
-will implement a layer (including distributed activation, just as for
-the trace recording layer) to wrap the methods on remote systems as
-well, and record method arguments and return values on the remote
-system.
+Using the existing Path Tools facilities, developers can then explore
+the call tree and request additional information about method
+arguments and return values, as well as instance variables of
+objects. Based on the recorded stack, \toolname displays the method
+source code, if it is available. If developers try to inspect, for
+example, a method argument, PathFinder wraps the corresponding method
+on the on local system, and creates deep copies of its arguments and
+return values during the next re-execution, which are then returned to
+the debugging tool\footnote{For copying objects, we rely on
+  Smalltalk’s \texttt{veryDeepCopy} protocol, which relieves us of the
+  burden of dealing with details of copying. If necessary, this
+  protocol also allows developers to adapt the analyzed object depth
+  to their needs.}.
 
 \begin{figure}
   \centering
@@ -778,41 +781,6 @@ information that developers request.
 % developer can choose
 % use stack to associate code locations
 % no stepping, debugging from network events to code
-
-\subsection{Discussion}
-\label{sec:discussion}
-
-The presented approach currently has two main limitations. First, our
-low-overhead recording and schedule shaper depend on the determinism
-of each server. Consequently, if other sources of non-determinism,
-such as system calls to \texttt{random} or \texttt{gettimeofday}, have
-an impact on the failure, we cannot currently reproduce it. This can
-be fixed by recording more sources of non-determinism, at the expense
-of increased overhead. This can be easily implemented with additional
-layered methods around such non-determinism. However, our scheduler
-could still use that additional data to constrain the live system to
-reliably reproduce a failure, and the rest of our approach still
-applies.
-
-Second, our approach currently only works in the \emph{closed-world}
-case, in which all processes that participate in the distributed
-system include our recording and scheduler. If that is not the case,
-we need to extend our approach in two ways to support an
-\emph{open-world} case: first, we need to use a discovery mechanism to
-tell participating processes from non-participating processes. Second,
-for non-participating processes, we need to record the message
-contents besides what we currently record. If a schedule is later
-applied to the live system, events from and to non-participating
-systems are replayed from the recorded data. Note that this may not
-work if data returned from non-participating servers is
-time-dependent, in which case our approach is not applicable.
-
-\begin{figure}
-  \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/architecture_1}
-  \caption{Communication Recording Phase}
-  \label{fig:architecture_1}
-\end{figure}
 
 % \todo{}
 % local reproduction?
@@ -907,35 +875,129 @@ time-dependent, in which case our approach is not applicable.
 % % re-implementation of setup in Smalltalk, debugging with our tools
 
 
-\section{Scoping Core Library Modification} %Context-oriented Programming in Smalltalk: ContextS}
+\section{Scoping Core Library Modification for Record and Refinement} %Context-oriented Programming in Smalltalk: ContextS}
 %\subsection{Context/S for Scoping Core Changes}
 \label{sec:cont-scop-core}
 
-To debug our motivating failure, \toolname has to analyze the behavior of distributed applications. 
-For that reason, we wrap Smalltalk's distributed \ac{api}, e.\,g. \ac{http}, with \emph{ContextS}~\cite{Hirschfeld2008}, a \ac{cop}~\cite{Appeltauer2009} implementation for Squeak.
-\ac{cop} is an extension to object-oriented programming that provides a \emph{layer} construct for encapsulating cross-cutting behavioral variations of a system. 
-Layers can adapt classes and methods and can be composed at runtime.
+For non-deterministic failures in a distributed setting, observations
+from the live system are essential~\cite{altekar2009odr}, because
+long-running systems will over time accumulate state changes and
+encounter situations unforeseen during
+development~\cite{Geels2006Replay}. Thus, we record information in the
+live system, including information about executions that exhibit the
+failure.
 
-%To debug our motivating failure, \toolname has to work for distributed applications that use \ac{http} to communicate. 
-%For that reason, we wrapped the Squeak \ac{http} \ac{api} with \emph{ContextS}~\cite{Hirschfeld2008}, a \ac{cop}~\cite{Appeltauer2009} implementation for Squeak. 
-%\ac{cop} is an extension to object-oriented programming that provides a \emph{layer} construct for encapsulating cross-cutting behavioral variations of a system. 
-%Layers can adapt classes and methods and can be composed at runtime.
+However, we are interested only in the communication that occurs when
+a diagnosis script is executed against the live system, not all
+communication at all times. More specifically, we would like to
+separately enable and disable all three modifications -- recording,
+traffic shaping, and refinement -- we made to the core \ac{http}
+library. Thus, we want our modifications to be scoped to particular
+executions, instead patching the core library globally.
 
-%Many dynamic languages -- object-oriented languages like Ruby and Smalltalk, but also Scheme-like languages -- allow developers to override or extend core functionality through a technique dubbed ``monkey-patching''. 
-%However, we have found \ac{cop} to be a better option for developing tools that need to adapt core parts of the programming environment and language for two reasons. 
-We argue that \ac{cop} is a proper option for developing tools that need to adapt core parts of the programming environment and language for two reasons. 
-First, the changes to the core system are dynamically scoped, so we can constrain the adaption to our tool only. 
-This way, as Lincke et.al.~have found~\cite{lincke2012scoping}, we do not have to worry if tools may rely on subtleties of the original implementation -- they will not see
-our adaptions. 
-Second, layers as a separate entity can be independently source-controlled -- that means that we were able to continuously update our adaptions in the running system without breaking existing running instances.
+To scope our changes, we instrument Smalltalk's distributed \ac{api},
+e.\,g. \ac{http}, with \emph{ContextS}~\cite{Hirschfeld2008}, a
+\ac{cop}~\cite{Appeltauer2009} implementation for Squeak.  \ac{cop} is
+an extension to object-oriented programming that provides a
+\emph{layer} construct for encapsulating cross-cutting behavioral
+variations of a system.  Layers can adapt classes and methods and can
+be composed at runtime.
 
-Our ContextS layers dynamically enable recording and scheduling in the live system for communication originating from our tool. 
-For example, the layers adapt all methods that read and write \ac{http} requests to and from a socket. 
-This includes both communication triggered directly from \toolname, as well as communication received from a system that is running \toolname. 
-In the first case, the layer is enabled using the normal dynamic scoping of \ac{cop}, for the second case, the layer is enabled when a custom \ac{http} header field is
-set, as described in service-oriented applications of \ac{cop}~\cite{appeltauer2013declarative}.
-This implementation approach can be applied analogously to other \ac{api}s as well as in other programming languages for which a \ac{cop}~\cite{Appeltauer2009} mechanism is available. 
+Many dynamic languages -- object-oriented languages like Ruby and
+Smalltalk, but also Scheme-like languages -- allow developers to
+override or extend core functionality through a technique dubbed
+``monkey-patching''.  However, we have found \ac{cop} to be a better
+option for developing tools that need to adapt core parts of the
+programming environment and language for two reasons. First, the
+changes to the core system are dynamically scoped, so we can constrain
+the adaption to our tool only.  This way, as Lincke et.al.~have
+found~\cite{lincke2012scoping}, we do not have to worry if tools may
+rely on subtleties of the original implementation -- they will not see
+our adaptions.  Second, layers as a separate entity can be
+independently source-controlled -- that means that we were able to
+continuously update our adaptions in the running system without
+breaking existing running instances.
 
+For \toolname, have created Context/S layers for recording and traffic
+shaping. Activation of each layer is completely transparent to users
+debugging a diagnosis script through \toolname. Our layers adapt all
+methods that read and write \ac{http} requests to and from a socket.
+This includes both communication triggered directly from \toolname, as
+well as communication received from a system that is running
+\toolname.  In the first case, the layer is enabled using the normal
+dynamic scoping of \ac{cop}, for the second case, the layer is enabled
+when a custom \ac{http} header field is set, as described in
+service-oriented applications of
+\ac{cop}~\cite{appeltauer2013declarative}.  This implementation
+approach can be applied analogously to other \ac{api}s as well as in
+other programming languages for which a \ac{cop}~\cite{Appeltauer2009}
+mechanism is available.
+
+Although ContextS has a very high-overhead and is one of the slowest
+available implementations of \ac{cop}~\cite{Appeltauer2009} for
+send-heavy benchmarks, we consider its performance adequate. We
+benchmarked executions of the diagnosis script that exercises the bug
+we described for our example flight booking service. We ran the script
+10 times for 5 seconds each both by itself and with the recording
+layer active. We recorded how many times per second the script
+executes and averaged those numbers over the runs.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{l | c c}
+    Benchmark & Avg Executions/s & $\sigma$ in \% of avg \\
+    \hline
+    Normal execution & 8.51 & 3.64 \\
+    Tracing & 8.39 & 1.36 \\
+  \end{tabular}
+  % \caption{Tracing Benchmark}
+  \label{tab:tracing-bench}
+\end{table}
+
+Our results indicate that the practical tracing overhead is minimal,
+inducing a slowdown of only 0.01. Although ContextS has a very
+high-overhead and is one of the slowest available implementations of
+\ac{cop}~\cite{Appeltauer2009} for send-heavy benchmarks, in the case
+of distributed applications, a lot of the time is spent waiting for \io
+and not in method activation. Given these results, a context-oriented
+implementation for other languages should equally have a very small
+practical overhead and thus fulfill the requirement for low-overhead
+tracing.
+
+In future work, \toolname will refinement in a layer as well
+(including distributed activation, just as for the trace recording
+layer). This will allow \toolname to wrap the methods on remote
+systems and record method arguments and return values on the remote
+system. Currently, such detailed information is only provided for the
+local system.
+
+\section{Limitations of Record and Refinement}
+\label{sec:discussion}
+
+The presented approach currently has two main limitations. First, our
+low-overhead recording and schedule shaper depend on the determinism
+of each server. Consequently, if other sources of non-determinism,
+such as system calls to \texttt{random} or \texttt{gettimeofday}, have
+an impact on the failure, we cannot currently reproduce it. This can
+be fixed by recording more sources of non-determinism, at the expense
+of increased overhead. This can be easily implemented with additional
+layered methods around such non-determinism. However, our scheduler
+could still use that additional data to constrain the live system to
+reliably reproduce a failure, and the rest of our approach still
+applies.
+
+Second, our approach currently only works in the \emph{closed-world}
+case, in which all processes that participate in the distributed
+system include our recording and scheduler layers. If that is not the
+case, we need to extend our approach in two ways to support an
+\emph{open-world} case: first, we need to use a discovery mechanism to
+tell participating processes from non-participating processes. Second,
+for non-participating processes, we need to record the message
+contents besides what we currently record. If a schedule is later
+applied to the live system, events from and to non-participating
+systems are replayed from the recorded data. Note that this may not
+work if data returned from non-participating servers is
+time-dependent, in which case our approach is not applicable.
 
 \section{Related Work}
 \label{sec:related-work}

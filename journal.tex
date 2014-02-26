@@ -408,7 +408,6 @@ In the case of our non-deterministic motivating example, a test case\footnote{We
 The purpose of this script is to create \ac{http} traffic that might trigger the failure.
 It mimics the behavior of a customer who reserves a seat on an airplane, communicates with the Web server via \ac{http}, and asserts that the returned data has the correct rates. 
 We use assertions to classify recorded network communication schedules in relation to whether they produce a failure. 
-\todo{At Tim, following sentence seems to be important but here wrong position: Variances between successful and failing communication schedules can be used to reduce the number of network events that developers need to consider during debugging.}
 
 %%%---------------------------------------------------------------------------------------------------%%%
 
@@ -552,7 +551,7 @@ clients.
 
 \begin{figure}
   \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/communication_v2.png}
+  \includegraphics[width=0.7\linewidth]{diagrams/communication_v2.png}
   \caption{A communication schedule}
   \label{fig:comm-sched}
 \end{figure}
@@ -574,28 +573,12 @@ the port and 16 bytes for the address, in the worst case of
 MiB in additional storage space. The additional time required to
 encode this information is negligible, inducing a slowdown of only 1\%
 in our \toolname, with most of the time spent waiting for network \io
-operations.
-
-\begin{table}[h]
-  \centering
-  \begin{tabular}{l | c c}
-    Benchmark & Avg Executions/5s & $\sigma$ \\
-    \hline
-    Normal execution & 8.51 & 0.31 \\
-    Recording & 8.39 & 0.12 \\
-  \end{tabular}
-  \caption{Executions of a script that exercises the described flight
-    booking failure. We ran the script 50s and averaged the number of
-    executions per 5s}
-  \label{tab:tracing-bench}
-\end{table}
-
-Figure~\ref{fig:architecture_1} shows how the different modules
-collaborate during recording. 
+operations. Figure~\ref{fig:architecture_1} shows how the different
+modules collaborate during recording.
 
 \begin{figure}
   \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/architecture_1}
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_1_journal}
   \caption{Communication Recording Phase}
   \label{fig:architecture_1}
 \end{figure}
@@ -617,15 +600,8 @@ specific, and for protocols that do not have room for custom data, a
 more general approach---such as prepending magic bytes to the
 payload---can be used~\cite{Konuru2000}.
 
-\begin{figure}
-  \centering
-  \includegraphics[width=0.9\textwidth]{screenshots/recording.png}
-  \caption{\toolname integration in PathMap tool}
-  \label{fig:pathmap}
-\end{figure}
-
 When developers run a test case as a diagnosis script through the
-PathMap tool (\cf{\autoref{fig:pathmap}\textcircled{\small 1}}),
+PathMap tool (\cf{\autoref{fig:anomalies}\textcircled{\small 1}}),
 \toolname asks how often the script should be executed (this number
 has to be chosen from experience, finding a number of executions that
 shows around a dozen failures seems to work well -- so for a script
@@ -635,7 +611,14 @@ events by id, and assigns the result of the test case to the
 trace. This way, each trace consists of a list of events that include
 communication partners and a Lamport clock, as well as a test
 result. Test results are gathered and shown in a banner in the \ac{ui}
-(\autoref{fig:pathmap}\textcircled{\small 2}.)
+(\autoref{fig:anomalies}\textcircled{\small 2}.)
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=0.7\linewidth]{screenshots/diffing_journal.png}
+  \caption{Highlighted anomalies}
+  \label{fig:anomalies}
+\end{figure*}
 
 % constrain the communication in the system to failing communication
 % schedules
@@ -656,12 +639,14 @@ result. Test results are gathered and shown in a banner in the \ac{ui}
 %   \caption{Anomaly detection for two schedules}
 %   \label{fig:comm-comparison}
 % \end{figure}
-
-For our anomaly detection, we repeatedly apply the
+Variances between successful and failing communication schedules can
+be used to reduce the number of network events that developers need to
+consider during debugging. We employ the
 \ac{lcs}~\cite{Bischof2008AiA} differencing algorithm to groups of
-communication schedules. First, we determine \acp{lcs} of all
-successes and all failures respectively, removing outliers. Second, we
-diff \acp{lcs} of successful communications with \acp{lcs} of failing
+communication schedules to detect variances and highlight
+anomalies. First, we determine \acp{lcs} of all successes and all
+failures respectively, removing outliers. Second, we diff \acp{lcs} of
+successful communications with \acp{lcs} of failing
 communications. The differences between those are most likely to
 contribute to a failure.
 % In Figure~\ref{fig:comm-comparison}, we have
@@ -696,12 +681,6 @@ communication endpoint are identified as problematic. Developers
 should then begin their investigation with the anomalous events or
 events immediately surrounding them.
 
-\begin{figure*}
-  \centering
-  \includegraphics[width=\linewidth]{screenshots/diffing.png}
-  \caption{Highlighted anomalies}
-  \label{fig:anomalies}
-\end{figure*}
 % \begin{figure*}
 %   \centering
 %   \includegraphics[width=\linewidth]{diagrams/prototype_diff.png}
@@ -747,7 +726,7 @@ signaled when the previous event is released.
 
 \begin{figure}
   \centering
-  \includegraphics[width=0.8\linewidth]{diagrams/architecture_2}
+  \includegraphics[width=0.8\linewidth]{diagrams/architecture_2_journal}
   \caption{Scheduling and Refinement}
   \label{fig:architecture_2}
 \end{figure}
@@ -980,51 +959,44 @@ independently source-controlled -- that means that we were able to
 continuously update our adaptions in the running system without
 breaking existing running instances.
 
-For \toolname, have created Context/S layers for recording and traffic
-shaping. Activation of each layer is completely transparent to users
-debugging a diagnosis script through \toolname. Our layers adapt all
-methods that read and write \ac{http} requests to and from a socket.
-This includes both communication triggered directly from \toolname, as
-well as communication received from a system that is running
-\toolname.  In the first case, the layer is enabled using the normal
-dynamic scoping of \ac{cop}, for the second case, the layer is enabled
-when a custom \ac{http} header field is set, as described in
+For \toolname, we have created Context/S layers for recording and
+traffic shaping. Activation of each layer is completely transparent to
+users debugging a diagnosis script through \toolname. Our layers adapt
+all methods that read and write \ac{http} requests to and from a
+socket.  This includes both communication triggered directly from
+\toolname, as well as communication received from a system that is
+running \toolname.  In the first case, the layer is enabled using the
+normal dynamic scoping of \ac{cop}, for the second case, the layer is
+enabled when a custom \ac{http} header field is set, as described in
 service-oriented applications of
 \ac{cop}~\cite{appeltauer2013declarative}.  This implementation
 approach can be applied analogously to other \ac{api}s as well as in
 other programming languages for which a \ac{cop}~\cite{Appeltauer2009}
 mechanism is available.
 
-Although ContextS has a very high-overhead and is one of the slowest
-available implementations of \ac{cop}~\cite{Appeltauer2009} for
-send-heavy benchmarks, we consider its performance adequate. We
-benchmarked executions of the diagnosis script that exercises the bug
-we described for our example flight booking service. We ran the script
-10 times for 5 seconds each both by itself and with the recording
-layer active. We recorded how many times per second the script
-executes and averaged those numbers over the runs.
-
-\begin{table}[h]
+\begin{table}
   \centering
   \begin{tabular}{l | c c}
-    Benchmark & Avg Executions/s & $\sigma$ in \% of avg \\
+    Benchmark & Avg Executions/5s & $\sigma$ \\
     \hline
-    Normal execution & 8.51 & 3.64 \\
-    Tracing & 8.39 & 1.36 \\
+    Normal execution & 8.51 & 0.31 \\
+    Recording & 8.39 & 0.12 \\
   \end{tabular}
-  % \caption{Tracing Benchmark}
+  \caption{Executions of a script that exercises the described flight
+    booking failure. We ran the script 50s and averaged the number of
+    executions per 5s}
   \label{tab:tracing-bench}
 \end{table}
 
-Our results indicate that the practical tracing overhead is minimal,
-inducing a slowdown of only 0.01. Although ContextS has a very
-high-overhead and is one of the slowest available implementations of
-\ac{cop}~\cite{Appeltauer2009} for send-heavy benchmarks, in the case
-of distributed applications, a lot of the time is spent waiting for \io
-and not in method activation. Given these results, a context-oriented
-implementation for other languages should equally have a very small
-practical overhead and thus fulfill the requirement for low-overhead
-tracing.
+Although ContextS has a very high-overhead and is one of the slowest
+available implementations of \ac{cop}~\cite{Appeltauer2009} for
+send-heavy benchmarks, we consider its performance adequate. The
+benchmark results in \autoref{tab:tracing-bench} present the overhead
+of our recording layer. In the case of distributed applications, a lot
+of the time is spent waiting for \io and not in method
+activation. Given these results, a context-oriented implementation for
+other languages should equally have a very small practical overhead
+and thus fulfill the requirement for low-overhead tracing.
 
 In future work, \toolname will refinement in a layer as well
 (including distributed activation, just as for the trace recording

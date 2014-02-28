@@ -16,14 +16,15 @@
 
 \newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
 \newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
-\newcommand{\step}[5]{{\tt #1;#2} $\vdash$ {\tt #3} $\Longrightarrow$
-  {\tt #4;#5}}
+\newcommand{\unsat}[1]{$\not\models$ {\tt #1}}
+\newcommand{\step}[6]{{\tt <#1|#2|#3>} $\longrightarrow$
+  {\tt <#4|#5|#6>}}
 \newcommand{\tc}[3]{{\tt #1} $\vdash$ {\tt #2} : {\tt #3}}
 
 \newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
 \newcommand{\solveH}[3]{{\tt #1;#2} $\models$ {\tt #3}}
-\newcommand{\stepH}[7]{{\tt #1;#2;#3} $\vdash$ {\tt #4} $\Longrightarrow$
-  {\tt #5;#6;#7}}
+\newcommand{\stepH}[8]{{\tt <#1|#2|#3|#4>} $\longrightarrow$
+  {\tt <#5|#6|#7|#8>}}
 \newcommand{\tcH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} : {\tt #4}}
 
 \newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
@@ -380,7 +381,8 @@ following syntax:
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & x := e $\mid$ [weak] always C $\mid$ s;s \\
+{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ [weak] always C $\mid$ s;s
+$\mid$ unsat \\
 {\rm Expression} & e & ::= & b $\mid$ n $\mid$ x $\mid$ e op e \\
 {\rm Constraint} & C & ::= & e \\
 {\rm Boolean} & b & ::= & true $\mid$ false \\
@@ -391,6 +393,13 @@ following syntax:
 {\rm Value} & v & ::= & b $\mid$ n
 \end{tabular}
 \end{tt}
+
+The syntax is a standard imperative language except for the {\tt
+  always} statement, which declares a constraint that must hold for
+the rest of the program's execution.  The {\tt unsat} statement is not
+intended for use at the source level but rather is used in the
+semantics to make explicit when the program halts due to an
+unsatisfiable constraint.
 
 \subsubsection{Semantics}
 
@@ -433,15 +442,17 @@ solver includes propositional logic with arithmetic constraints and
 that it supports the distinction between strong and weak
 constraints.'' Sound OK?}
 
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
+We use the notation \unsat{C} to mean that there is no environment
+{\tt E} such that \solve{E}{C}, i.e. {\tt C} is \emph{unsatisfiable}.
 
-``Statement {\tt s} transforms environment {\tt E} and global
-constraint {\tt C} to environment {\tt E$'$} and global constraint
-{\tt C$'$}.''
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
-A ``state'' of execution includes a concrete portion, represented by
-the environment, and a symbolic portion, represented by the
-constraint.  The environment is standard, while the constraint is not
+``Configuration {\tt <E|C|s>} takes one step of execution to state {\tt <E$'$|C$'$|s$'$>}.''
+
+A ``configuration'' defining the state of an execution includes a concrete context, represented by
+the environment, a symbolic context, represented by the
+constraint, and a statement to be executed.  The environment and
+statement are standard, while the constraint is not
 part of the state of a computation in most languages.  Intuitively, the environment comes from constraint solving during the
 evaluation of the immediately preceding statement, and the 
 constraint records the ``always'' constraints that have been
@@ -453,18 +464,34 @@ each {\tt x} in the domain of {\tt E}, where {\tt E}({\tt x}) = {\tt v}.
 
 \inferrule{S-Asgn}{\eval{E}{e}{v} \andalso
 \solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x=v)}}
-{\step{E}{C}{x := e}{E$'$}{C}}
+{\step{E}{C}{x := e}{E$'$}{C}{skip}}
+
+\inferrule{S-AsgnUnsat}{\eval{E}{e}{v} \andalso
+\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x=v)}}
+{\step{E}{C}{x := e}{E}{C}{unsat}}
 
 
 \inferrule{S-Always}{
 {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
 \solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}}
+{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}{skip}}
 
 
-\inferrule{S-Seq}{\step{E}{C}{s}{E$_0$}{C$_0$} \andalso
-\step{E$_0$}{C$_0$}{s$'$}{E$'$}{C$'$}}
-{\step{E}{C}{s;s$'$}{E$'$}{C$'$}}
+\inferrule{S-AlwaysUnsat}{
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\unsat{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
+{\step{E}{C}{[weak] always C$_0$}{E}{C}{unsat}}
+
+
+\inferrule{S-SeqStep}{\step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}}
+{\step{E}{C}{s$_1$;s$_2$}{E$'$}{C$'$}{s$_1'$;s$_2$}}
+
+\inferax{S-SeqSkip}
+{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
+
+\inferax{S-SeqUnsat}
+{\step{E}{C}{unsat;s$_2$}{E}{C}{unsat}}
+
 
 \section{Babelsberg/Records}
 
@@ -718,22 +745,31 @@ that equates two record variables {\tt p} and {\tt q}.
 The above rule is a key one, ensuring that a field of a record can only be
 referred to if it already exists in that record.
 
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
 The semantics for executing statements is identical to what we had before,
 except that now we ``typecheck'' an {\tt always} constraint to ensure
 that it meets our structural compatibility requirements.  Therefore,
-we simply keep the rules {\sc S-Asgn} and {\sc S-Seq} as is but replace the rule {\sc S-Always} with the following one,
-which adds the compatibility check:
-
+we keep the old rules for assignment and sequencing but replace the
+{\tt always} rules as follows:
 
 \inferrule{S-Always}{\tc{E}{C$_0$}{Bool} \andalso
 {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
 \solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}}
+{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}{skip}}
+
+\inferrule{S-AlwaysUnsat}{\tc{E}{C$_0$}{Bool} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\unsat{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
+{\step{E}{C}{[weak] always C$_0$}{E}{C}{unsat}}
 
 The compatibility check also ensures that a
 constraint is in fact a boolean-valued expression.
+
+\tdm{Note that we still implicitly get stuck if a compatibility check
+  fails.  We could make that explicit as well, but it may not make
+  sense if the intent is really to halt the program in that case (as opposed to
+  possibly catch the exception and recover).}
 
 \subsection{Convenience Features}
 \label{sec:record-convenience-features}
@@ -797,14 +833,19 @@ assignment of record components:
 
 The semantics from Section~\ref{recformal} is similarly augmented now
 to support assignment of record components.  That simply requires the
-addition of one new rule to the semantics of statement evaluation:
+addition of the following two rules to the semantics of statement evaluation:
 
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
 \infrule[S-AsgnField]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
     \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
 \mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}}}
+{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{skip}}}
+
+\infrule[S-AsgnFieldUnsat]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
+\mbox{\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
+{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{unsat}}}
 
 Note that we perform a structural compatibility check to ensure that
 the field being mutated already exists in the record denoted by {\tt x}.
@@ -979,8 +1020,8 @@ source programs.  \tdm{Not sure if we need that assumption.}
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & x := e $\mid$ x.l := e $\mid$ x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}
-$\mid$ [weak] always C $\mid$ s;s \\
+{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ x.l := e $\mid$ x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}\\
+&& $\mid$ & [weak] always C $\mid$ s;s $\mid$ unsat \\
 {\rm Expression} & e & ::= & b $\mid$ n $\mid$ x $\mid$ e op e $\mid$
 e.l $\mid$ r \\
 {\rm Constraint} & C & ::= & e \\
@@ -1082,11 +1123,9 @@ stop, and by adding a kind of recursive record type to represent the
 structure of cyclic records.
 
 
-\judgment{\stepH{E}{H}{C}{s}{E$'$}{H$'$}{C$'$}}
+\judgment{\stepH{E}{H}{C}{s}{E$'$}{H$'$}{C$'$}{s$'$}}
 
-``Statement {\tt s} transforms environment {\tt E}, heap {\tt H}, and global
-constraint {\tt C} to environment {\tt E$'$}, heap {\tt H'}, and global constraint
-{\tt C$'$}.''
+``Configuration {\tt <E|H|C|s>} takes one step of execution to state {\tt <E$'$|H$'$|C$'$|s$'$>}.''
 
 In the rules below, stay({\tt E}) denotes, as earlier,  a
 conjunction of constraints of the form {\tt weak x=v} for
@@ -1099,19 +1138,35 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
 
 \inferrule{S-Asgn}{\evalH{E}{H}{e}{v} \andalso
 \solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
-{\stepH{E}{H}{C}{x := e}{E$'$}{H$'$}{C}}
+{\stepH{E}{H}{C}{x := e}{E$'$}{H$'$}{C}{skip}}
+
+\inferrule{S-AsgnUnsat}{\evalH{E}{H}{e}{v} \andalso
+\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
+{\stepH{E}{H}{C}{x := e}{E}{H}{C}{unsat}}
 
 \infrule[S-AsgnField]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
     \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
-\mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E$'$}{H$'$}{C}}}
+\mbox{\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
+{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E$'$}{H$'$}{C}{skip}}}
+
+\infrule[S-AsgnFieldUnsat]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
+\mbox{\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
+{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E}{H}{C}{unsat}}}
 
 
 \infrule[S-AsgnNew]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
     \andalso r $\not\in$ dom({\tt H})} \\ 
 \mbox{\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm
     stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
-{\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E$'$}{H$'$}{C}}}
+{\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E$'$}{H$'$}{C}{skip}}}
+
+
+\infrule[S-AsgnNewUnsat]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
+    \andalso r $\not\in$ dom({\tt H})} \\ 
+\mbox{\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm
+    stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
+{\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E}{H}{C}{unsat}}}
 
 Recall that the constraint {\tt r =
   \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} in the above rule is shorthand for $n$
@@ -1120,11 +1175,21 @@ constraints of the form {\tt rl$_i$ = v$_i$}.
 \inferrule{S-Always}{\tcH{E}{H}{C$_0$}{Bool} \andalso
 {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
 \solveH{E$'$}{H$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
-{\stepH{E}{H}{C}{[weak] always C$_0$}{E$'$}{H$'$}{C$'$}}
+{\stepH{E}{H}{C}{[weak] always C$_0$}{E$'$}{H$'$}{C$'$}{skip}}
 
-\inferrule{S-Seq}{\stepH{E}{H}{C}{s}{E$_0$}{H$_0$}{C$_0$} \andalso
-\stepH{E$_0$}{H$_0$}{C$_0$}{s$'$}{E$'$}{H$'$}{C$'$}}
-{\stepH{E}{H}{C}{s;s$'$}{E$'$}{H$'$}{C$'$}}
+\inferrule{S-Always}{\tcH{E}{H}{C$_0$}{Bool} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\unsat{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
+{\stepH{E}{H}{C}{[weak] always C$_0$}{E}{H}{C}{unsat}}
+
+\inferrule{S-SeqStep}{\stepH{E}{H}{C}{s$_1$}{E$'$}{H$'$}{C$'$}{s$_1'$}}
+{\stepH{E}{H}{C}{s$_1$;s$_2$}{E$'$}{H$'$}{C$'$}{s$_1'$;s$_2$}}
+
+\inferax{S-SeqSkip}
+{\stepH{E}{H}{C}{skip;s$_2$}{E}{H}{C}{s$_2$}}
+
+\inferax{S-SeqUnsat}
+{\stepH{E}{H}{C}{unsat;s$_2$}{E}{H}{C}{unsat}}
 
 \section{Babelsberg/Objects}
 

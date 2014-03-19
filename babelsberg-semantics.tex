@@ -10,13 +10,18 @@
 \usepackage{bcprules}
 \usepackage{xcolor}				% Allow for color (annotations)
 \usepackage{stmaryrd}
+\usepackage{amssymb}
 
 \def\tdm#1{\textcolor{blue}{\textsf{TDM: #1}}}
 \def\ab#1{\textcolor{red}{\textsf{AB: #1}}}
 \def\tf#1{\textcolor{purple}{\textsf{TF: #1}}}
 
 \newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
+\newcommand{\toSolver}[2]{{\tt #1} $\leadsto$ $#2$}
+\newcommand{\fromSolver}[2]{$#1$ $\leadsto$ {\tt #2}}
+\newcommand{\csolve}[2]{$#1$ $\models$ $#2$}
 \newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
+\newcommand{\cunsat}[1]{$\not\models$ $#1$}
 \newcommand{\unsat}[1]{$\not\models$ {\tt #1}}
 \newcommand{\step}[6]{{\tt <#1|#2|#3>} $\longrightarrow$
   {\tt <#4|#5|#6>}}
@@ -422,7 +427,8 @@ The symbol $\oplus$ ranges over a set of arithmetic operators ({\tt
   +}, {\tt *},
 etc.), $\olessthan$ ranges over a set of comparison operators ({\tt =},
 {\tt $\leq$}, etc.), and $\ovee$ ranges over a set of boolean operators
-({\tt $\wedge$}, {\tt $\vee$}, etc.).
+({\tt $\wedge$}, {\tt $\vee$}, etc.) and is assumed to include at
+least conjunction.
 
 The syntax is a standard imperative language except for the {\tt
   always} statement, which declares a constraint that must hold for
@@ -444,6 +450,8 @@ $\begin{array}{lrrl}
 {\rm Expression} & e & ::= & n \mid x \mid e \oplus e \\
 {\rm Number} & n & ::= & {\rm numeric\ constants} \\
 {\rm Variable} & x & ::= & {\rm variable\ names} \\\\
+
+{\rm Value} & v & ::= & n
 \end{array}$
 
 The syntax of the solver includes arithmetic constraints,
@@ -461,7 +469,9 @@ we assume that all constraints must be translated to the simple language above.
 
 The semantics is defined by several judgments, defined below.  These judgments
 depends on the notion of an {\em environment}, which is a partial
-function from variables to values.  Metavariable {\tt E} ranges over
+function from program variables to program values.  When convenient we
+also view an environment as a set of (program variable, program value)
+pairs.  Metavariable {\tt E} ranges over
 environments.  We also assume that each arithmetic operator $\oplus$ comes with
 an associated semantic function, denoted {\tt [[$\oplus$]]}.
 
@@ -479,18 +489,80 @@ an associated semantic function, denoted {\tt [[$\oplus$]]}.
 {\tt v$_1$ [[$\oplus$]] v$_2$} = {\tt v}}
 {\eval{E}{e$_1$ $\oplus$ e$_2$}{v}}
 
-\judgment{\solve{E}{C}}
+\judgment{\csolve{M}{C}}
 
-``Environment {\tt E} is a {\em model} of constraint {\tt C}.''
+``Mapping $M$ is a {\em model} of constraint $C$.''
 
 This judgment represents a call to the constraint solver, which we
-treat as a black box.  In particular, the proposition 
-\solve{E}{C} denotes that {\tt E} is a solution to the constraints
-{\tt C} (and further one that is optimal according to the solver's
+treat as a black box.  Here metavariable $M$ ranges over finite
+mappings from constraint variables $x$ to values $v$.  When convenient we
+also view a mapping as a set of (variable, value)
+pairs.The proposition 
+\csolve{M}{C} denotes that $M$ is a solution to the constraint
+$C$ (and further one that is optimal according to the solver's
 semantics, as discussed earlier).  
 
-We use the notation \unsat{C} to mean that there is no environment
-{\tt E} such that \solve{E}{C}, i.e. {\tt C} is \emph{unsatisfiable}.
+We use the notation \cunsat{C} to mean that there is no mapping
+$M$ such that \csolve{M}{C}, i.e. $C$ is \emph{unsatisfiable}.
+
+\judgment{\toSolver{e}{e}}
+\judgment{\toSolver{C}{C}}
+
+These judgments define how to translate source-level constraints into
+the language of the solver.  For Babelsberg/Int this is
+straightforward.
+
+\inferax{ToNum}{\toSolver{n}{n}}
+
+\inferax{ToVar}{\toSolver{x}{x}}
+
+\inferrule{ToArith}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
+{\toSolver{e$_1$ $\oplus$ e$_2$}{e_1 \oplus e_2}}
+
+\tdm{We're implicitly translating operators to themselves (or to the
+  version of themselves in the language of the solver) -- should we
+  make that explicit as well?}
+
+\inferrule{ToCompare}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
+{\toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}}
+
+\inferrule{ToCombine}{\toSolver{c$_1$}{e_1} \andalso \toSolver{c$_2$}{e_2}}
+{\toSolver{c$_1$ $\ovee$ c$_2$}{c_1 \olessthan c_2}}
+
+\inferrule{ToWeak}{\toSolver{c}{c}}
+{\toSolver{weak c}{{\rm weak}\ c}}
+
+\judgment{\fromSolver{M}{E}}
+
+This judgment defines how to translate models produced by the
+constraint solver back into a program environment.
+For Babelsberg/Int this is
+straightforward.
+
+\inferax{FromEmpty}{\fromSolver{\emptyset}{$\emptyset$}}
+
+\inferrule{FromOne}{$M(x) = v$ \andalso $M_0 = M \setminus \{(x,v)\}$
+  \andalso \fromSolver{M_0}{E$_0$} \andalso {\tt E} = {\tt E$_0$}
+  $\cup$ $\{({\tt x}, {\tt v})\}$}
+{\fromSolver{M}{E}}
+
+\judgment{\solve{E}{C}}
+
+This judgment solves program constraints by translating them to the
+language of the constraint solver, obtaining a model, and translating
+back to a program environment.
+
+\inferrule{Solve}{\toSolver{C}{C} \andalso \csolve{M}{C} \andalso
+  \fromSolver{M}{E}}
+{\solve{E}{C}}
+
+
+\judgment{\unsat{C}}
+
+This judgment determines when a program constraint is unsatisfiable.
+
+\inferrule{Unsat}{\toSolver{C}{C} \andalso \cunsat{C}}
+{\unsat{C}}
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
@@ -519,15 +591,15 @@ each {\tt x} in the domain of {\tt E}, where {\tt E}({\tt x}) = {\tt v}.
 
 
 \inferrule{S-Always}{
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso
 \solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}{skip}}
+{\step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}}
 
 
 \inferrule{S-AlwaysUnsat}{
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso
 \unsat{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E}{C}{unsat}}
+{\step{E}{C}{always C$_0$}{E}{C}{unsat}}
 
 
 \inferrule{S-SeqStep}{\step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}}

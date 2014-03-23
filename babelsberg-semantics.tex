@@ -117,17 +117,20 @@ Pareto-optimal solution is OK\@.  For example, a solution that
 satisfies one weak constraint A and violates three weak constraints B,
 C, and D is OK, as long as there isn't a solution that satisfies both
 A and some additional constraint; even if there is another solution
-that satisfies B, C, and D but not A\@.  The DeltaBlue solver finds a
-LPB solution.  Weighted-sum-better considers the weighted sum of the
-errors of constraints with a given soft priority, and picks a solution
-that minimizes the sum.  If there is more than one solution and there
-are additional lower priority constraints, we then consider the
+that satisfies B, C, and D but not A\@.  The DeltaBlue
+solver~\cite{freeman-benson-cacm-1990} finds LPB solutions.
+Weighted-sum-better considers the weighted sum of the errors of
+constraints with a given soft priority, and picks a solution that
+minimizes the sum.  If there is more than one solution and there are
+additional lower priority constraints, we then consider the
 lower-priority ones to winnow down the possible solutions, priority by
 priority.  For this comparator we need an error in satisfying a
 constraint, which should be 0 iff the constraint is satisfied.
-Cassowary finds WSB solutions.
+Cassowary \cite{badros-tochi-2001} finds WSB solutions.
 
-Here are two examples.
+Here are two examples.  (These are described from the point of view of
+the declarative theory of hard and soft constraints, not with respect
+to how an actual solver can find that solution.)
 
 \begin{tabular}{rc}
 required & $x+y=10$ \\
@@ -157,7 +160,7 @@ We winnow these down with the strong constraint to all $x \in
   unsatisfiable, so we minimize its error, resulting in the solution
   $x=5$, $y=5$.
 
-Note that strict inequality constraints with metric comparators can be
+Strict inequality constraints with metric comparators can be
 problematic in the presence of soft constraints, since they can lead
 to no solutions.  Consider:
 
@@ -187,13 +190,14 @@ annotations in \cite{borning-lisp-symbolic-computation-1992}.
 A \emph{one-way constraint} can be represented by annotating
 all but one of the constrained variables as read-only.
 
-In all of the languages, the constraint solver satisfies the
-constraints at each time step, but does not itself need to know about
-time.  Instead, time is built into the semantic rules; as far as the
-solver is concerned, time is handled at each step by adding weak stay
-constraints that variables keep their old values.  In other words, the
-formal semantics handles time, while the solver handles solving the
-constraints and dealing with hard and soft constraints.
+In all of the languages described in the sections that follow, the
+constraint solver satisfies the constraints at each time step, but
+does not itself need to know about time.  Instead, time is built into
+the semantic rules; as far as the solver is concerned, time is handled
+at each step by adding weak stay constraints that variables keep their
+old values.  In other words, the semantic rules handles time, while
+the solver handles solving the constraints and dealing with hard and
+soft constraints.
 
 \section{Babelsberg/Int}
 \label{sec:babelsberg/int}
@@ -262,7 +266,7 @@ x := 3;
 x := x+2;
 \end{verbatim}
 
-After evaluating the first statement and solving the resulting trivial
+After evaluating the first statement and solving the resulting
 constraint, the environment has the binding 
 $\texttt{x} \mapsto \texttt{3}$.  After the second statement we hand
 the following constraints to the solver to find a new value for
@@ -295,12 +299,19 @@ satisfy the constraint $x=5$ in a new environment.\footnote{These
   constraint among variables at time $t$ on the right hand side, and a
   variable at $t+1$ on the left hand side, we annotate all the
   variables on the right-hand-side as read-only.  This is equivalent
-  to just evaluating the expression on the right hand side, and
+  to simply evaluating the expression on the right hand side, and
   setting up the constraint $v=c$ for a variable $v$ and constant
   $c$.}
 
-Depending on the solver, the program might introduce simultaneous
-equations, general simplex problems, and so forth.  For example:
+The program might also introduce simultaneous equations and
+inequalities.\footnote{It is a separate issue whether the program can
+  introduce simultaneous equations and inequalities and whether the
+  solver can handle them --- as far as the semantics is concerned, the
+  solver is a black box whose responses to a collection of constraints
+  is either a solution (which must be correct, i.e., the solver must
+  be sound), the response ``unsatisfiable'', or the response ``too
+  hard'' (in this case whether or not the constraints are satisfiable
+  is not known, i.e., the solver can be incomplete).}  For example:
 \begin{verbatim}
 x := 0
 y := 0
@@ -341,16 +352,8 @@ required & $x \leq 10$ \\
 required & $x = 20$
 \end{tabular}
 
-These constraints are unsatisfiable.
-
-\ab{What do we do now in the semantics?  If I remember correctly, a
-  standard way to handle this is for the derivation to get stuck.
-  Should we do that here, and if so how?  Presumably in the simpler
-  languages we don't want to bother with exception handlers.
-  A related issue is that we may have solvers and sets of constraints
-  for which the solver is incomplete.  We could also represent this by
-  getting stuck in the derivation.  (Presumably we are only interested
-  in sound solvers however.)}
+Note that the required $x \leq 10$ constraint has persisted into this
+new set of constraints.  These constraints are unsatisfiable.
 
 This behavior is the same as that of the refinement model, in which
 the program would be equivalent to these constraints (which are also
@@ -366,12 +369,13 @@ x_2 = x_1? + 15
 However, it is \emph{different} from the behavior of the perturbation
 model (at least one version of the perturbation model), in which we
 would assign 20 to x on the last statement, and then bump it down to
-10 to satisfy the {\tt always} constraint.
+10 to satisfy the {\tt always} constraint, rather than moving to an
+``unsatisfiable constraints'' state.
 
 Interestingly, if we have read-only variables, and ``once''
 constraints in addition to ``always'' constraints, we can simulate
-assignment just with constraints --- we don't need an assignment statement.
-need mutable records as such.  Consider the following example again:
+assignment just with constraints --- we don't need an assignment
+statement.  Consider this example again:
 \begin{verbatim}
 x := 3;
 x := 4;
@@ -439,6 +443,10 @@ unsatisfiable constraint. Note that we could add standard exception
 handling to remove the unsatisfiable constraint and continue, but omit
 this here for simplicity.
 
+\ab{Do we want to have a separate statement {\tt toohard} for
+  constraints that are too hard for the solver?  Or leave that for
+  later languages?  I do think it is useful to distinguish
+  unsatisfiable and too hard constraints.}
 
 The Babelsberg language is parameterized by a particular constraint
 solver that is used to ``execute'' constraints.  In our formalism we
@@ -662,7 +670,7 @@ constraints involving records:
  always r = p;      /* an equality constraint between two records */
 \end{verbatim}
 
-There is no static type checking - checking is all done dynamically.
+There is no static type checking --- checking is all done dynamically.
 Our model includes structural compatibility checks on constraints.
 These allow us to desugar all of the record constraints (recursively)
 into constraints on the individual components.  Thus, the record

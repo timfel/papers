@@ -1083,6 +1083,7 @@ constraints: such a variable continues to refer to the same object
 unless reassigned.  
 
 \subsection{Identity Constraints}
+\label{sec:identity-constraints}
 
 \ab{I think the formal semantics doesn't account for identity
   constraints --- we need to update it accordingly.}%
@@ -1096,7 +1097,8 @@ unless reassigned.
   defined variable will ensure that the solver picks the record for
   the already defined variable.}
 
-Perhaps we can have identity constraints, in addition to equality constraints:
+In Babelsberg/MRecords we can have identity constraints, in addition
+to equality constraints:
 \begin{verbatim}
  p := new {x:0, y:0};
  always p==q;  /* where == is object identity */
@@ -1107,7 +1109,7 @@ Now both \verb|p| and \verb|q| refer to the same record \verb|{a:10}|.
 Note that we don't need the structural compatibility checks for
 identity constraints.  For example, it's OK that \verb|q| doesn't have
 a value before evaluating \verb|always p==q|; and we can also change
-the structure of both \verb|p| and \verb|q| with the final assignment.
+the structure of \verb|p| as well as  \verb|q| with the final assignment.
 (If the always constraint had been an equality constraint rather than
 an identity constraint, the assignment to \verb|q| would have failed
 the structural compatibility check, which would have expected it to be
@@ -1400,22 +1402,90 @@ constraints of the form $r_{li} = v_i$.
 In this final language, we add classes, inheritance, methods, and
 messages.  This allows us to write constraints on the results of
 message sends, as in the actual languages Babelsberg/R and
-Babelsberg/JS\@.  For example constraints on the center of a
-rectangle r:
+Babelsberg/JS\@.  For example, consider the following constraints on
+the center of a rectangle {\tt r}:
 \begin{verbatim}
 always r.center.x = 100;
 always r.center.y = 50;
 \end{verbatim}
-apply to the result of sending the message \verb|center| to \verb|r|,
-and \verb|center| may be computed rather than being stored.  Even the
-\verb|x| message to a point might compute the x value, if the point is
-stored in polar coordinates.  
+The constraints here apply to the result of sending the message
+\verb|center| to \verb|r|, and \verb|center| may be computed rather
+than being stored.  Even the \verb|x| message to a point might compute
+the x value, if the point is stored in polar coordinates.
 
-\emph{In the implementation, methods invoked in a constraint are
-  evaluated in constraint construction mode, so that the system builds
-  up a network of primitive constraints that represents the
-  user-defined method.  The semantics should presumably mirror this
-  process.}
+In the implementations of Babelsberg/R and Babelsberg/JS, methods
+invoked in a constraint are evaluated in constraint construction mode,
+so that the system builds up a network of primitive constraints that
+represents the user-defined method.  The semantics mirror this
+process, although some aspects of the implementations (e.g.,
+maintaining a dependency graph and recomputing the network of
+primitive constraints only when necessary) are treated as
+optimizations rather than part of the semantics.
+
+\ab{The rest of this section isn't finished -- an outline of the
+  approach follows}
+
+We define a \emph{solver language}\footnote{Is there a better term?
+  Maybe we should call it the constraint language? Or primitive
+  constraint language?} to represent the constraints that are sent to
+the constraint solvers.  There can be multiple solver languages in
+use, even for the same program.  A solver language is separate from a
+particular solver --- a given solver might or might not be able to
+handle the constraints in a particular solver program.  There is a
+default solver language for a program (or the system?); but you can
+annotate a particular ``always'' constraint with the target language.
+
+The solver language redefines certain classes in the
+Babelsberg/Objects system (for example Float or Integer).  When we
+evaluate the block associated with an ``always'' constraint, we
+evaluate the code using the redefined classes --- other classes are
+the same as in the Babelsberg/Objects system.  When we evaluate a
+method in constraint construction mode, it builds up a set of
+constraints in the solver language; and these are then fed to the solver.
+
+This description is mostly like the actual implementation.  Here are
+the differences:
+\begin{itemize}
+\item In the actual implementation, in constraint construction mode
+  the class of the object and the active solver together determine the
+  constraints in the solver language (or to use the terminology in the
+  JOT paper, determine the solver-specific representation of the
+  value).  I'd rather decouple the solver language from any particular
+  solver --- there might be several solvers that can handle those
+  constraints.  Note that the actual implementation can be a special
+  case of this, where we just have one solver language per solver.
+\item As noted above, maintaining a dependency graph and recomputing
+  the network of primitive constraints only when necessary are treated
+  as optimizations rather than part of the semantics.  In the
+  judgements that specify the semantics, we re-evaluate the ``always''
+  constraints each time.
+\end{itemize}
+
+Examples
+
+\verb|x+y=z| for floats \verb|x|, \verb|y|, and \verb|z|.  This gets
+converted to a constraint in the solver language that looks almost the
+same (although semantically it's different -- in the source program we
+are sending the message \verb|+| to the object that \verb|x| refers
+to; in the solver language it's a linear constraint on floats).
+
+\verb|p+q=r| for points \verb|p|, \verb|q|, and \verb|r|.  This gets
+converted to constraints in the solver language involving $p_x$,
+$p_y$, etc.
+
+An example involving a new solver language, say for geometric
+constraints (point on line, perpendicular lines, etc etc).  Here the
+solver language lets you express such constraints directly, not just
+on the x and y components of the points.
+
+An example involving strings
+
+An example involving arrays
+
+An example involving identity constraints
+
+Old material follows:
+
 \tf{If we want to mirror the way it works in the current implementation
 with cooperating solvers, then we need to extend the semantics of how
 a variable is evaluated to a value. In constraint construction mode,
@@ -1538,15 +1608,16 @@ well-known pitfall, etc.}
 
 \section{Appendix}
 
-This appendix contains descriptions of some alternatives that are
-potentially of interest, but that aren't essential to the main purpose
-of this note (which is to develop a formal semantics for Babelsberg).
+This appendix contains descriptions of some alternatives and
+observations that are potentially of interest, but that aren't
+essential to the main purpose of this note (which is to develop a
+formal semantics for Babelsberg).
 
 \subsection{Convenience Features to Avoid Trivial Initializations}
 \label{sec:record-convenience-features}
 
 As illustrated by some of the Babelsberg/Records examples (Section
-\ref{sec:babelsberg-records}), we need to initialize a record variable
+\ref{sec:babelsberg-records}), we may need to initialize a record variable
 with a suitable value before using it in an \verb|always| constraint,
 even if the \verb|always| constraint would define its entire
 structure.  In practice this is annoying, and so in the actual
@@ -1563,14 +1634,21 @@ as would this one:
  always p = {x:2, y:5};
 \end{verbatim}
 
+However, as previously noted, since our goal with Bablesberg/Records
+is to illuminate the semantics rather than to design a practical
+language, we don't include this in our formal semantics.  Note that we
+\emph{do} include an analogous capability for identity constraints
+though (Section \ref{sec:identity-constraints}).
+
 \subsection{Simulating Mutable Records}
 
 If we have read-only variables, and ``once'' constraints in addition
 to ``always'' constraints, we can simulate assigning to the field of a
 record just with constraints --- we don't need mutable records as
-such.  (This is similar to the simulation of assignment discussed for
-Babelsberg/Int in Section \ref{sec:babelsberg/int}.)
-Consider:
+such.  (In other words, we can just use Babelsberg/Records rather than
+extending it to Babelsberg/MRecords.  (This is similar to the
+simulation of assignment discussed for Babelsberg/Int in Section
+\ref{sec:babelsberg/int}.  Consider:
 
 \begin{verbatim}
  p := {x:0, y:0};
@@ -1611,7 +1689,7 @@ With the version of structural compatibility checks presented in the
 main document, we can't do away with assignment altogether: it is
 needed to provide the initial structure for variables that refer to
 records.  So this version would fail the structural compatibility
-check:
+check on the first line:
 
 \begin{verbatim}
  once p = {x:0, y:0};
@@ -1620,7 +1698,9 @@ check:
 \end{verbatim}
 
 However, if we have the convenience features described above (Appendix
-\ref{sec:record-convenience-features}) the above program would work.
+\ref{sec:record-convenience-features}) the above program would work,
+and we can dispense with assignment entirely in Babelsberg/Records as
+well as in Babelsberg/Int.
 
 \subsection{Alternatives to Structural Compatability Checks}
 \label{sec:structural-compatability-check-alternatives}
@@ -1647,7 +1727,9 @@ possibilities:
   there is no reason to prefer one of these solutions over the other.
 
 \item An equality constraint between records is unfolded into multiple
-  constraints on the fields, each of which is satisfied or not.  In
+  constraints on the fields, each of which is satisfied or not.  (It
+  might be unsatisfied either because the value in the field was
+  wrong, or because the field doesn't even exist.)  In
   the above example, for the first case we have \verb|p.x=q.x|
   (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case
   we have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y|

@@ -837,9 +837,9 @@ ability to access fields of a record:
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Atomic Constraint} & A & ::= & $\cdots$ $\mid$ x $=_r$ x \\
+{\rm Atomic Constraint} & A & ::= & $\cdots$ $\mid$ e $=_r$ e \\
 {\rm Expression} & e & ::= & $\cdots$ $\mid$
-\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ x.l \\
+\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
 {\rm Label} & l & ::= & {\rm record label names} \\\\
 
 {\rm Value} & v & ::= & $\cdots$ $\mid$
@@ -847,10 +847,6 @@ ability to access fields of a record:
 \end{tabular}
 \end{tt}
 
-\tdm{I restricted the syntax so you can only do a field access and
-  record equality tests on
-  variables rather than arbitrary expressions.  This simplifies
-  translation to the solver.}
 
 The language of the solver is unchanged.  Specifically, the solver
 does not ``understand'' records, but only values of base types like
@@ -873,6 +869,72 @@ Expression evaluation is updated in the standard way to support records.
 \judgment{\csolve{M}{C}}
 This judgment represents the solver, as before.
 
+\judgment{\tcC{E}{C}}
+
+\judgment{\tc{E}{c}{T}}
+
+\judgment{\tc{E}{e}{T}}
+
+% ``Constraint {\tt C} is well formed in the context of environment
+% {\tt E}.''
+
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt E}.''
+
+We use a nonstandard form of typechecking to perform the structural
+compatibility check.  It is nonstandard because it happens
+dynamically on a constraint, in the context of the current run-time
+environment.  The types are also nonstandard:  we only distinguish
+between base types and record types.  The rules are straightforward.  We use the
+following syntax for types:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & BaseType  $\mid$
+\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
+\end{tabular}
+\end{tt}
+
+% \inferax{T-True}{\tcC{E}{True}}
+
+% \inferrule{T-Priority}{\tcC{E}{C}}{\tcC{E}{$\rho$\ C}}
+
+% \inferrule{T-Combine}{\tcC{E}{C$_1$} \andalso
+% \tcC{E}{C$_2$}}
+% {\tcC{E}{C$_1$ $\ovee$ C$_2$}}
+
+
+% \inferrule{T-Compare}{\tc{E}{e$_1$}{BaseType} \andalso
+% \tc{E}{e$_2$}{BaseType}}
+% {\tcC{E}{e$_1$ $\olessthan$ e$_2$}}
+
+% \inferrule{T-ReqEq}{\tc{E}{e$_1$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} } \andalso
+% \tc{E}{e$_2$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} }}
+% {\tcC{E}{e$_1$ $=_r$ e$_2$}}
+
+% The above rule is a key one, requiring that records only be compared
+% for equality if they have the exact same structure.
+
+\inferax{T-Const}{\tc{E}{c}{BaseType}}
+
+\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
+
+\inferrule{T-Op}{\tc{E}{e$_1$}{BaseType} \andalso
+\tc{E}{e$_2$}{BaseType}}
+{\tc{E}{e$_1$ $\oplus$ e$_2$}{BaseType}}
+
+\inferrule{T-Rec}{\tc{E}{e$_1$}{T$_1$} $\cdots$
+  \tc{E}{e$_n$}{T$_n$}}
+{\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+
+\inferrule{T-Field}{\tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso $1 \leq i \leq n$}
+{\tc{E}{e.l$_i$}{T$_i$}}
+
+The above rule is a key one, ensuring that a field of a record can only be
+referred to if it already exists in that record.
+
 \judgment{\toSolver{e}{e}}
 \judgment{\toSolver{C}{C}}
 
@@ -886,24 +948,52 @@ records. % For example, the constraint {\tt p = \{x:2, y:5\}} gets
 The rules below also enforce the compatibilty checks required to
 translate to the solver.
 
-\inferax{ToField}{\toSolver{e.l}{e_l}}
+\inferrule{ToFieldVar}{\tc{E}{x.l$_i$}{T}}
+{\toSolver{x.l$_i$}{x_{l_i}}}
 
-\inferrule{ToRecAssign}{
-  \toSolver{e}{e} \andalso
-  {\tt
-    \{l$_1$:\toSolver{e$_1$}{e_1},$\ldots$,l$_n$:\toSolver{e$_n$}{e_n}\}}}
-{\toSolver
-  {e $\olessthan$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}
-  {e_{l_1} \olessthan e_1 \wedge \ldots \wedge e_{l_n} \olessthan e_n}}
+\tdm{Note: The above rule has a compatibility check to ensure that the
+  accessed field already exists in the record.  Our translation would
+  be fine without this check, but it would lead to some 
+  ``structural nondeterminism'' that is potentially undesirable,
+  e.g. a constraint like {\tt p.x = 1 $\vee$ p.y = 2} could cause the
+  solver to invent either an {\tt x} field or a {\tt y} field.}
 
-\inferrule{ToRecCompare}{
-  \eval{E}{e$_1$}{{\tt
-      \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}} \andalso
-  \eval{E}{e$_1$}{{\tt
-      \{l$_1$:v$_{n + 1}$,$\ldots$,l$_n$:v$_{2n}$\}}}}
-{\toSolver
-  {e$_1$\ $\olessthan$\ e$_2$}
-  {e_{1_{l_1}} \olessthan e_{2_{l_1}} \wedge \ldots \wedge e_{1_{l_n}} \olessthan e_{2_{l_n}}}}
+\inferrule{ToFieldRec}{$1 \leq i \leq n$ \andalso \toSolver{e$_i$}{e_i}}
+{\toSolver{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}.l$_i$}{e_i}}
+
+The next four rules describe how to translate record equality
+constraints to the solver, by exploding them.  The rules all require
+structural compatibility between the two records being compared, which
+is done by requiring them to have the same type.
+
+\tdm{With the right helper function, these rules can be merged into one.}
+
+\inferrule{ToRecEq1}
+{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+  \andalso \tc{E}{x$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+{\toSolver{x $=_r$ x$'$}
+{x_{l_1} = x'_{l_1} \wedge \cdots \wedge x_{l_n} = x_{l_n}}}
+
+
+\inferrule{ToRecEq2}
+{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+\toSolver{e$_1$}{e_1}  $\cdots$  \toSolver{e$_n$}{e_n}}
+{\toSolver{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}
+{x_{l_1} = e_1 \wedge \cdots \wedge x_{l_n} = e_n}}
+
+\inferrule{ToRecEq3}
+{\toSolver{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{C}}
+{\toSolver{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ x}
+{C}}
+
+\inferrule{ToRecEq4}
+{
+\toSolver{e$_1$}{e_1}  $\cdots$  \toSolver{e$_n$}{e_n} \andalso
+\toSolver{e$'_1$}{e'_1}  $\cdots$  \toSolver{e$'_n$}{e'_n}}
+{\toSolver{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ \{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}} 
+{e_1 = e'_1 \wedge \cdots \wedge e_n = e'_n}}
+
+
 
 \judgment{\fromSolver{M}{E}}
 We adapt the translation back from the model to support records.
@@ -913,73 +1003,6 @@ We adapt the translation back from the model to support records.
 As before, this judgment solves program constraints and translates the
 solution back to a program environment. Its rules are unchanged.
 
-\judgment{\tcC{E}{C}}
-
-\judgment{\tc{E}{c}{T}}
-
-\judgment{\tc{E}{e}{T}}
-
-``Constraint {\tt C} is well formed in the context of environment
-{\tt E}.''
-
-``Atomic constraint {\tt c} has type {\tt T} in the context of
-environment {\tt E}.''
-
-``Expression {\tt e} has type {\tt T} in the context of environment
-{\tt E}.''
-
-We use a nonstandard form of typechecking to perform the structural
-compatibility check.  It is nonstandard because it happens
-dynamically on a constraint, in the context of the current run-time
-environment.  Otherwise the rules are straightforward.  We use the
-following syntax for types:
-
-\begin{tt}
-\begin{tabular}{lrrl}
-{\rm Type} & T & ::= & Num $\mid$ Bool $\mid$ 
-\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
-\end{tabular}
-\end{tt}
-
-We assume that each comparison operator $\olessthan$ comes with
-an associated judgment, denoted typeable$_\olessthan$, which indicates
-whether operands of the two given types are able to be compared with
-this comparison operator.
-\tdm{We
-  should probably define this judgment, at least for equality, since
-  it's important that it require records to have the same structure.}
-
-\inferrule{T-ConsOne}{\tc{E}{c}{Bool}}{\tcC{E}{c}}
-
-\inferrule{T-ConsMulti}{\tcC{E}{C$_1$} \andalso
-\tcC{E}{C$_2$}}
-{\tcC{E}{C$_1$ $\ovee$ C$_2$}}
-
-
-\inferrule{T-Atomic}{\tc{E}{e$_1$}{T$_1$} \andalso
-\tc{E}{e$_2$}{T$_2$} \andalso
-typeable$_\olessthan$({\tt T$_1$}, {\tt T$_2$})}
-{\tc{E}{e$_1$ $\olessthan$ e$_2$}{Bool}}
-
-
-\inferax{T-Num}{\tc{E}{n}{Num}}
-
-\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
-
-\inferrule{T-Arith}{\tc{E}{e$_1$}{Num} \andalso
-\tc{E}{e$_2$}{Num}}
-{\tc{E}{e$_1$ $\oplus$ e$_2$}{Num}}
-
-\inferrule{T-Rec}{\tc{E}{e$_1$}{T$_1$} $\cdots$
-  \tc{E}{e$_n$}{T$_n$}}
-{\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
-
-\inferrule{T-Field}{\tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n}
-{\tc{E}{e.l$_i$}{T$_i$}}
-
-The above rule is a key one, ensuring that a field of a record can only be
-referred to if it already exists in that record.
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 

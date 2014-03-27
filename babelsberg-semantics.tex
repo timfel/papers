@@ -18,12 +18,12 @@
 
 \newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
 \newcommand{\stay}[2]{stay({\tt #1}) $=$ {\tt #2}}
-\newcommand{\toSolver}[2]{{\tt #1} $\leadsto$ $#2$}
+\newcommand{\toSolver}[2]{{\tt E} $\vdash$ {\tt #1} $\leadsto$ $#2$}
 \newcommand{\fromSolver}[2]{$#1$ $\leadsto$ {\tt #2}}
 \newcommand{\csolve}[2]{$#1$ $\models$ $#2$}
-\newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
+\newcommand{\solve}[2]{{\tt #1} $\models_{\tt E}$ {\tt #2}}
 \newcommand{\cunsat}[1]{$\not\models$ $#1$}
-\newcommand{\unsat}[1]{$\not\models$ {\tt #1}}
+\newcommand{\unsat}[1]{$\not\models_{\tt E}$ {\tt #1}}
 \newcommand{\step}[6]{{\tt <#1|#2|#3>} $\longrightarrow$
   {\tt <#4|#5|#6>}}
 \newcommand{\tc}[3]{{\tt #1} $\vdash$ {\tt #2} : {\tt #3}}
@@ -436,8 +436,10 @@ $\oplus$.  The symbol $\olessthan$ ranges over a set of {\em atomic
 {\tt $\leq$}), which test properties of constants in the
 language, and the symbol $\ovee$ ranges over a set of logical
 operators for combining constraints
-(e.g., {\tt $\wedge$}, {\tt $\vee$}) and is assumed to include at
-least conjunction.  The symbol $\rho$ ranges over a finite and partially
+(e.g., {\tt $\wedge$}, {\tt $\vee$}).  The atomic constraint operators
+are assumed to include at least an equality operator {\tt =} on
+constants, and the logical operators are assumed to include at
+least conjunction {\tt $\wedge$}.  The symbol $\rho$ ranges over a finite and partially
 ordered set of
 constraint {\em priorities} and is assumed to include a bottom element {\em
   weak} and top element {\em strong}.  A constraint with no explicit priority is assumed to have the
@@ -464,15 +466,15 @@ use the following syntax as the language of the solver:
 $\begin{array}{lrrl}
 {\rm Constraint} & C & ::= & \top \mid  A \mid \rho\ C \mid C \ovee C \\
 {\rm Atomic\ Constraint} & A & ::= & e \olessthan e \\
-{\rm Expression} & e & ::= & n \mid x \mid e \oplus e \\
+{\rm Expression} & e & ::= & c \mid x \mid e \oplus e \\
 {\rm Constant} & c & ::= & {\rm constants} \\
 {\rm Variable} & x & ::= & {\rm variable\ names} \\\\
 
 {\rm Value} & v & ::= & c
 \end{array}$
 
-The syntax of the solver's language is analogous to that of the source
-language defined above.  Note that some solvers
+The syntax of the solver's language is essentially identical to the
+syntax of constraints in the source language defined above.  Note that some solvers
 may only support a subset of the above syntax, for example requiring
 constraints to be in some canonical form, lacking support for
 disjunctions of constraints, etc.  % \tdm{What do we do in
@@ -534,6 +536,13 @@ straightforward.
 
 \inferax{ToConst}{\toSolver{c}{c}}
 
+\tdm{The above is a bit of an abuse of notation: implicity we're
+  saying that each constant in the source language maps to the
+  constant in the solver language that is identical except for font.
+  We could assume some explicit function for mapping source constants
+  to constants in the solver language, but that's probably
+  unnecessary.  There's a similar issue in the following rule for variables.}
+
 \inferax{ToVar}{\toSolver{x}{x}}
 
 \inferrule{ToArith}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
@@ -548,11 +557,11 @@ straightforward.
 
 \inferax{ToTrue}{\toSolver{True}{\top}}
 
-\inferrule{ToCombine}{\toSolver{C$_1$}{C_1} \andalso \toSolver{C$_2$}{C_2}}
-{\toSolver{C$_1$ $\ovee$ C$_2$}{C_1 \olessthan C_2}}
-
 \inferrule{ToPriority}{\toSolver{C}{C}}
 {\toSolver{$\rho$ C}{\rho\ C}}
+
+\inferrule{ToCombine}{\toSolver{C$_1$}{C_1} \andalso \toSolver{C$_2$}{C_2}}
+{\toSolver{C$_1$ $\ovee$ C$_2$}{C_1 \olessthan C_2}}
 
 \judgment{\fromSolver{M}{E}}
 
@@ -575,8 +584,8 @@ language of the constraint solver, obtaining a model, and translating
 back to a program environment.
 
 \inferrule{Solve}{\toSolver{C}{C} \andalso \csolve{M}{C} \andalso
-  \fromSolver{M}{E}}
-{\solve{E}{C}}
+  \fromSolver{M}{E$_s$}}
+{\solve{E$_s$}{C}}
 
 
 \judgment{\unsat{C}}
@@ -650,6 +659,7 @@ declared so far during execution.
 
 For this next language, we augment the Babelsberg/Int language with
 booleans and immutable records.
+\tdm{Why booleans specifically?}
 
 Records are represented as lists of name/value pairs in curly braces:
 \begin{verbatim}
@@ -822,12 +832,14 @@ the program works.
 \subsubsection{Syntax}
 
 The syntax from Section~\ref{intformal} is augmented now to support
-records and record operations:
+records, an operation for record equality (denoted $=_r$), and the
+ability to access fields of a record:
 
 \begin{tt}
 \begin{tabular}{lrrl}
+{\rm Atomic Constraint} & A & ::= & $\cdots$ $\mid$ x $=_r$ x \\
 {\rm Expression} & e & ::= & $\cdots$ $\mid$
-\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
+\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ x.l \\
 {\rm Label} & l & ::= & {\rm record label names} \\\\
 
 {\rm Value} & v & ::= & $\cdots$ $\mid$
@@ -835,14 +847,14 @@ records and record operations:
 \end{tabular}
 \end{tt}
 
-We do not assume that the solver can deal with records
-directly. Instead, constraints on records are ``exploded'' to
-constraints on their parts. We extend the syntax of the constraint
-language to support variables corresponding to record fields.
+\tdm{I restricted the syntax so you can only do a field access and
+  record equality tests on
+  variables rather than arbitrary expressions.  This simplifies
+  translation to the solver.}
 
-$\begin{array}{lrrl}
-{\rm Variable} & x & ::= & {\rm variable\ names} \mid x_{\rm variable\ names}
-\end{array}$
+The language of the solver is unchanged.  Specifically, the solver
+does not ``understand'' records, but only values of base types like
+integers and reals.
 
 \subsubsection{Semantics}
 
@@ -866,12 +878,13 @@ This judgment represents the solver, as before.
 
 We extend the judgments to translate source-level constraints into the
 language of the solver. Now constraints can refer to records and
-record operations, and we do not want to assume that the solver
-directly supports records.  Therefore, all constraints on records get
+record operations, which must get
 ``exploded'' into constraints on the individual components of the
-records. For example, the constraint {\tt p = \{x:2, y:5\}} gets
-translated to the constraint $p_x = 2 \wedge p_y=5$, and similarly a
-constraint {\tt p.x = 100} in the source program becomes $p_x = 100$.
+records. % For example, the constraint {\tt p = \{x:2, y:5\}} gets
+% translated to the constraint $p_x = 2 \wedge p_y=5$, and similarly a
+% constraint {\tt p.x = 100} in the source program becomes $p_x = 100$.
+The rules below also enforce the compatibilty checks required to
+translate to the solver.
 
 \inferax{ToField}{\toSolver{e.l}{e_l}}
 

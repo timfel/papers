@@ -1108,6 +1108,7 @@ Note that we perform a structural compatibility check to ensure that
 the field being mutated already exists in the record denoted by {\tt x}.
 
 \section{Babelsberg/UID}
+\label{sec:babelsberg-uid}
 
 Our next step is to replace records that are simply values with
 mutable records that live on the heap and so have an identity, can be
@@ -1468,10 +1469,11 @@ constraints of the form $r_{li} = v_i$.
 \section{Babelsberg/Objects}
 
 In this final language, we add classes, inheritance, methods, and
-messages.  This allows us to write constraints on the results of
-message sends, as in the actual languages Babelsberg/R and
-Babelsberg/JS\@.  For example, consider the following constraints on
-the center of a rectangle {\tt r}:
+messages.  This language is intended to capture the essential features
+of the actual object constraint languages Babelsberg/R and
+Babelsberg/JS\@.  In particular, it allows us to write constraints on
+the results of message sends.  For example, consider the following
+constraints on the center of a rectangle {\tt r}:
 \begin{verbatim}
 always r.center.x = 100;
 always r.center.y = 50;
@@ -1479,10 +1481,177 @@ always r.center.y = 50;
 The constraints here apply to the result of sending the message
 \verb|center| to \verb|r|, and \verb|center| may be computed rather
 than being stored.  Even the \verb|x| message to a point might compute
-the x value, if the point is stored in polar coordinates.
+the x value, if the point is stored in polar coordinates.  Further,
+expressions such as \verb|a+b| are now treated in an object-oriented
+fashion, so that this means ``send the message \verb|+| with the
+argument \verb|b| to the object \verb|a|,'' with the meaning of
+\verb|+| in this expression (and in constraints such as \verb|a+b=c|)
+depending on the class of \verb|a|.
 
-example that shows +, e.g. \verb|p+q=r| for p q and r -- this is an OO
-plus now.
+As with the earlier Babelsbergs presented in this memo, we use a
+solver language to represent the constraints that are sent to the
+constraint solvers.  Syntactically we will be able to use the same
+solver language that we defined for Babelsberg/PrimitiveTypes (Section
+\ref{sec:babelsberg-primitivetypes-syntax}).  Semantically, however,
+the simple translation from source-level constraints into the language
+of the solver becomes more complex, since we now want to support
+constraints on objects and in particular on the results of message
+sends.
+
+To accomplish this, the formal semantics defines a standard model for
+an object-oriented language with instances, classes, messages,
+methods, and inheritance.  There must be a class corresponding to each
+primitive type in the solver language, and a method for each class
+corresponding to each operation in the solver language.  For example,
+if the solver language includes \emph{Integer}, \emph{Float}, and
+\emph{Boolean} types, and operations $+$ and $*$ on integers and on
+floats, and \emph{or} on booleans, then the class \verb|Integer| in
+the source language should include a \verb|+| method that expects
+another integer as an argument, \verb|Float| should have a \verb|+|
+method that expects another float as an argument, and \verb|Boolean|
+sould have an \verb|or| method that takes another boolean as an
+argument.  The classes in the source language can also have additional
+methods not present in the solver language, for example a
+\verb|factorial| method for \verb|Integer|; but they must provide
+method equivalents for all the operations in the solver
+language.\footnote{Please note the use of fonts to distinguish the
+  source and solver languages: {\tt Float} and {\tt x+y} for the
+  class and an expression respectively in the source language;
+  \emph{Float} and $x+y$ for the corresponding type and expression in
+  the solver language.}
+
+\ab{how do we handle short circuit evaluation for or?}
+
+The semantics includes two different execution modes: \emph{imperative
+  execution mode} and \emph{constraint construction mode}.  For
+ordinary statements, expressions are evaluated in imperative execution
+mode.  This is mostly standard, except for a special treatment for
+assigning to a variable with constraints on it (discussed below).
+There is also a \emph{constraint store} consisting of closures
+corresponding to constraints encountered in an \verb|always|
+statement: when an \verb|always| statement is encountered, the
+interpeter (as specified by the formal semantics) constructs a closure
+over its environment of definition and saves it in the constraint
+store.  
+
+In addition, after every statement execution, the current set of
+constraints is solved and the environment is updated.  To do this, if
+the statement is an assignment it is converted to a constraint, as in
+the previous simpler Babelsberg languages.  In addition, each closure
+in the constraint store is evaluated to produce a set of constraints
+in the solver language.  The resulting collection of constraints in
+the solver language is given to the solver, a solution is found, and
+the environment is updated; or, if the constraints have no solution,
+or if they are too hard for the solver, the system enters the
+\verb|unsat| state.\footnote{The implementation-oriented reader may at
+  this point become concerned that this seems most inefficient --- for
+  example, do we really need to re-evaluate all constraint closures
+  after every statement?  Do not panic.  There are ample opportunities
+  for adding optimizations; but they are just that --- optimizations
+  --- and not part of the formal semantics.  Instead, our aim will be
+  to specify the semantics cleanly, and then show that adding such
+  optimizations doesn't change the result.}
+
+\ab{again, I have a slight preference to distinguish between
+  unsolvable and too-hard stuck states}
+
+The evaluation of the closures in the constraint store is done in
+constraint construction mode rather than in imperative execution mode.
+In this mode, when we encounter a message send that corresponds to an
+operation on a primitive type in the solver language, we construct the
+corresponding parse tree fragment for the solver language; otherwise
+we evaluate normally.
+
+Suppose that the solver language includes integers, floats, and
+booleans.  Here are some examples of Babelsberg/Objects programs and
+their evaluation.
+
+First, let's revisit the initial example from Babelsberg/Int, now as a
+Babelsberg/Objects program:
+\begin{verbatim}
+x := 3;
+x := 4;
+always x>=10;
+\end{verbatim}
+
+The behavior is quite similar.  After evaluating the first statement
+we hand the following constraint to the solver to trivially find a
+value for \texttt{x}:
+
+\begin{tabular}{rl}
+required & $x=3$
+\end{tabular}
+
+The solver finds a value for $x$, which is then used to update the
+environment to be $\texttt{x} \mapsto \texttt{3}$.  After the second
+statement we hand the following constraints to the solver:
+
+\begin{tabular}{rl}
+weak     & $x=3$ \\
+required & $x=4$
+\end{tabular}
+
+This has the solution $x=4$, resulting in a new environment
+$\texttt{x} \mapsto \texttt{4}$.  Executing the third statement adds
+the \texttt{always} constraint to the current constraint store.  We
+then evaluate the body of the closure in constraint construction mode,
+resulting in the constraint required $x \geq 10$.  We now hand this
+constraint and the stay constraint to the solver:
+
+\begin{tabular}{rl}
+weak     & $x=4$ \\
+required & $x \geq 10$
+\end{tabular}
+
+which with a metric comparator yields the solution $x=10$.
+
+Here is the initial example for Babelsberg/Records (Section
+\ref{sec:babelsberg-records}), converted to use instances of class
+\verb|Point| rather than records with \verb|x| and \verb|y| fields.
+
+\begin{verbatim}
+ p := Point.new(2,5); 
+ a := p.x;
+ q := p; 
+ always p.x = 100;
+ always r = p;  
+\end{verbatim}
+
+gives the same result - in this case we aren't making use of the fact
+that points presumably have object IDs.
+
+maybe do something that shows re-evaluating the constraint closures
+each time (for example, if we re-bind a point to a different instance
+of the same class, or even to an instance of a different class)
+
+\ab{The rest of this section isn't finished}
+
+
+\verb|p+q=r| for points \verb|p|, \verb|q|, and \verb|r|.  This gets
+converted to constraints in the solver language involving $p_x$,
+$p_y$, etc.
+
+records example
+
+do we actually need the exploding/imploding semantics?  what if we
+just describe it informally, and then go to Babelsberg/Objects?
+
+go through rectange center example
+
+can't redefine Float + -- probably a bad idea anyway.  Classes like
+Float etc are otherwise open for extension.  + needs to have the same
+``meaning'' in both the source and solver languages.  (We could
+define that formally actually, e.g. \verb|3+4| in the source language
+should evaluate to an integer \verb|7| in the source language, and
+$3+4$ in the solver language should evaluate to $7$.  
+
+
+
+show something with interaction with other constraints and 
+
+note about why we could get away with this just as an abuse of
+notation before, and why we now need to be more precise (or I guess we
+could go back and be precise in the earlier sections as well).
 
 In the implementations of Babelsberg/R and Babelsberg/JS, methods
 invoked in a constraint are evaluated in constraint construction mode,
@@ -1492,32 +1661,6 @@ process, although some aspects of the implementations (e.g.,
 maintaining a dependency graph and recomputing the network of
 primitive constraints only when necessary) are treated as
 optimizations rather than part of the semantics.
-
-As with the earlier Babelsbergs, we use a solver language to represent
-the constraints that are sent to the constraint solvers.
-Syntactically we will be able to use the same solver language that we
-defined for Babelsberg/PrimitiveTypes (Section
-\ref{sec:babelsberg-primitivetypes-syntax}).  Semantically, however,
-the simple translation from source-level constraints into the language
-of the solver becomes more complex, since we now want to support
-constraints on objects and in particular on the results of message
-sends. 
-
-\ab{The rest of this section isn't finished -- an outline of the
-  approach follows}
-
-The solver language redefines certain classes in the
-Babelsberg/Objects system, namely ones that correspond to primitive
-types in the solver language (for example Float or Integer).  When we
-evaluate the block associated with an ``always'' constraint, we
-evaluate the code using the redefined classes --- other classes are
-the same as in the Babelsberg/Objects system.  When we evaluate a
-method in constraint construction mode, it builds up a set of
-constraints in the solver language; and these are then fed to the solver.
-
-note about why we could get away with this just as an abuse of
-notation before, and why we now need to be more precise (or I guess we
-could go back and be precise in the earlier sections as well).
 
 This description is mostly like the actual implementation.  Here are
 the differences:
@@ -1539,15 +1682,6 @@ the differences:
 
 Examples
 
-\verb|x+y=z| for floats \verb|x|, \verb|y|, and \verb|z|.  This gets
-converted to a constraint in the solver language that looks almost the
-same (although semantically it's different -- in the source program we
-are sending the message \verb|+| to the object that \verb|x| refers
-to; in the solver language it's a linear constraint on floats).
-
-\verb|p+q=r| for points \verb|p|, \verb|q|, and \verb|r|.  This gets
-converted to constraints in the solver language involving $p_x$,
-$p_y$, etc.
 
 An example involving a new solver language, say for geometric
 constraints (point on line, perpendicular lines, etc etc).  Here the

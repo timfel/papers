@@ -1546,22 +1546,22 @@ sends.
 
 To accomplish this, the formal semantics defines a standard model for
 an object-oriented language with instances, classes, messages,
-methods, and inheritance.  There must be a class corresponding to each
-primitive type in the solver language, and a method for each class
-corresponding to each operation in the solver language.  For example,
-if the solver language includes \emph{Integer}, \emph{Float}, and
-\emph{Boolean} types, and operations $+$ and $*$ on integers and on
-floats, and \emph{or} on booleans, then the class \verb|Integer| in
-the source language should include a \verb|+| method that expects
-another integer as an argument, \verb|Float| should have a \verb|+|
-method that expects another float as an argument, and \verb|Boolean|
-sould have an \verb|or| method that takes another boolean as an
-argument.  The classes in the source language can also have additional
-methods not present in the solver language, for example a
-\verb|factorial| method for \verb|Integer|; but they must provide
-method equivalents for all the operations in the solver
-language.\footnote{Please note the use of fonts to distinguish the
-  source and solver languages: {\tt Float} and {\tt x+y} for the
+methods, and inheritance, and adds constraints on top of that.  There
+must be a class corresponding to each primitive type in the solver
+language, and a method for each class corresponding to each operation
+in the solver language.  For example, if the solver language includes
+\emph{Integer}, \emph{Float}, and \emph{Boolean} types, and operations
+$+$ and $*$ on integers and on floats, and \emph{or} on booleans, then
+the class \verb|Integer| in the source language should include a
+\verb|+| method that expects another integer as an argument,
+\verb|Float| should have a \verb|+| method that expects another float
+as an argument, and \verb|Boolean| should have an \verb|or| method
+that takes another boolean as an argument.  These classes in the
+source language can have additional methods not present in the solver
+language, for example a \verb|factorial| method for \verb|Integer|;
+but they must provide method equivalents for all the operations in the
+solver language.\footnote{Please note the use of fonts to distinguish
+  the source and solver languages: {\tt Float} and {\tt x+y} for the
   class and an expression respectively in the source language;
   \emph{Float} and $x+y$ for the corresponding type and expression in
   the solver language.}
@@ -1577,8 +1577,8 @@ There is also a \emph{constraint store} consisting of closures
 corresponding to constraints encountered in an \verb|always|
 statement: when an \verb|always| statement is encountered, the
 interpeter (as specified by the formal semantics) constructs a closure
-over its environment of definition and saves it in the constraint
-store.  
+over the expression's environment of definition and saves it in the
+constraint store.
 
 In addition, after every statement execution, the current set of
 constraints is solved and the environment is updated.  To do this, if
@@ -1607,6 +1607,39 @@ In this mode, when we encounter a message send that corresponds to an
 operation on a primitive type in the solver language, we construct the
 corresponding parse tree fragment for the solver language; otherwise
 we evaluate normally.
+
+The expressions that define constraints have a number of restrictions
+(similar to those for the Babelsberg/R and Babelsberg/JS languages).
+
+\begin{enumerate}
+
+\item \label{item:constraint-type} Evaluating the expression that
+  defines the constraint should return a boolean.  (This is checked
+  dynamically.) 
+
+\item \label{item:side-effects} The constraint expression should
+  either be free of side effects, or if there are side effects, they
+  should be benign, for example, doing caching.  (This isn't checked.) 
+
+\item \label{item:deterministic} The result of evaluating the block
+  should be deterministic.  For example, an expression whose value
+  depended on which of two processes happened to complete first
+  wouldn't qualify.  (It's not clear this will actually come up in the
+  toy language here, although we do need this restriction for a real one.)
+
+\end{enumerate}
+
+\ab{Do we need the restriction that variables used in methods called
+  in a constraint be used in a single-assignment fashion?}
+
+For the semantics of a Babelsberg/Objects project to be correct, after
+generating and solving the constraints in the solver language, the
+result of evaluating each constraint expression in imperative
+execution mode should be \verb|true|.  Ideally, we would be able to
+prove this as a property of all Babelsberg/Objects programs, based on
+the formal semantics.
+
+\subsection{Examples}
 
 Suppose that the solver language includes integers, floats, and
 booleans.  Here are some examples of Babelsberg/Objects programs and
@@ -1666,11 +1699,98 @@ Here is the initial example for Babelsberg/Records (Section
 gives the same result - in this case we aren't making use of the fact
 that points presumably have object IDs.
 
+Here is a constraint on the center of a rectangle:
+\begin{verbatim}
+always r.center = Point.new(100,50);
+\end{verbatim}
+
+This is slightly different from the example at the beginning of this
+section.  Both are OK --- this one involves making a new instance of
+\verb|Point|.  (I don't think there are now any difficulties in
+creating a new instance in the body of a constraint with the proposed
+semantics.  Note that if we tried to use an identity constraint rather
+than an equality it would simply be unsatisfiable.)
+
+The following example illustrates how assignment for objects with
+object identity is handled.
+\begin{verbatim}
+p1 := Point.new(10,10);
+p2 := p1;
+p1 := Point.new(50,50);
+\end{verbatim}
+
+The result is just the same as in Ruby or some other object-oriented
+language without constraints.  After the first statement, we have the
+new point with x=10,y=10 in the heap, and solve a required constraint
+that p1's value equal the reference to this point.  After the second
+statement, the identity constraints are a weak identity stay on p1,
+and a required constraint that p2's value equal that same reference.
+\ab{Can the wording of this be improved?}  After the third statement,
+there is another point with x=50,y=50 in the heap, a required
+constraint that p1's value now equal the reference to this new point,
+and weak identity constraints that p1 point to what it used to (which
+can't be satisfied), and that p2 point to what it used to (which
+\emph{can} be satisfied.)
+
+The semantics are that we first solve the identity constraints (which
+are actually equality constraints on the references), and then the
+constraints on the primitive values.  The constraints on the primitive
+values can't affect the solutions to the identity constraints. \ab{Is
+  this the right choice?}.  This is illustrated by this program:
+\begin{verbatim}
+p := Point.new(10,10);
+always p.x = 100;
+p := Point.new(50,50);
+\end{verbatim}
+
+After the first statement, there is a point with x=10,y=10 in the
+heap, and \verb|p| refers to it.  After the second statement, we add
+the constraint \verb|p.x = 100| to the constraint store (closed over
+its environment of definition, so that \verb|p| is bound
+appropriately).  Then we solve the weak stay constraint on p's
+identity, and then we evaluate the body of the constraint in
+constraint construction mode, yielding an integer constraint on the
+\verb|x| field of \verb|p|.  This results in \verb|p| continuing to
+refer to the same point, which now has 100 in its \verb|x| field.
+After the third statement, we try to satisfy the constraint that p
+refer to a point with x=50,y=50 and also that its \verb|x| field is
+100.  This is unsatisfiable and so the program halts.  
+
+\ab{Is this right?  It seems a little weird.  However, the alternative
+  of immediately changing the value of the new point seems weird too.
+  One way of asking the question is: when we evaluate the
+  right-hand-side of an assignment to a constant, and the constaint is
+  a compound object, are its parts constant.  For comparison consider
+  this:}
+
+\begin{verbatim}
+x := 10
+always x = 100;
+x := 50;
+\end{verbatim}
+
+This certainly should give an error.
+
+This program also halts with an error:
+\begin{verbatim}
+p := Point.new(0,0);
+q := p;
+always p.x=5;
+always q.x=10;
+\end{verbatim}
+
+We are OK up until the final statement.  After the third statement,
+both \verb|p| and \verb|q| refer to the same point, which has x=5,y=0.
+Trying to satisfy the final constraint on \verb|q.x| fails.  (Note
+that since we solve the identity constraints first, we can't satisfy
+both constraints by making \verb|p| and \verb|q| refer to different
+points.)
+
+\ab{The rest of this section isn't finished}
+
 maybe do something that shows re-evaluating the constraint closures
 each time (for example, if we re-bind a point to a different instance
 of the same class, or even to an instance of a different class)
-
-\ab{The rest of this section isn't finished}
 
 restrictions on expressions used for constraints (similar to ones in
 Babelsberg/R).  Otherwise if the expression has a (visible) side

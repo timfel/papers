@@ -1287,19 +1287,19 @@ source programs.  \tdm{Not sure if we need that assumption.}
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ x.l := e $\mid$ x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}\\
-&& $\mid$ & [weak] always C $\mid$ s;s $\mid$ unsat \\
-{\rm Expression} & e & ::= & n $\mid$ x $\mid$ e $\oplus$ e $\mid$
+{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ x.l := e $\mid$ x := new o\\
+&& $\mid$ & always C $\mid$ s;s $\mid$ unsat \\
+{\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e $\mid$
 e.l $\mid$ r \\
-{\rm Arithmetic Constraint} & c & ::= & e $\olessthan$ e \\
-{\rm Constraint} & C & ::= & c $\mid$ C $\ovee$ C \\
-{\rm Number} & n & ::= & {\rm numeric constants} \\
+{\rm Atomic Constraint} & A & ::= & e $\olessthan$ e $\mid$ x == x
+  \\
+{\rm Constraint} & C & ::= & A $\mid$ $\rho$ A $\mid$ C $\ovee$ C \\
+{\rm Constant} & c & ::= & {\rm constants} \\
 {\rm Variable} & x & ::= & {\rm variable names} \\
-{\rm Operator} & op & ::= & + $\mid$ - $\mid$ >= $\mid$ $\cdots$ \\
-{\rm Label} & l & ::= & {\rm record label names} \\\\
-
-{\rm Value} & v & ::= & b $\mid$ n $\mid$ r \\
-{\rm Reference} & r & ::= & {\rm mutable references}
+{\rm Label} & l & ::= & {\rm record label names} \\
+{\rm Object} & o & ::= & \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\\\
+{\rm Value} & v & ::= & c $\mid$ r $\mid$ o \\
+{\rm Reference} & r & ::= & {\rm references to heap records}
 \end{tabular}
 \end{tt}
 
@@ -1317,9 +1317,14 @@ Most of the updates to the original rules are standard and straightforward.
   E} and heap {\tt H}.''
 
 
-\inferax{E-Num}{\evalH{E}{H}{n}{n}}
+\inferax{E-Const}{\evalH{E}{H}{c}{c}}
 
-\inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalH{E}{H}{x}{v}}
+\inferrule{E-VarImmediate}{{\tt E}({\tt x}) = {\tt c}}{\evalH{E}{H}{x}{c}}
+
+\inferrule{E-VarRecord}{
+  {\tt E}({\tt x}) = {\tt r} \andalso
+  {\tt H}({\tt r}) = {\tt o}
+}{\evalH{E}{H}{x}{o}}
 
 \inferrule{E-Op}{\evalH{E}{H}{e$_1$}{v$_1$} \andalso
 \evalH{E}{H}{e$_2$}{v$_2$} \andalso
@@ -1333,14 +1338,121 @@ Most of the updates to the original rules are standard and straightforward.
 
 \inferax{E-Ref}{\evalH{E}{H}{r}{r}}
 
+\judgment{\csolve{M}{C}}
+
+This judgment still represents the call to the solver.
+
+\judgment{\toSolver{e}{e}}
+\judgment{\toSolver{C}{C}}
+
+\inferax{ToConst}{\toSolver{c}{c}}
+
+\inferax{ToVar}{\toSolver{x}{x}}
+
+\inferax{ToRef}{\toSolver{r}{r}}
+
+\inferrule{ToArith}{
+  \toSolver{e$_1$}{e_1} \andalso
+  \toSolver{e$_2$}{e_2}
+}{
+  \toSolver{e$_1$ $\oplus$ e$_2$}{e_1 \oplus e_2}
+}
+
+\inferrule{ToCompare}{
+  \toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}
+}{
+  \toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}
+}
+
+\inferrule{ToIdentical}{
+  \toSolver{x$_1$}{x_1} \andalso \toSolver{x$_2$}{x_2}
+}{
+  \toSolver{x$_1$ == e$_2$}{e_1 \equiv e_2}
+}
+
+\inferax{ToTrue}{\toSolver{True}{\top}}
+
+\inferrule{ToPriority}{\toSolver{C}{C}}
+{\toSolver{$\rho$ C}{\rho\ C}}
+
+\inferrule{ToCombine}{\toSolver{C$_1$}{C_1} \andalso \toSolver{C$_2$}{C_2}}
+{\toSolver{C$_1$ $\ovee$ C$_2$}{C_1 \olessthan C_2}}
+
+\inferrule{ToFieldVar}{\tc{E}{x.l$_i$}{T}}
+{\toSolver{x.l$_i$}{x_{l_i}}}
+
+The next rules describe how to translate record equality constraints
+to the solver, by exploding them. Note that we only need one rule. The
+language does not allow records as expressions, they can only occur in
+``new'' statements, so for equality, they have to be bound to a
+variable. This could be alleviated with syntactic sugar, but note that
+we can transform a language that allows immediate records to a form
+where the records are first assigned to variables and then equality
+constrained.
+
+\inferrule{ToRecEq}{
+  \tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+  \tc{E}{x$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}{
+  \toSolver{
+    x $=_r$ x$'$
+  }{
+    x_{l_1} = x'_{l_1} \wedge \cdots \wedge x_{l_n} = x'_{l_n}
+  }
+}
+
+\judgment{\fromSolver{M}{E}}
+
+\inferax{FromEmpty}{\fromSolver{\emptyset}{$\emptyset$}}
+
+\inferrule{FromOne}{
+  $M(x) = v$ \andalso
+  $M_0 = M \setminus \{(x,v)\}$ \andalso
+  \fromSolver{M_0}{E$_0$} \andalso
+  {\tt E} = {\tt E$_0$} $\cup$ $\{({\tt x}, {\tt v})\}$
+}{
+  \fromSolver{M}{E}
+}
+
+\inferrule{FromField}{
+  $M(x_{l_i}) = v$ \andalso
+  $M_0 = M \setminus \{(x_{l_i},v)\}$ \andalso
+  \fromSolver{M_0}{E$_0$} \andalso
+  {\tt E} = merge({\tt E$_0$}, {\tt x}, {\tt l}$_i$, {\tt v})
+}{
+  \fromSolver{M}{E}
+}
+
+\judgment{merge({\tt E$_0$,x,l,v})}
+
+We use a helper function, \emph{merge}, to merge records fields into
+an environment:
+
+\inferrule{AddRecord}{
+  {\tt E}$_0$({\tt x}) = $\perp$ \andalso
+  {\tt E} = ({\tt E}$_0$ $\cup$
+    \{({\tt x}, \{{\tt l$_i$:v$_i$}\})\}
+}{
+  {\tt E} = merge({\tt E}$_0$, {\tt x}, {\tt l}$_i$, {\tt v}$_i$)
+}
+
+
+\inferrule{MergeRecord}{
+  {\tt o} = \{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\} \andalso
+  {\tt E}$_0$({\tt x}) = {\tt o} \andalso
+  $i > n$ \andalso
+  {\tt E} = ({\tt E}$_0$ $\setminus$ \{({\tt x}, {\tt o})\}) $\cup$
+    \{({\tt x}, \{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$,l$_i$:v$_i$}\})\}
+}{
+  {\tt E} = merge({\tt E}$_0$, {\tt x}, {\tt l}$_i$, {\tt v}$_i$)
+}
+
 \judgment{\solveH{E}{H}{C}}
 
 ``Environment {\tt E} and heap {\tt H} are a model of constraint {\tt C}.''
 
-As before, this judgment represents a call to the constraint solver.
-We again ``explode'' constraints on records into constraints on the
-individual components, but in a slightly different way than before due
-to their heap allocation.  
+\tf{todo: the next paragraph has to be rephrased, it doesn't work
+  anymore, because we don't allow records as immediate expressions}
 For example, suppose variable {\tt p} maps to reference {\tt r} in the
 environment.  Then the constraint
  {\tt p = \{x:2, y:5\}} gets translated to
@@ -1348,8 +1460,7 @@ the constraint $r_x = 2 \wedge r_y=5$, and similarly the
 constraint {\tt p.x = 100} becomes $r_x = 100$.  By using the
 reference {\tt r} rather than the variable name {\tt p}, we ensure
 that any modifications to the record stored in {\tt r} will also be
-``seen'' through all aliases of {\tt p}.  \tdm{More formal definition
-  of our approach?}
+``seen'' through all aliases of {\tt p}.
 
 \ab{I have been converting solver constraints to use math font, and in
   the process renaming the variables to use appropriate subscripts,
@@ -1400,7 +1511,7 @@ typeable$_\olessthan$({\tt T$_1$}, {\tt T$_2$})}
 {\tcH{E}{H}{e$_1$ $\oplus$ e$_2$}{Num}}
 
 
-\inferrule{E-Field}{\tcH{E}{H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+\inferrule{T-Field}{\tcH{E}{H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
     \andalso 1 $\leq$ i $\leq$ n}
 {\tcH{E}{H}{e.l$_i$}{T$_i$}}
 

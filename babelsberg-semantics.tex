@@ -1683,25 +1683,29 @@ sends.
 
 To accomplish this, the formal semantics defines a standard model for
 an object-oriented language with instances, classes, messages,
-methods, and inheritance, and adds constraints on top of that.  There
-must be a class corresponding to each primitive type in the solver
-language, and a method for each class corresponding to each operation
-in the solver language.  For example, if the solver language includes
-\emph{Integer}, \emph{Float}, and \emph{Boolean} types, and operations
-$+$ and $*$ on integers and on floats, and \emph{or} on booleans, then
-the class \verb|Integer| in the source language should include a
-\verb|+| method that expects another integer as an argument,
-\verb|Float| should have a \verb|+| method that expects another float
-as an argument, and \verb|Boolean| should have an \verb|or| method
-that takes another boolean as an argument.  These classes in the
-source language can have additional methods not present in the solver
-language, for example a \verb|factorial| method for \verb|Integer|;
-but they must provide method equivalents for all the operations in the
-solver language.\footnote{Please note the use of fonts to distinguish
-  the source and solver languages: {\tt Float} and {\tt x+y} for the
-  class and an expression respectively in the source language;
-  \emph{Float} and $x+y$ for the corresponding type and expression in
-  the solver language.}
+methods, and inheritance, and adds constraints on top of that.  Some
+of the classes and methods in the source language have corresponding
+primitive types and operations in the solver lanugage, and the
+semantics includes a partial mapping function to do this conversion.
+For example, the classes \verb|Integer|, \verb|Float|, and
+\verb|Boolean| in the source language might be mapped to the types
+\emph{Integer}, \emph{Float}, and \emph{Boolean} in the solver
+language.  The \verb|+| method on \verb|Integer| would be mapped to
+the $+$ operation for \emph{Integer} in the solver language, and
+similarly for the \verb|+| method for \verb|Float|, the \verb|or|
+method for \verb|Boolean|, and so forth.\footnote{Please note the use
+  of fonts to distinguish the source and solver languages: {\tt Float}
+  and {\tt x+y} for the class and an expression respectively in the
+  source language; \emph{Float} and $x+y$ for the corresponding type
+  and expression in the solver language.}  In general, there can of
+course be classes in the source language that don't map to a solver
+type; and even for a class that does have a corresponding solver type,
+that class can have additional methods that aren't mapped to
+operations in the solver language, for example a \verb|factorial|
+method for \verb|Integer|.  It is also possible to have types and
+operations in the solver language without equivalents in the source
+language --- this would be a bit strange, in that expressions
+involving them could never be generated --- but it's not an error.
 
 \ab{how do we handle short circuit evaluation for or?}
 
@@ -1720,22 +1724,27 @@ constraint store.
 In addition, after every statement execution, the current set of
 constraints is solved and the environment is updated.  To do this, if
 the statement is an assignment it is converted to a constraint, as in
-the previous simpler Babelsberg languages.  In addition, each closure
-in the constraint store is evaluated to produce a set of constraints
-in the solver language.  The resulting collection of constraints in
-the solver language is given to the solver, a solution is found, and
-the environment is updated; or, if the constraints have no solution,
-or if they are too hard for the solver, the system enters the
-\verb|unsat| state.\footnote{The implementation-oriented reader may at
-  this point become concerned that this seems most inefficient.  For
-  example, in the informal description, all assignments are converted
-  to constaints, not just those involving assigning to a variable with
-  other constraints on it.  And do we really need to re-evaluate all
-  constraint closures after every statement?  Do not panic.  There are
-  ample opportunities for adding optimizations; but they are just that
-  --- optimizations --- and not part of the formal semantics.
-  Instead, our aim will be to specify the semantics cleanly, and then
-  show that adding such optimizations doesn't change the result.}
+the previous simpler Babelsberg languages.  If the expression on the right
+hand side of the assignment evaluates to an object on the heap, then
+the constraint will be an identity constraint; otherwise it will be an
+equality constraint. \ab{is this right??}
+
+In addition, each closure in the constraint store is evaluated to
+produce a set of constraints in the solver language.  The resulting
+collection of constraints in the solver language is given to the
+solver, a solution is found, and the environment is updated; or, if
+the constraints have no solution, or if they are too hard for the
+solver, the system enters the \verb|unsat| state.\footnote{The
+  implementation-oriented reader may at this point become concerned
+  that this seems most inefficient.  For example, in the informal
+  description, all assignments are converted to constaints, not just
+  those involving assigning to a variable with other constraints on
+  it.  And do we really need to re-evaluate all constraint closures
+  after every statement?  Do not panic.  There are ample opportunities
+  for adding optimizations; but they are just that --- optimizations
+  --- and not part of the formal semantics.  Instead, our aim will be
+  to specify the semantics cleanly, and then show that adding such
+  optimizations doesn't change the result.}
 
 \ab{again, I have a slight preference to distinguish between
   unsolvable and too-hard stuck states}
@@ -1771,12 +1780,27 @@ similar to those for the Babelsberg/R and Babelsberg/JS languages.
 \ab{Do we need the restriction that variables used in methods called
   in a constraint be used in a single-assignment fashion?}
 
-For the semantics of a Babelsberg/Objects project to be correct, after
-generating and solving the constraints in the solver language, the
-result of evaluating each constraint expression in imperative
-execution mode should be \verb|true|.  Ideally, we would be able to
-prove this as a property of all Babelsberg/Objects programs, based on
-the rules in the formal semantics.
+There are two interpretations or meanings \ab{what's the right word?}
+for each constraint at a particular step in the execution of a program
+in the Babelsberg/Objects semantics: first, saying the constraint is
+satisfied is equivalent to saying that the result of evaluting the
+constraint expression in imperative execution mode is \verb|true|; and
+second, saying the constraint is satisfied is equivalent to saying
+that the generated constraint in the solver language is satisfied.
+Ideally, we would be able to prove that these two interpretations are
+equivalent for all Babelsberg/Objects programs, based on the rules in
+the formal semantics.  Further, the behavior of an interpreter or
+compiler for an actual Babelsberg language should match this
+interpretation --- the result of evaluating the constraint expression
+in imperative execution model should give the same result as given by
+the formal semantics.
+
+\ab{The above paragraph is a bit confused but I think it captures an
+  important idea, namely that there are two meanings for constraints
+  in the formalism, and they should be provably equivalent.  This
+  reminds me of work on constraint logic programming, in which one
+  would show that the operational and the model theoretic semantics
+  were equivalent, at least under some conditions.}
 
 \subsection{Examples}
 
@@ -1823,25 +1847,12 @@ required & $x \geq 10$
 
 With a metric comparator this yields the solution $x=10$.
 
-Here is the initial example for Babelsberg/Records (Section
-\ref{sec:babelsberg-records}), converted to use instances of class
-\verb|Point| rather than records with \verb|x| and \verb|y| fields.
-
-\begin{verbatim}
- p := Point.new(2,5); 
- a := p.x;
- q := p; 
- always p.x = 100;
- always r = p;  
-\end{verbatim}
-
-gives the same result - in this case we aren't making use of the fact
-that points presumably have object IDs.
-
 Here is a constraint on the center of a rectangle:
 \begin{verbatim}
 always r.center = Point.new(100,50);
 \end{verbatim}
+
+\ab{describe how this is mapped to constraints in the solver language}
 
 This is slightly different from the example at the beginning of this
 section.  Both are OK --- this one involves making a new instance of
@@ -1871,11 +1882,16 @@ and weak identity constraints that p1 point to what it used to (which
 can't be satisfied), and that p2 point to what it used to (which
 \emph{can} be satisfied.)
 
-The semantics are that we first solve the identity constraints (which
-are actually equality constraints on the references), and then the
-constraints on the primitive values.  The constraints on the primitive
-values can't affect the solutions to the identity constraints. \ab{Is
-  this the right choice?}.  This is illustrated by this program:
+\subsubsection{Some Problematic Examples}
+
+This subsection includes some problematic examples \ldots after we
+figure out the correct behavior for them this section as such can be
+removed, and any remaining useful examples merged with the main
+``examples'' section.
+
+{\bf Clobbering the Result of an Assignment}
+
+What should the result of this program be?
 \begin{verbatim}
 p := Point.new(10,10);
 always p.x = 100;
@@ -1891,16 +1907,30 @@ identity, and then we evaluate the body of the constraint in
 constraint construction mode, yielding an integer constraint on the
 \verb|x| field of \verb|p|.  This results in \verb|p| continuing to
 refer to the same point, which now has 100 in its \verb|x| field.
-After the third statement, we try to satisfy the constraint that p
-refer to a point with x=50,y=50 and also that its \verb|x| field is
-100.  This is unsatisfiable and so the program halts.  
 
-\ab{Is this right?  It seems a little weird.  However, the alternative
-  of immediately changing the value of the new point seems weird too.
-  One way of asking the question is: when we evaluate the
-  right-hand-side of an assignment to a constant, and the constaint is
-  a compound object, are its parts constant.  For comparison consider
-  this:}
+It's the third statement that's weird.  Probably the correct behavior
+is that we set \verb|p| to a new point with x=50,y=50, and then
+immediately clobber the x so that the point is x=100,y=50.
+
+The other possibility is that it halts with an an unsatisfiable
+constraint error, since we are trying to set \verb|p| to a point with
+x=50, but the always constraint says that x=100.  However, for this to
+be the behavior, we not only need to satisfy the required constraint
+on \verb|p|'s identity (with the identity of the newly created point
+as read-only, so we can't change it), but we also need to freeze the
+contents of the point, i.e.\ put required stay constraints on its
+\verb|x| and \verb|y| fields.  But then we couldn't (for example) have
+an assignment statement that generated a circular structure:
+
+\begin{verbatim}
+s := Cons.new(5,nil);
+s.cdr := s;  /* make s into a circular list with one cons cell */
+\end{verbatim}
+
+The reason this wouldn't work if the fields of \verb|s| are frozen is
+that we can't assign to its cdr.
+
+Nonetheless, this behavior seems a bit weird.  Consider:
 
 \begin{verbatim}
 x := 10
@@ -1908,9 +1938,24 @@ always x = 100;
 x := 50;
 \end{verbatim}
 
-This certainly should give an error.
+This certainly should give an error, since we are trying to satisfy
+two required constraints after the last statement, that x=100 and
+x=50.
 
-This program also halts with an error:
+Here's a similar program in Babelsberg/Records:
+\begin{verbatim}
+p := {x=10}
+always p.x = 100;
+p := {x=50};
+\end{verbatim}
+
+But notice that the last statement here is different from the one that
+makes a new point object --- here we are saying that \verb|p| must be
+equal to the literal \verb|{x=50}|.
+
+{\bf No Creation of Objects to Satisfy Constraints?}
+
+This program probably halts with an error:
 \begin{verbatim}
 p := Point.new(0,0);
 q := p;
@@ -1920,12 +1965,56 @@ always q.x=10;
 
 We are OK up until the final statement.  After the third statement,
 both \verb|p| and \verb|q| refer to the same point, which has x=5,y=0.
-Trying to satisfy the final constraint on \verb|q.x| fails.  (Note
-that since we solve the identity constraints first, we can't satisfy
-both constraints by making \verb|p| and \verb|q| refer to different
-points.)
+Trying to satisfy the final constraint on \verb|q.x| fails.  (We could
+satisfy the constraints by first cloning \verb|q| from \verb|p| and
+then changing its \verb|x|.  But we don't want to create new objects
+to satisfy constraints??)
 
-\ab{The rest of this section isn't finished}
+{\bf Weak Identity Constraint Example}
+
+\begin{verbatim}
+p := Point.new(0,0);
+q := Point.new(5,5);
+always p.x=10;
+always q.x=20;
+always weak p==q  /* this is a weak identity constraint */
+\end{verbatim}
+
+This seems OK; the final weak identity constraint isn't satisfied.  
+
+But consider the program with the constraints reordered:
+
+\begin{verbatim}
+p := Point.new(0,0);
+q := Point.new(5,5);
+alwyas weak p==q;
+always p.x=10;
+always q.x=20;
+\end{verbatim}
+
+If we first satisfy the weak identity constraint, then \verb|p| and
+\verb|q| will be aliased, and if we are disallowing the creation of
+new objects to satisfy constraints, we can't satisfy the last
+constraint and the program halts with an unsatisfiable constraint
+error.  Should reordering the constraints have this effect?
+
+Or we could do the same thing but with \verb|strong| constraints:
+\begin{verbatim}
+p := Point.new(0,0);
+q := Point.new(5,5);
+weak p==q;
+always strong p.x=10;
+always strong q.x=20;
+\end{verbatim}
+
+Here, if we first satisfy the weak identity constraint, then the
+program will succeed, but one of the strong constraints will be
+unsatisfied.  This seems weird.
+
+\subsection{Unfinished Subsection}
+
+\ab{The rest of this section isn't finished \ldots it's some notes
+  that haven't been put in coherent form.}
 
 maybe do something that shows re-evaluating the constraint closures
 each time (for example, if we re-bind a point to a different instance

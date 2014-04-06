@@ -88,8 +88,12 @@ to a full object constraint language.  The languages are:
 In each case, we first provide an informal discussion and examples,
 and then the formal semantics.
 
-We've found it helpful to approach the problem incrementally in
-this fashion.  After the ideas have been refined, we plan to write a
+We've found it helpful to approach the problem incrementally in this
+fashion.  Another aspect of this approach has been when there is a
+choice, to lean toward simplicity over power of the constraint
+language and solver --- Kaleidoscope (particularly the early versions)
+were arguably too complex in part because the constraint language was
+too powerful.  After the ideas have been refined, we plan to write a
 paper for a conference or journal.  (This might only include a formal
 semantics for Babelsberg/Objects, depending on whether it easily
 stands on its own.)
@@ -203,6 +207,41 @@ at each step by adding weak stay constraints that variables keep their
 old values.  In other words, the semantic rules handles time, while
 the solver handles solving the constraints and dealing with hard and
 soft constraints.
+
+
+\subsection{Conjunctions and Disjunctions of Constraints}
+
+In the work to date on DeltaBlue and Cassowary, conjunctions of
+constraints are implicitly specified by feeding multiple constraints
+to the solver, while disjunctions aren't allowed.  However, other
+solvers, such as Z3, can accommodate disjunctions and explicit
+conjunctions, so we should as well.  If this is done, the priority
+applies to the entire constraint, not to components.  Thus this is OK: 
+
+strong $(x=3 \vee x=4)$
+
+but this is not allowed:
+
+(strong $x=3$) $\vee$ (weak $x=4$)
+
+\subsection{Using Multiple Comparators}
+\label{sec:multiple-comparators}
+
+The semantics for hard and soft constraints used in work to date has
+always employed a single comparator to specify how to trade off
+conflicting soft constraints.  However, we can extend the theory to
+allow multiple comparators --- different priorities can use different
+comparators.  For example, we might use LPB for comparing the
+solutions to strong constraints, and WSB for the weak ones.  We will
+use this extension later so that we can mix constraints on object
+identity and object values.  An identity constraint is either
+satisfied or it's not --- a WSB comparator isn't appropriate for them.
+But there may also be constraints on values, for example on the $x$
+and $y$ fields of points, for which we do want to use a WSB
+comparator.  As long as we give different priorities for the identity
+and the value constraints, this extension allows doing this.
+
+\ab{Is this clear or do we need an example?}
 
 \section{Babelsberg/Int and Babelsberg/PrimitiveTypes}
 \label{sec:babelsberg/int}
@@ -1196,18 +1235,6 @@ unless reassigned.
 \subsection{Identity Constraints}
 \label{sec:identity-constraints}
 
-\ab{I think the formal semantics doesn't account for identity
-  constraints --- we need to update it accordingly.}%
-\tf{I've thought about what Todd proposed regarding identity
-  constraints. I believe it works well, because we could implement it
-  explicitly using an object table. Then each variable refers to an OT
-  index and identity constraints are simply constraints on those
-  indices. If both variables are defined, our solver can simply choose
-  one index, if only one variable is defined, we tell the solver a
-  default value for the other (0) and the stay constraint on the
-  defined variable will ensure that the solver picks the record for
-  the already defined variable.}
-
 In Babelsberg/MRecords we can have identity constraints, in addition
 to equality constraints:
 \begin{verbatim}
@@ -1253,7 +1280,7 @@ Up to the final identity constraint, this should be fine.  But the
 final constraint is unsatisfiable (unless the solver creates a new
 object, which isn't allowed with the current semantics).
 
-We might also have priorities on identity constraints:
+We can have priorities on identity constraints:
 \begin{verbatim}
  p := new {x:0, y:0};
  q := new {z:0};
@@ -1681,11 +1708,11 @@ of the solver becomes more complex, since we now want to support
 constraints on objects and in particular on the results of message
 sends.
 
-To accomplish this, the formal semantics defines a standard model for
-an object-oriented language with instances, classes, messages,
-methods, and inheritance, and adds constraints on top of that.  Some
-of the classes and methods in the source language have corresponding
-primitive types and operations in the solver lanugage, and the
+To accomplish this, we start with a standard model for an
+object-oriented language with instances, classes, messages, methods,
+and inheritance, and add constraints on top of that.  Some of the
+classes and methods in the source language have corresponding
+primitive types and operations in the solver language, and the
 semantics includes a partial mapping function to do this conversion.
 For example, the classes \verb|Integer|, \verb|Float|, and
 \verb|Boolean| in the source language might be mapped to the types
@@ -1697,15 +1724,18 @@ method for \verb|Boolean|, and so forth.\footnote{Please note the use
   of fonts to distinguish the source and solver languages: {\tt Float}
   and {\tt x+y} for the class and an expression respectively in the
   source language; \emph{Float} and $x+y$ for the corresponding type
-  and expression in the solver language.}  In general, there can of
-course be classes in the source language that don't map to a solver
-type; and even for a class that does have a corresponding solver type,
-that class can have additional methods that aren't mapped to
-operations in the solver language, for example a \verb|factorial|
-method for \verb|Integer|.  It is also possible to have types and
-operations in the solver language without equivalents in the source
-language --- this would be a bit strange, in that expressions
-involving them could never be generated --- but it's not an error.
+  and expression in the solver language.  In this example we've used
+  the same names for the classes and types, and methods and
+  operations, but this isn't required --- for example the {\tt plus}
+  method might be mapped to the $+$ operator.}  In general, there will
+be classes in the source language that don't map to a solver type; and
+even for a class that does have a corresponding solver type, that
+class can have additional methods that aren't mapped to operations in
+the solver language, for example a \verb|factorial| method for
+\verb|Integer|.  It is also possible to have types and operations in
+the solver language without equivalents in the source language ---
+this would be a bit strange, in that expressions involving them could
+never be generated --- but it's not an error.
 
 \ab{how do we handle short circuit evaluation for or?}
 
@@ -1721,19 +1751,18 @@ interpeter (as specified by the formal semantics) constructs a closure
 over the expression's environment of definition and saves it in the
 constraint store.
 
-In addition, after every statement execution, the current set of
-constraints is solved and the environment is updated.  To do this, if
-the statement is an assignment it is converted to a constraint, as in
-the previous simpler Babelsberg languages.  If the expression on the right
-hand side of the assignment evaluates to an object on the heap, then
-the constraint will be an identity constraint; otherwise it will be an
-equality constraint. \ab{is this right??}
-
-In addition, each closure in the constraint store is evaluated to
-produce a set of constraints in the solver language.  The resulting
-collection of constraints in the solver language is given to the
-solver, a solution is found, and the environment is updated; or, if
-the constraints have no solution, or if they are too hard for the
+After every statement execution, the current set of constraints is
+solved and the environment is updated.  The current set of constraints
+is determined as follows.  If the statement is an assignment, it is
+converted to a constraint, as in the previous simpler Babelsberg
+languages.  (If the expression on the right hand side of the
+assignment evaluates to an object on the heap, then this constraint
+will be an identity constraint; otherwise it will be an equality
+constraint.)  In addition, each closure in the constraint store is
+evaluated to produce a set of constraints in the solver language.  The
+resulting collection of constraints in the solver language is given to
+the solver, a solution is found, and the environment is updated; or,
+if the constraints have no solution, or if they are too hard for the
 solver, the system enters the \verb|unsat| state.\footnote{The
   implementation-oriented reader may at this point become concerned
   that this seems most inefficient.  For example, in the informal
@@ -1852,7 +1881,9 @@ Here is a constraint on the center of a rectangle:
 always r.center = Point.new(100,50);
 \end{verbatim}
 
-\ab{describe how this is mapped to constraints in the solver language}
+\ab{Describe how this is mapped to constraints in the solver language.
+  Give an example with specific values for the rectangle's origin and
+  corner, and show what happens when we change its height.}
 
 This is slightly different from the example at the beginning of this
 section.  Both are OK --- this one involves making a new instance of
@@ -1871,15 +1902,16 @@ p1 := Point.new(50,50);
 
 The result is just the same as in Ruby or some other object-oriented
 language without constraints.  After the first statement, we have the
-new point with x=10,y=10 in the heap, and solve a required constraint
-that p1's value equal the reference to this point.  After the second
-statement, the identity constraints are a weak identity stay on p1,
-and a required constraint that p2's value equal that same reference.
-\ab{Can the wording of this be improved?}  After the third statement,
-there is another point with x=50,y=50 in the heap, a required
-constraint that p1's value now equal the reference to this new point,
-and weak identity constraints that p1 point to what it used to (which
-can't be satisfied), and that p2 point to what it used to (which
+new point with \verb|x=10,y=10| in the heap, and solve a required
+constraint that \verb|p1|'s value equal the reference to this point.
+After the second statement, the identity constraints are a weak
+identity stay on \verb|p1|, and a required constraint that \verb|p2|'s
+value equal that same reference.  \ab{Can the wording of this be
+  improved?}  After the third statement, there is another point with
+\verb|x=50,y=50| in the heap, a required constraint that \verb|p1|'s
+value now equal the reference to this new point, and weak identity
+constraints that \verb|p1| refer to what it used to (which can't be
+satisfied), and that \verb|p2| refer to what it used to (which
 \emph{can} be satisfied.)
 
 \subsubsection{Some Problematic Examples}
@@ -1898,29 +1930,32 @@ always p.x = 100;
 p := Point.new(50,50);
 \end{verbatim}
 
-After the first statement, there is a point with x=10,y=10 in the
-heap, and \verb|p| refers to it.  After the second statement, we add
-the constraint \verb|p.x = 100| to the constraint store (closed over
-its environment of definition, so that \verb|p| is bound
-appropriately).  Then we solve the weak stay constraint on p's
+After the first statement, there is a point with \verb|x=10,y=10| in
+the heap, and \verb|p| refers to it.  After the second statement, we
+add the constraint \verb|p.x = 100| to the constraint store (closed
+over its environment of definition, so that \verb|p| is bound
+appropriately).  Then we solve the weak stay constraint on \verb|p|'s
 identity, and then we evaluate the body of the constraint in
 constraint construction mode, yielding an integer constraint on the
 \verb|x| field of \verb|p|.  This results in \verb|p| continuing to
-refer to the same point, which now has 100 in its \verb|x| field.
+refer to the same point, which now has 100 in its \verb|x| field.  So
+far so good.
 
-It's the third statement that's weird.  Probably the correct behavior
-is that we set \verb|p| to a new point with x=50,y=50, and then
-immediately clobber the x so that the point is x=100,y=50.
+It's the third statement that's weird.  The result (I suggest) is that
+we set \verb|p| to a new point with \verb|x=50,y=50|, and then
+immediately clobber the \verb|x| so that the point is
+\verb|x=100,y=50|.
 
-The other possibility is that it halts with an an unsatisfiable
-constraint error, since we are trying to set \verb|p| to a point with
-x=50, but the always constraint says that x=100.  However, for this to
-be the behavior, we not only need to satisfy the required constraint
-on \verb|p|'s identity (with the identity of the newly created point
-as read-only, so we can't change it), but we also need to freeze the
-contents of the point, i.e.\ put required stay constraints on its
-\verb|x| and \verb|y| fields.  But then we couldn't (for example) have
-an assignment statement that generated a circular structure:
+The other possibility (tentatively rejected) is that it halts with an
+an unsatisfiable constraint error, since we are trying to set \verb|p|
+to a point with \verb|x=50|, but the always constraint says that
+\verb|x=100|.  However, for this to be the behavior, we not only need
+to satisfy the required constraint on \verb|p|'s identity (with the
+identity of the newly created point as read-only, so we can't change
+it), but we also need to freeze the contents of the point, i.e., put
+required stay constraints on its \verb|x| and \verb|y| fields.  But
+then we couldn't (for example) have an assignment statement that
+generated a circular structure:
 
 \begin{verbatim}
 s := Cons.new(5,nil);
@@ -1939,10 +1974,11 @@ x := 50;
 \end{verbatim}
 
 This certainly should give an error, since we are trying to satisfy
-two required constraints after the last statement, that x=100 and
-x=50.
+two required constraints after the last statement, that $x=100$ and
+$x=50$.
 
-Here's a similar program in Babelsberg/Records:
+Here's a similar program in Babelsberg/Records, which also results in
+an error:
 \begin{verbatim}
 p := {x=10}
 always p.x = 100;
@@ -1950,8 +1986,8 @@ p := {x=50};
 \end{verbatim}
 
 But notice that the last statement here is different from the one that
-makes a new point object --- here we are saying that \verb|p| must be
-equal to the literal \verb|{x=50}|.
+makes a new point object --- in the Babelsberg/Records program we are
+saying that \verb|p| must be equal to the literal \verb|{x=50}|.
 
 {\bf No Creation of Objects to Satisfy Constraints?}
 
@@ -1964,11 +2000,60 @@ always q.x=10;
 \end{verbatim}
 
 We are OK up until the final statement.  After the third statement,
-both \verb|p| and \verb|q| refer to the same point, which has x=5,y=0.
-Trying to satisfy the final constraint on \verb|q.x| fails.  (We could
-satisfy the constraints by first cloning \verb|q| from \verb|p| and
-then changing its \verb|x|.  But we don't want to create new objects
-to satisfy constraints??)
+both \verb|p| and \verb|q| refer to the same point, which has
+\verb|x=5,y=0|.  Trying to satisfy the final constraint on \verb|q.x|
+fails.  We could satisfy the constraints by first cloning \verb|q|
+from \verb|p| and then changing its \verb|x|.  But I think we don't
+want to create new objects to satisfy constraints.  Cloning a point
+seems innocuous, but consider a similar example with windows on the
+user's display:
+
+\begin{verbatim}
+w1 := Window.new(....);
+w2 := w1;
+always w1.width = 200;
+always w2.width = 200;
+\end{verbatim}
+
+This should give an error --- it seems dangerous to silently create a
+second window.  However, rather than an \verb|unsat| error (required
+constraint can't be satisfied), I suggest this give a different error,
+called say \verb|nocreate|, which means that ``forcing an object to be
+created to satisfy a constraint is not allowed.''
+
+Similarly, these variants, in which we make the constraints on the
+widths strong rather than required, and in the second case use a weak
+identity constraint instead of an assignment, should give a
+\verb|nocreate| error as well.  As before, we don't want to silently
+create a second window.  In these cases, there aren't any unsatisfied
+required constraints, but we do have weak constraints satisfied in
+preference to strong ones, which violates the definition of correct
+solutions to the set of hard and soft constraints.
+
+\begin{verbatim}
+w1 := Window.new(....);
+w2 := w1;
+always strong w1.width = 200;
+always strong w2.width = 200;
+\end{verbatim}
+
+\begin{verbatim}
+w1 := Window.new(....);
+always weak w2 == w1;
+always strong w1.width = 200;
+always strong w2.width = 200;
+\end{verbatim}
+
+As a final variant, this program is OK, since we aren't creating new
+objects to satisfy constraints and we don't have weak constraints
+being satisfied in preference to strong ones. 
+
+\begin{verbatim}
+w1 := Window.new(....);
+always strong w2 == w1;
+always weak w1.width = 200;
+always weak w2.width = 200;
+\end{verbatim}
 
 {\bf Weak Identity Constraint Example}
 
@@ -1980,14 +2065,14 @@ always q.x=20;
 always weak p==q  /* this is a weak identity constraint */
 \end{verbatim}
 
-This seems OK; the final weak identity constraint isn't satisfied.  
+This is OK; the final weak identity constraint isn't satisfied.  
 
 But consider the program with the constraints reordered:
 
 \begin{verbatim}
 p := Point.new(0,0);
 q := Point.new(5,5);
-alwyas weak p==q;
+always weak p==q;
 always p.x=10;
 always q.x=20;
 \end{verbatim}
@@ -1995,8 +2080,10 @@ always q.x=20;
 If we first satisfy the weak identity constraint, then \verb|p| and
 \verb|q| will be aliased, and if we are disallowing the creation of
 new objects to satisfy constraints, we can't satisfy the last
-constraint and the program halts with an unsatisfiable constraint
-error.  Should reordering the constraints have this effect?
+constraint, and the program halts with a \verb|nocreate| error.  It's
+a little weird that reordering the constraints has this effect, but
+since we have a special error for the situation (\verb|nocreate|)
+rather than \verb|unsat| I think it's ok.
 
 Or we could do the same thing but with \verb|strong| constraints:
 \begin{verbatim}
@@ -2008,13 +2095,17 @@ always strong q.x=20;
 \end{verbatim}
 
 Here, if we first satisfy the weak identity constraint, then the
-program will succeed, but one of the strong constraints will be
-unsatisfied.  This seems weird.
+program will fail with a \verb|nocreate| error.  (This seems more
+desirable than succeeding while leaving strong constraints unsatisfied
+in favor of a weak one.)
 
 \subsection{Unfinished Subsection}
 
 \ab{The rest of this section isn't finished \ldots it's some notes
   that haven't been put in coherent form.}
+
+** Is the above approach compatible with the structural compatibity check
+idea? **
 
 maybe do something that shows re-evaluating the constraint closures
 each time (for example, if we re-bind a point to a different instance
@@ -2036,53 +2127,15 @@ records example
 do we actually need the exploding/imploding semantics?  what if we
 just describe it informally, and then go to Babelsberg/Objects?
 
-go through rectange center example
-
-can't redefine Float + -- probably a bad idea anyway.  Classes like
-Float etc are otherwise open for extension.  + needs to have the same
-``meaning'' in both the source and solver languages.  (We could
+can't redefine Integer + -- probably a bad idea anyway.  (We could
 define that formally actually, e.g. \verb|3+4| in the source language
 should evaluate to an integer \verb|7| in the source language, and
-$3+4$ in the solver language should evaluate to $7$.  
+$3+4$ in the solver language should evaluate to $7$.
 
-show constraint that uses a method with loops and assignments
+show constraint that uses a method with loops and assignments, and
+that involves creating objects in the method
 
 show something with interaction with other constraints 
-
-
-note about why we could get away with this just as an abuse of
-notation before, and why we now need to be more precise (or I guess we
-could go back and be precise in the earlier sections as well).
-
-In the implementations of Babelsberg/R and Babelsberg/JS, methods
-invoked in a constraint are evaluated in constraint construction mode,
-so that the system builds up a network of primitive constraints that
-represents the user-defined method.  The semantics mirror this
-process, although some aspects of the implementations (e.g.,
-maintaining a dependency graph and recomputing the network of
-primitive constraints only when necessary) are treated as
-optimizations rather than part of the semantics.
-
-This description is mostly like the actual implementation.  Here are
-the differences:
-\begin{itemize}
-\item In the actual implementation, in constraint construction mode
-  the class of the object and the active solver together determine the
-  constraints in the solver language (or to use the terminology in the
-  JOT paper, determine the solver-specific representation of the
-  value).  I'd rather decouple the solver language from any particular
-  solver --- there might be several solvers that can handle those
-  constraints.  Note that the actual implementation can be a special
-  case of this, where we just have one solver language per solver.
-\item As noted above, maintaining a dependency graph and recomputing
-  the network of primitive constraints only when necessary are treated
-  as optimizations rather than part of the semantics.  In the
-  judgements that specify the semantics, we re-evaluate the ``always''
-  constraints each time.
-\end{itemize}
-
-Examples
-
 
 An example involving a new solver language, say for geometric
 constraints (point on line, perpendicular lines, etc etc).  Here the
@@ -2095,17 +2148,6 @@ An example involving arrays
 
 An example involving identity constraints
 
-Old material follows:
-
-\tf{If we want to mirror the way it works in the current implementation
-with cooperating solvers, then we need to extend the semantics of how
-a variable is evaluated to a value. In constraint construction mode,
-this is a function over the variable \emph{and} the active solver,
-that evaluates to either the normal value or, if the solver supports
-the variables' type, to a solver-specific representation of the
-value. Messages sent to a variable in constraint construction mode
-thus may be called on the solver-specific representation, rather
-than on the normal value}
 
 Issue: DeltaBlue can operate on whole objects, not just primitives
 like floats.  How does that get accommodated?
@@ -2116,56 +2158,21 @@ like floats.  How does that get accommodated?
   example for two points the constraint expression does not desugar
   into multiple constraints on the x and y variables.}
 
+DeltaBlue examples:
+\begin{itemize}
+\item string/file contents constraint
+\item cartesian point/polarpoint
+\item geometric figure $\rightarrow$ boundingbox
+\item string,key $\rightarrow$ encrypted string
+\item SDL windows (see JOT paper)
+\end{itemize}
 
-\ab{I'd like to mirror the actual babelsberg implementation, to the
-  extent that we have a constraint construction mode separate from
-  normal evaluation mode.  However, I'd rather have the solver be a
-  black box (it might be implemented as cooperating solvers), and not
-  have solver-specific representations of variables.  Also I'd like to
-  view the dependency graph and when constraint expressions are
-  re-evaluated as just optimization -- the semantics are that we
-  re-evaluate the always constraints each time.  Not sure how this
-  works with DeltaBlue though, which can function at the level of
-  whole objects.}
 
 \section{Additional Issues}
 
 \emph{This section is currently a holding pen for things that aren't
   workd out.  These should eventually be worked out, and the text
   moved to another part of the memo; or deleted.}
-
-Actual Babelsberg/R code often involves creating new objects in
-constraints.  For example, the above constraints on the center of a
-rectangle are more clearly written as
-
-\begin{verbatim}
-always r.center = Point.new(100,50);
-\end{verbatim}
-
-We could view this as sugar for:
-
-\begin{verbatim}
-temp := Point.new(100,50);
-always r.center = temp;
-\end{verbatim}
-
-Similarly, expressions involving point arithmetic create new points on
-the fly:
-
-\begin{verbatim}
-always r.center = p1+p2;
-\end{verbatim}
-
-The interpreter converts this on the fly to:
-
-\begin{verbatim}
-always r.center.x = p1.x+p2.x;
-always r.center.y = p1.y+p2.y;
-\end{verbatim}
-
-An alternative: there are some objects that are like immutable records
-(e.g. points), so Babelsberg/Records semantics works.  ID of these objects
-not significant.  Do we care about sharing?
 
 How should we handle arrays?  There are a number of odd cases that
 arise that are analogous to some of the problems that arise without

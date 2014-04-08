@@ -1784,6 +1784,10 @@ In this mode, when we encounter a message send that corresponds to an
 operation on a primitive type in the solver language, we construct the
 corresponding parse tree fragment for the solver language; otherwise
 we evaluate normally.
+\ab{We also need to describe how assignment statements become
+  constraints in constraint construction mode.  Should we ever turn
+  them into one-way constraints, or are they always multi-way?}
+
 
 The expressions that define constraints have a number of restrictions,
 similar to those for the Babelsberg/R and Babelsberg/JS languages.
@@ -1807,7 +1811,8 @@ similar to those for the Babelsberg/R and Babelsberg/JS languages.
 \end{enumerate}
 
 \ab{Do we need the restriction that variables used in methods called
-  in a constraint be used in a single-assignment fashion?}
+  in a constraint be used in a single-assignment fashion?  We do, if
+  we are turning assignments into constraints.}
 
 There are two interpretations or meanings \ab{what's the right word?}
 for each constraint at a particular step in the execution of a program
@@ -1921,7 +1926,7 @@ figure out the correct behavior for them this section as such can be
 removed, and any remaining useful examples merged with the main
 ``examples'' section.
 
-{\bf Clobbering the Result of an Assignment}
+{\bf (Not) Clobbering the Result of an Assignment}
 
 What should the result of this program be?
 \begin{verbatim}
@@ -1941,31 +1946,43 @@ constraint construction mode, yielding an integer constraint on the
 refer to the same point, which now has 100 in its \verb|x| field.  So
 far so good.
 
-It's the third statement that's weird.  The result (I suggest) is that
-we set \verb|p| to a new point with \verb|x=50,y=50|, and then
-immediately clobber the \verb|x| so that the point is
-\verb|x=100,y=50|.
+It's the third statement that's slightly weird.  The result (we
+agreed) is that the program halts with an an unsatisfiable constraint
+error, since we are trying to set \verb|p| to a point with
+\verb|x=50|, but the always constraint says that \verb|x=100|.
 
-The other possibility (tentatively rejected) is that it halts with an
-an unsatisfiable constraint error, since we are trying to set \verb|p|
-to a point with \verb|x=50|, but the always constraint says that
-\verb|x=100|.  However, for this to be the behavior, we not only need
-to satisfy the required constraint on \verb|p|'s identity (with the
-identity of the newly created point as read-only, so we can't change
-it), but we also need to freeze the contents of the point, i.e., put
-required stay constraints on its \verb|x| and \verb|y| fields.  But
-then we couldn't (for example) have an assignment statement that
-generated a circular structure:
-
+On the other hand, for this variant:
 \begin{verbatim}
-s := Cons.new(5,nil);
-s.cdr := s;  /* make s into a circular list with one cons cell */
+p := Point.new(10,10);
+always p.x = 100;
+q := Point.new(50,50);
+p = q;
 \end{verbatim}
 
-The reason this wouldn't work if the fields of \verb|s| are frozen is
-that we can't assign to its cdr.
+we set \verb|q.x| to 100.  (\verb|q.y| is either 10 or 50,
+nondeterministically.)  There isn't an error.  
 
-Nonetheless, this behavior seems a bit weird.  Consider:
+Pursuing this further, suppose we have a \verb|makepoint| method on
+say \verb|Object|:
+
+\begin{verbatim}
+makepoint(x,y)
+  p := Point.new(x,y);
+  return p
+end
+\end{verbatim}
+
+For this program:
+\begin{verbatim}
+p := Point.new(10,10);
+always p.x = 100;
+p := makepoint(50,50);
+\end{verbatim}
+We do get an error.  This illustrates that in constraint construction
+mode, we are turning assignments into constraints, and not advancing
+the clock (otherwise we could clobber \verb|p.x| and not get an error).
+
+Here are versions in Babelsberg/Int and Babelsberg/Records.
 
 \begin{verbatim}
 x := 10

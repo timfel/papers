@@ -11,6 +11,13 @@
 \usepackage{xcolor}				% Allow for color (annotations)
 \usepackage{stmaryrd}
 \usepackage{amssymb}
+\usepackage{hyperref}
+
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\tableautorefname{Table}
+\def\figureautorefname{Figure}
 
 \def\tdm#1{\textcolor{blue}{\textsf{TDM: #1}}}
 \def\ab#1{\textcolor{red}{\textsf{AB: #1}}}
@@ -74,10 +81,10 @@ to a full object constraint language.  The languages are:
 \item Babelsberg/Int (the only datatype is integers)
 \item Babelsberg/PrimitiveTypes (the only datatypes are a set of
   primitive types, such as integers, reals, and booleans)
-\item Babelsberg/Records (Babelsberg with immutable records, along
-  with primitive types)
-\item Babelsberg/MRecords (Babelsberg with mutable records, along with
-  primitive types)
+% \item Babelsberg/Records (Babelsberg with immutable records, along
+%   with primitive types)
+% \item Babelsberg/MRecords (Babelsberg with mutable records, along with
+%   primitive types)
 \item Babelsberg/UID (Babelsberg with mutable records that live on the
   heap and so have an identity, can be aliased, etc., as well as
   primitive types.)
@@ -234,14 +241,13 @@ allow multiple comparators --- different priorities can use different
 comparators.  For example, we might use LPB for comparing the
 solutions to strong constraints, and WSB for the weak ones.  We will
 use this extension later so that we can mix constraints on object
-identity and object values.  An identity constraint is either
+identity and object values (treated in
+\autoref{sec:identity-constraints}).  An identity constraint is either
 satisfied or it's not --- a WSB comparator isn't appropriate for them.
 But there may also be constraints on values, for example on the $x$
 and $y$ fields of points, for which we do want to use a WSB
 comparator.  As long as we give different priorities for the identity
 and the value constraints, this extension allows doing this.
-
-\ab{Is this clear or do we need an example?}
 
 \section{Babelsberg/Int and Babelsberg/PrimitiveTypes}
 \label{sec:babelsberg/int}
@@ -715,39 +721,518 @@ declared so far during execution.
 {\step{E}{C}{unsat;s$_2$}{E}{C}{unsat}}
 
 
-\section{Babelsberg/Records}
-\label{sec:babelsberg-records}
+% \section{Babelsberg/Records}
+% \label{sec:babelsberg-records}
 
-For this next language, we augment Babelsberg/PrimitiveTypes with
-immutable records.
+% For this next language, we augment Babelsberg/PrimitiveTypes with
+% immutable records.
 
-Records are represented as lists of name/value pairs in curly braces:
+% Records are represented as lists of name/value pairs in curly braces:
+% \begin{verbatim}
+%   {x:5, y:10}
+% \end{verbatim}
+
+% The fields can be either integers or other records, which of course
+% lets us make lists, trees, etc.  For example here is the list [1,2,3]:
+
+% \begin{verbatim}
+%   {head: 1, tail: {head: 2, tail: {head: 3, tail: {}}}}
+% \end{verbatim}
+
+% There is no notion of object identity for Babelsberg/Records --- we can
+% test whether two records are equal, but whether or not they are
+% identical is an implementation issue and not part of the semantics.
+
+% The syntax is extended to include record constructors and field
+% access.  Here are examples of expressions, assignment statements, and
+% constraints involving records:
+
+% \begin{verbatim}
+%  p := {x:2, y:5};   /* assign a record to p */
+%  a := p.x;          /* access a field of a record and assign it to a variable */
+%  q := p;            /* q is now a copy of p (or maybe it's shared; we can't tell
+%                        the difference) */
+%  always p.x = 100;  /* a constraint on a record field */
+%  always r = p;      /* an equality constraint between two records */
+% \end{verbatim}
+
+% There is no static type checking --- checking is all done dynamically.
+% Our model includes structural compatibility checks on constraints.
+% These allow us to desugar all of the record constraints (recursively)
+% into constraints on the individual components.  Thus, the record
+% constructs are all handled by the semantic rules, and the constraint
+% solver does not need to know anything about records.  The alternative
+% of having the solver itself know about records was rejected, since it
+% is more complex and seems to lead to more indeterminism, as well as
+% some odd cases (including requiring that the constraint solver
+% spontaneously generate new records). \tf{There are approaches that do
+%   this, e.g. BackTalk} For completeness, we outline this rejected
+% alternative in Appendix
+% \ref{sec:structural-compatability-check-alternatives}.
+
+% The structural compatibility checks are assertions that are checked
+% before desugaring the constructs involving records, for example,
+% checking whether a variable holds a record, and whether the record has
+% the necessary fields.  While these assertions are checked, unlike
+% normal constraints the system will never change anything to enforce
+% them --- if one is violated it's just an error.  Instead, the
+% programmer must ensure that a record with the expected fields is
+% assigned to a variable used in record constraints, just as a
+% programmer would need to ensure that a record with the expected fields
+% was assigned to a record-valued variable in a standard language.
+
+% Here are a few examples.
+
+% \begin{verbatim}
+%  p := {x:2, y:5};
+%  always p.x = 100;
+% \end{verbatim}
+% After executing the two statements, the environment is 
+% \verb|p| $\mapsto$ \verb|{x:100, y:5}|.  Here is how the system
+% determines this result.  The structural compatibility check for the
+% \verb|always| constraint is that \verb|p| is a record that has an
+% \verb|x| field.  We desugar the record constraint, so that after
+% evaluating the \verb|always p.x = 100| statement the constraints are:
+
+% \begin{tabular}{rl}
+% weak      & $p_x=2$ \\
+% weak      & $p_y=5$ \\
+% required  & $p_x=100$
+% \end{tabular}
+
+% where $p_x$ and $p_y$ are new variables.
+
+% These constraints have the solution $p_x=100$, $p_y=5$, which is then
+% reassembled to yield the environment \linebreak
+% \verb|p| $\mapsto$ \verb|{x:100, y:5}|.
+
+% Here are a few examples that fail the structural compatibility checks.
+
+% \begin{verbatim}
+%  p := {x:2, y:5};
+%  always q = p;
+% \end{verbatim}
+% There is a check before the \verb|always| constraint that \verb|q|
+% have \verb|x| and \verb|y| fields, which fails.  To fix this, we could
+% initialize \verb|q| appropriately:
+% \begin{verbatim}
+%  p := {x:2, y:5};
+%  q := p;
+%  always q = p;
+% \end{verbatim}
+
+% (Experience with Babelsberg/R indicates that requiring this
+% initialization is annoying.  We can avoid the problem, as is described
+% in Section \ref{sec:record-convenience-features}.  However, doing so
+% clutters up the semantics a bit, and since our goal with
+% Bablesberg/Records is to illuminate the semantics rather than to
+% design a practical language, we don't include this in our formal
+% semantics.)
+
+% Similarly, we can't simply assert a constraint on a record \verb|p|:
+% \begin{verbatim}
+%  always p = {x:2, y:5};
+% \end{verbatim}
+
+% Rather, we need to initialize \verb|p| first:
+% \begin{verbatim}
+%  p := {x:2, y:5};
+%  always p = {x:2, y:5};
+% \end{verbatim}
+
+% The following program passes the structural compatibility checks, but
+% fails with an unsatisfiable constraint error, since we are requiring
+% that \verb|p.x| be both 100 and 2:
+% \begin{verbatim}  
+%  p := {x:0, y:0};
+%  always p.x = 100;
+%  p := {x:2, y:5};
+% \end{verbatim}
+
+% However, the following program is OK:
+% \begin{verbatim} 
+%  p := {x:0};
+%  always weak p = {x:3};
+%  always weak p = {x:4}
+% \end{verbatim}
+
+% This desugars to the constraints weak $p_x=3$ and
+% weak $p_x=4$, plus weak $p_x=0$ representing the stay
+% constraint.  Using the LPB comparator, there are three possible
+% solutions for $p_x$, which would yield the three different
+% environments
+% \verb|p| $\mapsto$ \verb|{x:0}|, 
+% \verb|p| $\mapsto$ \verb|{x:3}|, or
+% \verb|p| $\mapsto$ \verb|{x:4}|.
+% A WSB comparator would allow $x$ to take on any value in $[0,4]$, although
+% Cassowary would produce either 1, 3 or 4 (but not something in
+% between), i.e., the same solutions as LPB\@.  (If we made the
+% \verb|always| constraints slightly higher priority than the stay, the
+% solutions would be either 
+% \verb|p| $\mapsto$ \verb|{x:3}| or
+% \verb|p| $\mapsto$ \verb|{x:4}|.)
+
+% Here's another example that fails a structural compatibility check:
+% \begin{verbatim}
+%  a := {x:0};
+%  b := {y:0};
+%  always weak a.x = 3
+%  always weak b.y = 10
+%  always weak a=b
+% \end{verbatim}
+% This is the case even though there actually are records that would
+% satisfy all of the weak constraints.  Thus, if the initial assignments
+% had been different:
+% \begin{verbatim}
+%  a := {x:0, y:0};
+%  b := {x:0, y:0};
+%  always weak a.x = 3
+%  always weak b.y = 10
+%  always weak a=b
+% \end{verbatim}
+% the program works.
+
+% \subsection{Formalism}
+% \label{recformal}
+
+% \subsubsection{Syntax}
+
+% The syntax from Section~\ref{intformal} is augmented now to support
+% records, an operation for record equality (denoted $=_r$), and the
+% ability to access fields of a record:
+
+% \begin{tt}
+% \begin{tabular}{lrrl}
+% {\rm Atomic Constraint} & A & ::= & $\cdots$ $\mid$ e $=_r$ e \\
+% {\rm Expression} & e & ::= & $\cdots$ $\mid$
+% \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
+% {\rm Label} & l & ::= & {\rm record label names} \\\\
+
+% {\rm Value} & v & ::= & $\cdots$ $\mid$
+% \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
+% \end{tabular}
+% \end{tt}
+
+
+% The language of the solver is unchanged.  Specifically, the solver
+% does not ``understand'' records, but only values of base types like
+% integers and reals.\tf{I have changed the translation below to not use
+% subscripts, but tuples. For that, I think we need to add here that the
+% variables in the solver language can be chosen from valid variable
+% names,or they can be a tuple with 1 variable name and N label names}
+
+% \subsubsection{Semantics}
+
+% \judgment{\eval{E}{e}{v}}
+
+% Expression evaluation is updated in the standard way to support records.
+
+% \inferrule{E-Rec}{\eval{E}{e$_1$}{v$_1$} $\cdots$
+%   \eval{E}{e$_n$}{v$_n$}}
+% {\eval{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
+
+% \inferrule{E-Field}{\eval{E}{e}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+%     \andalso 1 $\leq$ i $\leq$ n}
+% {\eval{E}{e.l$_i$}{v$_i$}}
+
+% \judgment{\csolve{M}{C}}
+% This judgment represents the solver, as before.
+
+% \judgment{\tcC{E}{C}}
+
+% \judgment{\tc{E}{c}{T}}
+
+% \judgment{\tc{E}{e}{T}}
+
+% % ``Constraint {\tt C} is well formed in the context of environment
+% % {\tt E}.''
+
+
+% ``Expression {\tt e} has type {\tt T} in the context of environment
+% {\tt E}.''
+
+% We use a nonstandard form of typechecking to perform the structural
+% compatibility check.  It is nonstandard because it happens
+% dynamically on a constraint, in the context of the current run-time
+% environment.  The types are also nonstandard:  we only distinguish
+% between base types and record types.  The rules are straightforward.  We use the
+% following syntax for types:
+
+% \begin{tt}
+% \begin{tabular}{lrrl}
+% {\rm Type} & T & ::= & BaseType  $\mid$
+% \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
+% \end{tabular}
+% \end{tt}
+
+% % \inferax{T-True}{\tcC{E}{True}}
+
+% % \inferrule{T-Priority}{\tcC{E}{C}}{\tcC{E}{$\rho$\ C}}
+
+% % \inferrule{T-Combine}{\tcC{E}{C$_1$} \andalso
+% % \tcC{E}{C$_2$}}
+% % {\tcC{E}{C$_1$ $\ovee$ C$_2$}}
+
+
+% % \inferrule{T-Compare}{\tc{E}{e$_1$}{BaseType} \andalso
+% % \tc{E}{e$_2$}{BaseType}}
+% % {\tcC{E}{e$_1$ $\olessthan$ e$_2$}}
+
+% % \inferrule{T-ReqEq}{\tc{E}{e$_1$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} } \andalso
+% % \tc{E}{e$_2$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} }}
+% % {\tcC{E}{e$_1$ $=_r$ e$_2$}}
+
+% % The above rule is a key one, requiring that records only be compared
+% % for equality if they have the exact same structure.
+
+% \inferax{T-Const}{\tc{E}{c}{BaseType}}
+
+% \inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
+
+% \inferrule{T-Op}{\tc{E}{e$_1$}{BaseType} \andalso
+% \tc{E}{e$_2$}{BaseType}}
+% {\tc{E}{e$_1$ $\oplus$ e$_2$}{BaseType}}
+
+% \inferrule{T-Rec}{\tc{E}{e$_1$}{T$_1$} $\cdots$
+%   \tc{E}{e$_n$}{T$_n$}}
+% {\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+
+% \inferrule{T-Field}{\tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+%     \andalso $1 \leq i \leq n$}
+% {\tc{E}{e.l$_i$}{T$_i$}}
+
+% The above rule is a key one, ensuring that a field of a record can only be
+% referred to if it already exists in that record.
+
+% \judgment{\toSolverH{e}{e}}
+% \judgment{\toSolverH{C}{C}}
+
+% We extend the judgments to translate source-level constraints into the
+% language of the solver. Now constraints can refer to records and
+% record operations, which must get
+% ``exploded'' into constraints on the individual components of the
+% records. % For example, the constraint {\tt p = \{x:2, y:5\}} gets
+% % translated to the constraint $p_x = 2 \wedge p_y=5$, and similarly a
+% % constraint {\tt p.x = 100} in the source program becomes $p_x = 100$.
+% The rules below also enforce the compatibilty checks required to
+% translate to the solver.
+
+% \inferrule{ToFieldVar}{\tc{E}{x.l$_i$}{T}}
+% {\toSolverH{x.l$_i$}{(x, l_i)}}
+
+% \tdm{Note: The above rule has a compatibility check to ensure that the
+%   accessed field already exists in the record.  Our translation would
+%   be fine without this check, but it would lead to some 
+%   ``structural nondeterminism'' that is potentially undesirable,
+%   e.g. a constraint like {\tt p.x = 1 $\vee$ p.y = 2} could cause the
+%   solver to invent either an {\tt x} field or a {\tt y} field.}
+
+% \inferrule{ToFieldRec}{$1 \leq i \leq n$ \andalso \toSolverH{e$_i$}{e_i}}
+% {\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}.l$_i$}{e_i}}
+
+% The next four rules describe how to translate record equality
+% constraints to the solver, by exploding them.  The rules all require
+% structural compatibility between the two records being compared, which
+% is done by requiring them to have the same type.
+
+% \tdm{With the right helper function, these rules can be merged into one.}
+
+% \inferrule{ToRecEq1}
+% {\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+%   \andalso \tc{E}{x$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+% {\toSolverH{x $=_r$ x$'$}
+% {(x, l_1) = (x', l_1) \wedge \cdots \wedge (x, l_n) = (x', l_n)}}
+
+
+% \inferrule{ToRecEq2}
+% {\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+% \toSolverH{e$_1$}{e_1}  $\cdots$  \toSolverH{e$_n$}{e_n}}
+% {\toSolverH{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}
+% {(x, l_1) = e_1 \wedge \cdots \wedge (x, l_n) = e_n}}
+
+% \inferrule{ToRecEq3}
+% {\toSolverH{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{C}}
+% {\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ x}
+% {C}}
+
+% \inferrule{ToRecEq4}
+% {
+% \toSolverH{e$_1$}{e_1}  $\cdots$  \toSolverH{e$_n$}{e_n} \andalso
+% \toSolverH{e$'_1$}{e'_1}  $\cdots$  \toSolverH{e$'_n$}{e'_n}}
+% {\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ \{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}} 
+% {e_1 = e'_1 \wedge \cdots \wedge e_n = e'_n}}
+
+
+
+% \judgment{\fromSolver{M}{E}}
+
+% We adapt the translation back from the model to support records. We
+% also introduce a function to merge values in the environment, to
+% recursively merge records.\tf{todo: recursively merging record
+%   rules. the merge function doesn't have to be defined for anything
+%   else, I guess, it just means that we cannot merge non-records, which
+%   is fine(?)}
+
+% \inferrule{FromField}
+% {
+%   $M((x, l_1)) = v$ \andalso
+%   $M_0 = M \setminus \{(x, l_1), v)\}$ \andalso
+%   \fromSolver{M_0}{E$_0$} \andalso
+%   E=E$_0$ $\cup$ \{(x,\{l$_1$: v\})\}}
+% {\fromSolver{M}{E}}
+
+% \inferrule{FromNestedField}
+% {
+%   $M((x, l_1, \ldots, l_n)) = v$ \andalso
+%   $M_0 = M \setminus \{(x, l_1, \ldots, l_n), v)\}$ \andalso
+%   \fromSolver{M_0}{E$_0$} \andalso
+%   E=E$_0$ $\cup$ \{(x,\{l$_1$: \{ $\ldots$ \{l$_n$: v\}\}\} )\}
+% }
+% {\fromSolver{M}{E}}
+
+% \inferrule{MergeFromField}
+% {
+%   $M((x, l_1)) = v$ \andalso
+%   $M_0 = M \setminus \{(x, l_1), v)\}$ \andalso
+%   \fromSolver{M_0}{E$_0$} \andalso
+%   E$_0$(x) = v$_x$ \andalso
+%   E=(E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$ \{(x,merge(\{l$_1$: v\},v$_x$))\}}
+% {\fromSolver{M}{E}}
+
+% \inferrule{MergeFromNestedField}
+% {
+%   $M((x, l_1, \ldots, l_n)) = v$ \andalso
+%   $M_0 = M \setminus \{(x, l_1, \ldots, l_n), v)\}$ \andalso
+%   \fromSolver{M_0}{E$_0$} \andalso
+%   E$_0$(x) = v$_x$ \andalso
+%   E=(E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$ \{(x,merge(\{l$_1$: \{
+%   $\ldots$ \{l$_n$: v\}\}\}, v$_x$ ))\}
+% }
+% {\fromSolver{M}{E}}
+
+% \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+
+% The semantics for executing statements is identical to what we had before,
+% except that now we ``typecheck'' an {\tt always} constraint to ensure
+% that it meets our structural compatibility requirements.  Therefore,
+% we keep the old rules for assignment and sequencing but replace the
+% {\tt always} rules as follows:
+
+% \inferrule{S-Always}{\tcC{E}{C$_0$} \andalso
+% {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+% \solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
+% {\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}{skip}}
+
+% \inferrule{S-AlwaysUnsat}{\tcC{E}{C$_0$} \andalso
+% {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+% \unsat{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
+% {\step{E}{C}{[weak] always C$_0$}{E}{C}{unsat}}
+
+% \tdm{Note that we still implicitly get stuck if a compatibility check
+%   fails.  We could make that explicit as well, but it may not make
+%   sense if the intent is really to halt the program in that case (as opposed to
+%   possibly catch the exception and recover).}
+
+% \section{Babelsberg/MRecords}
+
+% Our next language is Babelsberg/MRecords, which involves extending
+% Babelsberg/Records to allow mutable records.  Syntactically, we simply
+% allow field acccesses as l-values, e.g.
+% \begin{verbatim}
+%  p := {x:0, y:0};
+%  p.x := 100;
+% \end{verbatim}
+
+% After the second assignment, this desugars to the constraints
+% weak $p_x=0$, weak $p_y=0$, $p_x=100$, which after solving and putting
+% the record back together results in the environment
+% \verb|p| $\mapsto$ \verb|{x:100, y:0}|.  This
+% doesn't add any particular complications to the semantics.
+
+% There is still no notion of object identity.  Consider:
+% \begin{verbatim}
+%  p := {x:0, y:0};
+%  q := p;
+%  p.x := 100;
+% \end{verbatim}
+
+% After executing the three statements \verb|p| $\mapsto$ \verb|{x:100, y:0}|,
+% but \verb|q| $\mapsto$ \verb|{x:0, y:0}|.
+
+% \subsection{Formalism}
+% \label{mrecformal}
+
+% \subsubsection{Syntax}
+
+% The syntax from Section~\ref{recformal} is augmented now to support
+% assignment of record components:
+
+% \begin{tt}
+% \begin{tabular}{lrrl}
+% {\rm Statement} & s & ::= & $\cdots$ $\mid$ x.l := e
+% \end{tabular}
+% \end{tt}
+
+% \subsubsection{Semantics}
+
+% The semantics from Section~\ref{recformal} is similarly augmented now
+% to support assignment of record components.  That simply requires the
+% addition of the following two rules to the semantics of statement evaluation:
+
+% \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+
+% \infrule[S-AsgnField]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+%     \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
+% \mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
+% {\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{skip}}}
+
+% \infrule[S-AsgnFieldUnsat]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+%     \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
+% \mbox{\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
+% {\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{unsat}}}
+
+% Note that we perform a structural compatibility check to ensure that
+% the field being mutated already exists in the record denoted by {\tt x}.
+
+\section{Babelsberg/UID}
+\label{sec:babelsberg-uid}
+
+Babelsberg/UID adds a number of features to the language. In a first
+step, we augment Babelsberg/PrimitiveTypes with records. These are
+represented as lists of name/value pairs in curly braces:
+
 \begin{verbatim}
   {x:5, y:10}
 \end{verbatim}
 
-The fields can be either integers or other records, which of course
-lets us make lists, trees, etc.  For example here is the list [1,2,3]:
+For simplicity in the semantics, records are not simply
+values. Instead, they are mutable data that lives on the heap and so
+have an identity, can be aliased, and so forth. To emphasize that we
+allocate records on the heap, we use the keyword \verb|new| when
+creating one. The syntax is also extended to include field accesses as
+both r-values and l-values.
 
+Record fields can be either primitive types or pointers to other
+records on the heap. This only applies to variables that have a record
+type; integers and booleans don't live in the heap.\footnote{It would
+  be possible to store all data on the heap, but we elected not to,
+  since differentiating data in this way seems more natural.  If one
+  wanted the effect of storing an integer or boolean on the heap, so
+  that it would also have an object identity, it is easy to simulate
+  this by constructing a record that has a single field that holds the
+  integer or boolean.} Note that (for simplicity) there is no syntax
+for creating a nested record directly -- nested records have to be
+constructed with references, so each record \emph{must} have a
+variable that refers to it, even if it is only used in a nested
+structure. This simplifies the semantics, and could be added with just
+a source code transformation.
+
+Here are some examples involving record fields and constraints:
 \begin{verbatim}
-  {head: 1, tail: {head: 2, tail: {head: 3, tail: {}}}}
-\end{verbatim}
-
-There is no notion of object identity for Babelsberg/Records --- we can
-test whether two records are equal, but whether or not they are
-identical is an implementation issue and not part of the semantics.
-
-The syntax is extended to include record constructors and field
-access.  Here are examples of expressions, assignment statements, and
-constraints involving records:
-
-\begin{verbatim}
- p := {x:2, y:5};   /* assign a record to p */
- a := p.x;          /* access a field of a record and assign it to a variable */
- q := p;            /* q is now a copy of p (or maybe it's shared; we can't tell
-                       the difference) */
- always p.x = 100;  /* a constraint on a record field */
- always r = p;      /* an equality constraint between two records */
+ p := new {x:2, y:5}; /* create a record on the heap an assign a reference to p */
+ a := p.x;            /* read a field of a record and assign it to a variable */
+ p.x := 5;            /* assign 5 to the field p.x */
+ always p.x = 100;
 \end{verbatim}
 
 There is no static type checking --- checking is all done dynamically.
@@ -759,10 +1244,15 @@ solver does not need to know anything about records.  The alternative
 of having the solver itself know about records was rejected, since it
 is more complex and seems to lead to more indeterminism, as well as
 some odd cases (including requiring that the constraint solver
-spontaneously generate new records). \tf{There are approaches that do
-  this, e.g. BackTalk} For completeness, we outline this rejected
-alternative in Appendix
+spontaneously generate new records). For completeness, we outline this
+rejected alternative in Appendix
 \ref{sec:structural-compatability-check-alternatives}.
+
+Consequently, the above example desugars to the constraints weak
+$p=r$, weak $r_x=5$, weak $r_y=5$, and weak $a=2$, which after solving
+and putting the record back together results in the environment
+\verb|p| $\mapsto$ \verb|r| $\wedge$ \verb|a| $\mapsto$ \verb|5|, as
+well as the heap \verb|r| $\mapsto$ \verb|{x:5, y:5}|.
 
 The structural compatibility checks are assertions that are checked
 before desugaring the constructs involving records, for example,
@@ -775,44 +1265,97 @@ assigned to a variable used in record constraints, just as a
 programmer would need to ensure that a record with the expected fields
 was assigned to a record-valued variable in a standard language.
 
-Here are a few examples.
-
+Here are a few more examples.
 \begin{verbatim}
- p := {x:2, y:5};
+ p := new {x:2, y:5};
  always p.x = 100;
 \end{verbatim}
-After executing the two statements, the environment is 
-\verb|p| $\mapsto$ \verb|{x:100, y:5}|.  Here is how the system
-determines this result.  The structural compatibility check for the
-\verb|always| constraint is that \verb|p| is a record that has an
+After executing the two statements, the variable \verb|p| holds a
+reference to \verb|{x:100, y:5}|.  Here is how the system determines
+this result.  The structural compatibility check for the \verb|always|
+constraint is that \verb|p| has a reference to a record that has an
 \verb|x| field.  We desugar the record constraint, so that after
 evaluating the \verb|always p.x = 100| statement the constraints are:
 
 \begin{tabular}{rl}
-weak      & $p_x=2$ \\
-weak      & $p_y=5$ \\
-required  & $p_x=100$
+weak      & $p=r$ \\
+weak      & $r_x=2$ \\
+weak      & $r_y=5$ \\
+required  & $r_x=100$
 \end{tabular}
 
-where $p_x$ and $p_y$ are new variables.
+where $r_x$ and $r_y$ are new variables.
 
-These constraints have the solution $p_x=100$, $p_y=5$, which is then
-reassembled to yield the environment \linebreak
-\verb|p| $\mapsto$ \verb|{x:100, y:5}|.
+These constraints have the solution $p=r$, $r_x=100$, $r_y=5$, which is then
+reassembled to yield the environment \verb|p| $\mapsto$ \verb|r|
+and heap \verb|r| $\mapsto$ \verb|{x:100, y:5}|.
 
 Here are a few examples that fail the structural compatibility checks.
 
 \begin{verbatim}
- p := {x:2, y:5};
- always q = p;
+ p := new {x:2, y:5};
+ always p.z = 5;
 \end{verbatim}
-There is a check before the \verb|always| constraint that \verb|q|
-have \verb|x| and \verb|y| fields, which fails.  To fix this, we could
-initialize \verb|q| appropriately:
+
+The solver is not allowed to add fields to records, so it \verb|p|
+would be required to have a \verb|z| field already.
+
+% Similarly, we can't simply assert a constraint on a new record \verb|p|:
+% \begin{verbatim}
+%  always p = {x:2, y:5};
+% \end{verbatim}
+
+% Rather, we need to initialize \verb|p| first:
+% \begin{verbatim}
+%  p := {x:2, y:5};
+%  always p = {x:2, y:5};
+% \end{verbatim}
+
+% The following program passes the structural compatibility checks, but
+% fails with an unsatisfiable constraint error, since we are requiring
+% that \verb|p.x| be both 100 and 2:
+% \begin{verbatim}  
+%  p := {x:0, y:0};
+%  always p.x = 100;
+%  p := {x:2, y:5};
+% \end{verbatim}
+
+% However, the following program is OK:
+% \begin{verbatim} 
+%  p := {x:0};
+%  always weak p = {x:3};
+%  always weak p = {x:4}
+% \end{verbatim}
+
+% This desugars to the constraints weak $p_x=3$ and
+% weak $p_x=4$, plus weak $p_x=0$ representing the stay
+% constraint.  Using the LPB comparator, there are three possible
+% solutions for $p_x$, which would yield the three different
+% environments
+% \verb|p| $\mapsto$ \verb|{x:0}|, 
+% \verb|p| $\mapsto$ \verb|{x:3}|, or
+% \verb|p| $\mapsto$ \verb|{x:4}|.
+% A WSB comparator would allow $x$ to take on any value in $[0,4]$, although
+% Cassowary would produce either 1, 3 or 4 (but not something in
+% between), i.e., the same solutions as LPB\@.  (If we made the
+% \verb|always| constraints slightly higher priority than the stay, the
+% solutions would be either 
+% \verb|p| $\mapsto$ \verb|{x:3}| or
+% \verb|p| $\mapsto$ \verb|{x:4}|.)
+
+Similarily, this is not allowed:
 \begin{verbatim}
- p := {x:2, y:5};
+ p := new {x:2, y:5};
+ always q =r= p; /* where =r= is the record equality operation */
+\end{verbatim}
+For records, the \verb|=r=| operation checks equality, not identity,
+so in this case there is a check before the \verb|always| constraint
+that \verb|q| have \verb|x| and \verb|y| fields, which fails.  To fix
+this, we could initialize \verb|q| appropriately:
+\begin{verbatim}
+ p := new {x:2, y:5};
  q := p;
- always q = p;
+ always q =r= p;
 \end{verbatim}
 
 (Experience with Babelsberg/R indicates that requiring this
@@ -823,423 +1366,65 @@ Bablesberg/Records is to illuminate the semantics rather than to
 design a practical language, we don't include this in our formal
 semantics.)
 
-Similarly, we can't simply assert a constraint on a record \verb|p|:
+% \begin{verbatim}
+%  a := {x:0};
+%  b := {y:0};
+%  always weak a.x = 3
+%  always weak b.y = 10
+%  always weak a=b
+% \end{verbatim}
+% This is the case even though there actually are records that would
+% satisfy all of the weak constraints.  Thus, if the initial assignments
+% had been different:
+% \begin{verbatim}
+%  a := {x:0, y:0};
+%  b := {x:0, y:0};
+%  always weak a.x = 3
+%  always weak b.y = 10
+%  always weak a=b
+% \end{verbatim}
+% the program works.
+
+Note, however, that because variables refer only to references on the
+heap, the following example works and demonstrates one form of aliasing:
 \begin{verbatim}
- always p = {x:2, y:5};
-\end{verbatim}
-
-Rather, we need to initialize \verb|p| first:
-\begin{verbatim}
- p := {x:2, y:5};
- always p = {x:2, y:5};
-\end{verbatim}
-
-The following program passes the structural compatibility checks, but
-fails with an unsatisfiable constraint error, since we are requiring
-that \verb|p.x| be both 100 and 2:
-\begin{verbatim}  
- p := {x:0, y:0};
- always p.x = 100;
- p := {x:2, y:5};
-\end{verbatim}
-
-However, the following program is OK:
-\begin{verbatim} 
- p := {x:0};
- always weak p = {x:3};
- always weak p = {x:4}
-\end{verbatim}
-
-This desugars to the constraints weak $p_x=3$ and
-weak $p_x=4$, plus weak $p_x=0$ representing the stay
-constraint.  Using the LPB comparator, there are three possible
-solutions for $p_x$, which would yield the three different
-environments
-\verb|p| $\mapsto$ \verb|{x:0}|, 
-\verb|p| $\mapsto$ \verb|{x:3}|, or
-\verb|p| $\mapsto$ \verb|{x:4}|.
-A WSB comparator would allow $x$ to take on any value in $[0,4]$, although
-Cassowary would produce either 1, 3 or 4 (but not something in
-between), i.e., the same solutions as LPB\@.  (If we made the
-\verb|always| constraints slightly higher priority than the stay, the
-solutions would be either 
-\verb|p| $\mapsto$ \verb|{x:3}| or
-\verb|p| $\mapsto$ \verb|{x:4}|.)
-
-Here's another example that fails a structural compatibility check:
-\begin{verbatim}
- a := {x:0};
- b := {y:0};
- always weak a.x = 3
- always weak b.y = 10
- always weak a=b
-\end{verbatim}
-This is the case even though there actually are records that would
-satisfy all of the weak constraints.  Thus, if the initial assignments
-had been different:
-\begin{verbatim}
- a := {x:0, y:0};
- b := {x:0, y:0};
- always weak a.x = 3
- always weak b.y = 10
- always weak a=b
-\end{verbatim}
-the program works.
-
-\subsection{Formalism}
-\label{recformal}
-
-\subsubsection{Syntax}
-
-The syntax from Section~\ref{intformal} is augmented now to support
-records, an operation for record equality (denoted $=_r$), and the
-ability to access fields of a record:
-
-\begin{tt}
-\begin{tabular}{lrrl}
-{\rm Atomic Constraint} & A & ::= & $\cdots$ $\mid$ e $=_r$ e \\
-{\rm Expression} & e & ::= & $\cdots$ $\mid$
-\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
-{\rm Label} & l & ::= & {\rm record label names} \\\\
-
-{\rm Value} & v & ::= & $\cdots$ $\mid$
-\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
-\end{tabular}
-\end{tt}
-
-
-The language of the solver is unchanged.  Specifically, the solver
-does not ``understand'' records, but only values of base types like
-integers and reals.\tf{I have changed the translation below to not use
-subscripts, but tuples. For that, I think we need to add here that the
-variables in the solver language can be chosen from valid variable
-names,or they can be a tuple with 1 variable name and N label names}
-
-\subsubsection{Semantics}
-
-\judgment{\eval{E}{e}{v}}
-
-Expression evaluation is updated in the standard way to support records.
-
-\inferrule{E-Rec}{\eval{E}{e$_1$}{v$_1$} $\cdots$
-  \eval{E}{e$_n$}{v$_n$}}
-{\eval{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
-
-\inferrule{E-Field}{\eval{E}{e}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n}
-{\eval{E}{e.l$_i$}{v$_i$}}
-
-\judgment{\csolve{M}{C}}
-This judgment represents the solver, as before.
-
-\judgment{\tcC{E}{C}}
-
-\judgment{\tc{E}{c}{T}}
-
-\judgment{\tc{E}{e}{T}}
-
-% ``Constraint {\tt C} is well formed in the context of environment
-% {\tt E}.''
-
-
-``Expression {\tt e} has type {\tt T} in the context of environment
-{\tt E}.''
-
-We use a nonstandard form of typechecking to perform the structural
-compatibility check.  It is nonstandard because it happens
-dynamically on a constraint, in the context of the current run-time
-environment.  The types are also nonstandard:  we only distinguish
-between base types and record types.  The rules are straightforward.  We use the
-following syntax for types:
-
-\begin{tt}
-\begin{tabular}{lrrl}
-{\rm Type} & T & ::= & BaseType  $\mid$
-\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
-\end{tabular}
-\end{tt}
-
-% \inferax{T-True}{\tcC{E}{True}}
-
-% \inferrule{T-Priority}{\tcC{E}{C}}{\tcC{E}{$\rho$\ C}}
-
-% \inferrule{T-Combine}{\tcC{E}{C$_1$} \andalso
-% \tcC{E}{C$_2$}}
-% {\tcC{E}{C$_1$ $\ovee$ C$_2$}}
-
-
-% \inferrule{T-Compare}{\tc{E}{e$_1$}{BaseType} \andalso
-% \tc{E}{e$_2$}{BaseType}}
-% {\tcC{E}{e$_1$ $\olessthan$ e$_2$}}
-
-% \inferrule{T-ReqEq}{\tc{E}{e$_1$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} } \andalso
-% \tc{E}{e$_2$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} }}
-% {\tcC{E}{e$_1$ $=_r$ e$_2$}}
-
-% The above rule is a key one, requiring that records only be compared
-% for equality if they have the exact same structure.
-
-\inferax{T-Const}{\tc{E}{c}{BaseType}}
-
-\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
-
-\inferrule{T-Op}{\tc{E}{e$_1$}{BaseType} \andalso
-\tc{E}{e$_2$}{BaseType}}
-{\tc{E}{e$_1$ $\oplus$ e$_2$}{BaseType}}
-
-\inferrule{T-Rec}{\tc{E}{e$_1$}{T$_1$} $\cdots$
-  \tc{E}{e$_n$}{T$_n$}}
-{\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
-
-\inferrule{T-Field}{\tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso $1 \leq i \leq n$}
-{\tc{E}{e.l$_i$}{T$_i$}}
-
-The above rule is a key one, ensuring that a field of a record can only be
-referred to if it already exists in that record.
-
-\judgment{\toSolverH{e}{e}}
-\judgment{\toSolverH{C}{C}}
-
-We extend the judgments to translate source-level constraints into the
-language of the solver. Now constraints can refer to records and
-record operations, which must get
-``exploded'' into constraints on the individual components of the
-records. % For example, the constraint {\tt p = \{x:2, y:5\}} gets
-% translated to the constraint $p_x = 2 \wedge p_y=5$, and similarly a
-% constraint {\tt p.x = 100} in the source program becomes $p_x = 100$.
-The rules below also enforce the compatibilty checks required to
-translate to the solver.
-
-\inferrule{ToFieldVar}{\tc{E}{x.l$_i$}{T}}
-{\toSolverH{x.l$_i$}{(x, l_i)}}
-
-\tdm{Note: The above rule has a compatibility check to ensure that the
-  accessed field already exists in the record.  Our translation would
-  be fine without this check, but it would lead to some 
-  ``structural nondeterminism'' that is potentially undesirable,
-  e.g. a constraint like {\tt p.x = 1 $\vee$ p.y = 2} could cause the
-  solver to invent either an {\tt x} field or a {\tt y} field.}
-
-\inferrule{ToFieldRec}{$1 \leq i \leq n$ \andalso \toSolverH{e$_i$}{e_i}}
-{\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}.l$_i$}{e_i}}
-
-The next four rules describe how to translate record equality
-constraints to the solver, by exploding them.  The rules all require
-structural compatibility between the two records being compared, which
-is done by requiring them to have the same type.
-
-\tdm{With the right helper function, these rules can be merged into one.}
-
-\inferrule{ToRecEq1}
-{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-  \andalso \tc{E}{x$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
-{\toSolverH{x $=_r$ x$'$}
-{(x, l_1) = (x', l_1) \wedge \cdots \wedge (x, l_n) = (x', l_n)}}
-
-
-\inferrule{ToRecEq2}
-{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
-\toSolverH{e$_1$}{e_1}  $\cdots$  \toSolverH{e$_n$}{e_n}}
-{\toSolverH{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}
-{(x, l_1) = e_1 \wedge \cdots \wedge (x, l_n) = e_n}}
-
-\inferrule{ToRecEq3}
-{\toSolverH{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{C}}
-{\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ x}
-{C}}
-
-\inferrule{ToRecEq4}
-{
-\toSolverH{e$_1$}{e_1}  $\cdots$  \toSolverH{e$_n$}{e_n} \andalso
-\toSolverH{e$'_1$}{e'_1}  $\cdots$  \toSolverH{e$'_n$}{e'_n}}
-{\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ \{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}} 
-{e_1 = e'_1 \wedge \cdots \wedge e_n = e'_n}}
-
-
-
-\judgment{\fromSolver{M}{E}}
-
-We adapt the translation back from the model to support records. We
-also introduce a function to merge values in the environment, to
-recursively merge records.\tf{todo: recursively merging record
-  rules. the merge function doesn't have to be defined for anything
-  else, I guess, it just means that we cannot merge non-records, which
-  is fine(?)}
-
-\inferrule{FromField}
-{
-  $M((x, l_1)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E=E$_0$ $\cup$ \{(x,\{l$_1$: v\})\}}
-{\fromSolver{M}{E}}
-
-\inferrule{FromNestedField}
-{
-  $M((x, l_1, \ldots, l_n)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1, \ldots, l_n), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E=E$_0$ $\cup$ \{(x,\{l$_1$: \{ $\ldots$ \{l$_n$: v\}\}\} )\}
-}
-{\fromSolver{M}{E}}
-
-\inferrule{MergeFromField}
-{
-  $M((x, l_1)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E$_0$(x) = v$_x$ \andalso
-  E=(E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$ \{(x,merge(\{l$_1$: v\},v$_x$))\}}
-{\fromSolver{M}{E}}
-
-\inferrule{MergeFromNestedField}
-{
-  $M((x, l_1, \ldots, l_n)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1, \ldots, l_n), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E$_0$(x) = v$_x$ \andalso
-  E=(E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$ \{(x,merge(\{l$_1$: \{
-  $\ldots$ \{l$_n$: v\}\}\}, v$_x$ ))\}
-}
-{\fromSolver{M}{E}}
-
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
-
-The semantics for executing statements is identical to what we had before,
-except that now we ``typecheck'' an {\tt always} constraint to ensure
-that it meets our structural compatibility requirements.  Therefore,
-we keep the old rules for assignment and sequencing but replace the
-{\tt always} rules as follows:
-
-\inferrule{S-Always}{\tcC{E}{C$_0$} \andalso
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
-\solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}{skip}}
-
-\inferrule{S-AlwaysUnsat}{\tcC{E}{C$_0$} \andalso
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
-\unsat{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E}{C}{unsat}}
-
-\tdm{Note that we still implicitly get stuck if a compatibility check
-  fails.  We could make that explicit as well, but it may not make
-  sense if the intent is really to halt the program in that case (as opposed to
-  possibly catch the exception and recover).}
-
-\section{Babelsberg/MRecords}
-
-Our next language is Babelsberg/MRecords, which involves extending
-Babelsberg/Records to allow mutable records.  Syntactically, we simply
-allow field acccesses as l-values, e.g.
-\begin{verbatim}
- p := {x:0, y:0};
+ p := new {x:2, y:5};
+ always q = p;
  p.x := 100;
 \end{verbatim}
+Now, \verb|q| holds the same reference as \verb|p|, so both will
+always point to the same record.
 
-After the second assignment, this desugars to the constraints
-weak $p_x=0$, weak $p_y=0$, $p_x=100$, which after solving and putting
-the record back together results in the environment
-\verb|p| $\mapsto$ \verb|{x:100, y:0}|.  This
-doesn't add any particular complications to the semantics.
-
-There is still no notion of object identity.  Consider:
+The more common form of aliasing is this:
 \begin{verbatim}
- p := {x:0, y:0};
+ p := new {x:2, y:5};
  q := p;
  p.x := 100;
 \end{verbatim}
+Now \verb|p| and \verb|q| are aliased, so after the program runs we
+have \verb|p=q={x:100,y:0}|, with \verb|p| and \verb|q| identical (not
+just equal).  In the formal semantics, this is represented by having
+\verb|p| $\mapsto$ \verb|r| and \verb|q| $\mapsto$ \verb|r| (the same
+\verb|r| in both mappings), where \verb|r| is a reference that points
+to the record value \verb|{x:100,y:0}| in the heap. Note that in the
+latter case (as is known from imperative programs), the aliasing is
+only temporary and might be broken later.
 
-After executing the three statements \verb|p| $\mapsto$ \verb|{x:100, y:0}|,
-but \verb|q| $\mapsto$ \verb|{x:0, y:0}|.
-
-\subsection{Formalism}
-\label{mrecformal}
-
-\subsubsection{Syntax}
-
-The syntax from Section~\ref{recformal} is augmented now to support
-assignment of record components:
-
-\begin{tt}
-\begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & $\cdots$ $\mid$ x.l := e
-\end{tabular}
-\end{tt}
-
-\subsubsection{Semantics}
-
-The semantics from Section~\ref{recformal} is similarly augmented now
-to support assignment of record components.  That simply requires the
-addition of the following two rules to the semantics of statement evaluation:
-
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
-
-\infrule[S-AsgnField]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
-\mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{skip}}}
-
-\infrule[S-AsgnFieldUnsat]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
-\mbox{\unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{unsat}}}
-
-Note that we perform a structural compatibility check to ensure that
-the field being mutated already exists in the record denoted by {\tt x}.
-
-\section{Babelsberg/UID}
-\label{sec:babelsberg-uid}
-
-Our next step is to replace records that are simply values with
-mutable records that live on the heap and so have an identity, can be
-aliased, and so forth.  (For simplicity, we drop records that are
-simply values from Babelsberg/UID, although one could have a language
-with both kinds.)  To emphasize that we now allocate records on the
-heap, we use the keyword \verb|new| when creating one:
-
-\begin{verbatim}
- p := new {x:0, y:0};
-\end{verbatim}
-
-Now variables in the environment that refer to records hold pointers,
-which in turn reference records in the heap.  This only applies to
-variables that have a record type; integers and booleans don't live in
-the heap.\footnote{It would be possible to store all data on the heap,
-  but we elected not to, since differentiating data in this way seems
-  more natural.  If one wanted the effect of storing an integer or
-  boolean on the heap, so that it would also have an object identity,
-  it is easy to simulate this by constructing a record that has a
-  single field that holds the integer or boolean.}  The following
-example illustrates the difference from Babelsberg/MRecords:
-
-\begin{verbatim}
- p := new {x:0, y:0};
- q := p;
- p.x := 100;
-\end{verbatim}
-Unlike in the previous example, now \verb|p| and \verb|q| are aliased,
-so after the program runs we have \verb|p=q={x:100,y:0}|, with
-\verb|p| and \verb|q| identical (not just equal).  In the formal
-semantics, this is represented 
-by having \verb|p| $\mapsto$ \verb|r| and \linebreak
-\verb|q| $\mapsto$ \verb|r| (the same \verb|r| in both mappings), 
-where \verb|r| is a reference that
-points to the record value \verb|{x:100,y:0}| in the heap.
-
-Also unlike the previous examples, the weak stays on variables that
+Unlike Babelsberg/PrimitiveTypes, the weak stays on variables that
 refer to records are identity constraints rather than equality
 constraints: such a variable continues to refer to the same object
-unless reassigned.  
+unless reassigned. This is a direct consequence of the weak stays
+referring to the references the variables hold, not the records on the
+heap.
 
 \subsection{Identity Constraints}
 \label{sec:identity-constraints}
 
-In Babelsberg/MRecords we can have identity constraints, in addition
+In Babelsberg/UID we can have identity constraints, in addition
 to equality constraints:
 \begin{verbatim}
  p := new {x:0, y:0};
- always p==q;  /* where == is object identity */
+ always p = q;
  q := new {a:10};
 \end{verbatim}
 
@@ -1248,20 +1433,10 @@ Note that we don't need the structural compatibility checks for
 identity constraints.  For example, it's OK that \verb|q| doesn't have
 a value before evaluating \verb|always p==q|; and we can also change
 the structure of \verb|p| as well as  \verb|q| with the final assignment.
-(If the always constraint had been an equality constraint rather than
+(If the always constraint had been a record equality constraint rather than
 an identity constraint, the assignment to \verb|q| would have failed
 the structural compatibility check, which would have expected it to be
 a record with \verb|x| and \verb|y| fields.)
-
-%% Commented this out, since I think it is resolved:
-%%
-%% \tf{shouldn't assignment be equivalent to a directed ``once'' identity
-%%   constraint rather than an equality constraint now?}  \ab{If we
-%%   continue with the semantics we used for Babelsberg/Int, we aren't
-%%   actually modeling assignment as a once constraint --- instead, the
-%%   object ID on the right hand side of the assignment is a constant
-%%   (since we evaluated it in the previous time step), and just assigned
-%%   to the variable on the left.}
 
 To keep things simple, it may be useful to have a convention that
 identity constraints are either just checks when they are first
@@ -1274,7 +1449,7 @@ have unexpectedly unsatisfiable identity constraints.  Consider:
  q := new {z:0};
  always p.x = 10;
  always q.z = 100;
- always p==q; 
+ always p = q; 
 \end{verbatim}
 Up to the final identity constraint, this should be fine.  But the
 final constraint is unsatisfiable (unless the solver creates a new
@@ -1286,10 +1461,10 @@ We can have priorities on identity constraints:
  q := new {z:0};
  always p.x = 10;
  always q.z = 100;
- always p==r; 
- always weak q==r; 
+ always p = r; 
+ always weak q = r; 
 \end{verbatim}
-Here, the weak identity constraint \verb|always weak q==r| can't be
+Here, the weak identity constraint \verb|always weak q = r| can't be
 satisfied.
 
 \subsection{Formalism}
@@ -1314,7 +1489,7 @@ source programs.  \tdm{Not sure if we need that assumption.}
 && $\mid$ & always C $\mid$ s;s $\mid$ unsat \\
 {\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e $\mid$
 e.l $\mid$ r \\
-{\rm Atomic Constraint} & A & ::= & e $\olessthan$ e $\mid$ x == x
+{\rm Atomic Constraint} & A & ::= & e $\olessthan$ e
   \\
 {\rm Constraint} & C & ::= & A $\mid$ $\rho$ A $\mid$ C $\ovee$ C \\
 {\rm Constant} & c & ::= & {\rm constants} \\
@@ -1325,6 +1500,9 @@ e.l $\mid$ r \\
 {\rm Reference} & r & ::= & {\rm references to heap records}
 \end{tabular}
 \end{tt}
+
+(Note that $\olessthan$ now ranges also over the comparison operations
+between records.)
 
 \subsubsection{Semantics}
 

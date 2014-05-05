@@ -23,12 +23,16 @@
 \def\ab#1{\textcolor{red}{\textsf{AB: #1}}}
 \def\tf#1{\textcolor{purple}{\textsf{TF: #1}}}
 
+\newcommand{\maybe}{{\bf\footnotesize{?}}\kern-1pt}
+
 \newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
 \newcommand{\stay}[2]{stay({\tt #1}) $=$ {\tt #2}}
 \newcommand{\toSolver}[2]{{\tt E} $\vdash$ {\tt #1} $\leadsto$ $#2$}
 \newcommand{\fromSolver}[2]{$#1$ $\leadsto$ {\tt #2}}
 \newcommand{\csolve}[2]{$#1$ $\models$ $#2$}
 \newcommand{\solve}[2]{{\tt #1} $\models_{\tt E}$ {\tt #2}}
+\newcommand{\cunknown}[1]{\maybe$\models$ $#1$}
+\newcommand{\unknown}[1]{\maybe$\models_{\tt E}$ {\tt #1}}
 \newcommand{\cunsat}[1]{$\not\models$ $#1$}
 \newcommand{\unsat}[1]{$\not\models_{\tt E}$ {\tt #1}}
 \newcommand{\step}[6]{{\tt <#1|#2|#3>} $\longrightarrow$
@@ -38,6 +42,7 @@
 
 \newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
 \newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
+\newcommand{\unknownH}[1]{\maybe$\models_{E,H}$ {\tt #1}}
 \newcommand{\unsatH}[1]{$\not\models_{E,H}$ {\tt #1}}
 \newcommand{\stepH}[8]{{\tt <#1|#2|#3|#4>} $\longrightarrow$
   {\tt <#5|#6|#7|#8>}}
@@ -482,7 +487,7 @@ following syntax:
 \begin{tt}
 \begin{tabular}{lrrl}
 {\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ s;s
-$\mid$ unsat \\
+$\mid$ unsat $\mid$ unknown \\
 {\rm Constraint} & C & ::= & True $\mid$ A $\mid$ $\rho$ C $\mid$ C $\ovee$ C \\
 {\rm Atomic Constraint} & A & ::= & e $\olessthan$ e \\
 {\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e \\
@@ -513,17 +518,21 @@ priority {\em strong}.
 
 The syntax is a standard imperative language except for the {\tt
   always} statement, which declares a constraint that must hold for
-the rest of the program's execution.  The {\tt unsat} statement is not
-intended for use at the source level but rather is used in the
-semantics to make explicit when the program halts due to an
-unsatisfiable constraint. Note that we could add standard exception
-handling to remove the unsatisfiable constraint and continue, but omit
-this here for simplicity.
+the rest of the program's execution.  The {\tt unsat} and {\tt
+  unknown} statements are not intended for use at the source level but
+rather are used in the semantics to make explicit when the program
+halts due to an unsatisfiable constraint, or because the solver does
+not know if the constraint is satisfiable (because it is too
+hard). Note that we could add standard exception handling to remove
+the unsatisfiable constraint and continue, but omit this here for
+simplicity.
 
 \ab{Do we want to have a separate statement {\tt toohard} for
   constraints that are too hard for the solver?  Or leave that for
   later languages?  I do think it is useful to distinguish
   unsatisfiable and too hard constraints.}
+\tf{I've added ``unknown'', that seems to be the term smtlib uses,
+  which is supported by various SMT solvers including Z3}
 
 The Babelsberg language is parameterized by a particular constraint
 solver that is used to ``execute'' constraints.  In our formalism we
@@ -590,10 +599,11 @@ pairs.The proposition
 $C$ (and further one that is optimal according to the solver's
 semantics, as discussed earlier).  
 
-We use the notation \cunsat{C} to mean that there is no mapping
-$M$ such that \csolve{M}{C}, i.e. either $C$ is \emph{unsatisfiable}
-or the solver is simply unable to find a solution (for example due to
-limits in the solver or due to inherent complexity of the logic) .
+We use the notation \cunsat{C} to mean that there is no mapping $M$
+such that \csolve{M}{C}, i.e. either $C$ is \emph{unsatisfiable}. If
+the the solver is simply unable to find a solution, but there might be
+one(for example due to limits in the solver or due to inherent
+complexity of the logic), we use \cunknown{C}.
 
 \judgment{\toSolver{e}{e}}
 \judgment{\toSolver{C}{C}}
@@ -663,6 +673,15 @@ This judgment determines when a program constraint is unsatisfiable.
 \inferrule{Unsat}{\toSolver{C}{C} \andalso \cunsat{C}}
 {\unsat{C}}
 
+\judgment{\unknown{C}}
+
+This judgment determines when the satisfiability of a program
+constraint is undecidable by the solver.
+
+\inferrule{Unknown}{\toSolver{C}{C} \andalso \cunknown{C}}
+{\unknown{C}}
+
+
 \judgment{\stay{E}{C}}
 
 This judgment defines how to translate an environment into a
@@ -698,6 +717,9 @@ declared so far during execution.
 \unsat{(C $\wedge$ C$_s$ $\wedge$ x=v)}}
 {\step{E}{C}{x := e}{E}{C}{unsat}}
 
+\inferrule{S-AsgnUnknown}{\eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
+\unknown{(C $\wedge$ C$_s$ $\wedge$ x=v)}}
+{\step{E}{C}{x := e}{E}{C}{unknown}}
 
 \inferrule{S-Always}{
 {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
@@ -710,6 +732,11 @@ declared so far during execution.
 \unsat{(C$'$ $\wedge$ C$_s$)}}
 {\step{E}{C}{always C$_0$}{E}{C}{unsat}}
 
+\inferrule{S-AlwaysUnknown}{
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+\unknown{(C$'$ $\wedge$ C$_s$)}}
+{\step{E}{C}{always C$_0$}{E}{C}{unknown}}
+
 
 \inferrule{S-SeqStep}{\step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}}
 {\step{E}{C}{s$_1$;s$_2$}{E$'$}{C$'$}{s$_1'$;s$_2$}}
@@ -719,6 +746,9 @@ declared so far during execution.
 
 \inferax{S-SeqUnsat}
 {\step{E}{C}{unsat;s$_2$}{E}{C}{unsat}}
+
+\inferax{S-SeqUnknown}
+{\step{E}{C}{unsat;s$_2$}{E}{C}{unknown}}
 
 
 % \section{Babelsberg/Records}
@@ -1486,7 +1516,7 @@ source programs.  \tdm{Not sure if we need that assumption.}
 \begin{tt}
 \begin{tabular}{lrrl}
 {\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ x.l := e $\mid$ x := new o\\
-&& $\mid$ & always C $\mid$ s;s $\mid$ unsat \\
+&& $\mid$ & always C $\mid$ s;s $\mid$ unsat $\mid$ unknown \\
 {\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e $\mid$
 e.l $\mid$ r \\
 {\rm Atomic Constraint} & A & ::= & e $\olessthan$ e
@@ -1590,10 +1620,10 @@ records to a form where the records are first assigned to variables
 and then equality constrained.)
 
 \inferrule{ToRecEq}{
-  \tcH{E}{H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
   \evalH{E}{H}{e}{r} \andalso
-  \tcH{E}{H}{r$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
-  \evalH{E}{H}{e'}{r'}
+  \tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+  \evalH{E}{H}{e'}{r'} \andalso
+  \tcH{E}{H}{r$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
 }{
   \toSolverH{
     e $=_r$ e$'$
@@ -1601,10 +1631,6 @@ and then equality constrained.)
     r_{l_1} = r'_{l_1} \wedge \cdots \wedge r_{l_n} = r'_{l_n}
   }
 }
-
-\tf{the above rules uses expressions, but it could also use variables,
-  because the only expressions we allow that evaluates to a record
-  reference are variables. which is preferred?}
 
 \judgment{\fromSolverH{M}{E}{H}}
 
@@ -1629,24 +1655,20 @@ and then equality constrained.)
   \fromSolverH{M}{E}{H}
 }
 
-\inferrule{FromField}{
-  $M(r_{l_i}) = v$ \andalso
+\infrule[FromField]{
+  \mbox{$M(r_{l_i}) = v$ \andalso
   $M_0 = M \setminus \{(r_{l_i},v)\}$ \andalso
   \fromSolverH{M_0}{E$_0$}{H$_0$} \andalso
-  {\tt H$_0$}({\tt r}) = \{$\ldots$\}
-}{
-  \fromSolverH{M}{E$_0$}{(({\tt H}$_0$ $\setminus$ \{({\tt x}, {\tt H$_0$(r)})\}) $\cup$
-    \{({\tt r}, {\tt H$_0$(r)} +$_R$ \{{\tt l$_i$:v}\})\})}
-}
-
-\tf{This implicitly defines +$_R$ as record combination operation. Is
-  that ok?}
-
-\tf{Also, this implies that a field can only be unpacked from the
-  model if a reference for the owner of that field has been unpacked}
+  {\tt H$_0$}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_{i-1}$:v$_{i-1}$\}}} \\
+  \mbox{{\tt H} = ({\tt H$_0$} $\setminus$ \{({\tt r}, {\tt H$_0$(r)})\}) $\cup$
+    \{({\tt r}, {\tt\{l$_1$:v$_1$,$\ldots$,l$_{i-1}$:v$_{i-1}$,l$_i$:v$_i$\}})\}}
+}{\mbox{%
+  \fromSolverH{M}{E$_0$}{H}
+}}
 
 \judgment{\solveH{E}{H}{C}}
 \judgment{\unsatH{C}}
+\judgment{\unknownH{C}}
 
 Analogously to before, these judgments solve program constraints and
 either translates the solution back to a program environment and heap,
@@ -1658,6 +1680,9 @@ or determine that no solution is available.
 
 \inferrule{Unsat}{\toSolverH{C}{C} \andalso \cunsat{C}}
 {\unsatH{C}}
+
+\inferrule{Unknown}{\toSolverH{C}{C} \andalso \cunknown{C}}
+{\unknownH{C}}
 
 
 \judgment{\stay{E}{C}}
@@ -1682,26 +1707,25 @@ environment, but are amended for the heap.
 
 ``Environment {\tt E} and heap {\tt H} are a model of constraint {\tt C}.''
 
-\tf{todo: the next paragraph has to be rephrased, it doesn't work
-  anymore, because we don't allow records as immediate expressions}
-For example, suppose variable {\tt p} maps to reference {\tt r} in the
-environment.  Then the constraint
- {\tt p = \{x:2, y:5\}} gets translated to
-the constraint $r_x = 2 \wedge r_y=5$, and similarly the
-constraint {\tt p.x = 100} becomes $r_x = 100$.  By using the
-reference {\tt r} rather than the variable name {\tt p}, we ensure
-that any modifications to the record stored in {\tt r} will also be
-``seen'' through all aliases of {\tt p}.
-
-\ab{I have been converting solver constraints to use math font, and in
-  the process renaming the variables to use appropriate subscripts,
-  e.g. $r_x=5$ rather than {\tt rx=5}.  Is this done appropriately in
-  the paragraph above, or should the constraint be $p_x = 100$ rather
-  than $r_x = 100$?  The solver doesn't know about either {\tt p} or
-  {\tt r}, so in one sense it's arbitrary what name we use.  I assume
-  the sentence ``By using the reference {\tt r} rather than the
-  variable name {\tt p} \ldots'' is about the semantic rules, not
-  about things known to the solver.}
+% \tf{todo: the next paragraph has to be rephrased, it doesn't work
+%   anymore, because we don't allow records as immediate expressions}
+% For example, suppose variable {\tt p} maps to reference {\tt r} in the
+% environment.  Then the constraint
+%  {\tt p = \{x:2, y:5\}} gets translated to
+% the constraint $r_x = 2 \wedge r_y=5$, and similarly the
+% constraint {\tt p.x = 100} becomes $r_x = 100$.  By using the
+% reference {\tt r} rather than the variable name {\tt p}, we ensure
+% that any modifications to the record stored in {\tt r} will also be
+% ``seen'' through all aliases of {\tt p}.
+% \ab{I have been converting solver constraints to use math font, and in
+%   the process renaming the variables to use appropriate subscripts,
+%   e.g. $r_x=5$ rather than {\tt rx=5}.  Is this done appropriately in
+%   the paragraph above, or should the constraint be $p_x = 100$ rather
+%   than $r_x = 100$?  The solver doesn't know about either {\tt p} or
+%   {\tt r}, so in one sense it's arbitrary what name we use.  I assume
+%   the sentence ``By using the reference {\tt r} rather than the
+%   variable name {\tt p} \ldots'' is about the semantic rules, not
+%   about things known to the solver.}
 
 \judgment{\tcHC{E}{H}{C}}
 
@@ -1778,10 +1802,6 @@ constraints are ``exploded'' as discussed earlier.  For example, if
 weak $r_x = 2$ and weak $r_y=5$ are included in stay({\tt H}).
 Finally, dom({\tt H}) denotes the domain of {\tt H}.
 
-\ab{Picky points: is the above correct in terms of what is in fixed
-  pitch (program) font and what is in constraint (math) font?  The
-  previous version follows (commented out) if it's needed for reference.}
-
 %% FORMER VERSION:
 %% In the rules below, stay({\tt E}) denotes, as earlier,  a
 %% conjunction of constraints of the form {\tt weak x=v} for
@@ -1800,6 +1820,10 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
 \unsat{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
 {\stepH{E}{H}{C}{x := e}{E}{H}{C}{unsat}}
 
+\inferrule{S-AsgnUnknown}{\evalH{E}{H}{e}{v} \andalso
+\unknown{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
+{\stepH{E}{H}{C}{x := e}{E}{H}{C}{unknown}}
+
 \infrule[S-AsgnField]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
     \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
 \mbox{\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
@@ -1809,6 +1833,11 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
     \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
 \mbox{\unsatH{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
 {\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E}{H}{C}{unsat}}}
+
+\infrule[S-AsgnFieldUnknown]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+    \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
+\mbox{\unknownH{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
+{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E}{H}{C}{unknown}}}
 
 
 \infrule[S-AsgnNew]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
@@ -1824,26 +1853,31 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
     stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
 {\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E}{H}{C}{unsat}}}
 
+\infrule[S-AsgnNewUnknown]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
+    \andalso r $\not\in$ dom({\tt H})} \\ 
+\mbox{\unknownH{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm
+    stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
+{\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E}{H}{C}{unknown}}}
+
+
 Recall that the constraint {\tt r =
   \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} in the above rule is shorthand for $n$
 constraints of the form $r_{li} = v_i$.
-
-\ab{Todd - please check picky fonts in the sentence above (the old
-  version is in a comment below)}
-
-%% Recall that the constraint {\tt r =
-%%   \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} in the above rule is shorthand for $n$
-%% constraints of the form {\tt rl$_i$ = v$_i$}.
 
 \inferrule{S-Always}{\tcHC{E}{H}{C$_0$} \andalso
 {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
 \solveH{E$'$}{H$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
 {\stepH{E}{H}{C}{[weak] always C$_0$}{E$'$}{H$'$}{C$'$}{skip}}
 
-\inferrule{S-Always}{\tcHC{E}{H}{C$_0$} \andalso
+\inferrule{S-AlwaysUnsat}{\tcHC{E}{H}{C$_0$} \andalso
 {\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
 \unsatH{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
 {\stepH{E}{H}{C}{[weak] always C$_0$}{E}{H}{C}{unsat}}
+
+\inferrule{S-AlwaysUnknown}{\tcHC{E}{H}{C$_0$} \andalso
+{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
+\unknownH{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
+{\stepH{E}{H}{C}{[weak] always C$_0$}{E}{H}{C}{unknown}}
 
 \inferrule{S-SeqStep}{\stepH{E}{H}{C}{s$_1$}{E$'$}{H$'$}{C$'$}{s$_1'$}}
 {\stepH{E}{H}{C}{s$_1$;s$_2$}{E$'$}{H$'$}{C$'$}{s$_1'$;s$_2$}}
@@ -1853,6 +1887,9 @@ constraints of the form $r_{li} = v_i$.
 
 \inferax{S-SeqUnsat}
 {\stepH{E}{H}{C}{unsat;s$_2$}{E}{H}{C}{unsat}}
+
+\inferax{S-SeqUnknown}
+{\stepH{E}{H}{C}{unknown;s$_2$}{E}{H}{C}{unknown}}
 
 \section{Babelsberg/Objects}
 

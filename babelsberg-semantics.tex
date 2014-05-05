@@ -1894,11 +1894,13 @@ constraints of the form $r_{li} = v_i$.
 \section{Babelsberg/Objects}
 
 In this final language, we add classes, inheritance, methods, and
-messages.  This language is intended to capture the essential features
-of the actual object constraint languages Babelsberg/R and
-Babelsberg/JS\@.  In particular, it allows us to write constraints on
-the results of message sends.  For example, consider the following
-constraints on the center of a rectangle {\tt r}:
+messages.  For simplicity, we remove field access entirely -- access
+to an objects variables is only possible through message sends. This
+language is intended to capture the essential features of the actual
+object constraint languages Babelsberg/R and Babelsberg/JS\@.  In
+particular, it allows us to write constraints on the results of
+message sends.  For example, consider the following constraints on the
+center of a rectangle {\tt r}:
 \begin{verbatim}
 always r.center.x = 100;
 always r.center.y = 50;
@@ -1950,9 +1952,14 @@ the solver language, for example a \verb|factorial| method for
 \verb|Integer|.  It is also possible to have types and operations in
 the solver language without equivalents in the source language ---
 this would be a bit strange, in that expressions involving them could
-never be generated --- but it's not an error.
+never be generated --- but it's not an error.\tf{In fact, we have that
+  with Z3, because we have not exposed every Z3 feature in
+  Babelsberg/JS or Babelsberg/R}
 
-\ab{how do we handle short circuit evaluation for or?}
+\ab{how do we handle short circuit evaluation for or?}\tf{We don't
+  short circuit -- in the implementation, we'll evaluate both to
+  create to constraints, that are added to the solver (if it supports
+  it) as a disjunction. I think we have to do it like this.}
 
 The semantics includes two different execution modes: \emph{imperative
   execution mode} and \emph{constraint construction mode}.  For
@@ -1980,20 +1987,17 @@ a set of constraints in the solver language.  The resulting collection
 of constraints in the solver language is given to the solver, a
 solution is found, and the environment is updated; or, if the
 constraints have no solution, or if they are too hard for the solver,
-the system enters the \verb|unsat| state.\footnote{The
-  implementation-oriented reader may at this point become concerned
-  that this seems most inefficient.  For example, in the informal
-  description, all assignments are converted to constaints, not just
-  those involving assigning to a variable with other constraints on
-  it.  And do we really need to re-evaluate all constraint closures
-  after every statement?  Do not panic.  There are ample opportunities
-  for adding optimizations; but they are just that --- optimizations
-  --- and not part of the formal semantics.  Instead, our aim will be
-  to specify the semantics cleanly, and then show that adding such
-  optimizations doesn't change the result.}
-
-\ab{again, I have a slight preference to distinguish between
-  unsolvable and too-hard stuck states}
+the system enters either the \verb|unsat| or \verb|unknown|
+state.\footnote{The implementation-oriented reader may at this point
+  become concerned that this seems most inefficient.  For example, in
+  the informal description, all assignments are converted to
+  constaints, not just those involving assigning to a variable with
+  other constraints on it.  And do we really need to re-evaluate all
+  constraint closures after every statement?  Do not panic.  There are
+  ample opportunities for adding optimizations; but they are just that
+  --- optimizations --- and not part of the formal semantics.
+  Instead, our aim will be to specify the semantics cleanly, and then
+  show that adding such optimizations doesn't change the result.}
 
 The evaluation of the closures in the constraint store is done in
 constraint construction mode rather than in imperative execution mode.
@@ -2003,7 +2007,17 @@ corresponding parse tree fragment for the solver language; otherwise
 we evaluate normally.  \ab{Need to give some more details.  We also
   need to describe how assignment statements become constraints in
   constraint construction mode.  Should we ever turn them into one-way
-  constraints, or are they always multi-way?}
+  constraints, or are they always multi-way?}\tf{Here's how I see it:
+  basically, the closures are ``Constraints'' in the source language,
+  and they are transformed as per {\tt To-}rules in Babelsberg/UID. If
+  we encounter a message, we do the normal lookup and continue with
+  the message body. If we encounter something we cannot transform
+  (like a side-effect), we don't transform it, and instead execute.
+  As for the assignment statements: in our implementation they are
+  multi-way, with \emph{strong} stay constraints on the RHS. We need
+  to figure out whether we want that (and we're discussing it in the
+  context of the ECOOP paper.) Whatever we decide, we need to make
+  that explicit.}
 
 
 The expressions that define constraints have a number of restrictions,
@@ -2029,7 +2043,12 @@ similar to those for the Babelsberg/R and Babelsberg/JS languages.
 
 \ab{Do we need the restriction that variables used in methods called
   in a constraint be used in a single-assignment fashion?  We do, if
-  we are turning assignments into constraints.}
+  we are turning assignments into constraints.}\tf{I think we are
+  turning them into constraints (to allow calculated equalities like
+  {\tt pt1+pt3==pt3}). But we know how to solve this -- source
+  transform the multiple assignments in a scope into static single
+  assignment form. I think how to do that is well understood, so we
+  don't need to write how here, and we can just refer to that}
 
 There are two interpretations or meanings \ab{what's the right word?}
 for each constraint at a particular step in the execution of a program
@@ -2112,7 +2131,56 @@ section.  Both are OK --- this one involves making a new instance of
 \verb|Point|.  (I don't think there are now any difficulties in
 creating a new instance in the body of a constraint with the proposed
 semantics.  Note that if we tried to use an identity constraint rather
-than an equality it would simply be unsatisfiable.)
+than an equality it would simply be unsatisfiable.) In the evaluation,
+this explodes, maybe, to something like this:
+\begin{verbatim}
+always r.center = { p = Point.allocate
+                    p.x = 100
+                    p.y = 50
+                    p }
+\end{verbatim}
+This is taking a lot of liberties with the syntax, but the idea is
+this: First, the allocation primitive is called to get new memory for
+an empty instance of the {\tt Point} class from the runtime. This
+primitive is just executed, no constraint is created. However, the
+assignment to the variable {\tt p} creates an equality constraint {\tt
+  p = p\_ref}, where {\tt p\_ref} is a reference to our new {\tt
+  Point} instance on the heap. Then the two constraints {\tt
+  p\_ref$_x$ = 100} and {\tt p\_ref$_y$ = 50} are created. This
+effectively prevents the solver from changing the new instance at
+all. Now that the right hand side is clear, we need to evaluate the
+center method. Let's assume the center is stored directly and not
+calculated, so this just returns a variable that refers to the center
+of the rectangle -- we'll call it {\tt r\_center}. To test point
+equality, we lookup the {\tt =} method for {\tt Point}. The expanded
+intermediate source code could look like this now (where {\tt p} is
+the variable created for the new point instance, with its
+constraints):
+\begin{verbatim}
+always r_center.x = p.x && r_center.y = p.y
+\end{verbatim}
+To get the {\tt x} and {\tt y} fields (assuming the corresponding
+methods are just accessors), we need to get the reference for {\tt
+  r\_center}. We will call this reference {\tt r\_center\_ref}. Than
+these two atomic constraints become constraints on the fields of two
+references, {\tt r\_center\_ref} and {\tt p\_ref}. We map the {\tt =}
+operator for the {\tt Float} coordinates to the $=$ operator in the
+solver language, so we end up with these atomic constraints for the
+entire constraint:
+
+\begin{tabular}{rl}
+required & $p=p\_ref$ \\
+required & $p\_ref_{x}=100$ \\
+required & $p\_ref_{y}=50$ \\
+required & $r\_center\_ref_{x}=p\_ref_{x}$ \\
+required & $r\_center\_ref_{y}=p\_ref_{y}$ \\
+\end{tabular}
+
+\tf{The above long-winded explanation may not help much -- it takes
+  too many liberties with the syntax and makes too many
+  assumptions. But I'd like to have the idea in there, to explain how
+  method lookup, primitive evaluation and new object creation work in
+  constraint construction mode}
 
 The following example illustrates how assignment for objects with
 object identity is handled.

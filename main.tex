@@ -710,11 +710,11 @@ scales.
 \begin{code}
 var converter = {},
     cassowary = new CLSimplexSolver();
-always({solver:  cassowary}, function() {
-    return converter.C * 1.8 == converter.F - 32 &&
-           converter.C + 273.15 == converter.K &&
-           converter.F + 459.67 == converter.R
-});
+always { solver:  cassowary
+    converter.C * 1.8 == converter.F - 32 &&
+    converter.C + 273.15 == converter.K &&
+    converter.F + 459.67 == converter.R
+}
 \end{code}
 
 %% For later: is there a way to write this that isn't a conjunction?
@@ -765,11 +765,11 @@ converter.getCelsius = function() {
     return converter.C;
 }
 
-always({solver:  cassowary}, function() {
-    return converter.getCelsius() * 1.8 == converter.F - 32 &&
-           converter.getCelsius() + 273.15 == converter.K &&
-           converter.F + 459.67 == converter.R
-});
+always { solver:  cassowary
+    converter.getCelsius() * 1.8 == converter.F - 32 &&
+    converter.getCelsius() + 273.15 == converter.K &&
+    converter.F + 459.67 == converter.R
+}
 \end{code}
 
 By placing the constraint on the result of sending messages rather
@@ -786,9 +786,9 @@ converter.pressure = function () {
     return density * gasConstantDryAir * converter.K / 1000;
 }
 
-always({solver: cassowary}, function() {
-    return converter.pressure() <= 115 // kPa
-});
+always { solver: cassowary
+    converter.pressure() <= 115 // kPa
+}
 \end{code}
 
 \subsection{Cooperating Constraint Solvers}
@@ -895,15 +895,14 @@ representation to our temperature converter. We want the color of a
 \begin{code}
 var el = jQuery("#tooHotWarning");
 
-always({solver: deltablue}, function() {
-    el.color.formula([converter.getCelsius()],
-        function(celsius) {
-            var color = celsius > 30 ? "red" : "blue";
-            el.setAttribute("class", color);
-            return color;
-        });
-    }
-);
+always { solver: deltablue
+    el.color.formula([converter.getCelsius()], function(celsius) {
+        var color = celsius > 30 ? "red" : "blue";
+        el.setAttribute("class", color);
+        return color;
+    });
+}
+
 \end{code}
 Note that for the DeltaBlue local propagation solver, we do not
 provide a predicate (although we could --- in that case it would be
@@ -1118,15 +1117,15 @@ code. This optimization cannot be used with our cooperating constraint
 solver architecture. Consider the following contrived example:
 \begin{code}
 var obj = {a: 10, b: 10, c: true};
-always({solver: cassowary}, function() {
-    return obj.a + obj.b == 20
-});
-always({solver: deltablue}, function() {
+always { solver: cassowary
+    obj.a + obj.b == 20
+}
+always { solver: deltablue
   obj.c.formula([obj.b], function (b) {
     if (b == 13) throw "unlucky";
     return b < 10;
-  });
-});
+  })
+}
 obj.a = 7;
 \end{code}
 When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
@@ -1169,48 +1168,48 @@ mode, thus creating new solver-specific representations.
 %% not desirable to have variables change types often, regardless of
 %% whether they are constrained or not.
 
-\subsubsection{Assigning Mutable Objects}
-\label{sec:assign-compl-objects}
+% \subsubsection{Assigning Mutable Objects}
+% \label{sec:assign-compl-objects}
 
-In the implemention described above, so far we have been dealing with
-immutable, atomic objects, such as integers and floats.  In the
-temperature converter, we connected the slider value to the Celsius
-value; and the assigned value is a primitive, immutable float value and
-the solver has to adjust other variables to satisfy the
-constraints. However, we also need to address the case of mutable
-objects with substructure.  Consider the following midpoint line:
-\begin{code}
-var line = {start: pt(0,0), end: pt(1,1), midpoint = pt(0,0)};
-always({solver: cassowary}, function() {
-  var center = line.start.getPosition().
-                 addPt(line.end.getPosition()).scaleBy(0.5);
-  return line.midpoint.getPosition().eqPt(center);
-});
+% In the implemention described above, so far we have been dealing with
+% immutable, atomic objects, such as integers and floats.  In the
+% temperature converter, we connected the slider value to the Celsius
+% value; and the assigned value is a primitive, immutable float value and
+% the solver has to adjust other variables to satisfy the
+% constraints. However, we also need to address the case of mutable
+% objects with substructure.  Consider the following midpoint line:
+% \begin{code}
+% var line = {start: pt(0,0), end: pt(1,1), midpoint = pt(0,0)};
+% always({solver: cassowary}, function() {
+%   var center = line.start.getPosition().
+%                  addPt(line.end.getPosition()).scaleBy(0.5);
+%   return line.midpoint.getPosition().eqPt(center);
+% });
 
-line.midpoint = pt(1, 1);
-\end{code}
-If we assign a new value to \lstinline{midpoint}, the system can
-update the \lstinline{start} or \lstinline{end} points. But the
-assignment asserts equality between \lstinline{midpoint} and
-\lstinline{pt(1, 1)} --- both mutable objects --- not their
-\lstinline{x} and \lstinline{y} parts. So the solver could also modify
-the parts of the newly assigned point to satisfy the constraint. 
-Because all variables have
-weak stay constraints on them, the solver is as likely to modify
-(parts of) the input object as it is to modify the rest of the system.
+% line.midpoint = pt(1, 1);
+% \end{code}
+% If we assign a new value to \lstinline{midpoint}, the system can
+% update the \lstinline{start} or \lstinline{end} points. But the
+% assignment asserts equality between \lstinline{midpoint} and
+% \lstinline{pt(1, 1)} --- both mutable objects --- not their
+% \lstinline{x} and \lstinline{y} parts. So the solver could also modify
+% the parts of the newly assigned point to satisfy the constraint. 
+% Because all variables have
+% weak stay constraints on them, the solver is as likely to modify
+% (parts of) the input object as it is to modify the rest of the system.
 
-On the other hand, there are situations in which the system should
-still be allowed to change assigned objects to satisfy constraints. To
-use constraints for input rectification
-\cite{long-rectification-2012}, programmers may expect the system to
-fix the assigned object, rather than reject the assignment.
+% On the other hand, there are situations in which the system should
+% still be allowed to change assigned objects to satisfy constraints. To
+% use constraints for input rectification
+% \cite{long-rectification-2012}, programmers may expect the system to
+% fix the assigned object, rather than reject the assignment.
 
-To support both scenarios, \langname/JS marks the assigned objects'
-parts with strong stay constraints. This means that, as long as other
-constraints allow, the solver will not change the new position for the
-midpoint. This solution usually meets expectations in our
-experience. For more complex cases it may not always produce the
-desired result, in which case the programmer has to be explicit.
+% To support both scenarios, \langname/JS marks the assigned objects'
+% parts with strong stay constraints. This means that, as long as other
+% constraints allow, the solver will not change the new position for the
+% midpoint. This solution usually meets expectations in our
+% experience. For more complex cases it may not always produce the
+% desired result, in which case the programmer has to be explicit.
 
 \subsection{Constraint Construction}
 \label{sec:constr-constr}

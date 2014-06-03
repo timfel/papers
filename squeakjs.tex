@@ -1,0 +1,468 @@
+%
+%  SqueakJS, for DLS'14
+%
+% Confirmation Number:	
+% Submission Passcode:	
+%
+\PassOptionsToPackage{final}{graphics}
+\PassOptionsToPackage{unicode,pdfencoding=auto}{hyperref}
+\documentclass[draft,preprint,authoryear,natbib]{sigplanconf}
+
+\input{common/config}
+\lstset{language=JavaScript}
+
+\todoauthor[teal]{topa}
+\todoauthor[lime]{timfel}
+\todoauthor[violet!50]{bert}
+\todoauthor[purple]{rhi}
+\todoauthor[yellow]{dan}
+
+\newcommand*\SqueakJSTitle{Back and back and back to the future}
+\newcommand*\SqueakJSKeywords{ T B D}
+
+\hypersetup{
+  pdfsubject={DLS'14},
+  pdfkeywords={\SqueakJSKeywords},
+  pdftitle={\SqueakJSTitle},%
+    pdfauthor={%
+      Bert Freudenberg,
+      Dan Ingalls,
+      Tobias Pape,
+      Tim Felgentreff,
+      Robert Hirschfeld}}
+
+\conferenceinfo{DLS'14}{October 21, 2014, Portland, Oregon, USA}
+\copyrightyear{2014}
+\copyrightdata{978-1-nnnn-nnnn-n/yy/mm}
+\doi{nnnnnnn.nnnnnnn}
+
+\titlebanner{DRAFT}        % These are ignored unless
+\preprintfooter{short description of paper}   % 'preprint' option specified.
+
+
+\begin{document}
+%\hyphenation{}
+%
+\newacro{JIT}[\textsc{jit}]{just-in-time}
+\newacro{AST}[\textsc{ast}]{abstract syntax tree}
+\newacro{VM}[\textsc{vm}]{virtual machine}
+\newacro{GC}[\textsc{gc}]{garbage collector}
+\newacro{DOM}[\textsc{dom}]{document object model}
+\newcommand\SqueakJS{Squeak\texorpdfstring{\kern.04em}{}JS\xspace}
+
+\title{\SqueakJSTitle}
+\subtitle{The Story of \SqueakJS, a Smalltalk-80 Implementation in the Browser}
+
+\authorinfo{Bert Freudenberg}
+           {CDG Labs,\\ Potsdam, Germany}
+           {bert@cdglabs.org}
+\authorinfo{Dan Ingalls}
+           {CDG Labs,\\ San Francisco, CA, USA}
+           {dan@cdglabs.org}
+\authorinfo{Tobias~Pape\and Tim~Felgentreff\and Robert~Hirschfeld}
+           {Hasso Plattner Institute, University of Potsdam,\\ Potsdam, Germany}
+           {\{firstname.lastname\}@hpi.uni-potsdam.de}
+
+\maketitle
+
+\begin{abstract}
+  We report our experience in implementing SqueakJS, an implementation
+  of Squeak/Smalltalk in pure JavaScript. Our implementation runs at
+  usable speed in the browser, allowing Squeak/Smalltalk applications
+  to run on any platform with a recent JavaScript \ac{VM}. In contrast to
+  an automatic translation of an existing Squeak \ac{VM} using an
+  tool-chain such as Emscripten, our implementation is a full
+  re-implementation which exposes each Squeak object also as a
+  JavaScript object, allowing rich interactions between Smalltalk and
+  JavaScript code.
+  % Additionally, \SqueakJS supports the Squeak
+  % graphical environment, implements a semi-space \ac{GC} for Squeak objects
+  % on top of JavaScript, and allows 
+\end{abstract}
+
+
+% TBD
+\category{}{}{} 
+\category{}{}{}
+\terms
+Languages, Design, ... 
+\keywords
+\SqueakJSKeywords
+
+
+\section{Introduction}
+
+
+JavaScript has become the de-facto standard for Web programming, and
+a huge amount of code exists in the language.  This fact, along with
+JavaScript's unique design and its execution environment in a Web
+browser, also make it of great interest to the research community,
+motivating work to provide various languages in the browser\cite{?}.
+
+Recently, automatic translation tool-chains such as
+Emscripten\cite{zakai:2011:emscripten:-llvm-to-javascript} and
+improved JavaScript performance in general have enabled libraries and
+language \acp{VM} written in C/C++\footnote{Or at least translatable
+  to LLVM bytecode} to be performantly executed in the
+browser\footnote{See for example \url{http://www.repl.it}, retrieved
+  \today}. However, a number of common themes among such ports emerge:
+
+\begin{itemize}
+\item These translations are mostly used to provide a whole system in
+  the browser, to be used as a stand-alone application. The browser
+  acts merely as the underlying runtime.
+\item The translation mechanism is oblivious to the browser platform,
+  and this cannot provide interactions with the host Javascript
+  \ac{VM} or the \ac{DOM}.
+\item Translation toolchains such as Emscripten provide a C semantics
+  and use various low-level Javascript mechanisms to achieve good
+  performance, so the resulting code cannot be easily inspected and
+  instrumented as normal Javascript objects.
+\end{itemize}
+
+\dan{Many reasons to want Squeak and especially EToys to run
+in browsers, but...}
+\topa{potential goal: get Etoys and Scratch to the web with good
+  backwards compat}
+SqueakJS aims to provide a fully backwards-compatible Squeak/Smalltalk
+system in the browser, able to run wide-spread applications such as
+Etoys\cite{?} and Scratch\cite{?} directly in the browser. To achieve
+this goal, an automatic translation would suffice.
+
+However, SqueakJS also aims to allow existing Javascript code to
+interact and instrument Squeak objects, in order to not only be a
+``Squeak in the browser'', but also provide practical support for
+using Smalltalk in a Javascript environment. To achieve these goals,
+we implemented a Squeak \ac{VM} entirely in JavaScript. This enables
+us to run Squeak in modern browsers and allow JavaScript applications
+to interact with the \ac{VM}.
+
+In this paper, we report our experience with this implementation,
+highlighting the following items in particular:
+\begin{itemize}
+\item Our mapping of Squeak objects in the VM to Javascript objects
+  with direct references
+\item Our hybrid garbage collection scheme to allow Squeak GC semantics
+  while delegating as much work as possible to the Javascript GC
+\item Interaction with Javascript for clipboard access, image loading,
+  file system access, debugging, and inspecting Squeak objects
+\end{itemize}
+
+
+\section{Background}
+\label{sec:background}
+\secmissing{background}
+
+
+\section{Concept}
+\label{sec:concept}
+\secmissing{concept}
+
+\todolist{berts ideas}{
+\item Why pure JS? All browsers, even iOS. Nicer to debug
+\item Why not e.g. emscripten? C semantics, cannot not easily convert to real
+  objects
+}
+
+The core of SqueakJS is very much inspired by Dan Ingalls' 2008 ``JSqueak'' \ac{VM}
+written in Java. Fundamental design decisions, like the mapping of Squeak
+objects to JavaScript objects or the separation of the VM into the interpreter
+and a primitive handler are exactly as in JSqueak. Some parts of the
+interpreter were transcribed literally, just removing the Java type
+annotations. Even some bugs were faithfully transcribed and only fixed later.
+
+Apart from using another language, there are also many differences in the
+\SqueakJS implementation. For example, there is no object table, a
+WeakReference array that is used in JSqueak for object enumeration. 
+
+\bert{Actually, there might not be that many fundamental differences ...}
+
+\section{Implementation}
+\label{sec:impl}
+\secmissing{Implementation}
+
+Main loop: In most Squeak VMs, the VM itself has a main loop that executes
+byte codes until the system quits. Not so in SqueakJS: The VM needs to
+regularly break out of its interpreter loop, because only then will the web
+browser update the screen or provide new input events.
+
+The interpreter has two entry points: \lstinline|interpretOne()| for executing
+a single byte code (which is used only when single-stepping in the VM
+debugger), and \lstinline|interpret()| for executing multiple byte codes. The
+latter loops for a certain time, or until a primitive requests an immediate
+return of control to the browser. This happens e.g. after drawing to the
+screen: to minimize the delay between drawing and the change being visible to
+the user, the drawing primitive requests to exit the interpreter loop
+immediately.
+
+Also, break points can be set for various conditions, e.g. when a certain
+method is executed or returns. When the condition is met, the interpreter loop
+exits to let the debugger show that state.
+
+To support using asynchronous functions in primitives that need to appear
+synchronous to the Squeak runtime, we implemented a feature to ``freeze'' the
+VM. A primitive can call the VM's \lstinline|freeze()| function, which returns
+a callback function for unfreezing. All subsequent calls to
+\lstinline|interpret()| are ignored until the unfreeze function was called by
+the primitive's asynchronous event handler. That means the VM's state remains
+unchanged until the unfreeze, so the primitive is allowed to defer pushing a
+return value onto the stack until the asynchronous operation is done. This is
+used for example to support asynchronous file access (see below).
+
+Files: While Squeak can work without a file system, a lot of functionality
+would be missing if SqueakJS did not have the ability to permanently store
+files. This presents a challenge to a system designed to run in a browser. One
+option would be to upload and retrieve files to a server. But this would
+require constant connectivity, and we very much want SqueakJS to be usable
+offline. \bert{move rationale to other section?}
+
+Persistent offline storage is a relatively new feature for web browsers. The
+most common way is the browser's \lstinline|localStorage|, which is
+synchronous, and very easy to use, but only supports storing strings, and is
+usually limited in size to 5 Megabytes. Fortunately, all major browsers now
+support the \lstinline|indexedDB| client-side storage (Firefox x.y, Chrome
+x.y, Safari x.y, IE ?/?) which stores arbitrary Javascript objects, and has
+more generous size quotas, but is an asynchronous API.
+
+The FilePlugin is implemented with a combination of \lstinline|localStorage|
+and \lstinline|indexedDB|. Directory entry information (name, size, directory
+flag, creation date, modification date) is serialized as a JSON string per
+directory and saved in \lstinline|localStorage|. It is accessed very often so
+the ability to access it synchronously is helpful. Also, it takes a relatively
+small amount of space. Due to idiosyncrasies of Squeak, often files are opened
+and closed without actually accessing the file contents.
+
+The file contents is put into the \lstinline|indexedDB|. When the file
+contents is needed, it is loaded from the database into memory. Since every
+database access is an asynchronous operation, the VM is frozen until this read
+operation is finished. Write operations are performed in memory only. It is
+stored to the database only when the file handle is closed or explicitly
+flushed. The VM does not need to wait until the write finishes (similar for
+deleting a file). A single copy of the file contents in memory is shared for
+all open file handles of the same file. The file handles are
+reference-counted, and the memory is released when the last handle is closed.
+
+A potential drawback of this scheme is that the two storages could get out of synch.
+This has not been a problem so far. If it becomes a problem, a file system
+check could restore consistency, or directory information could be stored in
+\lstinline|indexedDB|, too.
+
+Networking: not implemented yet
+
+Embeddable: While SqueakJS is developed inside Lively, the VM takes care to
+not depend on Lively. It is implemented in a single JavaScript file. For
+demonstration purposes we have written a simple harness that runs Squeak
+without Lively. It consists of a 10 line HTML page, 30 lines of JavaScript to
+emulate the Lively module and class system, and 200 lines to download an
+image, set up input and output, and run the VM. Because the overhead of that
+harness is considerably lower than the full Lively environment, it works
+nicely even on mobile devices such as an iPad.
+
+Extensible: The SqueakJS VM can be extended with modules, just like most
+regular Squeak VMs. There is an internal and an external modules interface.
+Internal modules are part of the VM itself, they simply expose primitives by
+name instead of by index. An example for an internal module is the FilePlugin.
+
+External modules are implemented outside the core VM. The interface is purely
+object-based. Which module is implemented in which file is unknown to the VM.
+A module object is simply registered by name:
+\lstinline|Squeak.registerExternalModule('ModuleName', moduleObject);|. 
+
+The module object needs to have a field named \lstinline|exports| which
+references all provided primitive functions by name. If a function is exported
+as \lstinline|initializeModule| then it will be executed when loading the
+module, passing the VM's primitive handler as argument. This is similar to
+passing the \lstinline|interpreterProxy| in C-based VMs, it allows the
+module's primitive functions to interact with the VM, foremost to read
+arguments from the stack and push a result back. An example external module is
+\lstinline|SimplePlugin.js| \todo{Figure SimplePlugin.js}.
+
+
+\section{Evaluation}
+\label{sec:eval}
+\secmissing{Evaluation}
+
+\topa{what are out evaluation criteria?}
+% we could have
+% \item Performance
+% \item Ease of use
+% \item Ease of implementation
+% \item Goal reached to have Etoys running
+% \item ?/?
+
+
+\section{Related Work}
+\label{sec:related}
+\secmissing{Related}
+
+The root for all Squeak implementations is the original Squeak
+\ac{VM}~\cite{Ingalls+:1997:Back-to-the-future:-the-story}, that aims to
+provide an open Smalltalk-80 system. Initially, the original \ac{VM} did only
+provide an interpreter-based execution, hence it is sometimes called
+interpreter \ac{VM}. Although projects like
+Exupery\footnote{\url{http://wiki.squeak.org/squeak/Exupery}} aim to provide a
+\ac{JIT} compiler, this \ac{VM} primarily is used with its interpreter. Also, it serves
+as the reference implementation for other Squeak \acp{VM}.
+
+Another well-known Squeak \ac{VM} is Miranda's
+Cog\ac{VM}~\cite{Miranda2011:The-Cog-Smalltalk-Virtual-Machine:}, providing a
+fully functional \ac{JIT} compiler for Squeak. Cog's primary concern is performance.
+
+The RoarVM\footnote{\url{http://soft.vub.ac.be/~smarr/renaissance/}}~\cite{Pallas+1988:Multiprocessor-Smalltalk:-a-case,Ungar+2009:Hosting-an-object-heap}
+is a quite recent implementation of a Squeak \ac{VM} with a focus on exploiting
+manycore hardware with Squeak.
+
+Potato\footnote{\url{http://sourceforge.net/projects/potatovm/}} and its
+ancestor, JSqueak, are implementations of Squeak in Java. JSqueak served as an
+inspiration for \SqueakJS.
+
+SPy~\cite{Bolz+2008:Back-to-the-Future-in-One-Week}, or RSqueakVM, is an
+implementation of Squeak in the PyPy framework. It is implemented in a subset
+of Python, RPython, to test the variability of their \ac{VM} platforms.
+
+NaClSqueak\footnote{\url{https://github.com/yoshikiohshima/NaClSqueak}}
+
+\todolist{Dyn-lang VMs on DynLangs}{
+\item Amber
+\item LivelyKernel?
+\item (Simulated: AweSOM, Squeak itself)
+\item Smalltalk in Self
+}
+
+\todolist{Dyn-Lang VMs in Higher-level languages (opitonal?)}{
+\item ?
+}
+
+%
+% From the Orca Paper. In spirit ok, do not take verbatim.
+%
+% Amber is a self-contained Smalltalk implementation in JavaScript. It includes a
+% Smalltalk-to-JavaScript compiler, inline calls to JavaScript functionality, and
+% syntax to use JavaScript objects from within Smalltalk. For performance
+% reasons, Amber tries to use native JavaScript values where possible, making it
+% necessary to implement considerable parts of the standard library in the
+% compiler. 
+
+% The Dart Programming language ... . Dart aims on better support for
+% modularity and developer collaboration by providing classes, interfaces,
+% optional types, libraries, and tools. Dart
+% programs can be compiled to JavaScript and then executed in a Web browser. As a
+% general purpose language, Dart does not include support for client-server
+% communication. ...
+
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+\secmissing{Conclusion}
+
+Good idea to make VM actually provide a virtual environment: no FFI, no direct
+exposure of platform libraries. Instead, plugin interface implementable even
+in completely different environments.
+
+Would be nice if all non-essential primitives had working fallback code in
+image. Would serve to get image up and running on a new platform much sooner.
+
+\acks
+
+\SqueakJS is inspired by Dan Ingalls' ``JSqueak/Potato'' \ac{VM} for Java.
+
+The \ac{VM} source code is on GitHub\footnote{\url{https://github.com/bertfreudenberg/SqueakJS}}
+
+\section{Bert's Stuff} 
+\label{sec:stuff}
+
+\todolist{Object Representation}{
+\item Squeak objects are JavaScript objects with direct object references.
+\item SmallIntegers are represented as JavaScript numbers, there is no need for tagging. typeof check
+
+
+\item Instance variables and indexable fields are held in a single Array named "pointers".
+\item Word and byte binary objects store their data in Typed Arrays named "bytes" or "words". \lstinline|Uint32Array| and \lstinline|Uint8Array|.
+\item CompiledMethod instances have both "pointers" (for literals) and "bytes" (for bytecodes). Simplifies access. PC = zero is the first bytecode. 
+\item Float instances are not stored as two words as in Squeak, but have a single "float" property that stores the actual number. The words are generated on-the-fly when needed.
+}
+
+\todolist{Garbage Collection}{
+\item A hybrid scheme. The bulk of the work is delegated to the JavaScript garbage collector. Only in relatively rare circumstances is a "manual" garbage collection needed. This hybrid \ac{GC} is a semi-space \ac{GC} with an old space and a new space. Old space is a linked list of objects, but newly allocated objects are not added to the list, yet. Therefore, unreferenced new objects will be automatically garbage-collected by JavaScript. This is like Squeak's incremental \ac{GC}, which only looks at objects in new space. The full \ac{GC} is a regular mark-and-sweep: it's marking all reachable objects (old and new), then unmarked old objects get removed (a very cheap operation in a linked list), and new objects (identified by their missing link) are added to the old-space list. One nice feature of this scheme is that its implementation does not need weak references, which JavaScript currently does not support.
+\item This scheme also trivially supports object enumeration (Squeak's nextObject/nextInstance primitives): If the object is old, the next object is just the next link in the list. Otherwise, if there are new objects (newSpaceCount > 0) a \ac{GC} is performed, which creates the next object link. But if newSpaceCount is 0, then this was the last object, and we're done.
+\item OOPS are maintained as in regular Squeak VM. Simplifies image saving. New objects get negative temp oops. When compacting, oops of old objects are adjusted. When tenuring, actual oops are assigned: \lstinline|obj.oop = endOfMemory; endOfMemory += obj.totalBytes()|. Objects are tenured in allocation order (sorted by temp oop) to maintain same order as interpreter \ac{VM}.
+\item Todo: implement weak refs
+}
+
+\todolist{UI}{
+\item The UI for now copies the Squeak display bitmap pixel-by-pixel to a typed array and shows it on the HTML 2D canvas using putImageData(). Clipboard copying injects a synthetic CMD-C keyboard event into the VM, then runs the interpreter until it has executed the clipboard primitive in response, then answers that string. This is because the web browser only allows clipboard access inside the copy/paste event handlers.
+\item Lively UI: 
+  bytecode disassembler, debugger, inspector. Makes VM debugging fun.
+}
+\todolist{Files}{
+\item You can drag files from your disk into the Lively world (including Squeak image files). Files are stored in indexedDB and directory entries in \lstinline|localStorage['squeak:/']|.
+}
+
+\section{Dan's stuff}
+\label{sec:dans-stuff}
+
+\subsection{Motivation and Opportunity}
+\label{sec:motiv-opport}
+
+\todolist{Dan a}{
+\item Many reasons to want Squeak and especially EToys to run in browsers, but...
+\item Appeared to be too slow to actually emulate in JS
+\item Appeared to be too complex to subdivide into a interpreter layer and browser graphics layer for better performance
+
+\item Then an independent project (JS emulation of ALTO machine code, emulating ST72 VM) surprised us by actually performing better than original.
+\item We sort of looked at each other and said, "Hmm, do you suppose JSqueak might actually be usable in JS?"
+\item JSqueak was a conveniently small VM complete with a simple Squeak image, JSqueak's Java code was relatively simple to transcribe to JS, and so began the SqueakJS project
+}
+\subsection{Getting it going (bits on the screen)}
+\label{sec:getting-it-going}
+
+\todolist{Dan b}{
+\item Transcribe to JS
+\item Load into Lively
+\item First cut at object memory
+\item BitBlt to canvas
+}
+\subsection{Making it good}
+\label{sec:making-it-good}
+\todolist{Dan c}{
+\item Nifty improvements to object memory
+}\topa{GC stuff, weakrefs??}
+
+\subsection{Making it complete}
+\label{sec:making-it-complete}
+\todolist{Dan d}{
+\item Load modern images
+\item Fancy BB modes
+}\topa{by BB, you mean, bitblit?}
+
+\subsection{Making it happy in the cloud}
+\label{sec:making-it-happy}
+\todolist{Dan e}{
+\item Bert's file system and Lively conveniences
+}
+
+\subsection{Things we learned}
+\label{sec:things-we-learned}
+\todolist{Dan f}{
+\item Small kernels make for (relatively) easy ports and emulations
+\item JSqueak was small enough to be a tractable experiment, yet complete enough to be motivating
+\item Performance is usable, and will only improve with technology
+}
+
+\subsection{Status and Future work}
+\label{sec:status-future-work}
+\todolist{Dan g}{
+\item Perfomance
+\item Examples that run
+\item JITing with JS?
+}
+
+\bibliographystyle{abbrvnat}
+{
+\bibliography{bib}
+}
+
+\end{document}
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:

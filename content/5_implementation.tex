@@ -1,154 +1,19 @@
 \section{Implementation} \label{chapter:IMPLEMENTATION}
 
-This chapter describes how we used the ECMAScript 6 proxies\footnote{\url{http://wiki.ecmascript.org/doku.php?id=harmony:direct_proxies}, accessed February 3rd, 2014} to implement version-aware references for the Lively Kernel.
+This chapter describes our implementation of object-versioning using ECMAScript 6 proxies\footnote{\url{http://wiki.ecmascript.org/doku.php?id=harmony:direct_proxies}, accessed February 3rd, 2014} in the Lively Kernel.
 It presents the proxy's behavior and shows how proxies are inserted for ordinary references using source transformations.
-The chapter also presents workarounds for the current state of ECMAScript 6 proxies.
-It concludes with current limitations.
+The chapter also presents workarounds for the current state of ECMAScript 6 proxies and current limitations of using them.
 
-\subsection{Using the ECMAScript 6 Proxies as Version-aware References} \label{sec:IMPLEMENTATION:1}
+\subsection{Using ECMAScript 6 Proxies for Object Versioning} \label{subsec:IMPLEMENTATION:1.2}
 
-This section first describes the proxies proposed with the next version of JavaScript's standard.
-It then explains how the proxies are used in our implementation.
-
-\subsubsection{ECMAScript 6 Proxies by Example} \label{subsec:IMPLEMENTATION:1.1}
-
-The ECMAScript 6 proxies stand in for objects and intercept all kinds of interactions.
-For example, the proxies intercept property reads, enumerating over an object's properties, and calling a function.
-
-The object a proxy stands in for is its \emph{target}.
-The behavior of a proxy is controlled by a separate \emph{handler} object.
-Target and handler are required when a proxy is created, as in the following example:
-\iffalse
-\begin{verbatim}\fi
-\begin{code}{}{}
-var proxy = new Proxy(target, handler);
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-The handler can implement \emph{traps}, which are specific methods.
-Traps are called when a proxy intercepts corresponding object interactions.
-For example, the \lstinline{get} trap is called for property reads.
-With these traps, the handler specifies how the proxy reacts on object interactions.
-
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:loggingProxy]{Using a proxy to log property reads to an object.}{float,numbers=left}
-var client = {},
-    server = {openSecret: "I don't like Mondays"},
-    handler = {
-        get: function(target, name) {
-            console.log(name + ' was read at ' + Date());
-            
-            return target[name];
-        }
-    }
-
-client.server = new Proxy(server, handler);
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-Listing~\ref{lst:loggingProxy} shows an example, in which a proxy is used to log property reads.
-A \lstinline{client} object is connected to a \lstinline{server} object via a proxy, as shown in Figure~\ref{fig:LoggingProxy}.
-The \lstinline{client} object's \lstinline{server} property is a reference to a proxy and that proxy's target is the \lstinline{server} object.
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=\columnwidth]{figures/5_implementation/1_loggingProxy.pdf}
-    \caption{A \lstinline{client} object has access to a \lstinline{server} object via a proxy.}
-    \label{fig:LoggingProxy}
-\end{figure}
-
-The proxy's handler implements the \lstinline{get} trap.
-The \lstinline{get} trap receives two arguments when called: \lstinline{target} and \lstinline{name}.
-The \lstinline{target} parameter refers to the proxy's target object.
-The \lstinline{name} parameter refers to the name of the property that was read.
-In Listing~\ref{lst:loggingProxy}, the \lstinline{get} trap logs the property read (Line~5), then forwards the read to the \lstinline{target} object and returns the result (Line~7).
-Therefore, a log statement is printed whenever a property of the \lstinline{server} object is read as in the following line of code:
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[]{}{}
-client.server.openSecret;
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-The log statement would look similar to the following: ``openSecret was read at Sat May 10 2014 23:00:54 GMT+0200 (CEST)''.
-
-A handler can implement traps for many kinds of object interactions.
-Table~\ref{table:traps} lists all possible traps with their parameters.
-The \lstinline{apply} trap and the \lstinline{construct} traps are only called when the proxy's target is a function.
-
-\begin{table}[h]
-\begin{center}
-\begin{tabular}{|l|l|r|}
-\hline
-get: function(target, name, receiver) \\ \hline
-set: function(target, name, value, receiver) \\ \hline
-apply: function(target, thisArg, args) \\ \hline
-construct: function(target, args) \\ \hline
-has: function(target, name) \\ \hline
-hasOwn: function(target, name) \\ \hline
-defineProperty: function(target, name, desc) \\ \hline
-deleteProperty: function(target, name) \\ \hline
-getOwnPropertyDescriptor: function(target,name) \\ \hline
-getOwnPropertyNames: function(target) \\ \hline
-getPrototypeOf: function(target) \\ \hline
-freeze: function(target) \\ \hline
-seal: function(target) \\ \hline
-preventExtensions: function(target) \\ \hline
-isFrozen: function(target) \\ \hline
-isSealed: function(target) \\ \hline
-isExtensible: function(target) \\ \hline
-enumerate: function(target) \\ \hline
-keys: function(target) \\ \hline
-\end{tabular}
-\caption[Table caption text]{Traps that proxy handlers can provide.}
-\label{table:traps}
-\end{center}
-\end{table}
-
-The traps fire either when a proxy is accessed with JavaScript operators or when it is passed to meta-programming facilities.
-For example, the \lstinline{apply} trap fires when a proxied function is applied as in the following statement:
-\iffalse
-\begin{verbatim}\fi
-\begin{code}{}{}
-proxy();
-\end{code}
-\iffalse
-\end{verbatim}\fi
-The \lstinline{preventExtensions} trap fires when a proxy is passed to the respective function of the global \lstinline{Object}.
-The \lstinline{preventExtensions} function prevents subsequentely adding new properties to an object.
-The trap would be triggered by the following statement:
-\iffalse
-\begin{verbatim}\fi
-\begin{code}{}{}
-Object.preventExtensions(proxy);
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
+The ECMAScript 6 proxies \emph{stand in} for their target objects and intercept different interactions using \emph{traps}.
+The implementation of the traps is provided by a separate \emph{handler} object.
 When a proxy's handler does not implement a trap, the proxy forwards the intercepted interaction to the target.
+On the hand, if all traps are implemented, all interaction can be handled without forwarding to the target object.
 
-\paragraph{Using the Proxies as Virtual Objects}
-The proxies require target objects to which they forward by default.
-However, when a proxy's handler implements all traps, all intercepted interactions can be handled without forwarding to the target object.
-Therefore, even though proxies have target objects, the target objects do not have to be accessed with any object interactions.
-\\
-This solution for using the proxies as virtual objects is also suggested by the official documentation\footnote{\url{http://wiki.ecmascript.org/doku.php?id=harmony:direct\_proxies\#virtual_objects}, accessed May 11, 2014}.
-
-
-
-\subsubsection{Using the Proxies for Object Versioning} \label{subsec:IMPLEMENTATION:1.2}
-
-The proxies stand in for multiple versions of an object in our implementation.
-They forward all object interactions to one of those.
-
-Figure~\ref{fig:VersioningProxy} exemplifies our usage of the proxies.
-In the example, a proxy stands in for two versions of an \lstinline{address} object: The proxy's handler holds a reference to a \lstinline{versions} object, which in turn refers to the versions of the \lstinline{address} object.
-The proxy's target is ommited from Figure~\ref{fig:VersioningProxy} as we used the proxies as virtual objects.
-They do not forward to their target objects.
+In our implementation, proxies delegate to one of multiple versions of an object.
+In \autoref{fig:VersioningProxy} a proxy stands in for two versions of an \lstinline{address} object: The proxy's handler holds a reference to a \lstinline{versions} object, which in turn refers to the versions of the \lstinline{address} object.
+The proxy's target is ommited from \autoref{fig:VersioningProxy} as we used the proxies as purely virtual objects.
 
 \begin{figure}[h]
     \centering
@@ -157,174 +22,38 @@ They do not forward to their target objects.
     \label{fig:VersioningProxy}
 \end{figure}
 
-Our handler uses all traps to forward to the current version of an object.
-For example, its \lstinline{get} trap is implemented as shown in Listing~\ref{lst:getTrap}\footnote{The code in this chapter is a simplified version of the actual code. It omits special cases for workarounds (Section~\ref{sec:IMPLEMENTATION:4}) and debugging the implementation. The actual code is available at \url{http://github.com/LivelyKernel/LivelyKernel/commits/50181548}.}.
+Our handler uses all available traps to forward to the current version of an object.
+Each trap retrieves the current version of the object using the \lstinline{currentVersion} function, which selects the object version based on the active system version information.
+The version information is available globally as \lstinline{lively.CurrentVersion}, an ordinary JavaScript object with three properties: an \lstinline{ID}, a \lstinline{predecessor}, and a \lstinline{successor}.
 
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:getTrap]{The handler's \lstinline{get} trap.}{float,numbers=left}
-get: function(dummyTarget, name) {
-    var version = this.currentVersion();
-    
-    return version[name];
-}
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-First, the trap retrieves the current version of the object using the \lstinline{currentVersion} function (Line~2).
-Subsequentely, the trap reads the property from the version and returns the result (Line~4).
-
-The \lstinline{currentVersion} function chooses one of the versions of the object the proxy stands in for.
-It does so according to the version of the system.
-The system version is available globally as \lstinline{lively.CurrentVersion}.
-It is an ordinary JavaScript object with three properties: an \lstinline{ID}, a \lstinline{predecessor}, and a \lstinline{successor}.
-The \lstinline{currentVersion} function uses the \lstinline{ID} property to look up the correct version in its \lstinline{versions} object.
-
-Object versions of previous system versions are not allowed to change.
-However, when an object is not changed in versions of the system, a previous object version still reflects the current state.
-For this reason, our implementation does not copy objects that were not changed.
-Instead, the \lstinline{currentVersion} function retrieves the latest available version as shown in Listing~\ref{lst:currentVersion}.
-
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:currentVersion]{The handler's \lstinline{currentVersion} method.}{float,numbers=left}
+\begin{code}
 currentVersion: function() {
-    var objectVersion,
-        systemVersion = lively.CurrentVersion;
-    
-    while(!objectVersion \&\& systemVersion) {
-        objectVersion = this.versions[systemVersion.ID];
+    var objectVersion, systemVersion = lively.CurrentVersion;
 
+    while(!objectVersion && systemVersion) {
+        objectVersion = this.versions[systemVersion.ID];
         systemVersion = systemVersion.predecessor;
-    }
-    
+    }    
     return objectVersion;
 }
 \end{code}
-\iffalse
-\end{verbatim}\fi
 
-All traps that only read state select the version to forward to using the \lstinline{currentVersion} function.
-However, traps that intercept changes are not allowed to forward to object versions of previous system versions.
-Instead, they need to make sure that a version of the object exists for the current system version.
-If such a version does not exist, the latest available version is copied and added to the \lstinline{versions} object.
+All traps that intercept read-only access select the version to forward to using the \lstinline{currentVersion} function.
+However, traps that intercept changes instead ensure a version of the object exists for the current system version, because the past cannot be allowed to change.
+If no current version exists, the latest available version is copied and added to the \lstinline{versions} dictionary.
+The traps that act in this way are \lstinline{set}, \lstinline{defineProperty}, \lstinline{deleteProperty}, \lstinline{freeze}, \lstinline{seal}, \lstinline{preventExtensions}, and \lstinline{apply}.
+The \lstinline{apply} trap is included in this list because certain array functions such as \lstinline{push} and \lstinline{pop} are mutating, so when they are applied, a current version must be created.
 
-Listing~\ref{lst:versionForWriteAccess} shows the \lstinline{versionForWriteAccess} function that always returns an object version for the current system version.
-The function is used by all traps that intercept changes, which are listed in Table~\ref{table:writeTraps}.
-The \lstinline{apply} trap is included in this list because certain array functions such as \lstinline{push} and \lstinline{pop} are mutating.
+The current version remains unchanged as long as the global \lstinline{lively.CurrentVersion} remains constant.
+Changing the global version is an \emph{undo}, \emph{redo}, or \emph{commit} depending on whether the version is set to a previous, following, or new version.
+The system provides convenience functions for these actions.
+Using a global version of the system is reasonable as JavaScript is executed single-threaded, so the global version cannot be changed by another script.
 
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:versionForWriteAccess]{The handler's \lstinline{versionForWriteAccess} method.}{float,numbers=left}
-versionForWriteAccess: function() {
-    var newVersion;
-    
-    if (!this.versions[lively.CurrentVersion.ID]) {
-        newVersion = this.copyObject(this.currentVersion());
-        
-        this.versions[lively.CurrentVersion.ID] = newVersion;
-    }
-    
-    return this.currentVersion();
-},
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-\begin{table}[h]
-\begin{center}
-\begin{tabular}{|l|l|r|}
-\hline
-set: function(target, name, value, receiver) \\ \hline
-defineProperty: function(target, name, desc) \\ \hline
-deleteProperty: function(target, name) \\ \hline
-freeze: function(target) \\ \hline
-seal: function(target) \\ \hline
-preventExtensions: function(target) \\ \hline
-apply: function(target, thisArg, args) \\ \hline
-\end{tabular}
-\caption[Table caption text]{Traps that intercept changes.}
-\label{table:writeTraps}
-\end{center}
-\end{table}
-
-Given the \lstinline{currentVersion} and the \lstinline{versionForWriteAccess} functions, the version of the system is written as long as it is referred to by \lstinline{lively.CurrentVersion}.
-To re-establish a different version, only \lstinline{lively.CurrentVersion} has to be changed.
-Changing the global version is an undo, redo, or commit depending on whether the version is set to a previous, following, or new version.
-The system provides the following three functions for this: \lstinline{lively.undo} (Listing~\ref{lst:undo}), \lstinline{lively.redo} (Listing~\ref{lst:redo}), and \lstinline{lively.commit} (Listing~\ref{lst:commit}).
-
-Using a global version of the system is reasonable as JavaScript is executed single-threaded and scheduled cooperatively by the JavaScript engines.
-Therefore, while a script runs, the global version cannot be changed by another script.
-
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:undo]{The \lstinline{lively.undo} method.}{float,numbers=left}
-undo: function() {
-    var predecessor = lively.CurrentVersion.predecessor;
-    
-    if (!predecessor) {
-        throw new Error('Can\'t undo: No previous version.');
-    }
-    
-    lively.CurrentVersion = predecessor;
-}
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:redo]{The \lstinline{lively.redo} method.}{float,numbers=left}
-redo: function() {
-    var successor = Lively.CurrentVersion.successor;
-    
-    if (!successor) {
-        throw new Error('Can\'t redo: No next version.');
-    }
-    
-    lively.CurrentVersion = successor;
-}
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:commit]{The \lstinline{lively.commit} method.}{float,numbers=left}
-commit: function() {
-    var predecessor = lively.CurrentVersion,
-        newVersion;
-    
-    newVersion = {
-        ID: predecessor.ID + 1,
-        predecessor: predecessor,
-        successor: null
-    };
-    predecessor.successor = newVersion;
-    
-    lively.CurrentVersion = newVersion;
-}
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
- 
-\subsubsection{Scope of the Versioning} \label{subsubsec:IMPLEMENTATION:5.2.1}
-
-Using the proxies allows multiple versions of JavaScript objects.
-However, certain host objects cannot be versioned with our implementation.
-These include the objects that represent the elements of the browser's \ac{dom}.
-Some of the \ac{dom} objects cannot be copied.
-Therefore, it is not possible to create multiple versions of them.
-Furthermore, the \ac{dom} objects are referred to from the browser's \ac{dom}, which is external to the JavaScript runtime and which, thus, does not use proxies to access the objects.
-However, this is not a problem, because the state of the \ac{dom} can be derived from the Lively Kernel's morph objects.
-For this reason, we update the \ac{dom} from the current set of visible morphs when the system version changes.
-Besides these host objects, all objects that are accessed through our proxies are versioned with the system versions.
-
-
-
-
+\paragraph{Scope of the Versioning} \label{subsubsec:IMPLEMENTATION:5.2.1}
+Using proxies allows multiple versions of most JavaScript objects, but certain objects represent the elements of the browser's \ac{dom} cannot be versioned with our implementation.
+\ac{dom} objects are referred to from the browser's internal \ac{dom} structure, which is external to the JavaScript runtime.
+In the Lively Kernel, this does not represent a problem, because the state of the \ac{dom} can be derived from morphs.
+Whenever the system version changes, we update the \ac{dom} from the current set of visible morphs.
 
 \subsection{Accessing All Mutable JavaScript Objects Through Proxies}
 
@@ -351,7 +80,7 @@ Our implementation uses source transformations and the proxy traps to have these
 
 We use source transformations to wrap literal expressions into calls to a \lstinline{proxyFor} function.
 The function returns a proxy for its argument.
-The transformations for literal objects, arrays, and functions are shown in Table~\ref{table:literalTransforms}.
+The transformations for literal objects, arrays, and functions are shown in \autoref{table:literalTransforms}.
 
 \begin{table}[h]
 \begin{center}
@@ -378,7 +107,7 @@ It does not need to be assigned to a variable to be available in the surrounding
 The following statement is a function declaration:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 function add(a, b) {return a + b}
 \end{code}
 \iffalse
@@ -388,7 +117,7 @@ In contrast, a \emph{function expression} creates a function that needs to be as
 The following statement assigns a function expression to a variable:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 var subtract = function(a, b) {return a - b}
 \end{code}
 \iffalse
@@ -398,7 +127,7 @@ Function expressions can create anonymous and named functions.
 The previous example creates an anonymous function, while the following example creates a named function:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 var multiply = function multiply(a, b) {return a * b}
 \end{code}
 \iffalse
@@ -412,7 +141,7 @@ It has to start with the \lstinline{function} keyword.
 Therefore, when a function declaration is wrapped into a function call, it becomes a function expression.
 The function would no longer be available by its name in the surrounding scope.
 For this reason, the function declarations that are wrapped into calls to the \lstinline{proxyFor} function are assigned to matching variable names.
-Table~\ref{table:funcTransform} shows an example for this transformation.
+\autoref{table:funcTransform} shows an example for this transformation.
 
 \begin{table}[h]
 \begin{center}
@@ -432,11 +161,11 @@ In addition, because function declarations get hoisted in JavaScript, transforme
 \subsubsection{Accessor Functions}
 
 Accessor functions are functions that are executed instead of property reads or writes.
-Listing~\ref{lst:accessorOriginal} shows an example in which an accessor function is used to allow reading a \lstinline{person} object's \lstinline{age} property even though the object actually only has a \lstinline{birthdate} property.
+\autoref{lst:accessorOriginal} shows an example in which an accessor function is used to allow reading a \lstinline{person} object's \lstinline{age} property even though the object actually only has a \lstinline{birthdate} property.
 
 \iffalse
 \begin{verbatim}\fi
-\begin{code}[lst:accessorOriginal]{An object literal with accessor function.}{float,numbers=left}
+\begin{code}
 var person = {
     birthdate: new Date(1984,27,5),
     get age() {
@@ -450,13 +179,13 @@ var person = {
 Wrapping the accessor function into a call to the \lstinline{proxyFor} function would not yield valid JavaScript syntax.
 However, accessor functions can also be defined using the \lstinline{Object.defineProperty} function.
 For this reason, the object is first created without the accessor function and the function is added afterwards using \lstinline{Object.defineProperty}.
-Listing~\ref{lst:accessorTransformed} shows the result of transforming the example in Listing~\ref{lst:accessorOriginal} in this way.
+\autoref{lst:accessorTransformed} shows the result of transforming the example in \autoref{lst:accessorOriginal} in this way.
 The object literal and the call to \lstinline{Object.defineProperty} are wrapped into an anonymous functions that is applied directly.
 This allows to have the object be available in a variable for the \lstinline{Object.defineProperty} function call without polluting the variable bindings of the originally surrounding scope.
 
 \iffalse
 \begin{verbatim}\fi
-\begin{code}[lst:accessorTransformed]{The result of transforming an object literal with accessor function.}{float,numbers=left}
+\begin{code}
 var person = function() {
     var newObject = lively.proxyFor({
         birthdate: new Date(1984,27,5);
@@ -480,11 +209,11 @@ var person = function() {
 
 When functions are used as constructors, they need to return proxies.
 In JavaScript, all functions can be used as constructors and create objects when called with the \lstinline{new} operator.
-Listing~\ref{lst:constructorFunction} shows how a literal function is used to construct a new object.
+\autoref{lst:constructorFunction} shows how a literal function is used to construct a new object.
 
 \iffalse
 \begin{verbatim}\fi
-\begin{code}[lst:constructorFunction]{Applying a function with the \lstinline{new} operator.}{float, numbers=left}
+\begin{code}
 function Person() {}
 var someone = new Person();
 \end{code}
@@ -492,11 +221,11 @@ var someone = new Person();
 \end{verbatim}\fi
 
 We use the \lstinline{construct} trap to return proxies from proxied functions that are used as constructors.
-Listing~\ref{lst:constructTrap} shows the \lstinline{construct} trap of our proxy handlers.
+\autoref{lst:constructTrap} shows the \lstinline{construct} trap of our proxy handlers.
 
 \iffalse
 \begin{verbatim}\fi
-\begin{code}[lst:constructTrap]{The handler's \lstinline{contruct} trap.}{float,numbers=left}
+\begin{code}
 construct: function(dummyTarget, args) {
     var constructor, prototype, newObject, result;
     
@@ -541,7 +270,7 @@ It evaluates the string as JavaScript code and, depending on the code string, ca
 \subsubsection{Wrapping Built-in Constructor Functions}
 
 We transform the built-in constructor functions by wrapping each into calls to the \lstinline{proxyFor} function.
-Table~\ref{table:transformingBuiltInConstructors} shows this with two examples for the global \lstinline{Object} function.
+\autoref{table:transformingBuiltInConstructors} shows this with two examples for the global \lstinline{Object} function.
 
 \begin{table}[h]
 \begin{center}
@@ -563,7 +292,7 @@ As these functions also create objects when called without the \lstinline{new} o
 Therefore, the last line of our \lstinline{apply} trap is:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 this.ensureProxied(result);
 \end{code}
 \iffalse
@@ -584,7 +313,7 @@ Using the same proxies for the same objects is not only an optimization, but nec
 As a result of using the Proxy Table, the following statement returns \lstinline{true} for an arbitrary \lstinline{obj} object:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 proxyFor(obj) === proxyFor(obj);
 \end{code}
 \iffalse
@@ -598,7 +327,7 @@ Besides the built-in constructors, other built-in functions that create new obje
 For example, the following statement needs to return a proxy:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 Object.create(proto);
 \end{code}
 \iffalse
@@ -608,7 +337,7 @@ In addition to the \lstinline{construct} trap and the \lstinline{apply} trap, we
 Analogous to our \lstinline{apply} trap, the last line of our \lstinline{get} trap is:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 this.ensureProxied(result);
 \end{code}
 \iffalse
@@ -620,7 +349,7 @@ Furthermore, this proxy's \lstinline{construct} trap returns a proxy when applie
 Thus, the following statement returns a proxy for the new object:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 proxyFor(Object).create(proto);
 \end{code}
 \iffalse
@@ -633,7 +362,7 @@ It can return object graphs for the string argument provided.
 For example, the following statement returns an object with an \lstinline{address} property, which is in turn an object:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 eval("{age: 12, address: {street: 'Kantstr', city: 'Berlin'}}")
 \end{code}
 \iffalse
@@ -730,7 +459,7 @@ In particular, it checks whether the \lstinline{prototype} property of a functio
 For example, the following statement checks this for the \lstinline{Person} function and the \lstinline{me} object:
 \iffalse
 \begin{verbatim}\fi
-\begin{code}{}{}
+\begin{code}
 me instanceof Person
 \end{code}
 \iffalse
@@ -746,7 +475,7 @@ However, while trapping the \lstinline{instanceof} operator is under discussion\
 
 Our implementation provides a custom \lstinline{Object.instanceof} function, which implements the semantics of the \lstinline{instanceof} operator but delegates to object versions when applied with a proxy as argument.
 Consequentely, all usage of the \lstinline{instanceof} operator is transformed to the \lstinline{Object.instanceof} function.
-Table~\ref{table:transformingInstanceof} shows this transformation by example.
+\autoref{table:transformingInstanceof} shows this transformation by example.
 
 \begin{table}[h]
 \begin{center}
@@ -792,11 +521,11 @@ Additionally, the iterator functions of arrays handle proxies correctly.
 Instances of strings are immutable and are not accessed through proxies in our implemention.
 Therefore, unwrapping arguments in the \lstinline{apply} trap is not a solution for the string methods that do not handle proxies correctly.
 For this reason, our implementation patches these string functions explicitly.
-The functions are patched with functions that unwrap proxies before executing the original functions, as shown in Listing~\ref{lst:stringPatch}.
+The functions are patched with functions that unwrap proxies before executing the original functions, as shown in \autoref{lst:stringPatch}.
 
 \iffalse
 \begin{verbatim}\fi
-\begin{code}[lst:stringPatch]{Patching a method of string instances.}{float,numbers=left}
+\begin{code}
 var originalStringMatch = String.prototype.match;
 String.prototype.match = function match(regexp) {
     var exp = Object.isProxy(regexp) ?
@@ -824,7 +553,7 @@ We are aware of three limitations of our implementation.
 
 \paragraph{Availability of ECMAScript 6 Proxies}
 Our implementation requires the ECMAScript 6 proxies to be available.
-The proxies are part of the next version of ECMAScript, which has currently neither been finalized nor completely implemented, as described in Section~\ref{sec:IMPLEMENTATION:4}.
+The proxies are part of the next version of ECMAScript, which has currently neither been finalized nor completely implemented, as described in \autoref{sec:IMPLEMENTATION:4}.
 For this reason, our implementation works only in versions of Firefox and Chrome that already implement preliminary versions of the proxies.
 Furthermore, Chrome users need to enable the proxies explicitly\footnote{\url{http://plus.google.com/+PaulIrish/posts/T615Md5JPQG}, accessed May 13, 2014}.
 
@@ -847,3 +576,8 @@ For example, the method that is called repeatedly can be unavailable in the prev
 For this reason, we stop scripts from future versions, when the system version changes.
 However, we did not succeed in finding a way to restart the scripts again when the future versions are re-established.
 Thus, subsequentely undoing and redoing changes can stop concurrently running scripts.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "../main"
+%%% End:

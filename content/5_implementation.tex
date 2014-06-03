@@ -57,114 +57,54 @@ Whenever the system version changes, we update the \ac{dom} from the current set
 
 \subsection{Accessing All Mutable JavaScript Objects Through Proxies}
 
-To be able to re-establish the system state with our versioning, our proxies need to be used to access all objects, arrays, and functions.
-This is necessary because objects, arrays, and functions are mutable in JavaScript.
-In fact, functions and arrays are objects.
-They can have arbitrary properties.
-
-Our implementation changes the return values of all expressions that create new objects.
+To be able to re-establish the system state with our versioning, we change the return values of all expressions that create new objects, arrays, and functions.
+All these are mutable in JavaScript and might have arbitrary properties added to them.
 Instead of letting these expressions return references to the new objects, the expressions return references to proxies for the objects.
-As a result, references to proxies are passed around instead of references to objects so that all access goes through the proxies.
 
 In JavaScript, there are three categories of expressions that create new objects: 
 \begin{itemize}
-    \item literal expressions: e.g. \lstinline|{age: 12}|
-    \item constructor functions: e.g. \lstinline|new Person(12)|
-    \item specific built-in functions: e.g. \lstinline|Object.create(prototype, {age: 12})|
+    \item literals, \eg\lstinline|{age: 12}|
+    \item constructors, \eg\lstinline|new Person(12)|
+    \item some built-ins, \eg\lstinline|Object.create(prototype, {age: 12})|
 \end{itemize}
 
 Our implementation uses source transformations and the proxy traps to have these expression return proxies.
 
-
 \subsubsection{Transforming Literal Expressions}
 
 We use source transformations to wrap literal expressions into calls to a \lstinline{proxyFor} function.
-The function returns a proxy for its argument.
-The transformations for literal objects, arrays, and functions are shown in \autoref{table:literalTransforms}.
-
-\begin{table}[h]
-\begin{center}
-\begin{tabular}{| l | l | l |}
-\hline
-Type & Input & Output \\ \hline
-\emph{Objects} & \lstinline|{name: 'James', age: 24}| & \lstinline|proxyFor(name: 'James', age: 24)| \\ \hline
-\emph{Arrays} & \lstinline|[person1, person2]| & \lstinline|proxyFor([person1, person2])| \\ \hline
-\emph{Functions} & \lstinline|function (a, b) {..}| & \lstinline|proxyFor(function (a, b) {..})| \\ \hline
-\end{tabular}
-\end{center}
-\caption[Table caption text]{Transforming literal objects, arrays, and functions.}
-\label{table:literalTransforms}
-\end{table}
-
+The expression \lstinline|{age: 12}| becomes \lstinline|proxyFor({age: 12})|, \lstinline{[a, b]} becomes \lstinline{proxyFor([a, b])}, and so forth.
 However, some literal forms cannot be wrapped into function calls without introducing problems.
 In particular, function declarations and accessor functions need to be handled differently.
 
-
 \subsubsection{Function Declarations}
 
-A \emph{function declaration} is a function literal that creates a named function and makes it available by the name.
-It does not need to be assigned to a variable to be available in the surrounding scope.
-The following statement is a function declaration:
-\iffalse
-\begin{verbatim}\fi
+A \emph{function declaration} is a function literal that creates a named function and makes it available by the name in the surrounding scope:
 \begin{code}
-function add(a, b) {return a + b}
+function add(a, b) { return a + b }
 \end{code}
-\iffalse
-\end{verbatim}\fi
 
-In contrast, a \emph{function expression} creates a function that needs to be assigned to a variable to be accessible.
-The following statement assigns a function expression to a variable:
-\iffalse
-\begin{verbatim}\fi
+In contrast, a \emph{function expression} creates a function that needs to be assigned to a variable to be accessible:
 \begin{code}
-var subtract = function(a, b) {return a - b}
+var add = function add(a, b) { return a + b }
 \end{code}
-\iffalse
-\end{verbatim}\fi
 
 Function expressions can create anonymous and named functions.
-The previous example creates an anonymous function, while the following example creates a named function:
-\iffalse
-\begin{verbatim}\fi
-\begin{code}
-var multiply = function multiply(a, b) {return a * b}
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-An anonymous function is always a function expression.
-A named function is either a function expression or a function declaration, depending on where it is expressed.
+The previous example creates a named function.
+Omitting the function name after the \lstinline{function} keyword would create an anonymous function.
+While an anonymous function is always a function expression, a named function is either a function expression or a function declaration, depending on where it is expressed.
 A function declaration cannot be nested into other statements such as variable assignments.
-It has to start with the \lstinline{function} keyword.
 
-Therefore, when a function declaration is wrapped into a function call, it becomes a function expression.
-The function would no longer be available by its name in the surrounding scope.
-For this reason, the function declarations that are wrapped into calls to the \lstinline{proxyFor} function are assigned to matching variable names.
-\autoref{table:funcTransform} shows an example for this transformation.
-
-\begin{table}[h]
-\begin{center}
-\begin{tabular}{| l | l | l |}
-\hline
-Input & Output \\ \hline
-\lstinline|function div() {}| & \lstinline|var div = proxyFor(function div() {})| \\ \hline
-\end{tabular}
-\end{center}
-\caption[Table caption text]{Transforming a function declaration.}
-\label{table:funcTransform}
-\end{table}
-
+When a function declaration is wrapped into a \lstinline{proxyFor} function call, it becomes a function expression, meaning that it is no longer available by name in its surrounding scope.
+After wrapping function declarations, they are assigned to matching variable names:
+\lstinline|function div() {}| becomes \lstinline|var div = proxyFor(function div() {})|.
 In addition, because function declarations get hoisted in JavaScript, transformed function declarations are moved to the beginning of the defining scope.
-
 
 \subsubsection{Accessor Functions}
 
 Accessor functions are functions that are executed instead of property reads or writes.
-\autoref{lst:accessorOriginal} shows an example in which an accessor function is used to allow reading a \lstinline{person} object's \lstinline{age} property even though the object actually only has a \lstinline{birthdate} property.
+The following example uses an accessor function to allow reading a \lstinline{person}'s \lstinline{age} property, and have it calculated on access.
 
-\iffalse
-\begin{verbatim}\fi
 \begin{code}
 var person = {
     birthdate: new Date(1984,27,5),
@@ -173,18 +113,11 @@ var person = {
     }
 }
 \end{code}
-\iffalse
-\end{verbatim}\fi
 
-Wrapping the accessor function into a call to the \lstinline{proxyFor} function would not yield valid JavaScript syntax.
-However, accessor functions can also be defined using the \lstinline{Object.defineProperty} function.
+Wrapping the accessor function into a call to \lstinline{proxyFor} would not yield valid JavaScript syntax.
 For this reason, the object is first created without the accessor function and the function is added afterwards using \lstinline{Object.defineProperty}.
-\autoref{lst:accessorTransformed} shows the result of transforming the example in \autoref{lst:accessorOriginal} in this way.
-The object literal and the call to \lstinline{Object.defineProperty} are wrapped into an anonymous functions that is applied directly.
-This allows to have the object be available in a variable for the \lstinline{Object.defineProperty} function call without polluting the variable bindings of the originally surrounding scope.
+The object literal and the call to \lstinline{Object.defineProperty} are wrapped into an anonymous functions that is immediately called to avoid polluting the variable bindings of the originally surrounding scope:
 
-\iffalse
-\begin{verbatim}\fi
 \begin{code}
 var person = function() {
     var newObject = lively.proxyFor({
@@ -200,61 +133,36 @@ var person = function() {
     return newObject;
 }();
 \end{code}
-\iffalse
-\end{verbatim}\fi
-
-
 
 \subsection{Returning Proxies from Constructor Functions} 
 
-When functions are used as constructors, they need to return proxies.
-In JavaScript, all functions can be used as constructors and create objects when called with the \lstinline{new} operator.
-\autoref{lst:constructorFunction} shows how a literal function is used to construct a new object.
-
-\iffalse
-\begin{verbatim}\fi
-\begin{code}
-function Person() {}
-var someone = new Person();
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-We use the \lstinline{construct} trap to return proxies from proxied functions that are used as constructors.
-\autoref{lst:constructTrap} shows the \lstinline{construct} trap of our proxy handlers.
-
-\iffalse
-\begin{verbatim}\fi
+In JavaScript, all functions can be used as constructors when called with the \lstinline{new} operator and if so used, they need to return proxies.
+We use the \lstinline{construct} trap to simulate the object construction and return a proxy around the newly created object:
 \begin{code}
 construct: function(dummyTarget, args) {
-    var constructor, prototype, newObject, result;
-    
-    constructor = this.currentVersion()
-    
-    prototype = constructor.prototype ? constructor.prototype : {};
-    newObject = Object.create(prototype);
-    
-    result = constructor.apply(newObject, args);
-    
-    return proxyFor(result ? result : newObject);
+        // find the current version of the constructor
+    var constructor = this.currentVersion(),
+        prototype = constructor.prototype || {},
+        // create the object with the appropriate prototype
+        newObject = Object.create(prototype),
+        // call the constructor function
+        result = constructor.apply(newObject, args);
+    // return a proxy for the return value of the constructor
+    // if any, otherwise for the new object
+    return proxyFor(result || newObject);
 }
 \end{code}
-\iffalse
-\end{verbatim}\fi
 
-The \lstinline{construct} trap does the following:
-\begin{enumerate}
-    \item It retrieves the current version of the constructor (Line~4).
-    \item It creates a new object with the correct prototype (Line~7).
-    \item It calls the constructor with the new object as argument (Line~9).
-    \item It returns a proxy for either the return value of the constructor function or, in case the constructor did return a falsy value, the new object (Line~11).
-\end{enumerate}
+% \begin{enumerate}
+%     \item It retrieves the current version of the constructor (Line~1).
+%     \item It creates a new object with the correct prototype (Line~2).
+%     \item It calls the constructor with the new object as argument (Line~3).
+%     \item It returns a proxy for return value of the constructor function or, if the constructor returned a falsy value, the new object (Line~4).
+% \end{enumerate}
 
 This way, all proxied functions return proxies when used as constructors.
-With the previously presented transformations of literal expressions all literal functions are accessed through proxies.\\
-However, there are also functions built into the JavaScript engines.
-These are not created from function literals and, therefore, cannot be proxied by transforming function literals.
-
+With the previously presented transformations of literal expressions all literal functions are accessed through proxies.
+Additionally, functions built into the JavaScript \acp{vm} are not created from function literals and must be wrapped separately.
 
 \subsection{Wrapping Built-in Functions Into Proxies}
 

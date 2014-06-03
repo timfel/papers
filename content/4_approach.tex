@@ -7,7 +7,7 @@
 
 A previous version of an object is, in the simplest case, a copy of the object before its state was manipulated.
 Consider an object representing an address with fields for \lstinline{street}, \lstinline{number}, and\lstinline{city}.
-As the user interacts with the object, its state changes and different \emph{versions} (i.e., co-existing copies) of the object are created (Figure~\ref{fig:VersionPreserved}.)
+As the user interacts with the object, its state changes and different \emph{versions} (i.e., co-existing copies) of the object are created (\autoref{fig:VersionPreserved}.)
 The two objects have no additional information to indicate to which version of the system they belong, nor do they store any information showing that one is a copy of the other.
 
 \begin{figure}[h]
@@ -20,7 +20,7 @@ The two objects have no additional information to indicate to which version of t
 
 To be able to access different versions of an object, its previous states need to be kept alive through our \emph{version-aware references}.
 Version-aware references behave like ordinary references, but they know which versions of an object are available and always resolve to one of those based on context information.
-When, for example, an object representing a person references its \lstinline{address}, we use a version-aware reference to resolve to either \emph{v1} or \emph{v2} of the address, as shown in Figure~\ref{fig:VersionAwareReferenceFollowingVersion2}.
+When, for example, an object representing a person references its \lstinline{address}, we use a version-aware reference to resolve to either \emph{v1} or \emph{v2} of the address, as shown in \autoref{fig:VersionAwareReferenceFollowingVersion2}.
 
 \begin{figure}[h]
     \centering
@@ -32,7 +32,7 @@ When, for example, an object representing a person references its \lstinline{add
 In the same way, multiple version-aware references can be resolved as one path through a graph of versions.
 Through different possible traversals of the version-aware object graph, different versions of the system emerge.
 The version-aware references all choose versions of objects that belong to the same system state.
-Figure~\ref{fig:ObjectGraphWithReferencesResolvedAlongVersion2} shows such an object graph.
+\autoref{fig:ObjectGraphWithReferencesResolvedAlongVersion2} shows such an object graph.
 
 \begin{figure}[h]
     \centering
@@ -43,12 +43,13 @@ Figure~\ref{fig:ObjectGraphWithReferencesResolvedAlongVersion2} shows such an ob
 
 
 \subsection{Versions of the System}
+\label{sec:versions-system}
 
 To establish system versions from version-aware object graphs, the version-aware references resolve to different object versions dynamically based on a \emph{version identifier}.
 As this identifier changes, the version-aware references resolve to other versions of objects.
 In order to undo a change made in version \emph{v2} of the system, the version identifier is simply set back to \emph{v1}.
 
-Given the example situation from Figure~\ref{fig:ObjectGraphWithReferencesResolvedAlongVersion2}, the following statement would refer to three different values depending on the version identifier:
+Given the example situation from \autoref{fig:ObjectGraphWithReferencesResolvedAlongVersion2}, the following statement would refer to three different values depending on the version identifier:
 \iffalse
 \begin{verbatim}\fi
 \begin{code}{}{}
@@ -59,7 +60,7 @@ Company.CEO.address.number
 
 Evaluating the statement in version \emph{v1} would return the value \lstinline{null}, in version \emph{v2} the value \lstinline{148}, and in version \emph{v3} the value \lstinline{112b}.
 Note that no \emph{v2} reference exists from \lstinline{Company} to a \lstinline{ceo}.
-Version identifiers are ordered, so when no current version is available, the latest available version is used.
+Version identifiers have a \emph{predecessor} and a \emph{successor}, so when no current version is available, the most recent available version can be found.
 This optimization allows to only create new versions of objects when necessary.
 
 The version identifier needs to be accessible to the version-aware references.
@@ -85,18 +86,13 @@ This way, programmers could undo and redo the changes of their actions regardles
 % Before such writes, previous object versions continue to reflect the current state and can be read until they are changed.
 
 
-\subsection{Using Proxies as Version-aware References} \label{sec:APPROACH:2}
+\subsection{Ubiquitous Proxies as Version-aware References} \label{sec:APPROACH:2}
 
-We used proxies to implement version-aware references in JavaScript.
-Instead of actually requiring \emph{alternative references}, proxies are referred to by \emph{ordinary references} and transparently delegate to versions. 
-This way, proxies allow a language-level implementation of version-aware references that works with existing JavaScript engines.
-
-\subsubsection{Proxies as Version-aware References}
-
-Figure~\ref{fig:ProxyBasedVersionAwareReference} exemplifies how a proxy implements a version-aware reference in our solution.
-The proxy connects a \lstinline{person} object to the two versions of its \lstinline{address} property.
-The \lstinline{person} holds an ordinary reference to the proxy in its \lstinline{address} slot.
-The proxy in turn knows which versions are available for the \lstinline{address} object.
+Applications written in JavaScript typically have to work on a variety of client \acp{vm} included in different Web browsers.
+This makes a language-level implementation preferable to an implementation of \emph{alternative references} in each JavaScript \ac{vm}\@.
+We use proxies pointed to by \emph{ordinary references} to delegate to object versions transparently, as shown in \autoref{fig:ProxyBasedVersionAwareReference}.
+Each property accessed on a proxy is forwarded transparently to the correct version of the object.
+Thus, proxies in this design are \emph{virtual objects}~\cite{VanCutsem2010PDP}; they do not stand in for a specific object, but can forward intercepted interactions to any object.
 
 \begin{figure}[h]
     \centering
@@ -105,21 +101,6 @@ The proxy in turn knows which versions are available for the \lstinline{address}
     \label{fig:ProxyBasedVersionAwareReference}
 \end{figure}
 
-When the \lstinline{address} property of the \lstinline{person} object is accessed, the proxy forwards the access transparently to a version.
-For example, in version \emph{v2} of the system as indicated in Figure~\ref{fig:ProxyBasedVersionAwareReference}, even if the \lstinline{address} property is a proxy, reading the proxy's \lstinline{city} property returns the string \lstinline{'Berlin'} .
-Given \lstinline{aPerson} refers to the \lstinline{person} object, evaluating the following statement returns \lstinline{true} in version \emph{v2}:
-\iffalse
-\begin{verbatim}\fi
-\begin{code}{}{}
-aPerson.address.city === 'Berlin'
-\end{code}
-\iffalse
-\end{verbatim}\fi
-
-The statement does not include any version information.
-In particular, it does not read a specific version from a table of available versions.
-Instead, the proxies intercept all object interactions and forward to specific versions transparently.
-
 The proxies fulfill three responsibilities:
 \begin{enumerate}
     \item They know which versions are available for a particular object.
@@ -127,91 +108,31 @@ The proxies fulfill three responsibilities:
     \item They forward all interactions transparently to a chosen version.
 \end{enumerate}
 
-The proxies in this design are \emph{virtual objects}~\cite{VanCutsem2010PDP}.
-They do not stand in for specific objects, but can forward intercepted interactions to any object.
-
-
-\subsubsection{Using Proxies Consistently}
-
-The proxies need to be used consistently for all mutable state.
-Ordinary references that usually refer to an object need to refer to the proxy that stands in for the object.
-
-To use proxies consistently, we create and return proxies for all new objects.
-All expressions that create new objects return proxies for those objects instead.
-This is achieved by transforming code before it is executed.
-The source transformations wrap object literals and constructor functions into proxies.
-The proxies also always return proxies as return values.
-Thus, when proxied constructors are used, the constructors return proxies for the new objects.
-
-The reference to the initial version of an object is only available to the proxy.
-The reference to the proxy is passed around instead.
-For this reason, all references that would usually point to the same object point to the same proxy.
+As mentioned in \autoref{sec:versions-system}, we use a source transformation to interpose proxies consistently between all mutable objects.
+Our transformation wraps object literals and constructor functions into proxies, so all expressions that create new objects transparently return proxies.
+The reference to the initial version of an object is only available to the proxy; the reference to the proxy is passed around instead.
+Consequently, all references that would usually point to the same object point to the same proxy.
 This way, proxies provide object identity.
 Checks that would usually compare an object to another objects now compare a proxy to another proxy.
 
-As only the proxies hold references to the versions of objects, the versions get garbage collected with the proxies when the proxies are no longer reachable.
-For example, in the code of Listing~\ref{lst:deletedAddress}, there would temporarily exist a version-aware reference---a proxy---connecting the \lstinline{person} object to an \lstinline{address} object, but the reference gets deleted before a version of the system is preserved.
-The \lstinline{address} object is not required to re-establish either version \emph{1} or version \emph{2} of the system and nothing does prevent the garbage collector from reclaiming the proxy for the \lstinline{address} object with the \lstinline{address} object.
+Although keeping many versions around might put more pressure on the garbage collector, no special care has to be taken to release versions that are no longer required.
+All object versions are referenced through a single proxy, so the versions get garbage collected with the proxy when it is no longer reachable.
+So if you consider the \lstinline{Company} from \ref{fig:ObjectGraphWithReferencesResolvedAlongVersion2}, once you delete \emph{v1} of the \lstinline{ceo} reference, both \emph{v1} and \emph{v2} of the address object are collected.
 
-\iffalse
-\begin{verbatim}\fi
-\begin{code}[lst:deletedAddress]{A newly created object is not preserved with any version.}{float,numbers=left}
-    var person = {name: "Joe"};
-    
-    \\ [preserve first version]
-    
-    person.address = {street: "Kantstr.",
-                      number: "148",
-                      city: "Berlin"};
-    
-    delete person.address;
-    
-    \\ [preserve second version]
-\end{code}
-\iffalse
-\end{verbatim}\fi
+The current version identifier of the system is accessible to the proxies.
+The proxies forward to the same version of the object as long as the identifier remains constant.
 
+\emph{To re-establish the previous version}, the version identifier is set to its predecessor.
 
-\subsubsection{Versions of the System}
-
-Proxies delegate to and create versions of an object using a \emph{version of the system}.
-
-A version of the system is an object that has a \emph{version identifier}, a \emph{predecessor} version, and a \emph{successor} version.
-Figure~\ref{fig:SystemVersions} shows three system versions.
-In the example, version \emph{v2} is the current version of the system.
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=0.65\columnwidth]{figures/4_approach/8_systemVersions.pdf}
-    \caption{Four versions of the system.}
-    \label{fig:SystemVersions}
-\end{figure}
-
-The current version of the system is accessible to the proxies.
-Proxies use it to decide to which version of an object they currently should forward to.
-Figure~\ref{fig:ProxyUseSystemVersion} shows a proxy, versions of an object, and versions of the system.
-In this example, there are two object versions that correspond to the two system versions.
-The current version of the system is \emph{v2} and, therefore, the version the proxy currently forwards to is version \emph{v2} of the object.
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=\columnwidth]{figures/4_approach/9_proxyUsesSystemVersion.pdf}
-    \caption{A proxy with two object versions in context of the system versions.}
-    \label{fig:ProxyUseSystemVersion}
-\end{figure}
-
-As long as the system version stays the same, the proxies forward to the same version of the object.
-Therefore, an object version is changed only as long as it matches the current system version.
-
-\emph{To re-establish the previous version}, the system version has to be set to its predecessor.
-In that case, proxies forward interactions to previous versions of the objects.
-
-\emph{To preserve the current version}, the system version has to be set to a different version.
+\emph{To preserve the current version}, the version identifier is set to a new version.
 The proxies forward interactions to other object versions or, when no such version of the object exist, create new versions.
+Note that new versions are only necessary when a proxy is about to delegate manipulations.
+As long as the state of an object is only read, the proxy reports values from a previous version as the old version of the object still reflects the current state.
+To create a new version, a proxy copies the most recent previous version of the object.
 
-A situation in which a new version of an object is created is shown in Figure~\ref{fig:NewVersion}.
-In a new version \emph{v3} of the system, the proxy intercepts a manipulation but has no object version it can forward to.
-It, therefore, copies the most recent version of the object and forwards to the copy.
+Such a situation is shown in \autoref{fig:NewVersion}.
+In a new version \emph{v3} of the system the proxy intercepts a manipulation, but has no object version it can forward to.
+It therefore copies the most recent version of the object and forwards to the copy.
 
 \begin{figure}[h]
     \centering
@@ -220,12 +141,8 @@ It, therefore, copies the most recent version of the object and forwards to the 
     \label{fig:NewVersion}
 \end{figure}
 
-New versions are only necessary when a proxy is about to delegate manipulations.
-As long as the state of an object is only read, the proxy reports values from a previous version as the old version of the object still reflects the current state.
-To create a new version, a proxy copies the most recent previous version of the object.
 
-
-\subsubsection{Limitations}
+\paragraph{Limitations}
 
 The current design allows to preserve and re-establish versions of the system.
 Without further components, however, these versions only exist in memory and are not stored to disk.

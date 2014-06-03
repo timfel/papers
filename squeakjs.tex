@@ -181,7 +181,33 @@ WeakReference array that is used in JSqueak for object enumeration.
 \label{sec:impl}
 \secmissing{Implementation}
 
-freezing
+Main loop: In most Squeak VMs, the VM itself has a main loop that executes
+byte codes until the system quits. Not so in SqueakJS: The VM needs to
+regularly break out of its interpreter loop, because only then will the web
+browser update the screen or provide new input events.
+
+The interpreter has two entry points: \lstinline|interpretOne()| for executing
+a single byte code (which is used only when single-stepping in the VM
+debugger), and \lstinline|interpret()| for executing multiple byte codes. The
+latter loops for a certain time, or until a primitive requests an immediate
+return of control to the browser. This happens e.g. after drawing to the
+screen: to minimize the delay between drawing and the change being visible to
+the user, the drawing primitive requests to exit the interpreter loop
+immediately.
+
+Also, break points can be set for various conditions, e.g. when a certain
+method is executed or returns. When the condition is met, the interpreter loop
+exits to let the debugger show that state.
+
+To support using asynchronous functions in primitives that need to appear
+synchronous to the Squeak runtime, we implemented a feature to ``freeze'' the
+VM. A primitive can call the VM's \lstinline|freeze()| function, which returns
+a callback function for unfreezing. All subsequent calls to
+\lstinline|interpret()| are ignored until the unfreeze function was called by
+the primitive's asynchronous event handler. That means the VM's state remains
+unchanged until the unfreeze, so the primitive is allowed to defer pushing a
+return value onto the stack until the asynchronous operation is done. This is
+used for example to support asynchronous file access (see below).
 
 Files: While Squeak can work without a file system, a lot of functionality
 would be missing if SqueakJS did not have the ability to permanently store

@@ -1,2 +1,1 @@
-abstract.tex
 content.tex

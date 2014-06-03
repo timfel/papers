@@ -181,7 +181,89 @@ WeakReference array that is used in JSqueak for object enumeration.
 \label{sec:impl}
 \secmissing{Implementation}
 
-Main loop: In most Squeak VMs, the VM itself has a main loop that executes
+Object representation: The original Squeak VM is written in ``Slang'', a
+subset of Smalltalk with C semantics, which can be translated to C easily. It
+does not use any of C's structured data types to describe objects. Instead, ...
+
+\subsection{Object Memory}
+
+Reimplementation of a Smalltalk virtual machine is facilitated by the
+relatively clean separation between the byte code interpreter, the object
+memory and the graphics system. As noted above, JSqueak departed significantly
+from the Squeak object implementation without introducing any major
+perturbations in the rest of the virtual machine. All Squeak objects were
+mapped to Java objects with slots for
+
+\begin{itemize}
+	\item 	Squeak hash (short)
+	\item 	Squeak format code (short)
+	\item 	class (pointer)
+	\item 	pointer fields (array of pointers)
+	\item 	indexable binary data fields (array of bytes or ints)
+\end{itemize}
+
+SmallIntegers were the only exception, they were represented by
+\lstinline|Integer| objects. This is similar to the tagged pointers in other
+Squeak VMs which are used to represent immediate SmallInteger values. In
+contrast, Floats are represented by full objects, but their binary data slot
+is set to a Java \lstinline|Double| so it can be accessed more quickly in
+arithmetic primitives.
+
+Essentially the same scheme is used in SqueakJS. Since the layout of
+JavaScript objects does not have to be declared in advance, slots are added
+only when needed. That means the pointers, bytes, and words slots are only
+present if the object actually needs them. SmallIntegers are directly
+represented by JavaScript numbers.
+
+For making common tests more efficient, SqueakJS also adds flags to special
+objects. For example, the \lstinline|isNil| property is added to the
+\lstinline|nil| object so that a test for being nil can be written without
+having to compare it to the VM's \lstinline|nil| object. Floats are marked by
+an \lstinline|isFloat| property, and the numeric value is stored directly in
+another property. The conversion to words happens on-the-fly, and only when
+the image tries to index individual words of the Float object.
+
+Since Java provides no facility for enumerating objects, JSqueak used an
+object table for the sole purpose of enumeration, as required by Squeak's
+enumeration facility as well as to support object mutation which involves
+enumeration implicitly. By making use of weak pointer objects in the object
+table, it was possible to leave the task of garbage collection entirely up to
+the Java runtime, a key to this Hobbes-style port.
+
+Unfortunately the JavaScript engines of our time provide no support for weak
+pointers, so this means that the use of an object table for enumeration was
+out of the question. An important innovation in the SqueakJS object memory is
+the use of enumeration links in a subset of Squeak objects that corresponds to
+long-lived objects, or what is commonly referred to as ``old space''.
+
+<Bert's link scheme goes here>
+
+The JSqueak implementation, being a proof of concept only, did not support
+saving object images that could be stored and resumed elsewhere. The SqueakJS
+implementation provides this function in the following manner.
+
+<Bert's logic for save>
+
+\subsection{Graphics System}
+
+As mentioned above the Squeak graphics system is relatively well separated
+from the rest of the virtual machine by the bitblt and warpblt API's. While
+the JSqueak proof-of-concept implementation did include bitblt, it only
+supported the simplest 1 bit per pixel format and the simplest combination
+functions. While SqueakJS benefits from the similar syntax of C and
+JavaScript, the accurate and complete of Squeak's bitblt and warpblt functions
+was a significant part of the overall implementation task.
+
+<details>
+
+The final stage of rendering the screen bitmap to an HTML5 canvas object is
+carried out as follows...
+
+<details>
+
+\subsection{Main loop}
+
+In most Squeak VMs, the VM itself has a main loop that executes
 byte codes until the system quits. Not so in SqueakJS: The VM needs to
 regularly break out of its interpreter loop, because only then will the web
 browser update the screen or provide new input events.
@@ -209,7 +291,9 @@ unchanged until the unfreeze, so the primitive is allowed to defer pushing a
 return value onto the stack until the asynchronous operation is done. This is
 used for example to support asynchronous file access (see below).
 
-Files: While Squeak can work without a file system, a lot of functionality
+\subsection{Files}
+
+While Squeak can work without a file system, a lot of functionality
 would be missing if SqueakJS did not have the ability to permanently store
 files. This presents a challenge to a system designed to run in a browser. One
 option would be to upload and retrieve files to a server. But this would
@@ -247,9 +331,11 @@ This has not been a problem so far. If it becomes a problem, a file system
 check could restore consistency, or directory information could be stored in
 \lstinline|indexedDB|, too.
 
-Networking: not implemented yet
+\subsection{Networking} not implemented yet
 
-Embeddable: While SqueakJS is developed inside Lively, the VM takes care to
+\subsection{Embedding}
+
+While SqueakJS is developed inside Lively, the VM takes care to
 not depend on Lively. It is implemented in a single JavaScript file. For
 demonstration purposes we have written a simple harness that runs Squeak
 without Lively. It consists of a 10 line HTML page, 30 lines of JavaScript to
@@ -258,7 +344,9 @@ image, set up input and output, and run the VM. Because the overhead of that
 harness is considerably lower than the full Lively environment, it works
 nicely even on mobile devices such as an iPad.
 
-Extensible: The SqueakJS VM can be extended with modules, just like most
+\subsection{Extensions}
+
+The SqueakJS VM can be extended with modules, just like most
 regular Squeak VMs. There is an internal and an external modules interface.
 Internal modules are part of the VM itself, they simply expose primitives by
 name instead of by index. An example for an internal module is the FilePlugin.

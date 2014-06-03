@@ -185,7 +185,7 @@ Object representation: The original Squeak VM is written in ``Slang'', a
 subset of Smalltalk with C semantics, which can be translated to C easily. It
 does not use any of C's structured data types to describe objects. Instead, ...
 
-\subsection{Object Memory}
+\subsection{Object Representation}
 
 Reimplementation of a Smalltalk virtual machine is facilitated by the
 relatively clean separation between the byte code interpreter, the object
@@ -223,6 +223,15 @@ an \lstinline|isFloat| property, and the numeric value is stored directly in
 another property. The conversion to words happens on-the-fly, and only when
 the image tries to index individual words of the Float object.
 
+\subsection{Object Enumeration and Garbage Collection}
+
+For object enumeration and finding all instances of a class Squeak uses a
+primitive to answer the ``next object'' for a given object, or the next
+instance given a particular instance. The next object is easily found since
+all objects are contiguous in main memory, so simply adding the size of an
+object to the object's address gives the address of the next object. This is
+not possible for JSqueak or SqueakJS.
+
 Since Java provides no facility for enumerating objects, JSqueak used an
 object table for the sole purpose of enumeration, as required by Squeak's
 enumeration facility as well as to support object mutation which involves
@@ -232,11 +241,35 @@ the Java runtime, a key to this Hobbes-style port.
 
 Unfortunately the JavaScript engines of our time provide no support for weak
 pointers, so this means that the use of an object table for enumeration was
-out of the question. An important innovation in the SqueakJS object memory is
-the use of enumeration links in a subset of Squeak objects that corresponds to
-long-lived objects, or what is commonly referred to as ``old space''.
+out of the question. It would have prevented all objects from being
+garbage-collected by the JavaScript runtime. An important innovation in the
+SqueakJS object memory is the use of enumeration links in a subset of Squeak
+objects that corresponds to long-lived objects, or what is commonly referred
+to as ``old space''.
 
-<Bert's link scheme goes here>
+When loading an object snapshot, objects are created as outlined above.
+Additionally, each object is assigned a \lstinline|nextObject| slot pointing
+to the next object. The first and last object in this linked list is held in
+the VM, constituting the ``old space''. When a new object is allocated at
+runtime, it is not added to that list immediately. Instead, it is only held by
+references from other objects and released automatically when no longer
+referenced.
+
+For old objects, the ``next object'' primitive can simply return the object's
+\lstinline|nextObject|. But for a new object, which does not have the
+\lstinline|nextObject| slot yet, a full garbage collection is triggered. This
+adds the object (and all other surviving new objects) to the old-space list,
+setting the \lstinline|nextObject|, so the enumeration can continue.
+
+The full GC is a vanilla mark-and-sweep: In the first phase, all objects
+reachable from the roots are marked. If a new object is found in this phase,
+it is added to a temporary collection. In the second phase, the old-space
+linked list is traversed, unmarked objects are unlinked, and the mark of
+remaining objects is cleared. Finally, the new objects from the first phase
+are linked to the end of the old-space list. For a typical object memory of
+300,000 objects this takes about 300 milliseconds.
+
+\subsection{Snapshotting}
 
 The JSqueak implementation, being a proof of concept only, did not support
 saving object images that could be stored and resumed elsewhere. The SqueakJS

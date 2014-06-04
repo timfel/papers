@@ -215,8 +215,8 @@ arithmetic primitives.
 Essentially the same scheme is used in SqueakJS. Since the layout of
 JavaScript objects does not have to be declared in advance, slots are added
 only when needed. That means the pointers, bytes, and words slots are only
-present if the object actually needs them. SmallIntegers are directly
-represented by JavaScript numbers.
+present if the object actually needs them, that is, they have at least one
+element. SmallIntegers are directly represented by JavaScript numbers.
 
 For making common tests more efficient, SqueakJS also adds flags to special
 objects. For example, the \lstinline|isNil| property is added to the
@@ -225,6 +225,34 @@ having to compare it to the VM's \lstinline|nil| object. Floats are marked by
 an \lstinline|isFloat| property, and the numeric value is stored directly in
 another property. The conversion to words happens on-the-fly, and only when
 the image tries to index individual words of the Float object.
+
+An \lstinline|oop| numeric property is maintained mainly for identifying
+objects when saving a snapshot. It also serves as key when objects need to be
+added to a hash map temporarily (e.g. during ``become'' operations) because
+JavaScript does not provide an object-keyed hash map. New objects are assigned
+consecutive negative oops. A real oop is assigned when the object survives a
+full garbage collection, and during compaction oops are adjusted to account
+for released objects. This emulates the consecutive memory layout of the C
+Squeak VMs which is manifested in the snapshot format. The oop also helps in
+distinguishing objects while debugging.
+
+\begin{itemize}
+	\item hash (\lstinline|number|)
+	\item format (\lstinline|number|)
+	\item class (\lstinline|object|)
+	\item oop (\lstinline|number|)
+	\item pointers (\lstinline|Array|, optional)
+	\item words (\lstinline|Uint32Array|, optional)
+	\item bytes (\lstinline|Uint8Array|, optional)
+	\item mark (\lstinline|false|, present after surviving GC)
+\end{itemize}
+
+The implementation takes advantage of JavaScript idiosyncrasies like treating
+a non-existing property as \lstinline|false|. E.g., a newly allocated object
+does not have the \lstinline|mark| property, while an old object might have it
+set to \lstinline|true| or \lstinline|false| during GC. But the test can
+simply be written as ``\lstinline|if (obj.mark) ...|'' because both cases test
+equally.
 
 \subsection{Object Enumeration and Garbage Collection}
 

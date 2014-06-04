@@ -216,6 +216,7 @@ semantics, which does not map well to a high-level language. That is why
 JSqueak and SqueakJS are not based on the Slang implementation.
 
 \subsection{Object Representation}
+\label{sec:objrep}
 
 Reimplementation of a Smalltalk virtual machine is facilitated by the
 relatively clean separation between the byte code interpreter, the object
@@ -329,13 +330,41 @@ objects from the ``virtual'' new space during the mark phase is what sets this
 GC apart. For a typical object memory of 300,000 objects this takes about 300
 milliseconds.
 
+\bert{mention cleaning up context garbage above SP here?}
+
 \subsection{Snapshotting}
 
 The JSqueak implementation, being a proof of concept only, did not support
 saving object images that could be stored and resumed elsewhere. The SqueakJS
 implementation provides this function in the following manner.
 
-<Bert's logic for save>
+A Squeak object image consists of a few words file header for basic parameters
+followed by a literal memory dump of the object memory. Objects are laid out
+consecutively. Each object consists of one to three header words followed by
+zero or more body words, as determined by bits in the header words. Object
+references (oops) are one word wide direct pointers to the address of the
+always-present ``last'' object header word immediately preceding the object
+body. That means the actual starting address of the object may be smaller than
+its oop, in the cases where it has a two ore three word header.
+
+Strictly speaking, oops matching the C VM memory layout are only needed while
+snapshotting. The SqueakJS runtime does not need them. They could be generated
+before taking a snapshot by walking the old-space list and accumulating object
+sizes. But for the reasons mentioned in section \ref{sec:objrep} they are kept
+up-to-date by the garbage collector, so after doing a full GC we can rely on
+all objects having accurate oops. The total number of bytes needed is
+maintained by the GC, too.
+
+Snapshotting then means invoking a fullGC which updates oops and sets the
+nextObject links. An \lstinline|ArrayBuffer| of the needed size is allocated
+and wrapped in a \lstinline|DataView| for typed access. The image header
+fields are written. The linked list of objects is traversed and each object
+writes a representation of itself to the memory buffer: one to three header
+words encoding the class oop, format, hash, and size, followed by the pointers
+(tagged for SmallIntegers and oops for all other objects), words, or bytes.
+The finished snapshot is stored as file in the browser's \lstinline|indexedDB|
+(see \ref{sec:files}). It can be resumed later in SqueakJS, or be exported to
+the user's disk and resumed in another Squeak VM.
 
 \subsection{Graphics System}
 
@@ -385,6 +414,7 @@ return value onto the stack until the asynchronous operation is done. This is
 used for example to support asynchronous file access (see below).
 
 \subsection{Files}
+\label{sec:files}
 
 While Squeak can work without a file system, a lot of functionality
 would be missing if SqueakJS did not have the ability to permanently store
@@ -423,6 +453,8 @@ A potential drawback of this scheme is that the two storages could get out of sy
 This has not been a problem so far. If it becomes a problem, a file system
 check could restore consistency, or directory information could be stored in
 \lstinline|indexedDB|, too.
+
+\bert{mention file import by drag-and-drop and export by generating a data url?}
 
 \subsection{Networking} not implemented yet
 

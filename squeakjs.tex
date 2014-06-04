@@ -66,15 +66,17 @@
 \maketitle
 
 \begin{abstract}
-  We report our experience in implementing SqueakJS, an implementation
-  of Squeak/Smalltalk in pure JavaScript. Our implementation runs at
-  usable speed in the browser, allowing Squeak/Smalltalk applications
-  to run on any platform with a recent JavaScript \ac{VM}. In contrast to
-  an automatic translation of an existing Squeak \ac{VM} using an
-  tool-chain such as Emscripten, our implementation is a full
-  re-implementation which exposes each Squeak object also as a
-  JavaScript object, allowing rich interactions between Smalltalk and
-  JavaScript code.
+  We report our experience in implementing SqueakJS, a bit-compatible
+  implementation of Squeak/Smalltalk in pure JavaScript that runs
+  entirely in the browser with a virtual file system that can be
+  directed to any server.  Our implementation is notable for
+  simplicity and performance gained through adaptation to the host
+  object memory, and deployment leverage gained through the Lively Web
+  development environment.  We present several novel techniques and
+  present performance figures for the resulting virtual machine.  Much
+  of this experience is potentially relevant to preserving other
+  dynamic language systems and making them available in a
+  cloud/browser environment.
   % Additionally, \SqueakJS supports the Squeak
   % graphical environment, implements a semi-space \ac{GC} for Squeak objects
   % on top of JavaScript, and allows 
@@ -90,8 +92,7 @@ Languages, Design, ...
 \SqueakJSKeywords
 
 
-\section{Introduction}
-
+\section{Motivation}
 
 JavaScript has become the de-facto standard for Web programming, and
 a huge amount of code exists in the language.  This fact, along with
@@ -99,54 +100,90 @@ JavaScript's unique design and its execution environment in a Web
 browser, also make it of great interest to the research community,
 motivating work to provide various languages in the browser\cite{?}.
 
-Recently, automatic translation tool-chains such as
-Emscripten\cite{zakai:2011:emscripten:-llvm-to-javascript} and
-improved JavaScript performance in general have enabled libraries and
-language \acp{VM} written in C/C++\footnote{Or at least translatable
-  to LLVM bytecode} to be performantly executed in the
-browser\footnote{See for example \url{http://www.repl.it}, retrieved
-  \today}. However, a number of common themes among such ports emerge:
+A number of interesting applications have been built in the
+Squeak/Smalltalk development environment, and the environment itself
+is still interesting as well.  As browsers have become the application
+platform of choice, there is an increasing desire to support Squeak
+and other Squeak-compatible systems in the browser.  For educational
+applications such as Etoys and Early versions of Scratch, this need
+has been felt most strongly due to restrictions against installing
+native software in many scholastic environments.
 
-\begin{itemize}
-\item These translations are mostly used to provide a whole system in
-  the browser, to be used as a stand-alone application. The browser
-  acts merely as the underlying runtime.
-\item The translation mechanism is oblivious to the browser platform,
-  and this cannot provide interactions with the host Javascript
-  \ac{VM} or the \ac{DOM}.
-\item Translation toolchains such as Emscripten provide a C semantics
-  and use various low-level Javascript mechanisms to achieve good
-  performance, so the resulting code cannot be easily inspected and
-  instrumented as normal Javascript objects.
-\end{itemize}
-
-\dan{Many reasons to want Squeak and especially EToys to run
-in browsers, but...}
-\topa{potential goal: get Etoys and Scratch to the web with good
-  backwards compat}
 SqueakJS aims to provide a fully backwards-compatible Squeak/Smalltalk
-system in the browser, able to run wide-spread applications such as
-Etoys\cite{?} and Scratch\cite{?} directly in the browser. To achieve
-this goal, an automatic translation would suffice.
+system in Javascript, able to run wide-spread applications such as
+Etoys\cite{?} and Scratch\cite{?} directly in the browser.
 
-However, SqueakJS also aims to allow existing Javascript code to
-interact and instrument Squeak objects, in order to not only be a
-``Squeak in the browser'', but also provide practical support for
-using Smalltalk in a Javascript environment. To achieve these goals,
-we implemented a Squeak \ac{VM} entirely in JavaScript. This enables
-us to run Squeak in modern browsers and allow JavaScript applications
-to interact with the \ac{VM}.
+In contrast to dynamic languages such Python or Ruby, which have
+successfully been translated into Javascript\cite{?} using the
+automatic translation tool-chain
+Emscripten\cite{zakai:2011:emscripten:-llvm-to-javascript}, the Squeak
+system implements much core functionality in Smalltalk, that would in
+other languages be implemented in the \ac{vm}. Additionally, Squeak is
+a graphical programming system and, to run in the browser, needs at
+least requires at least minimal interaction with the browser's
+\ac{dom}.
+
+Even recent attempts at re-implementing or re-engineering the Squeak
+\ac{vm} have shown that good performance is difficult to
+achieve~\cite{roarvm,spyvm}. To us, Squeak appeared to be too slow to
+actually emulate in Javascript, and too complex to subdivide into a
+interpreter layer and browser graphics layer. However, a smaller
+project to emulate ALTO machine code to run a Smalltalk 72 \ac{vm}
+showed promising performance.
+
+JSqueak, a small Squeak \ac{vm} experiment written in Java, served as
+basis for the SqueakJS design in many respects, like the mapping of
+Squeak objects to JavaScript objects or the separation of the VM into
+the interpreter and a primitive handler are exactly as in JSqueak.
+
+The fact that SqueakJS represents Squeak objects as plain Javascript
+objects and integrates with the Javascript \ac{gc} allows existing
+Javascript code to interact with Squeak objects. This has proven
+useful during development as we could re-use existing Javascript tools
+to inspect and manipulate Squeak objects as they appear in the
+\ac{vm}.  This means that SqueakJS is not only a ``Squeak in the
+browser'', but also provide practical support for using Smalltalk in a
+Javascript environment.
 
 In this paper, we report our experience with this implementation,
 highlighting the following items in particular:
 \begin{itemize}
 \item Our mapping of Squeak objects in the VM to Javascript objects
   with direct references
-\item Our hybrid garbage collection scheme to allow Squeak GC semantics
-  while delegating as much work as possible to the Javascript GC
-\item Interaction with Javascript for clipboard access, image loading,
-  file system access, debugging, and inspecting Squeak objects
+\item A hybrid garbage collection scheme to allow Squeak object
+  enumeration without a dedicated object table, while delegating as
+  much work as possible to the Javascript \ac{gc}
+\item A cloud-appropriate adaption of file and image-file management
+  to load and store Squeak images
+\item The interaction with Javascript for clipboard access, graphics,
+  debugging, and providing plugins
 \end{itemize}
+
+
+
+
+% \begin{itemize}
+% \item These translations are mostly used to provide a whole system in
+%   the browser, to be used as a stand-alone application. The browser
+%   acts merely as the underlying runtime.
+% \item The translation mechanism is oblivious to the browser platform,
+%   and this cannot provide interactions with the host Javascript
+%   \ac{VM} or the \ac{DOM}.
+% \item Translation toolchains such as Emscripten provide a C semantics
+%   and use various low-level Javascript mechanisms to achieve good
+%   performance, so the resulting code cannot be easily inspected and
+%   instrumented as normal Javascript objects.
+% \end{itemize}
+
+% \dan{Many reasons to want Squeak and especially EToys to run
+% in browsers, but...}
+% \topa{potential goal: get Etoys and Scratch to the web with good
+%   backwards compat}
+% SqueakJS aims to provide a fully backwards-compatible Squeak/Smalltalk
+% system in the browser, able to run wide-spread applications such as
+% Etoys\cite{?} and Scratch\cite{?} directly in the browser. To achieve
+% this goal, an automatic translation would suffice.
+
 
 
 \section{Background}

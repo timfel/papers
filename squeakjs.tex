@@ -244,7 +244,9 @@ Essentially the same scheme is used in SqueakJS. Since the layout of
 JavaScript objects does not have to be declared in advance, slots are added
 only when needed. That means the pointers, bytes, and words slots are only
 present if the object actually needs them, that is, they have at least one
-element. SmallIntegers are directly represented by JavaScript numbers.
+element. SmallIntegers are directly represented by JavaScript numbers. In
+places where the VM needs to distinguish SmallIntegers from other objects it
+uses a \lstinline|typeof| check.
 
 For making common tests more efficient, SqueakJS also adds flags to special
 objects. For example, the \lstinline|isNil| property is added to the
@@ -369,19 +371,32 @@ the user's disk and resumed in another Squeak VM.
 \subsection{Graphics System}
 
 As mentioned above the Squeak graphics system is relatively well separated
-from the rest of the virtual machine by the bitblt and warpblt API's. While
-the JSqueak proof-of-concept implementation did include bitblt, it only
+from the rest of the virtual machine by the BitBlt and WarpBlt APIs. While
+the JSqueak proof-of-concept implementation did include BitBlt, it only
 supported the simplest 1 bit per pixel format and the simplest combination
 functions. While SqueakJS benefits from the similar syntax of C and
-JavaScript, the accurate and complete of Squeak's bitblt and warpblt functions
-was a significant part of the overall implementation task.
+JavaScript, the accurate and complete port of Squeak's BitBlt and WarpBlt
+functions was a significant part of the overall implementation task.
 
-<details>
+The implementation currently closely follows Squeak's, using the same approach
+of having various optimized variants of main loops for different arguments, or
+handling the start and end words of a line separately so the inner-most loop
+can be executed without conditionals. Pretty much everything needs to be done
+word-by-word, which is most efficient for 1 bit graphics because each word
+stores 32 pixels. The only place where more than one word can be processed at
+a time is when copying pixels without the need for shifting or color mapping.
+In that special case we use \lstinline|Uint32Array|'s \lstinline|subarray()|
+and \lstinline|set()| functions to copy a full line at once. This optimization
+helps with scrolling, in particular.
 
-The final stage of rendering the screen bitmap to an HTML5 canvas object is
-carried out as follows...
+The final stage of rendering the screen bitmap to an HTML5 canvas object uses
+the \lstinline|putImageData()| drawing call. The image data is assembled in a
+\lstinline|Uint32Array| by mapping each individual pixel of 1, 2, 4, 8, 16, or
+32 bits to a single 32 bit ABGR pixel as required by the Canvas API. This
+needs to be done even in the 32 bit case because the order of color components
+differs between Squeak and HTML.
 
-<details>
+\todo{perf numbers?}
 
 \subsection{Main loop}
 

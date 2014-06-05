@@ -238,6 +238,8 @@ JavaScript, but that would keep these low-level semantics, which does
 not map well to a high-level language. That is why Potato and
 \SqueakJS are not based on the Slang implementation.
 
+\paragraph{Representing Objects}
+\label{sec:object-model}
 Potato's object representation represents a significant departure from
 Squeak's. All Squeak objects appeared as plain Java objects, with
 slots that stored the information required by the \ac{VM} such as
@@ -258,8 +260,11 @@ parlance) are Squeak objects as well, we can use the inspector to
 watch the \ac{VM} stack while it is executing and debug any problems
 directly. This was useful early on to verify that the image loader and
 scheduler work correctly, and that dispatch actually worked when the
-\ac{VM} started executing.
+\ac{VM} started executing. Additionally, the debugging support as
+available in Squeak -- to break at, step into, and to disassemble
+methods -- is available to the inspector as well.
 
+\paragraph{Drawing to the Screen}
 Besides the interpreter, some way of drawing to the screen is
 required. Squeak uses a BitBlt plugin to render into bitmaps, which is
 fairly well separated from the rest of the interpreter. Potato only
@@ -301,15 +306,38 @@ Potato or \SqueakJS. Potato used a weak-key object table to keep track
 of objects to enumerate them. Other implementations, like RSqueakVM,
 use the RPython garbage-collection to trigger a full \ac{GC} and yield
 all objects of a certain type. These are then temporarily kept in a
-list for enumeration.
+list for enumeration. In JavaScript, neither weak references, nor
+access to the \ac{GC} is generally available, so neither option was
+possible for \SqueakJS. Instead, we designed a hybrid \ac{GC}
+scheme.
 
-In JavaScript, neither weak references, nor access to the \ac{GC} is
-generally available, so neither option was possible for \SqueakJS. 
+\SqueakJS manages objects in an \emph{old} and \emph{new} space, akin
+to a semi-space \ac{GC}. When an image is loaded, all objects are
+created in the old space. Because an image is just a snapshot of the
+object memory when it was saved, all objects are consecutive in the
+image. When we convert them into JavaScript objects, we create a
+linked list of all objects. This means, that as long as an object is
+in the \SqueakJS old-space, it cannot be garbage collected by the
+JavaScript \ac{VM}. New objects are created in a virtual \emph{new}
+space. However, this space does not really exist for the \SqueakJS
+\ac{VM}, because it simply consists of Squeak objects that are not
+part of the old-space linked list. New objects that are dereferenced
+are simply collected by the JavaScript \ac{GC}.
 
-\label{sec:making-it-good}
-\todolist{Dan c}{
-\item Nifty improvements to object memory
-}\topa{GC stuff, weakrefs??}
+When a full \SqueakJS \ac{GC} is triggered (for example because the
+\lstinline{nextInstance} primitive has been called on an object that
+does not have a next link) a full two-phase collection is started. Any
+new objects that are referenced from surviving objects are added to
+the end of the linked list. Any objects in the linked list that were
+not found to survive are removed from the list, and thus become
+eligible for ordinary JavaScript \ac{GC}.
+
+To implement Squeak's weak references, a similar scheme can be
+employed: any weak container is simply added to a special list of root
+objects that do not let their references survive. If, during a full
+\ac{GC}, a Squeak object is found to be only referenced from on of
+those weak roots, that reference is removed, and the Squeak object is
+again garbage collected by the JavaScript \ac{GC}.
 
 \subsection{Making it complete}
 \label{sec:making-it-complete}
@@ -665,15 +693,6 @@ Squeak.registerExternalModule('SimplePlugin',
 
 \end{lstlisting}
 
-\subsection{Lines of code}
-\begin{itemize}
-\item Interpreter: 1000 LOC
-\item Image: 400 LOC (GC)
-\item Object: 400 LOC (loading/snapshotting, accessors)
-\item Primitives: 1800 LOC (so far)
-\item BitBlt 1000 LOC
-\end{itemize}
-
 \begin{figure*}
   \centering
   \includegraphics{benchmarks-timings}
@@ -696,6 +715,15 @@ Each bar shows the arithmetic mean of 5 runs, normalized to Squeak.  }
 \section{Evaluation}
 \label{sec:eval}
 \secmissing{Evaluation}
+
+\subsection{Lines of code}
+\begin{itemize}
+\item Interpreter: 1000 LOC
+\item Image: 400 LOC (GC)
+\item Object: 400 LOC (loading/snapshotting, accessors)
+\item Primitives: 1800 LOC (so far)
+\item BitBlt 1000 LOC
+\end{itemize}
 
 \topa{what are out evaluation criteria?}
 % we could have

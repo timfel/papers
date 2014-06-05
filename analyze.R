@@ -247,7 +247,7 @@ ggplot(data=bench.summary.graph,
   geom_bar(stat="identity", position=dodge, width=.75, aes(fill = VM),  )+
   geom_errorbar(aes(ymin=lower, ymax = upper),  position=dodge, color=I("black"), size=.33) +
   #   xlab("Benchmark") +
-  ylab("Relative Slowdown") +
+  ylab("Relative Runtime") +
   theme_bw(base_size=8, base_family="Helvetica") +
   theme(
     rect = element_rect(),
@@ -287,7 +287,7 @@ colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), f
 
 
 
-# LaTeX table, all
+# LaTeX table, timings
 (function() {
   len <- length(bench.summary.ltx)/2
   out <- latex(bench.summary.ltx,
@@ -303,7 +303,7 @@ colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), f
               )
 })()
 
-# LaTeX table, all
+# LaTeX table, speed
 (function() {
   len <- length(bench.summary.speed.ltx)/2
   out <- latex(bench.summary.speed.ltx,
@@ -313,7 +313,7 @@ colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), f
                table.env=FALSE, center="none",
                size="footnotesize", #center="centering",
                colheads=rep(c('mean', 'error'), len),
-               col.just=rep(c('r','@{ BC/sec}', 'r', '@{ send/sec}'), len/2),
+               #col.just=rep(c('r','@{ BC/sec}', 'r', '@{ send/sec}'), len/2),
                cgroup=levels(droplevels(bench.summary.speed.raw$VM)),
                cdec=rep(0, len*2)
   )

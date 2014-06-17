@@ -32,7 +32,7 @@ equalities and inequalities to be linear.  For example, the Cassowary
 solver \cite{badros-tochi-2001} can solve multi-way constraints on
 floats; Z3 \cite{de2008z3} can do the same for reals, integers, and
 booleans; Kodkod \cite{torlak2007kodkod}, Z3, and Ilog
-\cite{puget1994c++} can enumerate solutions; and DeltaBlue
+\cite{puget1994c++,ilogmanual} can enumerate solutions; and DeltaBlue
 \cite{freeman-benson-phoenix-1989} can solve multi-way constraints
 using local propagation.  An even more restricted approach is to only
 consider one-way constraints that can compute an output value given
@@ -61,7 +61,7 @@ applications) that can describe system invariants, for example to
 write systems that adhere to a specification, as well as highly
 dynamic constraints that can be created, added, modified, and removed
 at run-time. In contrast, this work does not support constraints for
-searching or enumerating solutions to a constraint model.
+searching or enumerating multiple solutions to a constraint model.
 
 There are two main alternatives for incorporating constraints into
 imperative programs. The most common way is via a constraint solver
@@ -271,7 +271,7 @@ verification), and kodkod~\cite{torlak2007kodkod} for constraints over
 finite domains.  Solvers for use in interactive graphics systems
 include Cassowary~\cite{badros-tochi-2001}, an incremental solver for
 linear equality and inequality constraints that supports soft
-constraints as well as hard ones, the Aukland Layout
+constraints as well as hard ones, the Auckland Layout
 Editor~\cite{lutteroth2008end}, which includes support for a GUI
 builder using constraints, and earlier work on
 DeltaBlue~\cite{freeman-benson-phoenix-1989}, which supports multi-way
@@ -406,7 +406,7 @@ language and allow expressing constraints on all object-oriented
 values in their language. However, they require separate abstractions
 and method definitions for the declarative and imperative paradigm.
 
-BackTalk~\cite{roy1997reifying} and Ilog Solver~\cite{puget1994c++}
+BackTalk~\cite{roy1997reifying} and Ilog Solver~\cite{puget1994c++,ilogmanual}
 are other systems that aim to integrate a rich set of constraint
 solvers with imperative languages, but without full syntactic
 integration or re-using of object-oriented method definitions. Rather,
@@ -667,8 +667,8 @@ In \langname, we are interested in solvers that find \emph{a} solution
 to a collection of constraints, so if there are multiple solutions,
 the solver is permitted to select one arbitrarily.  (This is in
 contrast to logic programming and constraint logic programming
-languages, in which we want all solutions, perhaps found by
-backtracking.)
+languages, which give access to multiple or all solutions, perhaps
+found by backtracking.)
 
 Formally, a constraint is a relation over some domain $\cal D$\@.  The
 domain $\cal D$ determines the constraint predicate symbols $\Pi_{\cal
@@ -846,7 +846,7 @@ previous time step.
 To support incrementality, we also introduce the notion of an
 \emph{edit constraint}.  Formally, this again is simply an equality
 constraint $v=c$ for variable $v$ and constraint $c$.  Operationally,
-it is used to model rapidly changing an input value, for example in
+it is used to model changing an input value, for example in
 response to the cursor position (where in this case $v$ and $c$ would
 both hold points: $v$ would be a point in a diagram being moved, and
 $c$ would be the cursor postion).  Edit constraints typically have a
@@ -1083,7 +1083,8 @@ end
 Suppose we try to satisfy the constraint
 \lstinline{10==bad_method(a)}. The system would then construct a
 constraint \lstinline{sum==x} for the first line in the method, and
-\lstinline{sum==sum+2} for the second (which is unsatisfiable).
+\lstinline{sum==sum+2} for the second. This is unsatisfiable, so an
+exception is be raised by the solver.
 
 The last restriction can be removed if methods in which variables are
 multiply assigned are implicitly split into code blocks that are each
@@ -1285,14 +1286,17 @@ succeeded; if not, an exception is raised.  Afterward, the equality
 constraint is removed.
 
 In the second case, the variable is used in a constraint, but no
-solver is available to determine its value (\eg a string that was
-used in a constraint when no string solver was available). The value
-of such variables is treated as constant in the constraint. If the
+solver is available to determine its value (\eg a string that was used
+in a constraint when no string solver was available). The value of
+such variables is treated as constant in the constraint. If the
 variable is assigned, all constraints it participated in are disabled,
 and their closures are re-executed to create new constraints. This,
 too, may lead to a situation where some solvers cannot satisfy their
 constraints. In that case, the old constraints are re-enabled, the
-assignment is undone, and an exception is raised.
+assignment is undone, and an exception is raised. Undoing the
+assignment is necessary to ensure that no inconsistent system state
+arises -- an assignment either works or fails completely.\todo{Maybe
+  refer to the semantics memo here}
 
 \subsubsection{Stay Constraints}
 In imperative languages, programmers expect their variables to retain
@@ -1313,7 +1317,9 @@ always { x.stay(:low) }
 For those solvers that support soft constraints, \langname
 automatically adds a lowest-priority stay constraint to every
 constrained variable so that it keeps its old value if possible when
-satisfying the other constraints.
+satisfying the other constraints. This also directs the solver to find
+a solution that is close to the prior value, if a variable does have
+to change.
 % \todo{What happens with solvers that don't support soft constraints?
 % Is there anything that causes constrained variables to keep their
 % old values?}\todo{Tim: no. Z3 tends keep values fairly stable, but
@@ -1464,7 +1470,7 @@ For opaque data structures (such as an
 \textsc{SDL}\footnote{\url{http://libsdl.org/}} window), the solver
 cannot set properties directly, but has to use the \ac{api}
 instead. In that case, a local propagation solver like DeltaBlue must
-be used and, besides a predicate, a list of setter functions must be
+be used and, besides a predicate, a list of setter expressions must be
 provided. The following constraint will make a rectangle fill the
 \textsc{SDL} window, or the window will be shrunk to fit the
 rectangle.
@@ -1480,7 +1486,9 @@ always(solver: DeltaBlue::Solver::Instance,
 Additional arguments to \lstinline{always} are passed to and
 interpreted by the solver. In this case, the \lstinline{predicate} and
 \lstinline{priority} arguments are passed to DeltaBlue and not
-interpreted by \langname.
+interpreted by \langname. In the constraint closure, the list of
+setters is provided by connecting the target variable and the setter
+expression using the \lstinline{<->} syntax.
 
 Developers might write constraints that are too difficult to solve, or
 for which no solver exists. In that case, the constraint expression is
@@ -1529,7 +1537,8 @@ variables in a single statement, and this is used in \toolname to
 implement this construct.  If multiple variables that have constraints
 on them are assigned using multi-assignment, all values are assigned
 before the solver is triggered. If any constraints cannot be
-satisfied, all assignments are immediately undone.
+satisfied, all assignments are immediately undone, again, to ensure
+that assignments either succeed or fail entirely.
 
 \section{Implementation}
 \label{sec:implementation}

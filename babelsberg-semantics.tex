@@ -522,7 +522,7 @@ $\mid$ fail\\
 {\rm Constant} & c & ::= & {\rm constants} \\
 {\rm Variable} & x & ::= & {\rm variable names} \\\\
 
-{\rm Value} & v & ::= & c
+{\rm Value} & v & ::= & e
 \end{tabular}
 \end{tt}
 
@@ -580,16 +580,20 @@ $\begin{array}{lrrl}
 
 The syntax of the solver's language is essentially identical to the
 syntax of constraints in the source language for
-Babelsberg/PrimitiveTypes defined above.  Note that some solvers may
-only support a subset of the above syntax, for example requiring
-constraints to be in some canonical form, or lacking support for
-disjunctions of constraints, prioritized constraints, or some
-particular primitive type (e.g., strings).  On the other hand, some
-solvers may support constraints that are not in our syntax, such as
-constraints on records or objects.  For generality we assume that all
-constraints must be translated to the simple language above.  As we
-progress to languages with additional constructs, such as records and
-then objects, we will however retain the above solver language.
+Babelsberg/PrimitiveTypes defined above. The major difference is that
+only constants are values, so the solver will assign constants to
+variables when it finds a solution.
+
+Note that some solvers may only support a subset of the above syntax,
+for example requiring constraints to be in some canonical form, or
+lacking support for disjunctions of constraints, prioritized
+constraints, or some particular primitive type (e.g., strings).  On
+the other hand, some solvers may support constraints that are not in
+our syntax, such as constraints on records or objects.  For generality
+we assume that all constraints must be translated to the simple
+language above.  As we progress to languages with additional
+constructs, such as records and then objects, we will however retain
+the above solver language.
 
 \subsubsection{Semantics}
 
@@ -599,21 +603,27 @@ partial function from program variables to program values.  When
 convenient we also view an environment as a set of (program variable,
 program value) pairs.  Metavariable {\tt E} ranges over environments.
 
-We define no judgments to evaluate expressions. That is because the
-only way to have side-effects in this language is through assignment
---- and that is syntactic sugar for a {\tt once} constraint with a
-read-only expression on the right-hand side. The solver can just mark
-all variables in a read-only expression as read-only, and never
-evaluate any expression.
+We define judgments to evaluate expressions. However, in
+Babelsberg/PrimitiveTypes, these all just evaluate to themselves. That
+is because the only way to have side-effects in this language is
+through assignment --- and that is syntactic sugar for a {\tt once}
+constraint with a read-only expression on the right-hand side. The
+solver can just mark all variables in a read-only expression as
+read-only, and never evaluate any expression. Because the solver
+language and the language of Babelsberg/PrimitiveTypes are essentially
+the same, we can just pass everything to the solver unevaluated. We
+define judgments for all allowed expressions, so we can just extend
+these in later languages that have to do actual evaluation.
 
-% \judgment{\eval{E}{e}{v}}
+\judgment{\eval{E}{e}{v}}
 
-% ``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
-%   E}.''
+``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
+  E}.''
 
-% \inferax{E-Const}{\eval{E}{c}{c}}
-
-% \inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\eval{E}{x}{v}}
+\inferax{E-Const}{\eval{E}{c}{c}}
+\inferax{E-Var}{\eval{E}{x}{x}}
+\inferax{E-Op}{\eval{E}{e$_1$ $\oplus$ e$_2$}{e$_1$ $\oplus$ e$_2$}}
+\inferax{E-ReadOnly}{\eval{E}{e?}{e?}}
 
 % \inferrule{E-Op}{\eval{E}{e$_1$}{v$_1$} \andalso
 % \eval{E}{e$_2$}{v$_2$} \andalso
@@ -655,7 +665,11 @@ Babelsberg/PrimitiveTypes this is straightforward.
 
 \inferax{ToVar}{\toSolver{x}{x}}
 
-\inferax{ToReadOnly}{\toSolver{e?}{e?}}
+\inferrule{ToReadOnly}{
+  \toSolver{e}{e}
+}{
+  \toSolver{e?}{e?}
+}
 
 \inferrule{ToArith}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
 {\toSolver{e$_1$ $\oplus$ e$_2$}{e_1 \oplus e_2}}
@@ -948,9 +962,6 @@ records and the ability to access fields of a record:
 {\rm Expression} & e & ::= & $\cdots$ $\mid$
 \{l$_1$:c$_1$,$\ldots$,l$_n$:c$_n$\} $\mid$ e.l \\
 {\rm Label} & l & ::= & {\rm record label names} \\\\
-
-{\rm Value} & v & ::= & $\cdots$ $\mid$
-\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
 \end{tabular}
 \end{tt}
 
@@ -961,9 +972,112 @@ integers and reals.
 
 \subsubsection{Semantics}
 
+We extend the semantics to support the notion of different types for expressions.
+
+\judgment{\tcC{E}{C}}
+
+``Constraint {\tt C} is well formed in the context of environment
+{\tt E}.''
+
+\judgment{\tc{E}{e}{T}}
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt E}.''
+
+We use a nonstandard form of typechecking to perform the structural
+compatibility check.  It is nonstandard because it happens dynamically
+in the context of the current run-time environment.  The types are
+also nonstandard: we only distinguish between base types and record
+types.  The rules are straightforward.  We use the following syntax
+for types:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & BaseType  $\mid$
+\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\} 
+\end{tabular}
+\end{tt}
+
+\inferax{T-True}{\tcC{E}{True}}
+
+\inferrule{T-Priority}{\tcC{E}{C}}{\tcC{E}{$\rho$\ C}}
+
+\inferrule{T-Combine}{\tcC{E}{C$_1$} \andalso
+\tcC{E}{C$_2$}}
+{\tcC{E}{C$_1$ $\ovee$ C$_2$}}
+
+\inferrule{T-Compare}{\tc{E}{e$_1$}{BaseType} \andalso
+\tc{E}{e$_2$}{BaseType}}
+{\tcC{E}{e$_1$ $\olessthan$ e$_2$}}
+
+\inferrule{T-CompareRec}{\tc{E}{e$_1$}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\} } \andalso
+\tc{E}{e$_2$}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\} }}
+{\tcC{E}{e$_1$ $\olessthan$ e$_2$}}
+
+The last rule above is a key one, requiring that records can only be
+compared if they have the exact same structure.
+
+\inferax{T-Const}{\tc{E}{c}{BaseType}}
+
+\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
+
+\inferrule{T-Op}{\tc{E}{e$_1$}{T} \andalso
+\tc{E}{e$_2$}{T}}
+{\tc{E}{e$_1$ $\oplus$ e$_2$}{T}}
+
+\inferrule{T-Rec}{\tc{E}{e$_1$}{BaseType} $\cdots$
+  \tc{E}{e$_n$}{BaseType}}
+{\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}}}
+
+\inferrule{T-Field}{\tc{E}{e}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}}
+    \andalso $1 \leq i \leq n$}
+{\tc{E}{e.l$_i$}{BaseType}}
+
+The last rule above is important to ensure that a field of a record can only be
+referred to if it already exists in that record.
+
+
 \judgment{\eval{E}{e}{v}}
 
-% Expression evaluation is updated in the standard way to support records.
+Expression evaluation is updated to support records. Records and field
+access evaluate to themselves. The evaluation of operations has to be
+updated to combine records if the operands are record types. Read-only
+annotations for records apply to the record's fields. The other rules
+are unchanged.
+
+\inferax{E-Rec}{\eval{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}}
+\inferax{E-Field}{\eval{E}{e.l}{e.l}}
+
+\inferrule{E-Op}{
+  \tc{E}{e$_1$}{BaseType} \andalso
+  \tc{E}{e$_2$}{BaseType}
+}{
+  \eval{E}{e$_1$ $\oplus$ e$_2$}{e$_1$ $\oplus$ e$_2$}
+}
+
+\infrule[E-OpRec]{
+  \mbox{%
+    \eval{E}{e$_a$}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} \andalso
+    \eval{E}{e$_b$}{\{l$_1$:e$_{n+1}$,$\ldots$,l$_n$:e$_{2n}$\}}} \\
+  \mbox{\tc{E}{e$_a$}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}}} \\
+  \mbox{\tc{E}{e$_b$}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}}}
+}{
+  \mbox{%
+    \eval{E}{e$_a$ $\oplus$ e$_b$}{\{l$_1$:e$_1$$\oplus$e$_{n+1}$,$\ldots$,l$_n$:e$_n$$\oplus$e$_{2n}$\}}}
+}
+
+\inferrule{E-ReadOnly}{
+  \tc{E}{e}{BaseType}
+}{
+  \eval{E}{e?}{e?}
+}
+
+\inferrule{E-ReadOnlyRec}{
+  \tc{E}{e}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}} \andalso
+  \eval{E}{e}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}
+}{
+  \eval{E}{e?}{\{l$_1$:e$_1$?,$\ldots$,l$_n$:e$_n$?\}}
+}
 
 % \inferrule{E-Rec}{\eval{E}{e$_1$}{v$_1$} $\cdots$
 %   \eval{E}{e$_n$}{v$_n$}}
@@ -975,72 +1089,6 @@ integers and reals.
 
 \judgment{\csolve{M}{C}}
 This judgment represents the solver, as before.
-
-\judgment{\tcC{E}{C}}
-
-\judgment{\tc{E}{c}{T}}
-
-\judgment{\tc{E}{e}{T}}
-
-% ``Constraint {\tt C} is well formed in the context of environment
-% {\tt E}.''
-
-
-``Expression {\tt e} has type {\tt T} in the context of environment
-{\tt E}.''
-
-We use a nonstandard form of typechecking to perform the structural
-compatibility check.  It is nonstandard because it happens
-dynamically on a constraint, in the context of the current run-time
-environment.  The types are also nonstandard:  we only distinguish
-between base types and record types.  The rules are straightforward.  We use the
-following syntax for types:
-
-\begin{tt}
-\begin{tabular}{lrrl}
-{\rm Type} & T & ::= & BaseType  $\mid$
-\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
-\end{tabular}
-\end{tt}
-
-% \inferax{T-True}{\tcC{E}{True}}
-
-% \inferrule{T-Priority}{\tcC{E}{C}}{\tcC{E}{$\rho$\ C}}
-
-% \inferrule{T-Combine}{\tcC{E}{C$_1$} \andalso
-% \tcC{E}{C$_2$}}
-% {\tcC{E}{C$_1$ $\ovee$ C$_2$}}
-
-
-% \inferrule{T-Compare}{\tc{E}{e$_1$}{BaseType} \andalso
-% \tc{E}{e$_2$}{BaseType}}
-% {\tcC{E}{e$_1$ $\olessthan$ e$_2$}}
-
-% \inferrule{T-ReqEq}{\tc{E}{e$_1$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} } \andalso
-% \tc{E}{e$_2$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} }}
-% {\tcC{E}{e$_1$ $=_r$ e$_2$}}
-
-% The above rule is a key one, requiring that records only be compared
-% for equality if they have the exact same structure.
-
-\inferax{T-Const}{\tc{E}{c}{BaseType}}
-
-\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tc{E}{v}{T}}{\tc{E}{x}{T}}
-
-\inferrule{T-Op}{\tc{E}{e$_1$}{BaseType} \andalso
-\tc{E}{e$_2$}{BaseType}}
-{\tc{E}{e$_1$ $\oplus$ e$_2$}{BaseType}}
-
-\inferrule{T-Rec}{\tc{E}{e$_1$}{T$_1$} $\cdots$
-  \tc{E}{e$_n$}{T$_n$}}
-{\tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
-
-\inferrule{T-Field}{\tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso $1 \leq i \leq n$}
-{\tc{E}{e.l$_i$}{T$_i$}}
-
-The above rule is a key one, ensuring that a field of a record can only be
-referred to if it already exists in that record.
 
 \judgment{\toSolverH{e}{e}}
 \judgment{\toSolverH{C}{C}}
@@ -1056,121 +1104,100 @@ records. % For example, the constraint {\tt p = \{x:2, y:5\}} gets
 The rules below also enforce the compatibilty checks required to
 translate to the solver.
 
-\inferrule{ToFieldVar}{\tc{E}{x.l$_i$}{T}}
-{\toSolverH{x.l$_i$}{x_{l_i}}}
+\inferrule{ToFieldVar}{%
+  \tc{E}{x.l$_i$}{BaseType}
+}{
+  \toSolverH{x.l$_i$}{x_{l_i}}
+}
 
-Note that the above rule has a compatibility check to ensure that the
-accessed field already exists in the record.  Our translation would be
-fine without this check, but it would lead to some ``structural
-nondeterminism'' that is potentially undesirable, e.g. a constraint
-like {\tt p.x = 1 $\vee$ p.y = 2} could cause the solver to invent
-either an {\tt x} field or a {\tt y} field.
+\inferrule{ToFieldConst}{
+  \tc{E}{e.l$_i$}{BaseType} \andalso
+  \eval{E}{e}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} \andalso
+  $1 \leq i \leq n$ \andalso
+  \toSolver{e$_i$}{e_i}
+}{
+  \toSolverH{e.l$_i$}{e_i}
+}
+\tf{$1 \leq i \leq n$ not required here because of \textsc{T-Field},
+  but it helps me. We could remove it if Todd or Alan thinks it should go}
 
-\inferrule{ToFieldConst}{$1 \leq i \leq n$ \andalso \toSolverH{c$_i$}{c_i}}
-{\toSolverH{\{l$_1$:c$_1$,$\ldots$,l$_n$:c$_n$\}.l$_i$}{c_i}}
+Note that the rules above have a compatibility check to ensure that
+the accessed field already exists in the record. This is not required
+for our translation. Leaving it out, however, would lead to some
+``structural nondeterminism'' that is potentially undesirable, e.g. a
+constraint like {\tt p.x = 1 $\vee$ p.y = 2} could cause the solver to
+invent either an {\tt x} field or a {\tt y} field.
 
-\tf{structural type checking -- since assignment is now syntactic
-  sugar for a once equality constraint, the LHS might not be
-  initialized. I think we need to extend at least the equality rules
-  to allow this, right?}
+The next rules define the mappings for comparisons. The
+\textsc{ToCompare} rule is the same as previously, only augmented with
+a type check. The \textsc{ToCompareRec} rule explodes the
+comparisons on the record fields.
 
-\tf{equality with records vs equality with numbers -- we need separate
-  rules for each now}
+\inferrule{ToCompare}{
+  \tc{E}{e$_1$}{BaseType} \andalso
+  \tc{E}{e$_2$}{BaseType} \andalso
+  \toSolver{e$_1$}{e_1} \andalso
+  \toSolver{e$_2$}{e_2}
+}{
+  \toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}
+}
 
-The \textsc{Compare} rules need to be replaced to account for our
-structural type rules. They also need to be defined for record
-equality and constant equality separately, because we overloaded the
-$\olessthan$ operators for records and primitive types.
-
-\tf{if everything is overloaded, i don't see how to distinguish an
-  expression betweeen records ($\oplus$ and $\olessthan$ between
-  records is allowed in the syntax), fields, and constants can be
-  distinguished. If we don't evaluate, we don't really know whether an
-  expression ends up being a constant or a record...}
-
-% The next four rules describe how to translate record equality
-% constraints to the solver, by exploding them.  The rules all require
-% structural compatibility between the two records being compared, which
-% is done by requiring them to have the same type.
-
-% \inferrule{ToRecEq1}
-% {\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-%   \andalso \tc{E}{x$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
-% {\toSolverH{x $=_r$ x$'$}
-% {(x, l_1) = (x', l_1) \wedge \cdots \wedge (x, l_n) = (x', l_n)}}
-
-
-% \inferrule{ToRecEq2}
-% {\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
-% \toSolverH{e$_1$}{e_1}  $\cdots$  \toSolverH{e$_n$}{e_n}}
-% {\toSolverH{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}
-% {(x, l_1) = e_1 \wedge \cdots \wedge (x, l_n) = e_n}}
-
-% \inferrule{ToRecEq3}
-% {\toSolverH{x $=_r$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{C}}
-% {\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ x}
-% {C}}
-
-% \inferrule{ToRecEq4}
-% {
-% \toSolverH{e$_1$}{e_1}  $\cdots$  \toSolverH{e$_n$}{e_n} \andalso
-% \toSolverH{e$'_1$}{e'_1}  $\cdots$  \toSolverH{e$'_n$}{e'_n}}
-% {\toSolverH{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $=_r$ \{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}} 
-% {e_1 = e'_1 \wedge \cdots \wedge e_n = e'_n}}
-
+\infrule[ToCompareRec]{
+  \mbox{%
+    \tc{E}{e$_a$}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}} \andalso
+    \tc{E}{e$_b$}{\{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}}
+  } \\
+  \mbox{%
+    \toSolver{e$_a$.l$_1$}{e_1},$\ldots$,\toSolver{e$_a$.l$_n$}{e_n} \andalso
+    \toSolver{e$_b$.l$_1$}{e_{n+1}},$\ldots$,\toSolver{e$_b$.l$_n$}{e_{2n}}
+  }
+}{
+  \mbox{%
+    \toSolver{e$_a$ $\olessthan$ e$_b$}{%
+      e_1 \olessthan e_{n+1} \wedge \ldots \wedge e_n \olessthan e_{2n}
+    }}
+}
 
 
 \judgment{\fromSolver{M}{E}}
 
 We adapt the translation back from the model to support records. We
-also introduce a function to merge values in the environment, to
-recursively merge records.\tf{todo: recursively merging record
-  rules. the merge function doesn't have to be defined for anything
-  else, I guess, it just means that we cannot merge non-records, which
-  is fine(?)}
+introduce rules to convert variables from the solver into records in
+the environment.
 
-\ab{I think we agreed to get rid of the recursive part, and just put a
-  note that we are providing a simpler semantics for Babelsberg/Rec,
-  since the problem goes away once we have UIDs.  I do like having
-  Babelsberg/Rec as an example to help think about the problem, but I
-  don't think we need this complication in the semantics.}
-
-\inferrule{FromField}
+\infrule[FromField]
 {
-  $M((x, l_1)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E=E$_0$ $\cup$ \{(x,\{l$_1$: v\})\}}
-{\fromSolver{M}{E}}
-
-\inferrule{FromNestedField}
-{
-  $M((x, l_1, \ldots, l_n)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1, \ldots, l_n), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E=E$_0$ $\cup$ \{(x,\{l$_1$: \{ $\ldots$ \{l$_n$: v\}\}\} )\}
+  \mbox{%
+    $M(x_{l_i}) = v_i$ \andalso
+    $M_0 = M \setminus \{(x_{l_i}, v_i)\}$ \andalso
+    \fromSolver{M_0}{E$_0$}
+  } \\
+  \mbox{%
+    {\tt E$_0$(x)} = $\emptyset$ \andalso
+    {\tt E}={\tt E$_0$ $\cup$ \{(x,\{l$_i$:v$_i$\})\}}
+  }
+}{
+  \mbox{\fromSolver{M}{E}}
 }
-{\fromSolver{M}{E}}
 
-\inferrule{MergeFromField}
-{
-  $M((x, l_1)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E$_0$(x) = v$_x$ \andalso
-  E=(E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$ \{(x,merge(\{l$_1$: v\},v$_x$))\}}
-{\fromSolver{M}{E}}
-
-\inferrule{MergeFromNestedField}
-{
-  $M((x, l_1, \ldots, l_n)) = v$ \andalso
-  $M_0 = M \setminus \{(x, l_1, \ldots, l_n), v)\}$ \andalso
-  \fromSolver{M_0}{E$_0$} \andalso
-  E$_0$(x) = v$_x$ \andalso
-  E=(E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$ \{(x,merge(\{l$_1$: \{
-  $\ldots$ \{l$_n$: v\}\}\}, v$_x$ ))\}
+\infrule[FromFieldMerge]{
+  \mbox{%
+    $M(x_{l_{n+1}}) = v_{n+1}$ \andalso
+    $M_0 = M \setminus \{(x_{l_{n+1}}, v_{n+1})\}$ \andalso
+    \fromSolver{M_0}{E$_0$}
+  } \\
+  \mbox{%
+    {\tt E$_0$(x)} = {\tt v$_x$} \andalso
+    {\tt v$_x$} = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+  } \\
+  \mbox{%
+    {\tt E}={\tt (E$_0$ $\setminus$ \{(x, v$_x$)\}) $\cup$
+    \{(x,\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$,l$_{n+1}$:v$_{n+1}$\})\}}
+  }
+}{
+  \mbox{\fromSolver{M}{E}}
 }
-{\fromSolver{M}{E}}
+
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
@@ -1181,14 +1208,14 @@ we keep the old rules for assignment and sequencing but replace the
 {\tt always} rules as follows:
 
 \inferrule{S-Always}{\tcC{E}{C$_0$} \andalso
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
-\solve{E$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E$'$}{C$'$}{skip}}
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+\solve{E$'$}{(C$'$ $\wedge$ C$_s$ $\wedge$ C$_0$)}}
+{\step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}}
 
 \inferrule{S-AlwaysFail}{\tcC{E}{C$_0$} \andalso
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
-\fail{(C$'$ $\wedge$ {\rm stay({\tt E})})}}
-{\step{E}{C}{[weak] always C$_0$}{E}{C}{fail}}
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+\fail{(C$'$ $\wedge$ C$_s$ $\wedge$ C$_0$)}}
+{\step{E}{C}{always C$_0$}{E}{C}{fail}}
 
 \tdm{Note that we still implicitly get stuck if a compatibility check
   fails.  We could make that explicit as well, but it may not make

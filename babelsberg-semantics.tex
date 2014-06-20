@@ -1319,40 +1319,51 @@ the field being mutated already exists in the record denoted by {\tt x}.
 \label{sec:babelsberg-uid}
 
 Babelsberg/UID adds a number of features to the language. In a first
-step, we augment Babelsberg/PrimitiveTypes with records. These are
-represented as lists of name/value pairs in curly braces:
+step, we augment Babelsberg/PrimitiveTypes with records that live on
+the heap, and that are mutable, have an identity, and can be aliased.
+As before these are represented as lists of name/value pairs in curly
+braces:
 
 \begin{verbatim}
   {x:5, y:10}
 \end{verbatim}
 
-As a step toward a treatment of actual objects, now records are not simply
-values. Instead, they are mutable data that live on the heap and so
-have an identity, can be aliased, and so forth. To emphasize that we
-allocate records on the heap, we use the keyword \verb|new| when
-creating one. The syntax is also extended to include field accesses as
-both r-values and l-values.
+However, to emphasize that we now allocate records on the heap, we use
+the keyword \verb|new| when creating one. The syntax includes field
+accesses as both r-values and l-values.
 
-Record fields can be either primitive types or pointers to other
-records on the heap. This only applies to variables that have a record
-type; integers and booleans don't live in the heap.\footnote{It would
-  be possible to store all data on the heap, but we elected not to,
-  since differentiating data in this way seems more natural.  If one
-  wanted the effect of storing an integer or boolean on the heap, so
-  that it would also have an object identity, it is easy to simulate
-  this by constructing a record that has a single field that holds the
-  integer or boolean.} Note that (for simplicity) there is no syntax
-for creating a nested record directly -- nested records have to be
-constructed with references, so each record \emph{must} have a
-variable that refers to it, even if it is only used in a nested
-structure. This simplifies the semantics.  (Nested records could be
-supported with just a source code transformation.)
+For uniformity, we also view instances of the primitive types as
+living on the heap as well, although there is no \verb|new| operation
+to create them; rather, they are either specified as constants or as
+the result of operations on them.  The primitive types are all
+immutable.
+
+Record fields hold a reference to another value (either another record
+or an instance of a primitive type).  There is no syntax for creating
+a nested record directly --- nested records have to be constructed
+with references, so each record \emph{must} have a variable that
+refers to it, even if it is only used in a nested structure. This
+simplifies the semantics.  (Nested records could be supported with
+just a source code transformation.)
+
+Since object identity is now significant, we add identity constraints
+to the language (written \verb|==|) in addition to equality
+constraints (\verb|=|).  Assignment is now translated to a \verb|once|
+identity constraint.  If \verb|p| and \verb|q| are identical, they
+must also be equal, but the converse is not necessarily true --- if
+\verb|p| and \verb|q| are equal, they might or might not be identical.
+(This is the case both for records and instances of primitive types.
+It would be possible to add a rule that any two equal instances of
+primitive types also be identical, e.g., there is only one instance of
+10000, but this doesn't appear to be necessary for the semantics and
+so we omit it.  This mirrors the situation in many practical
+languages.)
 
 Here are some examples involving record fields and constraints:
 \begin{verbatim}
- p := new {x:2, y:5}; /* create a record on the heap an assign a reference to p */
+ p := new {x:2, y:5}; /* create a record on the heap and save the reference in p */
  a := p.x;            /* read a field of a record and assign it to a variable */
- p.x := 5;            /* assign 5 to the field p.x */
+ p.x := 6;            /* assign 6 to the field p.x */
  always p.x = 100;
 \end{verbatim}
 
@@ -1364,8 +1375,12 @@ on the individual components, so that the record constructs are all
 handled by the semantic rules, and the constraint solver does not need
 to know anything about records.
 
-The above example desugars to the constraints weak $p=r$, weak
-$r_x=5$, weak $r_y=5$, and weak $a=2$, which after solving and putting
+\ab{Fix the following paragraph! Need to have references to the
+  primitive integers as well, plus the example changed and the text is
+  incorrect.}
+
+The above example desugars to the constraints weak $p==r$, weak
+$r_x==5$, weak $r_y=5$, and weak $a=2$, which after solving and putting
 the record back together results in the environment \verb|p| $\mapsto$
 \verb|r| $\wedge$ \linebreak \verb|a| $\mapsto$ \verb|5|, as well as
 the heap \verb|r| $\mapsto$ \verb|{x:5, y:5}|.
@@ -1425,13 +1440,11 @@ refer only to references on the
 heap, the following example works and demonstrates one form of aliasing:
 \begin{verbatim}
  p := new {x:2, y:5};
- always q = p;
+ always q == p;
  p.x := 100;
 \end{verbatim}
 Now, \verb|q| holds the same reference as \verb|p|, so both will
 always point to the same record.
-
-\ab{I think the above example should fail!}
 
 The more common form of aliasing is this:
 \begin{verbatim}
@@ -1448,21 +1461,14 @@ to the record value \verb|{x:100,y:0}| in the heap. Note that in the
 latter case (as is known from imperative programs), the aliasing is
 only temporary and might be broken later.
 
-Unlike Babelsberg/PrimitiveTypes, the weak stays on variables that
-refer to records are identity constraints rather than equality
-constraints: such a variable continues to refer to the same object
-unless reassigned. This is a direct consequence of the weak stays
-referring to the references the variables hold, not the records on the
-heap.
+Unlike Babelsberg/PrimitiveTypes, the weak stays on variables are
+identity constraints rather than equality constraints: such a variable
+continues to refer to the same object unless reassigned. This is a
+direct consequence of the weak stays referring to the references the
+variables hold, not the records on the heap.
 
-\ab{Clarify earlier that assignment for records with UIDs uses
-  identity.  Also reference that fact in the following subsection.}
+Another example:
 
-\subsection{Identity Constraints}
-\label{sec:identity-constraints}
-
-In Babelsberg/UID we can have identity constraints, in addition
-to equality constraints:
 \begin{verbatim}
  p := new {x:0, y:0};
  always p == q;
@@ -1479,7 +1485,8 @@ an identity constraint, the assignment to \verb|q| would have failed
 the structural compatibility check, which would have expected it to be
 a record with \verb|x| and \verb|y| fields.)
 
-We can have priorities on identity constraints:
+The implicit stay constraints are weak identity constraints.  The
+programmer can also annotate identity constraints with priorities:
 \begin{verbatim}
  p := new {x:0, y:0};
  q := new {z:0};

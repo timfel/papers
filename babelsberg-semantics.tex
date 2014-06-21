@@ -849,7 +849,7 @@ Records are written as lists of name/value pairs in curly braces:
   {x:5, y:10}
 \end{verbatim}
 
-For simplicity, we restrict the records in Babelsberg/Records to be
+For simplicity, we restrict the records to be
 flat, i.e., the fields can only contain primitives and not other
 records.  (Defining the semantics for recursive record structures
 turns out to be easier once we have references, so we postpone
@@ -900,7 +900,12 @@ them --- if one is violated it's just an error.  Instead, the
 programmer must ensure that a record with the expected fields is first
 assigned to a variable used in record constraints, just as a
 programmer would need to ensure that a record with the expected fields
-was assigned to a record-valued variable in a standard language.
+was assigned to a record-valued variable in a standard language.  The
+check also succeeds for a constraint \verb|p=q| where \verb|p| is
+uninitialized and \verb|q| holds a value, or vice versa.  This is on
+the one hand convenient, but is actually also essential, because we
+convert assignments into \verb|once| equality constraints and
+otherwise there would be no way to initialize a variable.
 
 Here are a few examples.
 
@@ -910,10 +915,10 @@ Here are a few examples.
 \end{verbatim}
 After executing the two statements, the environment is 
 \verb|p| $\mapsto$ \verb|{x:100, y:5}|.  Here is how the system
-determines this result.  The structural compatibility check for the
-\verb|always| constraint is that \verb|p| is a record that has an
-\verb|x| field.  We desugar the record constraint, so that after
-evaluating the \verb|always p.x = 100| statement the constraints are:
+handles the \verb|always| constraint.  The structural compatibility
+check is that \verb|p| is a record that has an \verb|x| field.  We
+desugar the record constraint, so that after evaluating the
+\verb|always p.x = 100| statement the constraints are:
 
 \begin{tabular}{rl}
 weak      & $p_x=2$ \\
@@ -927,38 +932,19 @@ These constraints have the solution $p_x=100$, $p_y=5$, which is then
 reassembled to yield the environment \linebreak
 \verb|p| $\mapsto$ \verb|{x:100, y:5}|.
 
-Here are a few examples that fail the structural compatibility checks.
-
+The following program fails the structural compatability checks, since
+the \verb|always| constraint expects \verb|p| to have a \verb|y| field
+but it doesn't:
 \begin{verbatim}
- p := {x:2, y:5};
- always q = p;
-\end{verbatim}
-There is a check before the \verb|always| constraint that \verb|q|
-have \verb|x| and \verb|y| fields, which fails.  To fix this, we could
-initialize \verb|q| appropriately:
-\begin{verbatim}
- p := {x:2, y:5};
- q := p;
- always q = p;
+ p := {x:2};
+ always p.y = 100;
 \end{verbatim}
 
-(Experience with Babelsberg/R and Babelsberg/JS indicates that
-requiring this initialization is annoying.  We can avoid the problem,
-as is described in Section \ref{sec:record-convenience-features}.
-However, doing so clutters up the semantics a bit, and since our goal
-with Bablesberg/Records is to illuminate the semantics rather than to
-design a practical language, we don't include this in our formal
-semantics.)
-
-Similarly, we can't simply assert a constraint on a record \verb|p|:
+This program fails as well, since constraining a record to be equal to
+a number fails the compatability check:
 \begin{verbatim}
- always p = {x:2, y:5};
-\end{verbatim}
-
-Rather, we need to initialize \verb|p| first:
-\begin{verbatim}
- p := {x:2, y:5};
- always p = {x:2, y:5};
+ p := {x:2};
+ always p = 5;
 \end{verbatim}
 
 The following program passes the structural compatibility checks, but
@@ -1199,7 +1185,7 @@ translate to the solver.
 Note that the rules above have a compatibility check to ensure that
 the accessed field already exists in the record. This is not required
 for our translation. Leaving it out, however, would lead to some
-``structural nondeterminism'' that is potentially undesirable, e.g. a
+``structural nondeterminism'' that we decided would be undesirable, e.g., a
 constraint like {\tt p.x = 1 $\vee$ p.y = 2} could cause the solver to
 invent either an {\tt x} field or a {\tt y} field.
 
@@ -2619,95 +2605,6 @@ This appendix contains descriptions of some alternatives and
 observations that are potentially of interest, but that aren't
 essential to the main purpose of this note (which is to develop a
 formal semantics for Babelsberg).
-
-\subsection{Convenience Features to Avoid Trivial Initializations}
-\label{sec:record-convenience-features}
-
-As illustrated by some of the Babelsberg/Records examples (Section
-\ref{sec:babelsberg-records}), we may need to initialize a record variable
-with a suitable value before using it in an \verb|always| constraint,
-even if the \verb|always| constraint would define its entire
-structure.  In practice this is annoying, and so in the actual
-Babelsberg/R language we allow an \verb|always| constraint to define
-the structure of an uninitialized variable.  If we supported this in
-Babelsberg/Records as well, this program would be legal:
-\begin{verbatim}
- p := {x:2, y:5};
- always q = p;
-\end{verbatim}
-
-as would this one:
-\begin{verbatim}
- always p = {x:2, y:5};
-\end{verbatim}
-
-However, as previously noted, since our goal with Babelsberg/Records
-is to illuminate the semantics rather than to design a practical
-language, we don't include this in our formal semantics.  Note that we
-\emph{do} include an analogous capability for identity constraints
-though (Section \ref{sec:babelsberg-uid}).
-
-\subsection{Simulating Mutable Records}
-
-If we have read-only variables, and ``once'' constraints in addition
-to ``always'' constraints, we can simulate assigning to the field of a
-record just with constraints --- we don't need mutable records as
-such.  In other words, we can just use Babelsberg/Records rather than
-extending it to Babelsberg/MRecords.  (This is similar to the
-simulation of assignment discussed for Babelsberg/Reals in Section
-\ref{sec:babelsberg/int}.)  Consider:
-
-\begin{verbatim}
- p := {x:0, y:0};
- once p.x = 100;
-\end{verbatim}
-
-The \verb|once| constraint takes the place of an assignment to
-\verb|p.x|.  If the right hand side of the assignment is a variable or
-an expression, we need to annotate the variable (or all the variables
-in the expression) as read-only to achieve the directionality of the
-assignment. For example:
-
-\begin{verbatim}
- p := {x:0, y:0};
- once p.x = z?;
-\end{verbatim}
-
-(Without the read-only annotation on \verb|z|, the solver might change
-\verb|z| rather than \verb|p.x| to satisfy the constraint.)
-
-If the assignment involves the same field of the record, we need to
-use a temporary.  Thus, this program:
-
-\begin{verbatim}
- p := {x:0, y:0};
- p.x := p.x+1;
-\end{verbatim}
-
-becomes
-
-\begin{verbatim}
- p := {x:0, y:0};
- once temp = p.x?
- once p.x = temp?
-\end{verbatim}
-
-With the version of structural compatibility checks presented in the
-main document, we can't do away with assignment altogether: it is
-needed to provide the initial structure for variables that refer to
-records.  So this version would fail the structural compatibility
-check on the first line:
-
-\begin{verbatim}
- once p = {x:0, y:0};
- once temp = p.x?
- once p.x = temp?
-\end{verbatim}
-
-However, if we have the convenience features described above (Appendix
-\ref{sec:record-convenience-features}) the above program would work,
-and we can dispense with assignment entirely in Babelsberg/Records as
-well as in Babelsberg/Reals.
 
 \subsection{Alternatives to Structural Compatability Checks}
 \label{sec:structural-compatability-check-alternatives}

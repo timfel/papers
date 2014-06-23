@@ -1766,13 +1766,11 @@ and then equality constrained.)
   \tcH{E}{H}{r$'$}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
 }{
   \toSolverH{
-    e $=_r$ e$'$
+    e $=$ e$'$
   }{
     r_{l_1} = r'_{l_1} \wedge \cdots \wedge r_{l_n} = r'_{l_n}
   }
 }
-
-\ab{do we need the $=_r$ syntax?  why not just $=$?}
 
 \judgment{\fromSolverH{M}{E}{H}}
 
@@ -2526,21 +2524,36 @@ always strong p.x=10;
 always strong q.x=20;
 \end{verbatim}
 
+\subsection{Circular Structures}
+\label{sec:circular-structures}
+
+There is an issue regarding creating circular structures if we convert
+assignment statements to \verb|once| constraints, with the right hand
+side annotated as read only.  Consider:
+\begin{verbatim}
+c := Cons.new(10,nil);
+c.cdr := c;
+\end{verbatim}
+
+If the second assignment is converted to the constraint
+\verb|once c.cdr == c?| this is unsatisfiable.  However, there is a
+simple workaround, namely to replace such an assignment with a
+\verb|once| identity constraint without the read-only annotation:
+\begin{verbatim}
+c := Cons.new(10,nil);
+once c.cdr == c
+\end{verbatim}
+
+This is a bit strange.  But this solution doesn't require any changes
+to the formal semantics, and addresses all the previous issues.  Also
+see Appendix \ref{sec:alternatives-for-creating-circular-structures}
+for a practical variant that avoids this problem.
+
 \section{Open Issues}
 
 \emph{This section is a holding pen for things that aren't workd out.
   These should be worked out and the text moved to another part of the
   memo; or deleted.}
-
-Can we have conjunctions of identity constraints?  Can these be
-intermixed with other constraints?  This seems weird, but maybe it's
-OK.  And on the other hand, there probably isn't a great need to do
-so.  What about things like
-
-\begin{verbatim}
-weak ( p==q and p.x=10 and q.x=20 )
-\end{verbatim}
-
 
 Have an example that shows the need to re-evaluate the constraint
 closures (for example, re-binding a point to a different instance of
@@ -2785,6 +2798,53 @@ For Babelsberg/Objects, the analog of this behavior would likely be
 requiring that the constraint solver generate new classes on the fly;
 there will also be multiple possible classes.  As before, this seems
 overly complex and unpredictable.
+
+\subsection{Alternatives for Creating Circular Structures}
+\label{sec:alternatives-for-creating-circular-structures}
+
+As discussed in Section \ref{sec:circular-structures}, there is an
+issue with circular structures if we convert assignment statements to
+\verb|once| constraints with the right hand side annotated as read
+only.
+
+\subsubsection{A Practical Variant: Selectively Eliding the 
+  Read-Only Annotation}
+
+A variant is to make the entire object on the right-hand side of the
+assignment be read-only, except for a field that is assigned to (if
+any).  The constraints would be exactly the same for all the examples
+except for the circular structures one:
+
+\begin{verbatim}
+c := Cons.new(10,nil);
+c.cdr := c;
+\end{verbatim}
+
+Here, \verb|c| itself and \verb|c.car| are read-only, but not
+\verb|c.cdr|.
+
+This seems similar to the way that mutable state is modeled in Dedalus
+(where there is a persistence rule that says facts continue to hold,
+unless explicitly negated).
+
+This variant seems mostly of practical interest --- as far as the
+formal semantics is concerned, the simpler proposal described in
+Section \ref{sec:circular-structures} seems preferable.
+
+\subsubsection{Another Alternative: Distinguishing Ownership from Reference}
+
+An alternative to making the entire object on the right-hand side of
+the assignment read-only is to distinguish ownership of parts from
+references to other objects.  If an instance variable is for an
+``owned'' part, then that instance variable is made read-only; but
+otherwise not.  For compatibility with the host language, the default
+would be that instance variables do not refer to owned parts; rather,
+this must be declared explicitly.  (It only needs to be declared if
+there are constraints on the parts or subparts.)
+
+This alternative does get rid of the weird transformation for creating
+circular structures, but is otherwise more complex, so we didn't
+select it.
 
 \end{document}
 

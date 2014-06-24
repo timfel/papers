@@ -98,8 +98,6 @@ languages are as follows:
   a set of primitive types, such as integers, reals, and strings)
 \item Babelsberg/Records (Babelsberg with immutable records, along
   with primitive types)
-\item Babelsberg/MRecords (Babelsberg with mutable records, along with
-  primitive types)
 \item Babelsberg/UID (Babelsberg with mutable records that live on the
   heap and so have an identity, can be aliased, etc., as well as
   primitive types.)
@@ -126,6 +124,12 @@ syntactic sugar that are intended to be inherited from the host
 language. The semantics instead focus on the expression of standard
 object-oriented constructs that need to be modified to support the
 Babelsberg design.
+
+An overarching design goal is that in the absence of constraints,
+Babelsberg should be a very standard object-oriented language.  We
+have thus resisted the temptation to add other interesting features,
+and to make the smallest possible changes while still accommodating
+constraints in a clean and powerful way.
 
 Another motivation for the design is that when there is a choice, we
 lean toward simplicity over power of the constraint language and
@@ -1239,6 +1243,48 @@ had been different:
 \end{verbatim}
 the program works.
 
+\subsection{Adding Mutable Records}
+
+It would be easy to extend Babelsberg/Records
+ to allow mutable records.  Syntactically, we would simply
+allow field acccesses as l-values, e.g.,
+\begin{verbatim}
+ p := {x:0, y:0};
+ p.x := 100;
+\end{verbatim}
+
+After the second assignment, this would desugar to the constraints
+weak $p_x=0$, weak $p_y=0$, $p_x=100$, which after solving and putting
+the record back together results in the environment \verb|p| $\mapsto$
+\verb|{x:100, y:0}|.  This doesn't add any particular complications to
+the semantics.
+
+However, since we translate assignment statements into ``once''
+constraints, the only additional feature provided by such an extension
+would be the syntax allowing field accesses as l-values --- we can
+always convert such a program into one that only has immutable
+records.  For example, the above program is equivalent to the
+following program in Babelsberg/Records:
+\begin{verbatim}
+ p := {x:0, y:0};
+ once p.x = 100;
+\end{verbatim}
+
+In any case there still would be no notion of object identity.  Consider:
+\begin{verbatim}
+ p := {x:0, y:0};
+ q := p;
+ p.x := 100;
+\end{verbatim}
+
+After executing the three statements \verb|p| $\mapsto$ \verb|{x:100, y:0}|,
+but \verb|q| $\mapsto$ \verb|{x:0, y:0}|.
+
+Thus, given that adding mutable records would simply provide an
+additional syntactic convenience, and given that Babelsberg/Records is
+just a step toward objects in any case, we don't include this as a
+separate language.
+
 \subsection{Formalism}
 \label{recformal}
 
@@ -1548,86 +1594,6 @@ we keep the old rules for assignment and sequencing but replace the
 
 \ab{I think we decided we aren't modeling exception handling, so
   indeed, the intent is to halt the program.}
-
-\section{Babelsberg/MRecords}
-\label{sec:babelsberg-mrecords}
-
-Our next language is Babelsberg/MRecords, which involves extending
-Babelsberg/Records to allow mutable records.  Syntactically, we simply
-allow field acccesses as l-values, e.g.
-\begin{verbatim}
- p := {x:0, y:0};
- p.x := 100;
-\end{verbatim}
-
-After the second assignment, this desugars to the constraints
-weak $p_x=0$, weak $p_y=0$, $p_x=100$, which after solving and putting
-the record back together results in the environment
-\verb|p| $\mapsto$ \verb|{x:100, y:0}|.  This
-doesn't add any particular complications to the semantics.
-
-In fact, since we translate assignment statements into ``once''
-constraints with the right hand side annotated as read-only, the only
-additional feature provided by Babelsberg/MRecords is the syntax
-allowing field accesses as l-values --- we can always convert a
-program in Babelsberg/MRecords into one in Babelsberg/Records.  For
-example, the above program is equivalent to the following program in
-Babelsberg/Records:
-\begin{verbatim}
- p := {x:0, y:0};
- once p.x = 100;
-\end{verbatim}
-
-There is still no notion of object identity.  Consider:
-\begin{verbatim}
- p := {x:0, y:0};
- q := p;
- p.x := 100;
-\end{verbatim}
-
-After executing the three statements \verb|p| $\mapsto$ \verb|{x:100, y:0}|,
-but \verb|q| $\mapsto$ \verb|{x:0, y:0}|.
-
-\ab{With the translation of assignment to a once constraint, so that a
-  program in Babelsberg/MRecords can be converted to one in
-  Babelsberg/Records, Babelsberg/MRecords doesn't seem very
-  interesting any more.  Maybe drop it, and just put a short
-  subsection in Babelsberg/Records noting this?}
-
-\subsection{Formalism}
-\label{mrecformal}
-
-\subsubsection{Syntax}
-
-The syntax from Section~\ref{recformal} is augmented now to support
-assignment of record components:
-
-\begin{tt}
-\begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & $\cdots$ $\mid$ x.l := e
-\end{tabular}
-\end{tt}
-
-\subsubsection{Semantics}
-
-The semantics from Section~\ref{recformal} is similarly augmented now
-to support assignment of record components.  That simply requires the
-addition of the following two rules to the semantics of statement evaluation:
-
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
-
-\infrule[S-AsgnField]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
-\mbox{\solve{E$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{skip}}}
-
-\infrule[S-AsgnFieldFail]{\mbox{\tc{E}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \eval{E}{e}{v}} \\
-\mbox{\fail{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\step{E}{C}{x.l$_i$ := e}{E$'$}{C}{fail}}}
-
-Note that we perform a structural compatibility check to ensure that
-the field being mutated already exists in the record denoted by {\tt x}.
 
 \section{Babelsberg/UID}
 \label{sec:babelsberg-uid}

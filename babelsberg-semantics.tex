@@ -295,12 +295,382 @@ and $y$ fields of points, for which we do want to use a WSB
 comparator.  As long as we give different priorities for the identity
 and the value constraints, this extension allows doing this.
 
+\section{Babelsberg/Bools}
+\label{sec:babelsberg/bool}
+
+We start with a very basic language, Babelsberg/Bools, that has only
+one datatype: reals.  There is an \emph{environment} that maps names
+to values.
+
+\subsubsection{Syntax of Babelsberg/Bools}
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ once C $\mid$ s;s $\mid$ fail \\
+  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+{\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
+{\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
+{\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil \\
+{\rm Variable} & x & ::= & {\rm variable names} $\mid$ x? \\\\
+
+{\rm Value} & v & ::= & c
+\end{tabular}
+\end{tt}
+
+The language includes a set of boolean constants and and undefined
+value {\tt nil} ranged over by metavariable {\tt c}. A finite set of
+operators on expressions is ranged over by $\oplus$. For booleans,
+this set is empty, but it will not be empty for other types and it is
+convenient to include it here. The symbol $\olessthan$ ranges over a
+set of {\em predicate} operators ({\tt =} and {\tt $\neq$} for
+booleans), which test properties of base types in the language. The
+symbol $\ovee$ ranges over a set of logical operators for combining
+boolean expressions (e.g., {\tt $\wedge$}, {\tt $\vee$}).  The
+predicate operators are assumed to include at least an equality
+operator {\tt =} that works on all constants, and the logical
+operators are assumed to include at least conjunction {\tt $\wedge$}.
+The symbol $\rho$ ranges over a finite and totally ordered set of
+constraint {\em priorities} and is assumed to include a bottom element
+{\em weak} and top element {\em required}.  A constraint with no
+explicit priority is assumed to have the priority {\em required}.
+
+The syntax is that of a standard imperative language except for the
+{\tt always} and {\tt once} statements, which declare constraints, and
+the {\tt ?} annotation for variables. An {\tt always} constraint must
+hold for the rest of the programs execution, whereas a {\tt once}
+constraint is satisfied by the solver and then retracted. The {\tt ?}
+indicates that a variable is read-only if used in a constraint,
+i.e.\@, the programmer does not allow the solver to change the
+variables in the expression to satisfy constraints. Finally, the {\tt
+  fail} statement is not intended for use at the source level, but
+rather is used in the semantics to make explicit that the program
+halts due either to an unsatisfiable constraint or to the solver being
+unable to determine whether the constraint is satisfiable.  (The
+formal semantics doesn't distinguish between these two cases, but
+lumps them both together as {\tt fail}.  In a practical
+implementation, we would likely want to distinguish them, since it's
+useful if we can inform the programmer that the constraints are truly
+not satisfiable.  We could also add standard exception handling to
+remove the unsatisfiable or unknown constraint and continue, but omit
+this here for simplicity.)
+
+The Babelsberg language is parameterized by a particular constraint
+solver that is used to find a solution to the constraints.  In our
+formalism we use the following syntax as the language of the solver:
+
+\subsection{Syntax of the Solver Language}
+$\begin{array}{lrrl}
+{\rm Constraint} & C & ::= & \top \mid  A \mid \rho\ C \mid C \ovee C \\
+{\rm Atomic\ Constraint} & A & ::= & e \olessthan e \\
+{\rm Expression} & e & ::= & c \mid x \mid e \oplus e \\
+{\rm Constant} & c & ::= & {\rm constants} \\
+{\rm Variable} & x & ::= & {\rm variable\ names} \mid x? \\\\
+
+{\rm Value} & v & ::= & c
+\end{array}$
+
+The elements of the solver's language are analogous to the syntax of
+allowed constraints in the source language for
+Babelsberg/PrimitiveTypes defined above. Note, however, that all
+elements of the constraint language are really distinct entities. We
+will see that they have a straightforward mapping, but they are not
+the same things in different font.
+
+Note that some solvers may only support a subset of the above syntax,
+for example requiring constraints to be in some canonical form, or
+lacking support for disjunctions of constraints, prioritized
+constraints, or some particular primitive type (e.g., strings).  On
+the other hand, some solvers may support constraints that are not in
+our syntax, such as constraints on records or objects.  For generality
+we assume that all constraints must be translated to the simple
+language above.  As we progress to languages with additional
+constructs, such as records and then objects, we will however retain
+the above solver language.
+
+\subsection{Semantics}
+
+The semantics is defined by several judgments, defined below.  These
+judgments depends on the notion of an {\em environment}, which is a
+partial function from program variables to program values. We use {\tt
+  E(x)$\uparrow$} to indicate that {\tt E} has no mapping for {\tt
+  x}. When convenient we also view an environment as a set of (program
+variable, program value) pairs.  Metavariable {\tt E} ranges over
+environments.
+
+\judgment{\eval{E}{e}{v}}
+
+``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
+  E}.''
+
+\inferax{E-Const}{\eval{E}{c}{c}}
+\inferrule{E-Var}{
+  {\tt E(x) = v}
+}{
+  \eval{E}{x}{v}
+}
+\inferrule{E-Undef}{
+  {\tt E(x)$\uparrow$}
+}{
+  \eval{E}{x}{nil}
+}
+\inferrule{E-ReadOnly}{
+  {\tt E(x) = v}
+}{
+  \eval{E}{x?}{v}
+}
+
+\inferrule{E-Op}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ [[$\oplus$]] v$_2$} = {\tt v}
+}{
+  \eval{E}{e$_1$ $\oplus$ e$_2$}{v}
+}
+
+\inferrule{E-Compare}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ [[$\olessthan$]] v$_2$} = {\tt v}
+}{
+  \eval{E}{e$_1$ $\olessthan$ e$_2$}{v}
+}
+
+\inferrule{E-Combine}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ [[$\ovee$]] v$_2$} = {\tt v}
+}{
+  \eval{E}{e$_1$ $\ovee$ e$_2$}{v}
+}
+
+
+\judgment{\csolve{M}{C}}
+
+``Mapping $M$ is a {\em model} of constraint $C$.''
+
+This judgment represents a call to the constraint solver, which we
+treat as a black box.  Here metavariable $M$ ranges over finite
+mappings from constraint variables $x$ to values $v$.  When convenient we
+also view a mapping as a set of (variable, value)
+pairs.The proposition 
+\csolve{M}{C} denotes that $M$ is a solution to the constraint
+$C$ (and further one that is optimal according to the solver's
+semantics, as discussed earlier).  
+
+We use the notation \cfail{C} to mean that there is no mapping $M$
+such that \csolve{M}{C}, i.e., either $C$ is \emph{unsatisfiable} or
+the solver is unable to find a solution.
+
+\judgment{\toSolver{e}{e}}
+\judgment{\toSolver{C}{C}}
+
+We define $\leadsto$ as a set of functions to translate source-level
+constraints into the language of the solver. For simplicity and
+readability, we have defined both languages to use equivalent syntax
+for some constructs except for font. However, note that these entities
+represent different concepts. We define here the concepts represented
+by the entities of the solver language versus those of the entities of
+Babelsberg/Bools.
+
+\[
+\begin{array}{r l}
+  C_{bools}: {\tt Constant} \rightarrow ({\tt E} \rightarrow \{true, false\}) &
+  C_{solver}: Constant \rightarrow (f: Model \rightarrow \{true, false\}) \\
+  C_{bools}\llbracket {\tt c} \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).{\tt c} & 
+  C_{solver}\llbracket c \rrbracket = \lambda.(\lambda M.c) \\
+  &\\
+  V_{bools}: {\tt Variable} \rightarrow ({\tt E} \rightarrow \{true, false\}) &
+  V_{solver}: Variable \rightarrow (f: Model \rightarrow \{true, false\}) \\
+  V_{bools}\llbracket {\tt x} \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).{\tt E(x)} & 
+  V_{solver}\llbracket x \rrbracket = \lambda.(\lambda M.M(x))\\
+  &\\
+  E_{bools}: {\tt Expression} \rightarrow ({\tt E} \rightarrow \{true, false\}) &
+  E_{solver}: Expression \rightarrow (f: Model \rightarrow \{true, false\}) \\
+  %
+  E_{bools}\llbracket{\tt e}_1 \oplus {\tt e}_2 \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).(\llbracket{\tt e}_1\rrbracket{\tt E} \oplus \llbracket{\tt e}_2\rrbracket{\tt E}) &
+  E_{solver}\llbracket e_1 \oplus e_2 \rrbracket = \lambda.(\lambda M.\llbracket e_1\rrbracket M \oplus \llbracket e_2\rrbracket M)\\ 
+  E_{bools}\llbracket{\tt e}_1 \olessthan {\tt e}_2 \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).(\llbracket{\tt e}_1\rrbracket{\tt E} \olessthan \llbracket{\tt e}_2\rrbracket{\tt E}) &\\
+  E_{bools}\llbracket{\tt e}_1 \ovee {\tt e}_2 \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).(\llbracket{\tt e}_1\rrbracket{\tt E} \ovee \llbracket{\tt e}_2\rrbracket{\tt E}) &
+  %
+  A_{solver}: AtomicConstraint \rightarrow (f: Model \rightarrow \{true\}) \\
+  &A_{solver}\llbracket e_1 \olessthan e_2 \rrbracket = \lambda.(\lambda M.\llbracket e_1\rrbracket M \olessthan \llbracket e_2\rrbracket M)\\ 
+  &\\
+  &C_{solver}: Constraint \rightarrow (f: Model \rightarrow \{true\}) \\
+  &C_{solver}\llbracket e_1 \ovee e_2 \rrbracket = \lambda.(\lambda M.\llbracket e_1\rrbracket M \ovee \llbracket e_2\rrbracket M)\\ 
+\end{array}
+\]
+\tf{todo - fix this once we're clearer on the solver language}
+
+In informal terms, imperative constructs represent the mathematical
+constructs with the same names. In the solver, these constructs
+represent functions that map to the respective mathematical constructs
+in a given model. It is the task of the solver to find a model such
+that all functions representing constraints evaluate to true.
+
+The following judgments define how to translate source-level
+constraints into the language of the solver. For Babelsberg/Reals and
+Babelsberg/PrimitiveTypes this is straightforward.
+
+\inferax{ToConst}{\toSolver{c}{c}}
+
+\tf{Todd: Please see if you can fix my idea above, or if it even is in
+  the right direction. I'm trying to side-step the mapping issue by
+  making it explicit that we map between things representing different
+  mathematical constructs.}
+
+\inferax{ToVar}{\toSolver{x}{x}}
+
+\inferrule{ToReadOnly}{
+  \toSolver{x}{x}
+}{
+  \toSolver{x?}{x?}
+}
+
+\inferrule{ToExpression}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
+{\toSolver{e$_1$ $\oplus$ e$_2$}{e_1 \oplus e_2}}
+
+\inferrule{ToAtomic}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
+{\toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}}
+
+\inferrule{ToConstraint}{\toSolver{e$_1$}{C_1} \andalso \toSolver{e$_2$}{C_2}}
+{\toSolver{e$_1$ $\ovee$ e$_2$}{C_1 \ovee C_2}}
+
+\inferrule{ToPriority}{\toSolver{e}{C}}
+{\toSolver{$\rho$ e}{\rho\ C}}
+
+\judgment{\fromSolver{M}{E}}
+
+This judgment defines how to translate models produced by the
+constraint solver back into a program environment.
+For Babelsberg/Reals and Babelsberg/PrimitiveTypes this is
+straightforward.
+
+\inferax{FromEmpty}{\fromSolver{\emptyset}{$\emptyset$}}
+
+\inferrule{FromOne}{$M(x) = v$ \andalso $M_0 = M \setminus \{(x,v)\}$
+  \andalso \fromSolver{M_0}{E$_0$} \andalso {\tt E} = {\tt E$_0$}
+  $\cup$ $\{({\tt x}, {\tt v})\}$}
+{\fromSolver{M}{E}}
+
+\judgment{\solve{E}{C}}
+
+This judgment solves program constraints by translating them to the
+language of the constraint solver, obtaining a model, and translating
+back to a program environment.
+
+\inferrule{Solve}{\toSolver{C}{C} \andalso \csolve{M}{C} \andalso
+  \fromSolver{M}{E$_s$}}
+{\solve{E$_s$}{C}}
+
+
+\judgment{\fail{C}}
+
+This judgment determines when a program constraint is unsatisfiable or
+the solver is unable to find a solution.
+
+\inferrule{Fail}{\toSolver{C}{C} \andalso \cfail{C}}
+{\fail{C}}
+
+\judgment{\stay{E}{C}}
+
+This judgment defines how to translate an environment into a
+source-level ``stay'' constraint.
+
+\inferax{StayEmpty}{\stay{$\emptyset$}{True}}
+
+\inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
+  {\tt E} \setminus \{({\tt x},{\tt v})\}$
+  \andalso \stay{E$_0$}{C$_0$} \andalso {\tt C} = {\tt C$_0$}
+  $\wedge$ {\tt weak x=v}}
+{\stay{E}{C}}
+
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+
+``Configuration {\tt <E|C|s>} takes one step of execution to state {\tt <E$'$|C$'$|s$'$>}.''
+
+A ``configuration'' defining the state of an execution includes a
+concrete context, represented by the environment, a symbolic context,
+represented by the constraint, and a statement to be executed.  The
+environment and statement are standard, while the constraint is not
+part of the state of a computation in most languages.  Intuitively,
+the environment comes from constraint solving during the evaluation of
+the immediately preceding statement, and the constraint records the
+\verb|always| constraints that have been declared so far during
+execution. Also, assignment is just syntactic sugar for one or more
+\verb|once| constraints. As explained in the examples above, this
+retains the same outward appearance as normal imperative assignment.
+
+
+
+\inferax{S-SeqSkip}{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
+
+\inferrule{S-Asgn}{
+  \eval{E}{e}{v}
+}{
+  \step{E}{C}{x := e}{E}{C}{once x = v}
+}
+
+\inferrule{S-Always}{
+  {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C$'$ $\wedge$ C$_s$)}
+}{
+  \step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}
+}
+
+\inferrule{S-AlwaysFail}{
+  {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+  \fail{(C$'$ $\wedge$ C$_s$)}
+}{
+  \step{E}{C}{always C$_0$}{E}{C}{fail}
+}
+
+\inferrule{S-Once}{\eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
+\solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}}
+{\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
+
+\inferrule{S-OnceFail}{\eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
+\fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}}
+{\step{E}{C}{once C$_0$}{E}{C}{fail}}
+
+\inferrule{S-SeqStep}{\step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}}
+{\step{E}{C}{s$_1$;s$_2$}{E$'$}{C$'$}{s$_1'$;s$_2$}}
+
+\inferax{S-SeqFail}
+{\step{E}{C}{fail;s$_2$}{E}{C}{fail}}
+
+
+\inferrule{S-IfThen}{
+  \eval{E}{e}{true}
+}{
+  \step{E}{C}{if e then s$_1$ else s$_2$}{E}{C}{s$_1$}%
+}
+
+\inferrule{S-IfElse}{
+  \eval{E}{e}{false}
+}{
+  \step{E}{C}{if e then s$_1$ else s$_2$}{E}{C}{s$_2$}%
+}
+
+
+\inferrule{S-WhileDo}{
+  \eval{E}{e}{true}
+}{
+  \step{E}{C}{while e do s}{E}{C}{s; while e do s}
+}
+
+\inferrule{S-WhileSkip}{
+  \eval{E}{e}{false}
+}{
+  \step{E}{C}{while e do s}{E}{C}{skip}
+}
+
+
 \section{Babelsberg/Reals and Babelsberg/PrimitiveTypes}
 \label{sec:babelsberg/int}
 
-We start with a very basic language, Babelsberg/Reals, that has only one
-datatype: reals.  There is an \emph{environment} that maps names to
-real values or booleans.
+\tf{Tim todo: move paragraphs as required into Babelsberg/Bools}
+
+We continue by adding primitive datatypes in Babelsberg/Reals.
 
 Here are some examples.
 
@@ -312,9 +682,9 @@ always x>=10
 
 An interesting feature of all our languages is that assignment is just
 syntactic sugar for a \texttt{once} constraint (i.e., a constraint
-that is asserted and then retracted), with the expression on the
-right-hand-side annotated as read-only.  Thus, the above example can
-be rewritten as:
+that is asserted and then retracted), with the variables in the
+expression on the right-hand-side annotated as read-only.  Thus, the
+above example can be rewritten as:
 
 \begin{verbatim}
 once x = 3;
@@ -504,7 +874,7 @@ would assign 20 to x on the last statement, and then bump it down to
 \subsection{Adding Other Primitive Types}
 
 It is straightforward to extend Babelsberg/Reals with other primitive
-types, such as reals, and strings.  When we need to refer to
+types, such as integers and strings.  When we need to refer to
 this language rather than just Babelsberg/Reals we will call it
 Babelsberg/PrimitiveTypes.  Note that all the types in
 Babelsberg/PrimitiveTypes are atomic --- we don't have recursive types
@@ -514,349 +884,203 @@ arrays, or sets).
 \subsection{Formalism}
 \label{intformal}
 
-In the formal syntax and semantics, the difference between
-Babelsberg/Reals and Babelsberg/PrimitiveTypes is trivial, so we go
-directly to Babelsberg/PrimitiveTypes.
+In the formal syntax and semantics, we show only the difference
+between Babelsberg/PrimitiveTypes and Babelsberg/Bools.
 
 \subsubsection{Syntax}
 \label{sec:babelsberg-primitivetypes-syntax}
 
-A program is a statement defined by the
-following syntax:
+The syntax is extended with additional constants. It is also extended
+with additional meanings for the operators $\oplus$ and $\olessthan$,
+which now not only range over operators between bools, but also over a
+finite set of operators on the primitive types (e.g., {\tt +}, {\tt
+  *}, {\tt $\sqrt{}$}, $\ldots$ for Reals). Similarily, the
+$\olessthan$ operator now subsumes (in addition to the boolean $=$ and
+$\neq$) $\leq$, $<$ and like operations that test properties of the
+base types. The atomic constraint operators for base types are assumed
+to include at least an equality operator {\tt =}.
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ C $\mid$ s;s $\mid$ fail $\mid$ if C then s else s \\
-{\rm Constraint} & C & ::= & p $\mid$ $\rho$ p $\mid$ C $\ovee$ C \\
-{\rm Predicate} & p & ::= & true $\mid$ false $\mid$ e $\olessthan$ e \\
-{\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e  $\mid$ e?\\
-{\rm Constant} & c & ::= & true $\mid$ false $\mid$ {\rm base types constants} \\
-{\rm Variable} & x & ::= & {\rm variable names} \\\\
-
-{\rm Value} & v & ::= & e
+... & & &\\
+{\rm Constant} & c & ::= & $\ldots$ $\mid$ {\rm set of base type constants} \\
+... & & &\\
 \end{tabular}
 \end{tt}
 
-The language includes a set of boolean constants and constants of
-various base types (e.g., integers, reals, strings) ranged over by
-metavariable {\tt c}, along with a finite set of operators on these
-types (e.g., {\tt +}, {\tt *}, {\tt \&}) ranged over by $\oplus$.  The
-symbol $\olessthan$ ranges over a set of {\em predicate} operators
-(e.g., {\tt =}, {\tt $\leq$}, {\tt $\neq$}), which test properties of
-base types in the language, and the symbol $\ovee$ ranges over a set
-of logical operators for combining constraints (e.g., {\tt $\wedge$},
-{\tt $\vee$}).  The atomic constraint operators are assumed to include
-at least an equality operator {\tt =} on constants, and the logical
-operators are assumed to include at least conjunction {\tt $\wedge$}.
-The symbol $\rho$ ranges over a finite and totally ordered set of
-constraint {\em priorities} and is assumed to include a bottom element
-{\em weak} and top element {\em required}.  A constraint with no
-explicit priority is assumed to have the priority {\em required}.
-
-The syntax is that of a standard imperative language except for the
-{\tt always} and {\tt once} statements, which declare constraints, and
-the {\tt ?} annotation for expressions. An {\tt always} constraint
-must hold for the rest of the programs execution, whereas a {\tt once}
-constraint is satisfied by the solver and then retracted. The {\tt ?}
-indicates that an expression is read-only, i.e.\@, the programmer does
-not allow the solver to change the variables in the expression to
-satisfy constraints. Finally, the {\tt fail} statement is not intended
-for use at the source level, but rather is used in the semantics to
-make explicit that the program halts due either to an unsatisfiable
-constraint or to the solver being unable to determine whether the
-constraint is satisfiable.  (The formal
-semantics doesn't distinguish between these two cases, but lumps them
-both together as {\tt fail}.  In a practical implementation, we would
-likely want to distinguish them, since it's useful if we can inform
-the programmer that the constraints are truly not satisfiable.  We
-could also add standard exception handling to remove the unsatisfiable
-or unknown constraint and continue, but omit this here for
-simplicity.)
-
-The Babelsberg language is parameterized by a particular constraint
-solver that is used to find a solution to the constraints.  In our formalism we
-use the following syntax as the language of the solver:
-
-$\begin{array}{lrrl}
-{\rm Constraint} & C & ::= & \top \mid  A \mid \rho\ A \mid C \ovee C \\
-{\rm Atomic\ Constraint} & A & ::= & e \olessthan e \\
-{\rm Expression} & e & ::= & c \mid x \mid e \oplus e \mid e? \\
-{\rm Constant} & c & ::= & {\rm constants} \\
-{\rm Variable} & x & ::= & {\rm variable\ names} \\\\
-
-{\rm Value} & v & ::= & c
-\end{array}$
-
-The syntax of the solver's language is analogous to the syntax of
-constraints in the source language for Babelsberg/PrimitiveTypes
-defined above. Note, however, that all elements of the constraint
-language are really distinct entities. We will see that they have a
-straightforward mapping, but they are not the same things in different
-font. Another major difference is that only constants are values, so
-the solver will assign constants to variables when it finds a
-solution.
-
-Note that some solvers may only support a subset of the above syntax,
-for example requiring constraints to be in some canonical form, or
-lacking support for disjunctions of constraints, prioritized
-constraints, or some particular primitive type (e.g., strings).  On
-the other hand, some solvers may support constraints that are not in
-our syntax, such as constraints on records or objects.  For generality
-we assume that all constraints must be translated to the simple
-language above.  As we progress to languages with additional
-constructs, such as records and then objects, we will however retain
-the above solver language.
+The syntax of the solver language is unchanged.
 
 \subsubsection{Semantics}
 
-The semantics is defined by several judgments, defined below.  These
-judgments depends on the notion of an {\em environment}, which is a
-partial function from program variables to program values.  When
-convenient we also view an environment as a set of (program variable,
-program value) pairs.  Metavariable {\tt E} ranges over environments.
+We extend the semantics to support the notion of different types for
+expressions, and use these to extend our judgments as required.
 
-We define judgments to evaluate expressions. However, in
-Babelsberg/PrimitiveTypes, these all just evaluate to themselves. That
-is because the only way to have side-effects in this language is
-through assignment --- and that is syntactic sugar for a {\tt once}
-constraint with a read-only expression on the right-hand side. The
-solver can just mark all variables in a read-only expression as
-read-only, and never evaluate any expression. Because the solver
-language and the language of Babelsberg/PrimitiveTypes are essentially
-the same, we can just pass everything to the solver unevaluated. We
-define judgments for all allowed expressions, so we can just extend
-these in later languages that have to do actual evaluation.
+\judgment{\tc{E}{e}{T}}
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt E}.''
+
+We only include undefined, booleans, and one additional type in our
+semantics. Adding more types is straightforward. We use the following
+syntax for types:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & Boolean $\mid$ Undefined $\mid$ PrimitiveType
+\end{tabular}
+\end{tt}
+
+\inferax{T-Nil}{\tc{E}{nil}{Undefined}}
+\inferax{T-True}{\tc{E}{true}{Boolean}}
+\inferax{T-False}{\tc{E}{false}{Boolean}}
+\inferrule{T-Constant}{
+  {\tt c $\notin$ \{true, false, nil\}}
+}{
+  \tc{E}{c}{PrimitiveType}
+}
+
+\inferrule{T-Variable}{
+  \eval{E}{x}{v} \andalso \tc{E}{v}{T}
+}{
+  \tc{E}{x}{T}
+}
+
+\inferrule{T-ReadOnly}{
+  \tc{E}{x}{T}
+}{
+  \tc{E}{x?}{T}
+}
+
+\inferrule{T-Op}{
+  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+}{
+  \tc{E}{e$_1$ $\oplus$ e$_2$}{T}
+}
+
+\inferrule{T-Compare}{
+  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+}{
+  \tc{E}{e$_1$ $\olessthan$ e$_2$}{Boolean}
+}
+
+\inferrule{T-Combine}{
+  \tc{E}{e$_1$}{Boolean} \andalso \tc{E}{e$_2$}{Boolean}
+}{
+  \tc{E}{e$_1$ $\ovee$ e$_2$}{Boolean}
+}
+
+
+
+The following judgment is used to decide which expressions are valid
+as constraints.
+
+\judgment{\tcC{E}{C}}
+
+``Constraint {\tt C} is well formed in the context of environment
+{\tt E}.''
+
+
+\inferrule{T-Constraint}{
+  \tc{E}{C}{Boolean}
+}{
+  {\tcC{E}{C}}
+}
+
+The above rule encodes the requirement that expressions used in
+constraints must evaluate to a Boolean -- the constraint is that the
+expression evaluate to {\tt true}.
+
+\inferrule{T-Assign}{
+  \tc{E}{x}{Undefined}
+}{
+  \tcC{E}{x = e}
+}
+\inferax{T-Undef}{\tcC{E}{x = nil}}
+
+The above two rules are key to allow assigning new variables and to
+undefine variables. Changing the type of a variable can thus be
+accomplished by first undefined it, and then assigning a new value.
+
+\inferrule{T-Priority}{\tcC{E}{e}}{\tcC{E}{$\rho$\ e}}
+
 
 \judgment{\eval{E}{e}{v}}
 
-``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
-  E}.''
+Evaluation rules for expressions are augmented to ensure they can be
+typed.
 
-\inferax{E-Const}{\eval{E}{c}{c}}
-\inferax{E-Var}{\eval{E}{x}{x}}
-\inferax{E-Op}{\eval{E}{e$_1$ $\oplus$ e$_2$}{e$_1$ $\oplus$ e$_2$}}
-\inferax{E-ReadOnly}{\eval{E}{e?}{e?}}
-
-% \inferrule{E-Op}{\eval{E}{e$_1$}{v$_1$} \andalso
-% \eval{E}{e$_2$}{v$_2$} \andalso
-% {\tt v$_1$ [[$\oplus$]] v$_2$} = {\tt v}}
-% {\eval{E}{e$_1$ $\oplus$ e$_2$}{v}}
-
-\judgment{\csolve{M}{C}}
-
-``Mapping $M$ is a {\em model} of constraint $C$.''
-
-This judgment represents a call to the constraint solver, which we
-treat as a black box.  Here metavariable $M$ ranges over finite
-mappings from constraint variables $x$ to values $v$.  When convenient we
-also view a mapping as a set of (variable, value)
-pairs.The proposition 
-\csolve{M}{C} denotes that $M$ is a solution to the constraint
-$C$ (and further one that is optimal according to the solver's
-semantics, as discussed earlier).  
-
-We use the notation \cfail{C} to mean that there is no mapping $M$
-such that \csolve{M}{C}, i.e., either $C$ is \emph{unsatisfiable} or
-the solver is unable to find a solution.
-
-\judgment{\toSolver{e}{e}}
-\judgment{\toSolver{C}{C}}
-
-We define $\leadsto$ as a set of functions to translate source-level
-constraints into the language of the solver. For simplicity and
-readability, we have defined both languages to use equivalent syntax
-for some constructs except for font. However, note that these entities
-represent different concepts. We define here the concepts represented
-by the entities of the solver language versus those of the entities of
-Babelsberg/Reals in an environment {\tt E}.
-
-\[
-\begin{array}{r l}
-  C_{reals}: {\tt Constant} \rightarrow ({\tt E} \rightarrow \mathbb{R}) &
-  C_{solver}: Constant \rightarrow (f: Model \rightarrow \mathbb{R}) \\
-  C_{reals}\llbracket {\tt c} \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).{\tt c} & 
-  C_{solver}\llbracket c \rrbracket = \lambda.(\lambda M.c) \\
-  &\\
-  V_{reals}: {\tt Variable} \rightarrow ({\tt E} \rightarrow \mathbb{R}) &
-  V_{solver}: Variable \rightarrow (f: Model \rightarrow \mathbb{R}) \\
-  V_{reals}\llbracket {\tt x} \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).{\tt E(x)} & 
-  V_{solver}\llbracket x \rrbracket = \lambda.(\lambda M.M(x))\\
-  &\\
-  E_{reals}: {\tt Expression} \rightarrow ({\tt E} \rightarrow \mathbb{R}) &
-  E_{solver}: Expression \rightarrow (f: Model \rightarrow \mathbb{R}) \\
-  E_{reals}\llbracket{\tt e}_1 \oplus {\tt e}_2 \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).(\llbracket{\tt e}_1\rrbracket{\tt E} \oplus \llbracket{\tt e}_2\rrbracket{\tt E}) &
-  E_{solver}\llbracket e_1 \oplus e_2 \rrbracket = \lambda.(\lambda M.\llbracket e_1\rrbracket M \oplus \llbracket e_2\rrbracket M)\\ 
-  &\\
-  C_{reals}: {\tt AtomicConstraint} \rightarrow ({\tt E} \rightarrow \{True, False\}) &
-  C_{solver}: AtomicConstraint \rightarrow (f: Model \rightarrow \{True\}) \\
-  C_{reals}\llbracket{\tt e}_1 \ovee {\tt e}_2 \rrbracket = \lambda{\tt E}\in \mathcal{P}({\tt E}).(\llbracket{\tt e}_1\rrbracket{\tt E} \ovee \llbracket{\tt e}_2\rrbracket{\tt E}) &
-  C_{solver}\llbracket e_1 \ovee e_2 \rrbracket = \lambda.(\lambda M.\llbracket e_1\rrbracket M \ovee \llbracket e_2\rrbracket M)\\ 
-\end{array}
-\]
-
-In informal terms, an imperative constant represents mathematical
-constants with the same name, imperative variables represent their
-binding in the environment, arithmetic operations between them
-represent the mathematical operations, and comparisons represent a
-either {\tt True} or {\tt False}. In the solver, each syntax element
-instead represents a function that maps to these respective
-mathematical constructs in a given model. It is the task of the solver
-to find a model such that all $AtomicConstraint$ elements are true.
-\tf{let's see if there is some way to say what we mean here}
-
-The following judgments define how to translate source-level
-constraints into the language of the solver. For Babelsberg/Reals and
-Babelsberg/PrimitiveTypes this is straightforward.
-
-\inferax{ToConst}{\toSolver{c}{c}}
-
-\tdm{The above is a bit of an abuse of notation: implicity we're
-  saying that each constant in the source language maps to the
-  constant in the solver language that is identical except for font.
-  We could assume some explicit function for mapping source constants
-  to constants in the solver language, but that's probably
-  unnecessary.  There's a similar issue in the following rule for
-  variables.}
-\tf{Todd: Please see if you can fix my idea above, or if it even is in
-  the right direction. I'm trying to side-step the mapping issue by
-  making it explicit that we map between things representing different
-  mathematical constructs.}
-
-\inferax{ToVar}{\toSolver{x}{x}}
-
-\inferrule{ToReadOnly}{
-  \toSolver{e}{e}
+\inferrule{E-Op}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ [[$\oplus$]] v$_2$} = {\tt v} \andalso
+  \tc{E}{e$_1$ $\oplus$ e$_2$}{T}
 }{
-  \toSolver{e?}{e?}
+  \eval{E}{e$_1$ $\oplus$ e$_2$}{v}
 }
 
-\inferrule{ToArith}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
-{\toSolver{e$_1$ $\oplus$ e$_2$}{e_1 \oplus e_2}}
+\inferrule{E-Compare}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ [[$\olessthan$]] v$_2$} = {\tt v} \andalso
+  \tc{E}{e$_1$ $\olessthan$ e$_2$}{T}
+}{
+  \eval{E}{e$_1$ $\olessthan$ e$_2$}{v}
+}
 
-% \tdm{We're implicitly translating operators to themselves (or to the
-%   version of themselves in the language of the solver) -- should we
-%   make that explicit as well?}
+\inferrule{E-Combine}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ [[$\ovee$]] v$_2$} = {\tt v} \andalso
+  \tc{E}{e$_1$ $\ovee$ e$_2$}{T}
+}{
+  \eval{E}{e$_1$ $\ovee$ e$_2$}{v}
+}
 
-\inferrule{ToCompare}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
-{\toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}}
 
-\inferax{ToTrue}{\toSolver{True}{\top}}
-
-\inferrule{ToPriority}{\toSolver{C}{C}}
-{\toSolver{$\rho$ A}{\rho\ A}}
-
-\inferrule{ToCombine}{\toSolver{C$_1$}{C_1} \andalso \toSolver{C$_2$}{C_2}}
-{\toSolver{C$_1$ $\ovee$ C$_2$}{C_1 \ovee C_2}}
-
+\judgment{\csolve{M}{C}}
+\judgment{\toSolver{e}{e}}
+\judgment{\toSolver{C}{C}}
 \judgment{\fromSolver{M}{E}}
-
-This judgment defines how to translate models produced by the
-constraint solver back into a program environment.
-For Babelsberg/Reals and Babelsberg/PrimitiveTypes this is
-straightforward.
-
-\inferax{FromEmpty}{\fromSolver{\emptyset}{$\emptyset$}}
-
-\inferrule{FromOne}{$M(x) = v$ \andalso $M_0 = M \setminus \{(x,v)\}$
-  \andalso \fromSolver{M_0}{E$_0$} \andalso {\tt E} = {\tt E$_0$}
-  $\cup$ $\{({\tt x}, {\tt v})\}$}
-{\fromSolver{M}{E}}
-
 \judgment{\solve{E}{C}}
-
-This judgment solves program constraints by translating them to the
-language of the constraint solver, obtaining a model, and translating
-back to a program environment.
-
-\inferrule{Solve}{\toSolver{C}{C} \andalso \csolve{M}{C} \andalso
-  \fromSolver{M}{E$_s$}}
-{\solve{E$_s$}{C}}
-
-
 \judgment{\fail{C}}
-
-This judgment determines when a program constraint is unsatisfiable or
-the solver is unable to find a solution.
-
-\inferrule{Fail}{\toSolver{C}{C} \andalso \cfail{C}}
-{\fail{C}}
-
 \judgment{\stay{E}{C}}
 
-This judgment defines how to translate an environment into a
-source-level ``stay'' constraint.
-
-\inferax{StayEmpty}{\stay{$\emptyset$}{True}}
-
-\inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
-  {\tt E} \setminus \{({\tt x},{\tt v})\}$
-  \andalso \stay{E$_0$}{C$_0$} \andalso {\tt C} = {\tt C$_0$}
-  $\wedge$ {\tt weak x=v}}
-{\stay{E}{C}}
+The judgments to interact with the solver are all unchanged.
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
-``Configuration {\tt <E|C|s>} takes one step of execution to state {\tt <E$'$|C$'$|s$'$>}.''
+Assignments and constraints are now typed. Since assignments are
+converted into {\tt once} constraints, the left hand side must have a
+compatible type. To ensure that, all variables are first undefined,
+and then assigned.
 
-A ``configuration'' defining the state of an execution includes a
-concrete context, represented by the environment, a symbolic context,
-represented by the constraint, and a statement to be executed.  The
-environment and statement are standard, while the constraint is not
-part of the state of a computation in most languages.  Intuitively,
-the environment comes from constraint solving during the evaluation of
-the immediately preceding statement, and the constraint records the
-\verb|always| constraints that have been declared so far during
-execution. Also, assignment is just syntactic sugar for one or more
-\verb|once| constraints. As explained in the examples above, this
-retains the same outward appearance as normal imperative assignment.
-
-\inferax{S-Asgn}{\step{E}{C}{x := e}{E}{C}{once temp = e?; once x = temp?}}
-
-\inferrule{S-IfThen}{
-  \solve{E}{(C $\wedge$ C$_0$)}
+\inferrule{S-Asgn}{
+  \eval{E}{e}{v}
 }{
-  \step{E}{C}{if C$_0$ then s$_1$ else s$_2$}{E}{C}{s$_1$}%
+  \step{E}{C}{x := e}{E}{C}{once x = nil; once x = v}
 }
 
-\inferrule{S-IfElse}{
-  \solve{E$_s$}{(C $\wedge$ C$_0$)} \andalso {\tt E}$_s$ $\not\cong$
-  {\tt E}
-}{
-  \step{E}{C}{if C$_0$ then s$_1$ else s$_2$}{E}{C}{s$_2$}%
-}
+The rules for creating constraints are only augmented to check that
+the asserted constraint is well-formed. They are otherwise the same.
 
-\inferrule{S-IfElseFail}{
-  \fail{(C $\wedge$ C$_0$)}
-}{
-  \step{E}{C}{if C$_0$ then s$_1$ else s$_2$}{E}{C}{s$_2$}%
-}
-
-\inferrule{S-Once}{\eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
+\inferrule{S-Once}{\tcC{E}{C} \andalso \eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
 \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}}
 {\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
 
-\inferrule{S-OnceFail}{\eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
+\inferrule{S-OnceFail}{\tcC{E}{C} \andalso \eval{E}{e}{v} \andalso \stay{E}{C$_s$} \andalso
 \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}}
 {\step{E}{C}{once C$_0$}{E}{C}{fail}}
 
-\inferrule{S-Always}{
+\inferrule{S-Always}{\tcC{E}{C$_0$} \andalso 
 {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
-\solve{E$'$}{(C$'$ $\wedge$ C$_s$ $\wedge$ C$_0$)}}
+\solve{E$'$}{(C$'$ $\wedge$ C$_s$)}}
 {\step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}}
 
-\inferrule{S-AlwaysFail}{
+\inferrule{S-AlwaysFail}{\tcC{E}{C$_0$} \andalso 
 {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
-\fail{(C$'$ $\wedge$ C$_s$ $\wedge$ C$_0$)}}
+\fail{(C$'$ $\wedge$ C$_s$)}}
 {\step{E}{C}{always C$_0$}{E}{C}{fail}}
 
-\inferrule{S-SeqStep}{\step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}}
-{\step{E}{C}{s$_1$;s$_2$}{E$'$}{C$'$}{s$_1'$;s$_2$}}
-
-\inferax{S-SeqSkip}
-{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
-
-\inferax{S-SeqFail}
-{\step{E}{C}{fail;s$_2$}{E}{C}{fail}}
 
 \section{Babelsberg/Records}
 \label{sec:babelsberg-records}

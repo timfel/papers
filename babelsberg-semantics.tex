@@ -1555,32 +1555,43 @@ However, to emphasize that we now allocate records on the heap, we use
 the keyword \verb|new| when creating one. The syntax includes field
 accesses as both r-values and l-values.
 
-For uniformity, we also view instances of the primitive types as
-living on the heap as well, although there is no \verb|new| operation
-to create them; rather, they are either specified as constants or as
-the result of operations on them.  The primitive types are all
-immutable.
+Primitive types, however, still don't live on the heap.  (It would be
+possible to store all data on the heap, but we elected not to, since
+differentiating data in this way seems more natural.  In addition,
+having everything on the heap makes the descriptions more complex,
+since there is always a level of indirection to get to data.  If one
+wants the effect of storing an integer or boolean on the heap, it is
+easy to simulate this by constructing a record that has a single field
+that holds the integer or boolean.)
 
-Record fields hold a reference to another value (either another record
-or an instance of a primitive type).  There is no syntax for creating
-a nested record directly --- nested records have to be constructed
-with references, so each record \emph{must} have a variable that
-refers to it, even if it is only used in a nested structure. This
-simplifies the semantics.  (Nested records could be supported with
-just a source code transformation.)
+Record fields hold either an instance of a primitive type or a
+reference to another record.  There is no syntax for creating a nested
+record directly --- nested records have to be constructed with
+references, so each record \emph{must} have a variable that refers to
+it, even if it is only used in a nested structure. This simplifies the
+semantics.  (Nested records could be supported with just a source code
+transformation.)
 
 Since object identity is now significant, we add identity constraints
 to the language (written \verb|==|, in contrast to \verb|=| for
 equality constraints).  Assignment is now translated to a \verb|once|
-identity constraint.  If \verb|p| and \verb|q| are identical, they
-must also be equal, but the converse is not necessarily true --- if
-\verb|p| and \verb|q| are equal, they might or might not be identical.
-(This is the case both for records and instances of primitive types.
-It would be possible to add a rule that any two equal instances of
-primitive types also be identical, e.g., there is only one instance of
-10000, but this doesn't appear to be necessary for the semantics and
-so we omit it.  This mirrors the situation in many practical
-languages.)
+identity constraint.  For records \verb|p| and \verb|q|, if \verb|p|
+and \verb|q| are identical, they must also be equal, but the converse
+is not necessarily true --- if \verb|p| and \verb|q| are equal, they
+might or might not be identical.
+
+Unlike Babelsberg/PrimitiveTypes, the weak stays on variables are
+identity constraints rather than equality constraints.  For records,
+such a variable continues to refer to the same object unless
+reassigned. This is a direct consequence of the weak stays referring
+to the references the variables hold, not the records on the heap.
+
+For simplicity, we also allow identity tests and constraints on
+primitive types.  (Otherwise we would need two different translations
+for assignment.)  Again for simplicity, two instances of a primitive
+type are identical iff they are equal.  (Allowing them to be equal but
+not identical would seem to require storing them on the heap, which
+complicates the semantics.)
 
 Here are some examples involving record fields and constraints:
 \begin{verbatim}
@@ -1598,81 +1609,50 @@ on the individual components, so that the record constructs are all
 handled by the semantic rules, and the constraint solver does not need
 to know anything about records.
 
-\ab{Fix the following paragraph! Need to have references to the
-  primitive integers as well, plus the example changed and the text is
-  incorrect.}
-
 After executing the first statement, the above example desugars into
-the following constraints:
+the following constraints (where $r$ is a reference):
+
+\begin{tabular}{rl}
+required & $p = r$ \\
+required & $r_x = 2$ \\
+required & $r_y = 5$ \\
+\end{tabular}
+
+After the second statement we have the stay constraints on \verb|p|
+and its fields, and the assignment:
 
 \begin{tabular}{rl}
 weak & $p = r$ \\
-weak & $r_x = r_2$ \\
-weak & $r_y = r_5$ \\
-always & $r_2 = 2$ \\
-always & $r_5 = 5$
+weak & $r_x = 2$ \\
+weak & $r_y = 5$ \\
+required & $a = 5$
 \end{tabular}
 
-Then all of the above plus:
-
-\begin{tabular}{rl}
-weak & $a = r_5$
-\end{tabular}
-
-Then:
+After the third statement:
 
 \begin{tabular}{rl}
 weak & $p = r$ \\
-weak & $r_x = r_6$ \\
-weak & $r_y = r_5$ \\
-weak & $a = r_5$ \\
-always & $r_2 = 2$ \\
-always & $r_5 = 5$ \\
-always & $r_6 = 6$
+weak & $r_x = 2$ \\
+weak & $r_y = 5$ \\
+weak & $a = 5$ \\
+required & $r_x = 6$
 \end{tabular}
 
 And finally:
 
 \begin{tabular}{rl}
 weak & $p = r$ \\
-always & $r_x = r_{100}$ \\
-weak & $r_y = r_5$ \\
-weak & $a = r_5$ \\
-always & $r_2 = 2$ \\
-always & $r_5 = 5$ \\
-always & $r_{100} = 100$
+weak & $r_x = 6$ \\
+weak & $r_y = 5$ \\
+weak & $a = 5$ \\
+required & $r_x = 100$
 \end{tabular}
 
-The above example desugars to the constraints weak $p==r$, always
-$r_x==100$, weak $r_y=5$, and weak $a=2$, which after solving and putting
-the record back together results in the environment \verb|p| $\mapsto$
-\verb|r| $\wedge$ \linebreak \verb|a| $\mapsto$ \verb|5|, as well as
-the heap \verb|r| $\mapsto$ \verb|{x:5, y:5}|.
-
-Here are a few more examples.
-\begin{verbatim}
- p := new {x:2, y:5};
- always p.x = 100;
-\end{verbatim}
-After executing the two statements, the variable \verb|p| holds a
-reference to \verb|{x:100, y:5}|.  Here is how the system determines
-this result.  The structural compatibility check for the \verb|always|
-constraint is that \verb|p| has a reference to a record that has an
-\verb|x| field.  We desugar the record constraint, so that after
-evaluating the \verb|always p.x = 100| statement the constraints are:
-
-\begin{tabular}{rl}
-weak      & $p=r$ \\
-weak      & $r_x=2$ \\
-weak      & $r_y=5$ \\
-required  & $r_x=100$
-\end{tabular}
-
-where $r_x$ and $r_y$ are new variables.
-
-These constraints have the solution $p=r$, $r_x=100$, $r_y=5$, which is then
-reassembled to yield the environment \verb|p| $\mapsto$ \verb|r|
-and heap \verb|r| $\mapsto$ \verb|{x:100, y:5}|.
+After solving the final set of constraints and putting the record back
+together, we have the environment \linebreak 
+\verb|p| $\mapsto$ \verb|r| $\wedge$
+\verb|a| $\mapsto$ \verb|5|, as well as the heap \verb|r| $\mapsto$
+\verb|{x:100, y:5}|.
 
 Here are a few examples that fail the structural compatibility checks.
 
@@ -1716,20 +1696,12 @@ The more common form of aliasing is this:
  q := p;
  p.x := 100;
 \end{verbatim}
-Now \verb|p| and \verb|q| are aliased, so after the program runs we
-have \verb|p=q={x:100,y:0}|, with \verb|p| and \verb|q| identical (not
-just equal).  In the formal semantics, this is represented by having
+Now \verb|p| and \verb|q| are aliased, so after the program runs we have 
 \verb|p| $\mapsto$ \verb|r| and \verb|q| $\mapsto$ \verb|r| (the same
 \verb|r| in both mappings), where \verb|r| is a reference that points
 to the record value \verb|{x:100,y:0}| in the heap. Note that in the
 latter case (as is known from imperative programs), the aliasing is
 only temporary and might be broken later.
-
-Unlike Babelsberg/PrimitiveTypes, the weak stays on variables are
-identity constraints rather than equality constraints: such a variable
-continues to refer to the same object unless reassigned. This is a
-direct consequence of the weak stays referring to the references the
-variables hold, not the records on the heap.
 
 Another example:
 
@@ -1749,8 +1721,7 @@ an identity constraint, the assignment to \verb|q| would have failed
 the structural compatibility check, which would have expected it to be
 a record with \verb|x| and \verb|y| fields.)
 
-The implicit stay constraints are weak identity constraints.  The
-programmer can also annotate identity constraints with priorities:
+The programmer can annotate identity constraints with priorities:
 \begin{verbatim}
  p := new {x:0, y:0};
  q := new {z:0};
@@ -2704,6 +2675,14 @@ always strong p.x=10;
 always strong q.x=20;
 \end{verbatim}
 
+\subsection{Arrays}
+
+While it is not strictly necessary to include arrays in
+Babelsberg/Objects, we have used arrays in some examples.  We treat
+the length of an array is part of its structure, and use the same
+structural compatability checks for the existence of array elements
+that we do for the existence of fields in a record.  
+
 \subsection{Assignments in Methods Called by Constraints}
 
 Methods called by constraints can have assignment statements, just as
@@ -3018,37 +2997,6 @@ if x=4
   else x := 4
 \end{verbatim}
 
-{\bf Arrays.}  Should we include arrays as part of the formal
-semantics for Babelsberg/Objects?  If so, let's treat the length of an
-array is part of its structure, and use the same structural
-compatability checks for the existence of array elements that we do
-for the existence of fields in a record.  For example, this program
-halts with an error (we can't reference the fields of an array before
-initializing it to have a particular length).
-
-\begin{verbatim}
-Array a;
-strong a[10] = 100;
-weak a.length = 2;
-\end{verbatim}
-
-If this program were legal, we would want to satisfy the strong
-constraint in preference to the weak one.  How then big is \verb|a|?
-Assuming array indices start at 1, a length of 10 seems more
-reasonable than 11 or 100.  But we need a minimality condition to
-enforce this.  Anyway, we rule this out.
-
-Instead, we would need to write something like this:
-
-\begin{verbatim}
-a := Array.new(100);
-strong a[10] = 100;
-\end{verbatim}
-
-If we had made \verb|a| to have length 2, we would get an error.  And
-the constraint \verb|weak a.length = 2| can only be checked, rather
-than being satisfiable by changing the length of the array (the length of
-an array is read-only).
 
 Check the formal semantics for CLP, cc and tcc languages, which also
 have a notion of a constraint store --- while we are doing something
@@ -3056,7 +3004,6 @@ different in the Babelsberg semantics, a reader who knows that
 literature shouldn't come away thinking we are missing something
 obvious, e.g. in terms of a better way to do something, falling into a
 well-known pitfall, etc.
-
 
 
 A non-required \verb|always| constraint might undo the result of an

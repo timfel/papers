@@ -2292,18 +2292,11 @@ constraint construction mode rather than in imperative execution mode.
 In this mode, when we encounter a message send that corresponds to an
 operation on a primitive type in the solver language, we construct the
 corresponding parse tree fragment for the solver language.  Otherwise,
-we do a normal method lookup and evaluate the body.  If we we
+we do a normal method lookup and evaluate the body of the method.  If we we
 encounter something we cannot transform (such as a side-effect), we
 don't transform it, and instead execute.  As before, assignment
-statements are converted to \texttt{once} constraints with the
+statements are converted to \texttt{once} identity constraints with the
 right-hand-side annotated as read-only.
-
-\ab{make the above more precise if possible}
-
-\ab{Note the difference from Babelsberg/R -- assignments in
-  constraints are still one-way in the above description.  Do we want
-  this? (Personally I would prefer doing it that way -- seems
-  cleaner.)}
 
 The expressions that define constraints have a number of restrictions,
 similar to those for the Babelsberg/R and Babelsberg/JS languages.
@@ -2328,20 +2321,6 @@ similar to those for the Babelsberg/R and Babelsberg/JS languages.
 
 \end{enumerate}
 
-\ab{Do we need the restriction that variables used in methods called
-  in a constraint be used in a single-assignment fashion?  We do, if
-  we are turning assignments into constraints.}\tf{I think we are
-  turning them into constraints (to allow calculated equalities like
-  {\tt pt1+pt3==pt3}). But we know how to solve this -- source
-  transform the multiple assignments in a scope into static single
-  assignment form. I think how to do that is well understood, so we
-  don't need to write how here, and we can just refer to that}
-
-\ab{Clean up the above paragraph.  Do we include the source-to-source
-  transformation in the formal semantics, or describe it informally,
-  and then assume in the formal semantics that all variables are used
-  in a single assignment fashion?  The latter seems simpler.}
-
 There are two interpretations or meanings \ab{what's the right word?}
 for each constraint at a particular step in the execution of a program
 in the Babelsberg/Objects semantics: first, saying the constraint is
@@ -2365,6 +2344,42 @@ the formal semantics.
   were equivalent, at least under some conditions.}
 
 \ab{Todd said he would clean up the above paragraph \ldots}
+
+\subsection{Control Structures and Methods}
+
+Babelsberg/Objects has the simple \verb|if| and \verb|while| control
+structures that were introduced for Babelsberg/PrimitiveTypes.  There
+are no particular complications in including these in
+Babelsberg/Objects.
+
+In addition, however, Babelsberg/Objects includes methods.  Following
+our overarching design goal of having a standard object-oriented
+language in the absense of constraints, in imperative execution mode,
+methods are standard.  Suppose we are evaluating \verb|x.m(a,b)|.  We first
+look in \verb|x|'s class for a method with selector \verb|m|, then its
+superclass, and so on up the superclass chain.  If no such method is
+found, we enter the \verb|fail| state.  Otherwise we evaluate the body
+of the method in a new environment, and return the result.  Arguments
+are passed by value (with pointer semantics), as in most standard
+object-oriented languages.
+
+Methods can also be invoked by a constraint expression.  The correct
+method is looked up in the standard way, but now the body of the
+method is evaluated in constraint construction mode rather than
+imperative execution mode.  The arguments are passed by
+call-by-identity (i.e., by setting up required identity constraints
+between the actual and formal parameters), rather than call-by-value.
+The method call in the constraint expression is replaced with a new
+temporary variable, and the result returned by the method has an
+identity constraint that it have the same reference as that temporary.
+\ab{Do we need to use this temp?  It was a little easier to think
+  about that way but maybe we don't.}
+
+Note that unlike in Babelsberg/R \cite{felgentreff-babelsberg-tr},
+there is no requirement that variables in methods called from
+constraints be used in a single assignment fashion.  (See Section
+\ref{sec:backwards-compatibility-mode} for more on this issue.)
+
 \subsection{Examples}
 
 First, let's revisit the initial example from Babelsberg/Reals, now as a
@@ -2481,7 +2496,42 @@ is a computed value rather than being stored as an instance variable.
 always r.center = Point.new(100,50);
 \end{verbatim}
 
-\ab{finish writing the above example}
+The \verb|center| method for \verb|Rectangle| is defined as follows:
+\begin{verbatim}
+def center
+  return (self.upper_left + self.lower_right) / 2
+end
+\end{verbatim}
+
+The constraint is evaluated in the following way.  We look up the
+\verb|center| method, and evaluate it in constraint construction mode.
+This sets up an identity constraint with a temporary variable
+\verb|temp|, which is constrained to be the result of evaluating
+\verb|(self.upper_left + self.lower_right) / 2|.  After evaluating
+this expression in constraint construction mode, we end up with a
+network of primitive constraints on \verb|upper_left.x|,
+\verb|lower_right.x|, and \verb|temp.x|; and similarly for
+\verb|upper_left.y|, \verb|lower_right.y|, and \verb|temp.y|.  Then we
+evaluate the right hand side of the equality, and end up with
+constraints that \verb|temp.x=100| and \verb|temp.y=50|.  
+
+\ab{TODO: clean up the above description}
+
+The following example illustrates that methods can also be used with
+constraints on primitive types.
+
+\begin{verbatim}
+def double(x)
+  return 2*x
+end;
+\end{verbatim}
+
+If we use this in a constraint \verb|always 10=double(a)|, the system
+should satisfy the constraint by making \verb|a| be 5.
+
+Methods can themselves use \verb|once| or \verb|always| constraints
+(including when they are invoked from other constraint expressions).
+\ab{Do we need an example?  Are there any particular complications?}
 
 The following example illustrates how assignment for objects with
 object identity is handled.
@@ -2493,7 +2543,7 @@ p1 := Point.new(50,50);
 
 The result is just the same as in Ruby or some other object-oriented
 language without constraints.  After the first statement, we have the
-new point with \verb|x=10,y=10| in the heap, and solve a required
+new point with \verb|x=10,y=10| in the heap, and solve a required identity
 constraint that \verb|p1|'s value equal the reference to this point.
 After the second statement, the identity constraints are a weak
 identity stay on \verb|p1|, and a required constraint that \verb|p2|
@@ -2653,6 +2703,192 @@ weak p==q;
 always strong p.x=10;
 always strong q.x=20;
 \end{verbatim}
+
+\subsection{Assignments in Methods Called by Constraints}
+
+Methods called by constraints can have assignment statements, just as
+any other method.  Generally, however, this will mean that the method
+can only be used in the forwards direction (i.e., to compute the
+result given the inputs).  Consider an iterative \verb|sum| method for
+the class \verb|Array|.
+
+\begin{verbatim}
+def sum
+  ans := 0;
+  i := 0;
+  while i<self.length
+    ans := ans + self[i];
+    i := i+1;
+  end;
+  return ans;
+end
+\end{verbatim}
+
+This works as expected for normal imperative code, and can also be
+used in the forward direction in a constraint, for example:
+
+\begin{verbatim}
+a := Array.new(2);
+a[0] := 10;
+a[1] := 20;
+always s = array.sum;
+a[0] := 100;
+\end{verbatim}
+
+This works as expected.  After the \verb|always| constraint is
+executed, \verb|s| is 30; then after the final assignment to
+\verb|a[0]|, \verb|s| becomes 120.
+
+However, if we attempted to constrain the sum of the array and
+expected that the system would update one or more elements to satisfy
+the constraint, the result would not be as desired --- instead, the
+answer would be overridden to no effect.  For example:
+\begin{verbatim}
+a := Array.new(2);
+a[0] := 10;
+a[1] := 20;
+always 50 = array.sum;
+\end{verbatim}
+
+Here \verb|ans| in the \verb|sum| method becomes 50 to satisfy the
+constraint, but since it was assigned to (which becomes a \verb|once|
+constraint), rather than being permanently constrained, this result
+is lost.  This is almost certainly not what the programmer intended,
+so in a practical language we should issue a warning.  (The general
+class of warning here is that the result of a method call is being
+constrained or set, and that result doesn't have an \verb|always|
+constraint on it, so will likely be lost.)  \ab{Should we make this an
+  error rather than a warning?  Or maybe there should be a general
+  warning for any method that includes assignments that is used other
+  than in the forward direction?}
+
+Generally, to write methods that work properly with constraints, the
+programmer should write the method using constraints rather than
+assignment statements.  For example, here are two correct versions of
+the \verb|sum| method.  These use recursion, and will create as many
+partial sums as needed.  With either of these methods, the program
+above works as desired.
+
+\begin{verbatim}
+def sum
+  if self.length=0 
+    then return 0
+    else return self[0] + self[1..self.length].sum
+  end;
+end;
+
+def sum
+  return self.slice_sum(0,self.length);
+end;
+
+def slice_sum(lo,hi)
+  if lo>hi
+    then return 0
+    else return self[lo] + self.slice_sum(lo+1,hi);
+  end;
+end;
+\end{verbatim}
+
+
+\subsection{Backwards Compatibility Mode for Methods}
+\label{sec:backwards-compatibility-mode}
+
+In Babelsberg/R, when methods are evaluated in constraint construction
+mode, assignment statements are converted to two-way equality
+constraints.  This is useful for backward compatibility with existing
+code.  (It won't allow an arbitrary method to be successfully used in
+all modes in a constraint, but it increases the chances that it will
+work.)  However, this doesn't seem entirely clean, so we omit it from
+the formal semantics.  Instead, a practical implementation of
+Babelsberg might elect to include a backwards compatibility mode for
+methods that does this transformation, as well as other
+transformations that increase the chances the method can be used in
+multi-directional constraints.  In addition to converting assignments
+to constraints, the transformation should create fresh variables each
+time a variable is used on the left-hand-side of an assignment, and
+systematically use that new variable thereafter (until another
+assignment).  First, here is an example that just uses straight-line
+code.
+
+\begin{verbatim}
+def add3_and_square(x,y,z)
+  sum := 0;
+  sum := sum+x;
+  sum := sum+y;
+  sum := sum+z;
+  return sum*sum;
+end;
+\end{verbatim}
+
+In backward compatibility mode this is rewritten as:
+\begin{verbatim}
+def add3_and_square(x,y,z)
+  sum_1 = 0;
+  sum_2 = sum_1+x;
+  sum_3 = sum_2+y;
+  sum_4 = sum_3+z;
+  return sum_4*sum_4;
+end;
+\end{verbatim}
+
+Notice that a fresh variable is introduced for each assignment, but
+not for the return statement.
+
+Conditionals, in which a variable might or might not be assigned to,
+are easily handled by using a required equality constraint to pass
+through the old value for the other branch of the conditional.  For
+example:
+
+\begin{verbatim}
+def maybe_double(x)
+  ans := x;
+  if x<10
+    then ans := 2*ans;
+  end;
+  return ans;
+end;
+\end{verbatim}
+
+This becomes:
+
+\begin{verbatim}
+def maybe_double(x)
+  ans_1 = x;
+  if x<10
+    then ans_2 = 2*ans_1;
+    else ans_2 = ans_1;
+  end;
+  return ans_2;
+end;
+\end{verbatim}
+
+Methods with loops could be converted automatically to recursions.
+Here is a version of \verb|sum| that might be automatically generated in
+this fashion:
+
+\begin{verbatim}
+def sum
+  helper(0,i,0,ans);
+  return ans;
+end;
+
+def helper(old_i, new_i, old_ans, new_ans)
+  if old_i<self.length
+    then 
+      temp_ans = old_ans + self[old_i];
+      temp_i = old_i + 1;
+      helper(temp_i,new_i,temp_ans,new_ans);
+    else 
+      new_ans = old_ans;
+      new_i = old_i;
+  end;
+end;
+\end{verbatim}
+
+Here, \verb|helper| is produced automatically from the \verb|while| by
+parameterizing the helper method with the old and new values of
+\verb|i| and \verb|ans|, and converting the \verb|while| to an
+\verb|if| with a recursive call.  \ab{Is there a simpler conversion?}
 
 \subsection{Circular Structures}
 \label{sec:circular-structures}
@@ -2820,6 +3056,22 @@ different in the Babelsberg semantics, a reader who knows that
 literature shouldn't come away thinking we are missing something
 obvious, e.g. in terms of a better way to do something, falling into a
 well-known pitfall, etc.
+
+
+
+A non-required \verb|always| constraint might undo the result of an
+assignment.
+
+\begin{verbatim}
+x := 0;
+always strong x=10;
+x := 5;
+\end{verbatim}
+
+\verb|x| starts out as 0, then is 10 to satisfy the \verb|always|
+constraint, then gets set to 5, and then at the next time step, the
+\verb|always| constraint causes it to be set back to 10.  Should we
+issue a warning in this case?
 
 \bibliographystyle{plain}
 \bibliography{constraints}

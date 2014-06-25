@@ -2231,6 +2231,9 @@ never be generated).
 %%   context of the ECOOP paper.) Whatever we decide, we need to make
 %%   that explicit.}
 
+\ab{First mention of constraint construction mode!  Mention this
+  earlier or fix this paragraph.}
+
 As with the previous languages, the semantics includes two different
 execution modes: \emph{imperative execution mode} and \emph{constraint
   construction mode}.  For ordinary statements, expressions are
@@ -2292,8 +2295,8 @@ similar to those for the Babelsberg/R and Babelsberg/JS languages.
 \item \label{item:deterministic} The result of evaluating the block
   should be deterministic.  For example, an expression whose value
   depended on which of two processes happened to complete first
-  wouldn't qualify.  (It's not clear this will actually come up in the
-  toy language here, although we do need this restriction for a real one.)
+  wouldn't qualify.  (This does not arise in the toy language here,
+  although we do need this restriction for a real one.)
 
 \end{enumerate}
 
@@ -2334,7 +2337,13 @@ language in the absense of constraints, in imperative execution mode,
 methods are standard.  Suppose we are evaluating \verb|x.m(a,b)|.  We first
 look in \verb|x|'s class for a method with selector \verb|m|, then its
 superclass, and so on up the superclass chain.  If no such method is
-found, we enter the \verb|fail| state.  Otherwise we evaluate the body
+found, we enter the \verb|fail| state.\footnote{This is analogous to the
+structural compatibility checks from Babelsberg/Records, and just as
+in Babelsberg/Records we don't invent a new field for a record if
+needed to satisfy a constraint, in Babelsberg/Objects we don't convert
+an object to an instance of a different class, or synthesize a new
+method, to satisfy constraints --- instead, if there is a missing
+method it's just an error.}  Otherwise we evaluate the body
 of the method in a new environment, and return the result.  Arguments
 are passed by value (with pointer semantics), as in most standard
 object-oriented languages.
@@ -2481,8 +2490,8 @@ end
 
 The constraint is evaluated in the following way.  We look up the
 \verb|center| method, and evaluate it in constraint construction mode.
-This sets up an identity constraint with a temporary variable
-\verb|temp|, which is constrained to be the result of evaluating
+This sets up an identity constraint between a temporary variable
+\verb|temp| and the result of evaluating
 \verb|(self.upper_left + self.lower_right) / 2|.  After evaluating
 this expression in constraint construction mode, we end up with a
 network of primitive constraints on \verb|upper_left.x|,
@@ -2577,8 +2586,6 @@ might want to raise a different sort of exception in this case, to
 indicate that forcing an object to be created to satisfy a constraint
 is not allowed.)
 
-\ab{check the above - do we in fact want to use ``fail'' in this way also?}
-
 While cloning a point seems innocuous, consider a similar example with
 windows on the user's display, which again results in an error.  (It
 seems dangerous to silently create a second window.)
@@ -2591,7 +2598,7 @@ always w2.width = 300;
 \end{verbatim}
 
 These variants, in which we make the constraints on the window's
-widths strong rather than required, and in the second case use a weak
+widths strong rather than required, or use a weak
 identity constraint instead of an assignment, result in an error as
 well.  In these cases, there aren't any unsatisfied required
 constraints, but we would have weak constraints satisfied in
@@ -2686,7 +2693,9 @@ While it is not strictly necessary to include arrays in
 Babelsberg/Objects, we have used arrays in some examples.  We treat
 the length of an array is part of its structure, and use the same
 structural compatability checks for the existence of array elements
-that we do for the existence of fields in a record.  
+that we do for the existence of fields in a record.  Thus, we would
+not, for example, grow an array to allow a constraint on its $i^{th}$
+element to be satisfied if it didn't already have an $i^{th}$ element.
 
 \subsection{Assignments in Methods Called by Constraints}
 
@@ -2719,9 +2728,8 @@ always s = array.sum;
 a[0] := 100;
 \end{verbatim}
 
-This works as expected.  After the \verb|always| constraint is
-executed, \verb|s| is 30; then after the final assignment to
-\verb|a[0]|, \verb|s| becomes 120.
+After the \verb|always| constraint is executed, \verb|s| is 30; then
+after the final assignment to \verb|a[0]|, \verb|s| becomes 120.
 
 However, if we attempted to constrain the sum of the array and
 expected that the system would update one or more elements to satisfy
@@ -2762,13 +2770,13 @@ def sum
 end;
 
 def sum
-  return self.slice_sum(0,self.length);
+  return self.sum_from(0);
 end;
 
-def slice_sum(lo,hi)
-  if lo>hi
+def sum_from(start)
+  if start >= self.length
     then return 0
-    else return self[lo] + self.slice_sum(lo+1,hi);
+    else return self[start] + self.sum_from(start+1);
   end;
 end;
 \end{verbatim}
@@ -2795,28 +2803,30 @@ assignment).  First, here is an example that just uses straight-line
 code.
 
 \begin{verbatim}
-def add3_and_square(x,y,z)
+def add_and_double(x,y,z)
   sum := 0;
   sum := sum+x;
   sum := sum+y;
   sum := sum+z;
-  return sum*sum;
+  return 2*sum;
 end;
 \end{verbatim}
 
 In backward compatibility mode this is rewritten as:
 \begin{verbatim}
-def add3_and_square(x,y,z)
+def add_and_double(x,y,z)
   sum_1 = 0;
   sum_2 = sum_1+x;
   sum_3 = sum_2+y;
   sum_4 = sum_3+z;
-  return sum_4*sum_4;
+  return 2*sum_4;
 end;
 \end{verbatim}
 
 Notice that a fresh variable is introduced for each assignment, but
-not for the return statement.
+not for the return statement.  Now, if we evaluate the constraint 
+\verb|always 100 = add_and_double(10,15,n)|, the system should satisfy
+the constraint by making \verb|n| be 25.
 
 Conditionals, in which a variable might or might not be assigned to,
 are easily handled by using a required equality constraint to pass

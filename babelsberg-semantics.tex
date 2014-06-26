@@ -325,11 +325,28 @@ x := 4;
 always x>=10
 \end{verbatim}
 
-An interesting feature of all our languages is that assignment is just
-syntactic sugar for a \texttt{once} constraint (i.e., a constraint
-that is asserted and then retracted), with the variables in the
-expression on the right-hand-side annotated as read-only.  Thus, the
-above example can be rewritten as:
+Babelsberg/Reals, as with the other languages, uses two different
+execution modes: \emph{imperative execution mode} and \emph{constraint
+  construction mode}.  For ordinary statements, expressions are
+evaluated in imperative execution mode.  This is mostly standard,
+except that assignment is syntactic sugar for a \texttt{once}
+constraint (i.e., a constraint that is asserted and then retracted).
+This \verb|once| constraint is formed by evaluating the expression on
+the right hand side of the assignment, and then constraining the
+variable on the left hand side of the assignment to be equal to the
+result.  In contrast, constraint construction mode is used with
+constraints that are created by an explicit \verb|always| or
+\verb|once| constraint.  The semantic model includes a
+\emph{constraint store} consisting of closures corresponding to
+constraints encountered in an \verb|always| or \verb|once| statement:
+when an \verb|always| or \verb|once| statement is encountered, the
+interpeter (as specified by the formal semantics) constructs a closure
+over the expression's environment of definition and saves it in the
+constraint store.  For \verb|always|, the closure remains for the
+duration of the program's execution; for \verb|once|, it is removed
+after the constraints are satisfied.
+
+Thus, the above example can be rewritten as:
 
 \begin{verbatim}
 once x = 3;
@@ -337,10 +354,8 @@ once x = 4;
 always x>=10
 \end{verbatim}
 
-Constraint expressions in the source language are evaluated to
-transform them into constraints in the solver language.  Thus, after
-evaluating the first statement we hand the following constraint to the
-solver to find a value for \texttt{x}:
+After evaluating the first statement we hand the following constraint
+to the solver to find a value for \texttt{x}:
 
 \begin{tabular}{rl}
 required & $x=3$
@@ -370,9 +385,14 @@ required & $x=4$
 The weak $x=3$ constraint is the stay constraint that \texttt{x}
 retain its previous value, while the required $x=4$ constraint comes
 from the second assignment.  This has the solution $x=4$, resulting in
-a new environment $\texttt{x} \mapsto \texttt{4}$.  Finally, after the
-third statement, which adds the \texttt{always} constraint, we have
-the constraints:
+a new environment $\texttt{x} \mapsto \texttt{4}$.  
+
+The third statement adds a closure representing the \texttt{always}
+constraint to the constraint store.  For Babelsberg/Reals, the
+translation from a constraint in the source language to one in the
+solver language is trivial.  (However, it will be more complex in
+later languages.)  So after that statement we have the following
+constraints:
 
 \begin{tabular}{rl}
 weak     & $x=4$ \\
@@ -394,19 +414,6 @@ y := x+100;
 x := x+2
 \end{verbatim}
 
-Variables on the right hand side of the assignment statement are
-annotated as read-only in the corresponding \verb|once| constraint.
-Also, if we use the same variable on both the left and right hand
-sides of an assignment, we need to use a temporary variable, rewriting
-the assignment as two \texttt{once} constraints:
-
-\begin{verbatim}
-once x = 3;
-once y = x?+100;
-once temp = x?+2;
-once x = temp?
-\end{verbatim}
-
 After evaluating the first statement and solving the resulting
 constraint, the environment has the binding $\texttt{x} \mapsto
 \texttt{3}$.  After the second statement we hand the following
@@ -415,19 +422,16 @@ constraints to the solver to find values for \texttt{x} and
 
 \begin{tabular}{rl}
 weak     & $x=3$ \\
-required & $y=x?+100$
+required & $y=103$
 \end{tabular}
 
 As before, the weak $x=3$ constraint is the stay constraint that
-\texttt{x} retain its previous value.  The required $y=x?+100$
+\texttt{x} retain its previous value.  The required $y=103$
 constraint comes from the second assignment.  This has the solution
 $\texttt{x} \mapsto 3$, $\texttt{y} \mapsto 103$.
 
 After evaluating the third statement and solving the constraints, we
-have $\texttt{x} \mapsto 3$, $\texttt{y} \mapsto 103$, $\texttt{temp}
-\mapsto 5$.  Finally, after evaluating the fourth statement and
-solving, we have $\texttt{x} \mapsto 5$, $\texttt{y} \mapsto 103$,
-$\texttt{temp} \mapsto 5$.
+have $\texttt{x} \mapsto 5$, $\texttt{y} \mapsto 103$.
 
 An interesting aspect of this semantics, both as presented informally
 above and in the formalism that follows, is that we no longer model
@@ -438,14 +442,16 @@ refinment model, as presented in the first Babelsberg paper
 constraint solver doesn't know anything about time.  Instead, we
 simply solve constraints in the current environment --- the effect of
 considering the value of \texttt{x} at different times is achieved by
-adding temporary variables as needed.\footnote{These models are
-  equivalent, so this is just a question of
-  presentation.  In the refinement model, when we represent an
-  assignment as a constraint among variables at time $t$ on the right
-  hand side, and a variable at $t+1$ on the left hand side, we
-  annotate all the variables on the right-hand-side as read-only,
-  similar to the transformation of assignments into \texttt{once}
-  constraints here.}
+first evaluating the right hand side of an assignment in the old
+environment, and then asserting \verb|once| constraints that cause
+variable values to be updated as needed.\footnote{These models are
+  equivalent, at least for Babelsberg/Reals, so this is just a
+  question of presentation.  In the refinement model, when we
+  represent an assignment as a constraint among variables at time $t$
+  on the right hand side, and a variable at $t+1$ on the left hand
+  side, we annotate all the variables on the right hand side as
+  read-only, which yields the same result as first evaluating the
+  right hand side in the old environment.}
 
 The program might also introduce simultaneous equations and
 inequalities.  For example:

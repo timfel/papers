@@ -346,16 +346,8 @@ constraint store.  For \verb|always|, the closure remains for the
 duration of the program's execution; for \verb|once|, it is removed
 after the constraints are satisfied.
 
-Thus, the above example can be rewritten as:
-
-\begin{verbatim}
-once x = 3;
-once x = 4;
-always x>=10
-\end{verbatim}
-
-After evaluating the first statement we hand the following constraint
-to the solver to find a value for \texttt{x}:
+After evaluating the first statement we hand the following \verb|once|
+constraint to the solver to find a value for \texttt{x}:
 
 \begin{tabular}{rl}
 required & $x=3$
@@ -407,31 +399,44 @@ constraint.  If we use LPB, then any $x \in [10,\infty)$ is a
   inequalities.)
 
 Here is another example that involves using a variable on the right
-hand sides of assignment statements.
+hand sides of assignment statements, as well as showing the
+interaction of assignments with \verb|always| constraints.
 \begin{verbatim}
 x := 3;
-y := x+100;
+always y = x+100;
 x := x+2
 \end{verbatim}
 
 After evaluating the first statement and solving the resulting
 constraint, the environment has the binding $\texttt{x} \mapsto
-\texttt{3}$.  After the second statement we hand the following
+\texttt{3}$.  The second statement causes the constraint
+\verb|always y = x+100| to be added to the constraint store.  We then
+hand the following
 constraints to the solver to find values for \texttt{x} and
 \texttt{y}:
 
 \begin{tabular}{rl}
 weak     & $x=3$ \\
-required & $y=103$
+required & $y=x+100$
 \end{tabular}
 
 As before, the weak $x=3$ constraint is the stay constraint that
-\texttt{x} retain its previous value.  The required $y=103$
-constraint comes from the second assignment.  This has the solution
+\texttt{x} retain its previous value.  This has the solution
 $\texttt{x} \mapsto 3$, $\texttt{y} \mapsto 103$.
 
-After evaluating the third statement and solving the constraints, we
-have $\texttt{x} \mapsto 5$, $\texttt{y} \mapsto 103$.
+After evaluating the third statement, we have the following constraints:
+
+\begin{tabular}{rl}
+weak     & $x=3$ \\
+required & $y=x+100$ \\
+required & $x=5$
+\end{tabular}
+
+The first constraint is the weak stay on \verb|x|, the second comes
+from the always constraint in the constraint store, and the third
+comes from the assignment \verb|x:=x+2| (where we evaluated \verb|x+2|
+in the old environment to get 5).  After solving these constraints, we
+have $\texttt{x} \mapsto 5$, $\texttt{y} \mapsto 105$.
 
 An interesting aspect of this semantics, both as presented informally
 above and in the formalism that follows, is that we no longer model
@@ -451,7 +456,9 @@ variable values to be updated as needed.\footnote{These models are
   on the right hand side, and a variable at $t+1$ on the left hand
   side, we annotate all the variables on the right hand side as
   read-only, which yields the same result as first evaluating the
-  right hand side in the old environment.}
+  right hand side in the old environment. \ab{TODO: are they
+    equivalent for Babelsberg/Objects as well?  I think so but we
+    should think about this carefully.}}
 
 The program might also introduce simultaneous equations and
 inequalities.  For example:
@@ -513,8 +520,31 @@ x_2 & = & x_1? + 15
 However, it is \emph{different} from the behavior of the perturbation
 model (at least one version of the perturbation model), in which we
 would assign 20 to x on the last statement, and then bump it down to
-10 to satisfy the {\tt always} constraint, rather than moving to an
-``unsatisfiable constraints'' state.
+10 to satisfy the {\tt always} constraint, rather than moving to the
+fail state.
+
+\subsection{Requirements for Constraint Expressions}
+
+The expressions that define constraints have a number of restrictions.
+These will apply to all of the Babelsberg languages.
+
+\begin{enumerate}
+
+\item \label{item:constraint-type} Evaluating the expression that
+  defines the constraint should return a boolean.  (This is checked
+  dynamically.) 
+
+\item \label{item:side-effects} The constraint expression should
+  either be free of side effects, or if there are side effects, they
+  should be benign, for example, doing caching.  (This isn't checked.) 
+
+\item \label{item:deterministic} The result of evaluating the block
+  should be deterministic.  For example, an expression whose value
+  depended on which of two processes happened to complete first
+  wouldn't qualify.  (This does not arise in the toy languages here,
+  although we do need this restriction for a real one.)
+
+\end{enumerate}
 
 \subsection{Control Structures}
 
@@ -523,9 +553,10 @@ structures.  These work in the usual way, and allow (for example) a
 variable to be incremented only if a test is satisfied, or an
 \verb|always| constraint to be conditionally asserted.  The test for
 an \verb|if| statement is evaluated, and one or the other branch is
-taken --- there is no notion of backtracking to try the other branch,
-for example.  (Adding Prolog-style backtracking is left for future
-work --- see Appendix \ref{sec:adding-solvers}.)
+taken --- there is no notion of backtracking to try the other branch.
+(Adding Prolog-style backtracking is left for future work, and would
+be supported for goals rather than imperative control structures --- see
+Appendix \ref{sec:adding-solvers}.)
 
 The test in an \verb|if| or \verb|while| statement can use
 short-circuit evaluation when evaluating an expression involving
@@ -549,8 +580,6 @@ expressions in constraints.  (We don't actually have \verb|if|
 expressions in Babelsberg/PrimitiveTypes, since there is a simple
 translation into conjunctions and disjunctions, but it's useful
 to note that these are nevertheless different concepts.)
-
-\ab{TODO: first mention of constraint construction mode - explain this}
 
 For example, if we had \verb|if| expressions in constraints, this
 constraint would have the solution \verb|x| $\mapsto$ 10:
@@ -606,25 +635,35 @@ the program, there is an \emph{environment} that maps names to values.
 \end{tabular}
 \end{tt}
 
-The language includes a set of boolean and real constants and and
-undefined value {\tt nil} ranged over by metavariable {\tt c}. A
+The language includes a set of boolean and real constants and the
+undefined value {\tt nil}, ranged over by metavariable {\tt c}. A
 finite set of operators on expressions is ranged over by $\oplus$. For
-booleans this set includes no operations, but it includes operations
-on the reals such as {\tt +}, {\tt *}, and {\tt \textsurd}. The symbol
-$\olessthan$ ranges over a set of {\em predicate} operators ({\tt $=$}
-and {\tt $\neq$} for booleans, $\leq$, $<$, $=$, and so on for reals.)
-These test properties of base types in the language. The symbol
-$\ovee$ ranges over a set of logical operators for combining boolean
-expressions (e.g., {\tt $\wedge$}, {\tt $\vee$}).  The predicate
-operators are assumed to include at least an equality operator {\tt =}
-for each primitive type in the language, and the logical operators are
-assumed to include at least conjunction {\tt $\wedge$}.  The symbol
-$\rho$ ranges over a finite and totally ordered set of constraint {\em
-  priorities} and is assumed to include a bottom element {\em weak}
-and top element {\em required}.  A constraint with no explicit
-priority is assumed to have the priority {\em required}.
+booleans this set includes no operations, but it does include
+operations on the reals such as {\tt +}, {\tt *}, and {\tt   \textsurd}. 
+The symbol $\olessthan$ ranges over a set of {\em predicate} operators
+({\tt $=$} and {\tt $\neq$} for booleans, $\leq$, $<$, $=$, and so on
+for reals.)  These test properties of base types in the language. The
+symbol $\ovee$ ranges over a set of logical operators for combining
+boolean expressions (e.g., {\tt $\wedge$}, {\tt $\vee$}).  The
+predicate operators are assumed to include at least an equality
+operator {\tt =} for each primitive type in the language, and the
+logical operators are assumed to include at least conjunction {\tt $\wedge$}.
+The syntax of this language does have some limitations as compared
+with that of a practical language --- for example, there are only
+binary operators (not unary or ternary), and the result must have the
+same type as the arguments.  We make these simplifications since the
+purpose of Babelsberg/PrimitiveTypes is to elucidate the semantics of
+such languages as as a step toward Babelsberg/Objects, rather than to
+specify a real language.
 
-The syntax is that of a standard imperative language except for the
+For constraints, the symbol $\rho$ ranges over a finite and totally
+ordered set of constraint {\em priorities} and is assumed to include a
+bottom element {\em weak} and top element {\em required}.  A
+constraint with no explicit priority is assumed to have the priority
+{\em required}.
+
+The syntax is thus that of a simple, 
+standard imperative language except for the
 {\tt always} and {\tt once} statements, which declare constraints, and
 the {\tt ?} annotation for variables. An {\tt always} constraint must
 hold for the rest of the programs execution, whereas a {\tt once}
@@ -644,6 +683,8 @@ not satisfiable.  We could also add standard exception handling to
 remove the unsatisfiable or unknown constraint and continue, but omit
 this here for simplicity.)
 
+\subsection{Syntax of the Solver Language}
+
 The Babelsberg language is parameterized by a particular constraint
 solver that is used to find a solution to the constraints.  In our
 formalism we use the following syntax as the language of the solver:
@@ -662,17 +703,18 @@ $\begin{array}{lrrl}
 
 The elements of the solver's language are analogous to the syntax of
 allowed constraints in the source language for
-Babelsberg/PrimitiveTypes defined above. Note, however, that all
-elements of the constraint language are really distinct entities. We
-will see that they have a straightforward mapping, but they are not
-the same things in different font~\footnote{With this our solver
+Babelsberg/PrimitiveTypes defined above. Note, however, that the
+elements of the solver language are really distinct entities from
+those in the source language. We will see that they have a
+straightforward mapping, but they are not the same values that happen
+to be written in a different font~\footnote{With this our solver
   syntax is related to syntax defined in the SMTlib
   standard~\cite{barrett2010smt}. It defines a syntax for constraints
   based on S-expressions, but leaves it up to the solver to provide a
   meaning to those symbols. Since we treat the solver as a black box,
   we do not assume anything about the meaning of the symbols}.
 
-Note that some solvers may only support a subset of the above syntax,
+Some solvers may only support a subset of the above syntax,
 for example requiring constraints to be in some canonical form, or
 lacking support for disjunctions of constraints, prioritized
 constraints, or some particular primitive type (e.g., strings).  On
@@ -754,8 +796,9 @@ $C$ (and further one that is optimal according to the solver's
 semantics, as discussed earlier).  
 
 We use the notation \cfail{C} to mean that there is no mapping $M$
-such that \csolve{M}{C}, i.e., either $C$ is \emph{unsatisfiable} or
-the solver is unable to find a solution.
+such that \csolve{M}{C}, i.e., the solver is unable to find a
+solution, either because $C$ is unsatisfiable or because it is
+satisfiable but the solver is unable to find one.
 
 \judgment{\toSolver{e}{e}}
 \judgment{\toSolver{C}{C}}
@@ -1098,17 +1141,18 @@ constraints involving records:
 
 There is no static type checking --- checking is all done dynamically.
 Our model includes structural compatibility checks on constraints.
-These allow us to desugar all of the record constraints
-(recursively) into constraints on the individual components.  Thus,
-the record constructs are all handled by the semantic rules, and the
-constraint solver does not need to know anything about records.  The
-alternative of having the solver itself know about records is more
-complex and seems to lead to more indeterminism, as well as some odd
-cases (including requiring that the constraint solver spontaneously
-generate new records).  There are approaches that accomplish this, for
-example in BackTalk \cite{roy-joop-1997}.  For Babelsberg we did not
-select this alternative due to the added complexity; but for
-completeness, we outline it in Appendix 
+These allow us to desugar all of the record constraints (recursively)
+into constraints on the individual components.  Thus, the record
+constructs are all handled by the semantic rules, and the constraint
+solver does not need to know anything about records.  The alternative
+of having the solver itself know about records is more complex and
+seems to lead to more indeterminism, as well as some odd cases
+(including requiring that the constraint solver sometimes
+spontaneously generate records with additional fields).  There are
+approaches that accomplish this, for example in BackTalk
+\cite{roy-joop-1997}.  For Babelsberg we did not select this
+alternative due to the added complexity; but for completeness, we
+outline it in Appendix
 \ref{sec:structural-compatability-check-alternatives}.
 
 The structural compatibility checks are assertions that are checked
@@ -1519,7 +1563,7 @@ separate language.
 \section{Babelsberg/UID}
 \label{sec:babelsberg-uid}
 
-Babelsberg/UID adds a number of features to the language. As a step
+Babelsberg/UID adds a number of features to the language. As another step
 toward representing objects, we augment Babelsberg/PrimitiveTypes with
 records that live on the heap, and that are mutable, have an identity,
 and can be aliased.  As with Babelsberg/Records these are represented
@@ -1595,6 +1639,8 @@ required & $r_x = 2$ \\
 required & $r_y = 5$ \\
 \end{tabular}
 
+The reference $r$ is a constant, but $r_x$ is a variable representing
+the \verb|x| field of the record that $r$ points to, and similarly for $r_y$.
 After the second statement we have the stay constraints on \verb|p|
 and its fields, and the required constraint resulting from the assignment:
 
@@ -1641,24 +1687,8 @@ Here are a few examples that fail the structural compatibility checks.
 As before, the solver is not allowed to add fields to records, so \verb|p|
 would be required to have a \verb|z| field already.
 
-Similarily, this is not allowed:
-\begin{verbatim}
- p := new {x:2, y:5};
- always q = p; /* this is invoking the record equality operation */
-\end{verbatim}
-For records, the \verb|=| operation checks equality, not identity,
-so in this case there is a check before the \verb|always| constraint
-that \verb|q| have \verb|x| and \verb|y| fields, which fails.  To fix
-this, we could initialize \verb|q| appropriately:
-\begin{verbatim}
- p := new {x:2, y:5};
- q := p;
- always q = p;
-\end{verbatim}
-
-Note, however, that because variables that refer to records 
-refer only to references on the
-heap, the following example works and demonstrates one form of aliasing:
+Variables that refer to records refer only to references on the heap.
+The following example demonstrates one form of aliasing:
 \begin{verbatim}
  p := new {x:2, y:5};
  always q == p;
@@ -2145,134 +2175,42 @@ have types and operations in the solver language without equivalents
 in the source language (although expressions involving them could
 never be generated).
 
-%% OLD VERSIONS FOLLOW -- DELETE THESE IF THE REVISIONS ARE OK
-%% 
-%% The semantics includes two different execution modes: \emph{imperative
-%%   execution mode} and \emph{constraint construction mode}.  For
-%% ordinary statements, expressions are evaluated in imperative execution
-%% mode.  This is mostly standard, except for a special treatment for
-%% assigning to a variable with constraints on it (discussed below).
-%% There is also a \emph{constraint store} consisting of closures
-%% corresponding to constraints encountered in an \verb|always|
-%% statement: when an \verb|always| statement is encountered, the
-%% interpeter (as specified by the formal semantics) constructs a closure
-%% over the expression's environment of definition and saves it in the
-%% constraint store.
-
-%% After every statement execution, the current set of constraints is
-%% solved and the environment is updated.  The current set of constraints
-%% is determined as follows.  If the statement is an assignment, we
-%% evaluate the right hand side in imperative execution mode, and then
-%% set up a constraint between the resulting value and the left hand
-%% side, as in the previous simpler Babelsberg languages.  (If the
-%% expression on the right hand side of the assignment evaluates to an
-%% object on the heap, then this constraint will be an identity
-%% constraint; otherwise it will be an equality constraint.)  In
-%% addition, each closure in the constraint store is evaluated to produce
-%% a set of constraints in the solver language.  The resulting collection
-%% of constraints in the solver language is given to the solver, a
-%% solution is found, and the environment is updated; or, if the
-%% constraints have no solution, or if they are too hard for the solver,
-%% the system enters either the \verb|fail| 
-%% state.\footnote{The implementation-oriented reader may at this point
-%%   become concerned that this seems most inefficient.  For example, in
-%%   the informal description, all assignments are converted to
-%%   constaints, not just those involving assigning to a variable with
-%%   other constraints on it.  And do we really need to re-evaluate all
-%%   constraint closures after every statement?  Do not panic.  There are
-%%   ample opportunities for adding optimizations; but they are just that
-%%   --- optimizations --- and not part of the formal semantics.
-%%   Instead, our aim will be to specify the semantics cleanly, and then
-%%   show that adding such optimizations doesn't change the result.}
-
-%% The evaluation of the closures in the constraint store is done in
-%% constraint construction mode rather than in imperative execution mode.
-%% In this mode, when we encounter a message send that corresponds to an
-%% operation on a primitive type in the solver language, we construct the
-%% corresponding parse tree fragment for the solver language; otherwise
-%% we evaluate normally.  \ab{Need to give some more details.  We also
-%%   need to describe how assignment statements become constraints in
-%%   constraint construction mode.  Should we ever turn them into one-way
-%%   constraints, or are they always multi-way?}\tf{Here's how I see it:
-%%   basically, the closures are ``Constraints'' in the source language,
-%%   and they are transformed as per {\tt To-}rules in Babelsberg/UID. If
-%%   we encounter a message, we do the normal lookup and continue with
-%%   the message body. If we encounter something we cannot transform
-%%   (like a side-effect), we don't transform it, and instead execute.
-%%   As for the assignment statements: in our implementation they are
-%%   multi-way, with \emph{strong} stay constraints on the RHS. We need
-%%   to figure out whether we want that (and we're discussing it in the
-%%   context of the ECOOP paper.) Whatever we decide, we need to make
-%%   that explicit.}
-
-\ab{First mention of constraint construction mode!  Mention this
-  earlier or fix this paragraph.}
-
 As with the previous languages, the semantics includes two different
-execution modes: \emph{imperative execution mode} and \emph{constraint
-  construction mode}.  For ordinary statements, expressions are
-evaluated in imperative execution mode.  This is mostly standard,
-except for a special treatment for assigning to a variable with
-constraints on it (discussed below).  There is also a \emph{constraint
-  store} consisting of closures corresponding to constraints
-encountered in an \verb|always| statement: when an \verb|always|
-statement is encountered, the interpeter (as specified by the formal
-semantics) constructs a closure over the expression's environment of
-definition and saves it in the constraint store.
+execution modes: imperative execution mode and constraint construction
+mode.  For ordinary statements, expressions are evaluated in
+imperative execution mode.  After every statement execution, the
+current set of constraints is solved and the environment is updated.
+The current set of constraints is determined as follows.  If the
+statement is an assignment, we evaluate the right hand side in
+imperative execution mode, and then set up a constraint between the
+resulting value and the left hand side, as in the previous simpler
+Babelsberg languages.  (As with Babelsberg/UID, and in contrast to the
+simpler languages, this will be an identity constraint rather than an
+equality constraint.)  In addition, each closure in the constraint
+store is evaluated to produce a set of constraints in the solver
+language.\footnote{Note that this is just a description of the
+  semantics.  In a practical implementation, we would for example only
+  re-evaluate a closure in the constraint store when needed rather
+  than after executing every statement.  However, this is just an
+  optimization, which shouldn't change the result of executing the
+  program.}  The resulting collection of constraints in the solver
+language is given to the solver.  If the solver finds a solution, the
+environment is updated; but if the constraints have no solution, or if
+they are too hard for the solver, the system enters the \verb|fail|
+state.
 
-Again as before, after every statement execution, the current set of
-constraints is solved and the environment is updated.  The current set
-of constraints is determined as follows.  If the statement is an
-assignment, we evaluate the right hand side in imperative execution
-mode, and then set up a constraint between the resulting value and the
-left hand side, as in the previous simpler Babelsberg languages.  (As
-with Babelsberg/UID, and in contrast to the simpler languages, this
-will be an identity constraint rather than an equality constraint.)
-In addition, each closure in the constraint store is evaluated to
-produce a set of constraints in the solver language.\footnote{Note
-  that this is just a description of the semantics.  In a practical
-  implementation, we would for example only re-evaluate a closure in
-  the constraint store when needed rather than after executing every
-  statement.  However, this is just an optimization, which shouldn't
-  change the result of executing the program.}  The resulting
-collection of constraints in the solver language is given to the
-solver.  If the solver finds a solution, the environment is updated;
-but if the constraints have no solution, or if they are too hard for
-the solver, the system enters the \verb|fail| state.
-
-The evaluation of the closures in the constraint store is done in
-constraint construction mode rather than in imperative execution mode.
-In this mode, when we encounter a message send that corresponds to an
-operation on a primitive type in the solver language, we construct the
-corresponding parse tree fragment for the solver language.  Otherwise,
-we do a normal method lookup and evaluate the body of the method.  If we we
-encounter something we cannot transform (such as a side-effect), we
-don't transform it, and instead execute.  As before, assignment
-statements are converted to \texttt{once} identity constraints with the
-right-hand-side annotated as read-only.
-
-The expressions that define constraints have a number of restrictions,
-similar to those for the Babelsberg/R and Babelsberg/JS languages.
-
-\ab{Is this stated earlier?  If so just reference the previous discussion.}
-
-\begin{enumerate}
-
-\item \label{item:constraint-type} Evaluating the expression that
-  defines the constraint should return a boolean.  (This is checked
-  dynamically.) 
-
-\item \label{item:side-effects} The constraint expression should
-  either be free of side effects, or if there are side effects, they
-  should be benign, for example, doing caching.  (This isn't checked.) 
-
-\item \label{item:deterministic} The result of evaluating the block
-  should be deterministic.  For example, an expression whose value
-  depended on which of two processes happened to complete first
-  wouldn't qualify.  (This does not arise in the toy language here,
-  although we do need this restriction for a real one.)
-
-\end{enumerate}
+Also as before, the evaluation of the closures in the constraint store
+is done in constraint construction mode rather than in imperative
+execution mode.  This is more complex than in the previous languages
+since constraint expressions might invoke methods.  In constraint
+construction mode, when we encounter a message send that corresponds
+to an operation on a primitive type in the solver language, we
+construct the corresponding parse tree fragment for the solver
+language.  Otherwise, we do a normal method lookup and evaluate the
+body of the method.  If we we encounter something we cannot transform
+(such as a side-effect), we don't transform it, and instead execute.
+As before, assignment statements are converted to \texttt{once}
+identity constraints with the right-hand-side annotated as read-only.
 
 There are two interpretations or meanings \ab{what's the right word?}
 for each constraint at a particular step in the execution of a program
@@ -2338,6 +2276,10 @@ Note that unlike in Babelsberg/R \cite{felgentreff-babelsberg-tr},
 there is no requirement that variables in methods called from
 constraints be used in a single assignment fashion.  (See Section
 \ref{sec:backwards-compatibility-mode} for more on this issue.)
+
+\ab{should we mention closures and Smalltalk-style control structures?
+  Probably not. Should we explicitly say that we don't deal with
+  closures in the formal semantics?}
 
 \subsection{Examples}
 
@@ -2464,17 +2406,16 @@ end
 
 The constraint is evaluated in the following way.  We look up the
 \verb|center| method, and evaluate it in constraint construction mode.
-This sets up an identity constraint between a temporary variable
-\verb|temp| and the result of evaluating
-\verb|(self.upper_left + self.lower_right) / 2|.  After evaluating
-this expression in constraint construction mode, we end up with a
-network of primitive constraints on \verb|upper_left.x|,
-\verb|lower_right.x|, and \verb|temp.x|; and similarly for
-\verb|upper_left.y|, \verb|lower_right.y|, and \verb|temp.y|.  Then we
-evaluate the right hand side of the equality, and end up with
-constraints that \verb|temp.x=100| and \verb|temp.y=50|.  
+This sets up an equality constraint between the result of evaluating
+\verb|(self.upper_left + self.lower_right) / 2| and a new point with
+\verb|x=100|, \verb|y=50|.  The \verb|=| method for points is then
+called, resulting in a network of primitive constraints in the solver language:
+\begin{verbatim}
+(upper_left.x + lower_right.x) / 2 = 100
+(upper_left.y + lower_right.y) / 2 = 50
+\end{verbatim}
 
-\ab{TODO: clean up the above description}
+\ab{TODO: clean up and expand the above description}
 
 The following example illustrates that methods can also be used with
 constraints on primitive types.
@@ -2738,8 +2679,8 @@ Generally, to write methods that work properly with constraints, the
 programmer should write the method using constraints rather than
 assignment statements.  For example, here are two correct versions of
 the \verb|sum| method.  These use recursion, and will create as many
-partial sums as needed.  With either of these methods, the program
-above works as desired.
+partial sums as needed.  With either of these methods, both of the above
+programs work as expected.
 
 \begin{verbatim}
 def sum
@@ -2761,6 +2702,20 @@ def sum_from(start)
 end;
 \end{verbatim}
 
+
+\subsection{Formalism}
+
+\ab{TODO: to be written}
+
+This subsection should present the formal semantics for
+Babelsberg/Objects, including how constraints in the solver language
+are produced in constraint construction mode, and also all the usual
+object-oriented features such as inheritance, method lookup, and
+\verb|self|.  The key concepts here center around constraint
+construction mode and how it interacts with method calls; inheritance
+and method lookup is standard.  So it might also be OK to reference an
+existing formalization, for example for Welterweight Java, and omit
+some of those parts.
 
 \subsection{Backwards Compatibility Mode for Methods}
 \label{sec:backwards-compatibility-mode}
@@ -2969,9 +2924,7 @@ Here there are a number of plausible values for {\tt p} and {\tt q} ---
 namely \verb|{x:0}|, \verb|{y:1}|, and \verb|{x:0,y:1}| --- and unclear
 which is better.  The nondeterminism here is arguably worse than what
 arises with integers and floats and other values, since it affects the
-structure of the result rather than just its value.  These issues
-probably get even worse once we have heap-allocated records with
-aliasing.
+structure of the result rather than just its value.
 
 Yet another complication is that we would want a minimality condition
 on records.  Consider:
@@ -2985,10 +2938,10 @@ These issues, along the lack of clear use cases for having a solver
 that can solve for records, led us to reject the alternative outlined
 in this subsection.
 
-If we move to Babelsberg/UID, an additional odd feature of having the
-solver know about records rather than using structural compatability
-checks is that the solver may need to spontaneously generate new
-records with their own UIDs\@.  Consider:
+For Babelsberg/UID, an additional odd feature of having the solver
+know about records rather than using structural compatability checks
+is that the solver may need to spontaneously generate new records with
+their own UIDs\@.  Consider:
 
 \begin{verbatim}
 a := {x:1};
@@ -3001,7 +2954,7 @@ At first, {\tt a} and {\tt b} refer to the same record, but after the
 second {\tt always} constraint, we need to create a new record and
 point {\tt b} to it.
 
-For Babelsberg/Objects, the analog of this behavior would likely be
+For Babelsberg/Objects, the analog of this behavior would be
 requiring that the constraint solver generate new classes on the fly;
 there will also be multiple possible classes.  As before, this seems
 overly complex and unpredictable.
@@ -3056,13 +3009,12 @@ select it.
 \subsection{Adding New Solvers and Extending the Solver Language}
 \label{sec:adding-solvers}
 
-In a practical Babelsberg implementation, it is useful to have a
-facility for easily adding new solvers (while still retaining the
-solver language), and also for simultaneously adding new solvers and
-extending the solver language so that new kinds of constraints can be
-encoded and sent to the new solvers.  This doesn't seem to create any
-issues for the formal semantics, so we note this only in this
-appendix.
+In a practical Babelsberg implementation, it is useful to be able to
+add new solvers (while still retaining the solver language), and also
+for simultaneously adding new solvers and extending the solver
+language so that new kinds of constraints can be encoded and sent to
+the new solvers.  This doesn't seem to create any issues for the
+formal semantics, so we note this only in this appendix.
 
 One useful extension of this sort would be adding a solver and
 constructs in the solver language for finite domain constraints, as in

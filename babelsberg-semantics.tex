@@ -627,9 +627,9 @@ the program, there is an \emph{environment} that maps names to values.
 {\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ once C $\mid$ s;s $\mid$ fail \\
   & & & $\mid$ if e then s else s $\mid$ while e do s \\
 {\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
-{\rm Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
+{\rm Expression} & e & ::= & c $\mid$ x $\mid$ x? $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
 {\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ {\rm base type constants}\\
-{\rm Variable} & x & ::= & {\rm variable names} $\mid$ x? \\\\
+{\rm Variable} & x & ::= & {\rm variable names} \\\\
 
 {\rm Value} & v & ::= & c
 \end{tabular}
@@ -692,11 +692,11 @@ formalism we use the following syntax as the language of the solver:
 \subsection{Syntax of the Solver Language}
 \label{sec:babelsberg-solver-syntax}
 $\begin{array}{lrrl}
-{\rm Constraint} & C & ::= & \top \mid  A \mid \rho\ C \mid C \ovee C \\
-{\rm Atomic\ Constraint} & A & ::= & e \olessthan e \\
-{\rm Expression} & e & ::= & c \mid x \mid e \oplus e \\
-{\rm Constant} & c & ::= & {\rm constants} \\
-{\rm Variable} & x & ::= & {\rm variable\ names} \mid x? \\\\
+{\rm Constraint} & C & ::= &  e \mid \rho\ e \\
+{\rm Expression} & e & ::= & c \mid x \mid x? \mid e \oplus e \mid e
+\olessthan e \mid e \ovee e \\
+{\rm Constant} & c & ::= & {\rm numeric and boolean constants} \\
+{\rm Variable} & x & ::= & {\rm variable\ names} \\\\
 
 {\rm Value} & v & ::= & c
 \end{array}$
@@ -728,12 +728,14 @@ the above solver language.
 \subsubsection{Semantics}
 
 The semantics is defined by several judgments, defined below.  These
-judgments depends on the notion of an {\em environment}, which is a
+judgments depend on the notion of an {\em environment}, which is a
 partial function from program variables to program
 values. Metavariable {\tt E} ranges over environments. We use {\tt
   E(x)$\uparrow$} to indicate that {\tt E} has no mapping for {\tt
   x}. When convenient we also view an environment as a set of (program
-variable, program value) pairs.
+variable, program value) pairs.  For each operator {\tt o} in the language
+we assume the existence of a corresponding semantic function denoted
+{\tt [[o]]}.
 
 
 \judgment{\eval{E}{e}{v}}
@@ -851,7 +853,7 @@ The following judgments define how to translate source-level
 constraints into the language of the solver. For Babelsberg/Reals and
 Babelsberg/PrimitiveTypes this is straightforward.
 
-\inferax{ToConst}{\toSolver{c}{c}}
+\inferrule{ToConst}{{\tt c} $\neq$ {\tt nil}}{\toSolver{c}{c}}
 
 \inferax{ToVar}{\toSolver{x}{x}}
 
@@ -867,11 +869,11 @@ Babelsberg/PrimitiveTypes this is straightforward.
 \inferrule{ToAtomicConstraint}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
 {\toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}}
 
-\inferrule{ToConstraint}{\toSolver{e$_1$}{C_1} \andalso \toSolver{e$_2$}{C_2}}
-{\toSolver{e$_1$ $\ovee$ e$_2$}{C_1 \ovee C_2}}
+\inferrule{ToConstraint}{\toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2}}
+{\toSolver{e$_1$ $\ovee$ e$_2$}{e_1 \ovee e_2}}
 
-\inferrule{ToPriority}{\toSolver{e}{C}}
-{\toSolver{$\rho$ e}{\rho\ C}}
+\inferrule{ToPriority}{\toSolver{e}{e}}
+{\toSolver{$\rho$ e}{\rho\ e}}
 
 \judgment{\fromSolver{M}{E}}
 
@@ -911,7 +913,7 @@ the solver is unable to find a solution.
 This judgment defines how to translate an environment into a
 source-level ``stay'' constraint.
 
-\inferax{StayEmpty}{\stay{$\emptyset$}{True}}
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
 
 \inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
   {\tt E} \setminus \{({\tt x},{\tt v})\}$
@@ -984,6 +986,8 @@ We use the following syntax for types.
   \tc{E}{e$_1$ $\ovee$ e$_2$}{Boolean}
 }
 
+\inferrule{T-Priority}{\tc{E}{e}{T}}{\tc{E}{$\rho$ e}{T}}
+
 The following judgment is used to decide which expressions are valid
 as constraints.
 
@@ -1008,7 +1012,6 @@ The above two rules are key to allow assigning new variables and to
 undefine variables. Changing the type of a variable can thus be
 accomplished by first undefined it, and then assigning a new value.
 
-\inferrule{T-Priority}{\tcC{E}{e}}{\tcC{E}{$\rho$\ e}}
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
@@ -1026,8 +1029,6 @@ execution. Also, assignment is just syntactic sugar for one or more
 \verb|once| constraints. As explained in the examples above, this
 retains the same outward appearance as normal imperative assignment.
 
-\inferax{S-SeqSkip}{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
-
 Constraints are typed. Since assignments are converted into {\tt once}
 constraints, the left hand side must have a compatible type. To ensure
 that, all variables are first undefined, and then assigned.
@@ -1039,14 +1040,14 @@ that, all variables are first undefined, and then assigned.
 }
 
 \inferrule{S-Once}{
-  \tcC{E}{C} \andalso
+  \tcC{E}{C$_0$} \andalso
   \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }
 {\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
 
 \inferrule{S-OnceFail}{
-  \tcC{E}{C} \andalso
+  \tcC{E}{C$_0$} \andalso
   \andalso \stay{E}{C$_s$} \andalso
   \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }{
@@ -1068,6 +1069,8 @@ that, all variables are first undefined, and then assigned.
 }{
   \step{E}{C}{always C$_0$}{E}{C}{fail}
 }
+
+\inferax{S-SeqSkip}{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
 
 \inferrule{S-SeqStep}{
   \step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}
@@ -1274,7 +1277,7 @@ records and the ability to access fields of a record:
 \begin{tt}
 \begin{tabular}{lrrl}
 {\rm Expression} & e & ::= & $\cdots$ $\mid$
-\{l$_1$:c$_1$,$\ldots$,l$_n$:c$_n$\} $\mid$ e.l \\
+\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
 {\rm Label} & l & ::= & {\rm record label names} \\\\
 \end{tabular}
 \end{tt}
@@ -1285,6 +1288,12 @@ does not ``understand'' records, but only values of base types like
 integers and reals.
 
 \subsubsection{Semantics}
+
+For simplicity we only provide the semantics for a subset of the
+syntax shown above.  Specifically, we assume that records cannot be
+nested within other records, and we assume that records are always
+assigned a variable name before being used in a constraint.  These
+restrictions simplify the presentation but are not fundamental.
 
 \judgment{\eval{E}{e}{v}}
 
@@ -1348,49 +1357,45 @@ translate to the solver.
   \toSolver{x.l$_i$}{x_{l_i}}
 }
 
-\inferrule{ToFieldConst}{
-  \eval{E}{e}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
-  \tc{E}{e.l$_i$}{B} \andalso
-  \toSolver{v$_i$}{v_i}
-}{
-  \toSolverH{e.l$_i$}{v_i}
-}
+% \inferrule{ToFieldConst}{
+%   \eval{E}{e}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+%   \tc{E}{e.l$_i$}{B} \andalso
+%   \toSolver{v$_i$}{v_i}
+% }{
+%   \toSolverH{e.l$_i$}{v_i}
+% }
 
-Note also that the rules above have a compatibility check to ensure
-that the accessed field already exists in the record through
-\textsc{T-Field}. This is not required for our translation. Leaving it
-out, however, would lead to some ``structural nondeterminism'' that we
-decided would be undesirable, e.g., a constraint like {\tt p.x = 1
-  $\vee$ p.y = 2} could cause the solver to invent either an {\tt x}
-field or a {\tt y} field.
+% Note also that the rules above have a compatibility check to ensure
+% that the accessed field already exists in the record through
+% \textsc{T-Field}. This is not required for our translation. Leaving it
+% out, however, would lead to some ``structural nondeterminism'' that we
+% decided would be undesirable, e.g., a constraint like {\tt p.x = 1
+%   $\vee$ p.y = 2} could cause the solver to invent either an {\tt x}
+% field or a {\tt y} field.
 
-The next rules define the mappings for comparisons. The
-\textsc{ToAtomicConstraint} rule is the same as previously, only
-augmented with a type check. \textsc{ToCompareRec} rule explodes
-the comparisons on the record fields.
+% The next rules define the mappings for comparisons. The
+% \textsc{ToAtomicConstraint} rule is the same as previously, only
+% augmented with a type check. \textsc{ToCompareRec} rule explodes
+% the comparisons on the record fields.
 
-\tf{@Todd: I think we need the typechecking here?}
-\inferrule{ToAtomicConstraint}{
-  \toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2} \andalso
-  \tc{E}{e$_1$}{B} \andalso \tc{E}{e$_2$}{B}
-}{
-  \toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}
-}
+% \tf{@Todd: I think we need the typechecking here?}
+% \inferrule{ToAtomicConstraint}{
+%   \toSolver{e$_1$}{e_1} \andalso \toSolver{e$_2$}{e_2} \andalso
+%   \tc{E}{e$_1$}{B} \andalso \tc{E}{e$_2$}{B}
+% }{
+%   \toSolver{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}
+% }
 
 \infrule[ToCompareRec]{
-  \mbox{%
-    \tc{E}{e$_a$}{\{l$_1$:B$_1$,$\ldots$,l$_n$:B$_n$\}} \andalso
-    \tc{E}{e$_b$}{\{l$_1$:B$_1$,$\ldots$,l$_n$:B$_n$\}}
-  } \\
-  \mbox{%
-    \toSolver{e$_a$.l$_1$}{e_1},$\ldots$,\toSolver{e$_a$.l$_n$}{e_n} \andalso
-    \toSolver{e$_b$.l$_1$}{e_{n+1}},$\ldots$,\toSolver{e$_b$.l$_n$}{e_{2n}}
-  }
-}{
-  \mbox{%
-    \toSolver{e$_a$ = e$_b$}{%
+ \mbox{ \eval{E}{x}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  \eval{E}{x$'$}{\{l$_1$:v$_1'$,$\ldots$,l$_n$:v$_n'$\}}} \\
+\mbox{    \toSolver{x.l$_1$}{e_1},\ldots,\toSolver{x.l$_n$}{e_n} \andalso
+    \toSolver{x$'$.l$_1$}{e_{n+1}},\ldots,\toSolver{x$'$.l$_n$}{e_{2n}}
+  }}
+{\mbox{
+    \toSolver{x = x$'$}{
       e_1 = e_{n+1} \wedge \ldots \wedge e_n = e_{2n}
-    }}
+}}
 }
 
 \tf{we only allow equality for records. any other comparator would
@@ -1449,7 +1454,7 @@ adapt the syntax for types as follows:
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Type} & T & ::= & BaseType  $\mid$ \{l$_1$:BaseType,$\ldots$,l$_n$:BaseType\}\\
+{\rm Type} & T & ::= & B  $\mid$ \{l$_1$:B,$\ldots$,l$_n$:B\}\\
 {\rm BaseType} & B & ::= & Boolean $\mid$ Undefined $\mid$ PrimitiveType
 \end{tabular}
 \end{tt}
@@ -1500,10 +1505,10 @@ only work on primitive types.
   \tc{E}{e$_1$ = e$_2$}{Boolean}
 }
 
-\tf{not even sure we need this ... this expands to equalities on
-  everything in E-CompareRec, which can then be typed...}
+% \tf{not even sure we need this ... this expands to equalities on
+%   everything in E-CompareRec, which can then be typed...}
 
-{\{l$_1$:B$_1$,$\ldots$,l$_n$:B$_n$\}}
+% {\{l$_1$:B$_1$,$\ldots$,l$_n$:B$_n$\}}
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 

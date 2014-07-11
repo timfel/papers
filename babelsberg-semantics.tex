@@ -1012,7 +1012,7 @@ expression evaluate to {\tt true}.
 
 The above two rules are key to allow assigning new variables and to
 undefine variables. Changing the type of a variable can thus be
-accomplished by first undefined it, and then assigning a new value.
+accomplished by first undefining it, and then assigning a new value.
 
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
@@ -1768,7 +1768,7 @@ source programs.  \tdm{Not sure if we need that assumption.}
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ x.l := e $\mid$ x := new o\\
+{\rm Statement} & s & ::= & skip $\mid$ a := e $\mid$ x := new o\\
                 && $\mid$ & always C $\mid$ once C $\mid$ s;s $\mid$ fail \\
                 && $\mid$ & if e then s else s $\mid$ while e do s \\
 {\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
@@ -2092,53 +2092,72 @@ for the heap.
 %   variable name {\tt p} \ldots'' is about the semantic rules, not
 %   about things known to the solver.}
 
-\judgment{\tcHC{E}{H}{C}}
-
-\judgment{\tcH{E}{H}{c}{T}}
-
 \judgment{\tcH{E}{H}{e}{T}}
 
-``Constraint {\tt C} is well formed in the context of environment
-{\tt E} and heap {\tt H}.''
+\judgment{\tcH{E}{H}{C}{T}}
 
-
-``Atomic constraint {\tt c} has type {\tt T} in the context of
-environment {\tt E} and {\tt heap H}.''
-
+\judgment{\tcHC{E}{H}{C}}
 
 ``Expression {\tt e} has type {\tt T} in the context of environment
 {\tt E} and heap {\tt H}.''
 
-\inferrule{T-ConsOne}{\tcH{E}{H}{c}{Bool}}{\tcHC{E}{H}{c}}
+``Constraint {\tt C} has type {\tt T} in the context of environment
+{\tt E} and heap {\tt H}.''
 
-\inferrule{T-ConsMulti}{\tcHC{E}{H}{C$_1$} \andalso
-\tcHC{E}{H}{C$_2$}}
-{\tcHC{E}{H}{C$_1$ $\ovee$ C$_2$}}
+``Constraint {\tt C} is well formed in the context of environment
+{\tt E} and heap {\tt H}.''
 
+We use the following syntax for types.
 
-\inferrule{T-Atomic}{\tcH{E}{H}{e$_1$}{T$_1$} \andalso
-\tcH{E}{H}{e$_2$}{T$_2$} \andalso
-typeable$_\olessthan$({\tt T$_1$}, {\tt T$_2$})}
-{\tcH{E}{H}{e$_1$ $\olessthan$ e$_2$}{Bool}}
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & B $\mid$
+$\mid$ \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} \\
+{\rm BaseType} & B & ::= & Boolean $\mid$ Undefined $\mid$ PrimitiveType
+\end{tabular}
+\end{tt}
 
+We assume that each operator $\oplus$ has an associated function
+typeof that provides the types of its arguments and result.
+Similarly, we assume that each operator $\olessthan$ has an associated
+function typeof that provides the types of its arguments.
 
-\inferax{T-Const}{\tcH{E}{H}{c}{Const}}
+\inferax{T-Nil}{\tcH{E}{H}{nil}{Undefined}}
+\inferax{T-True}{\tcH{E}{H}{true}{Boolean}}
+\inferax{T-False}{\tcH{E}{H}{false}{Boolean}}
+\inferrule{T-Constant}{
+  {\tt c $\notin$ \{true, false, nil\}}
+}{
+  \tcH{E}{H}{c}{PrimitiveType}
+}
 
-\inferrule{T-Var}{{\tt E}({\tt x}) = {\tt v} \andalso \tcH{E}{H}{v}{T}}{\tcH{E}{H}{x}{T}}
+\inferrule{T-Variable}{
+  \evalH{E}{H}{x}{v} \andalso \tcH{E}{H}{v}{T}
+}{
+  \tcH{E}{H}{x}{T}
+}
 
-\inferrule{T-Op}{\tcH{E}{H}{e$_1$}{Num} \andalso
-\tcH{E}{H}{e$_2$}{Num}}
-{\tcH{E}{H}{e$_1$ $\oplus$ e$_2$}{Num}}
+\inferrule{T-Field}{
+  \evalH{E}{H}{a}{r} \andalso {\tt H(r) =
+    \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  \tcH{E}{H}{v$_i$}{T$_i$} \andalso $1 \leq i \leq n$
+}{
+  \tcH{E}{H}{x.l$_i$}{T$_i$}
+}
 
+\inferrule{T-ReadOnly}{
+  \tcH{E}{H}{a}{T}
+}{
+  \tcH{E}{H}{a?}{T}
+}
 
-\inferrule{T-Field}{\tcH{E}{H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n}
-{\tcH{E}{H}{e.l$_i$}{T$_i$}}
-
-\inferrule{T-Ref}{{\tt H}({\tt r}) = {\tt
-    \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso \tcH{E}{H}{v$_1$}{T$_1$} $\cdots$
-  \tcH{E}{H}{v$_n$}{T$_n$}}
-{\tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+\inferrule{T-Ref}{
+{\tt H(r) =
+    \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  \tcH{E}{H}{v$_1$}{T$_1$} $\cdots$  \tcH{E}{H}{v$_n$}{T$_n$} 
+ }{
+  \tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
 
 Note that the above rule does not work as intended in the presence of
 cyclic records, which are now possible.  In that case, we will simply
@@ -2155,18 +2174,77 @@ structure of cyclic records.
   trees (aka cyclic terms)?  If we will have the same problem with
   Babelsberg/Objects, then it may be worth pursuing, but otherwise not.}
 
+\inferrule{T-RecEq}{
+\tcH{E}{H}{a$_1$}{T} \andalso \tcH{E}{H}{a$_2$}{T}
+}{
+  \tcH{E}{H}{a$_1$ $\receq$ a$_2$}{Boolean}
+}
+
+\inferrule{T-RecID}{
+\tcH{E}{H}{a$_1$}{T} \andalso \tcH{E}{H}{a$_2$}{T}
+}{
+  \tcH{E}{H}{a$_1$ == a$_2$}{Boolean}
+}
+
+
+\inferrule{T-Op}{
+   typeof($\oplus$) = ({\tt B$_1$}, {\tt B$_2$}, {\tt B}) \andalso
+  \tcH{E}{H}{e$_1$}{B$_1$} \andalso \tcH{E}{H}{e$_2$}{B$_2$}
+}{
+  \tcH{E}{H}{e$_1$ $\oplus$ e$_2$}{B}
+}
+
+\inferrule{T-Compare}{
+   typeof($\olessthan$) = ({\tt B$_1$}, {\tt B$_2$}) \andalso
+  \tcH{E}{H}{e$_1$}{B$_1$} \andalso \tcH{E}{H}{e$_2$}{B$_2$}
+}{
+  \tcH{E}{H}{e$_1$ $\olessthan$ e$_2$}{Boolean}
+}
+
+\inferrule{T-Combine}{
+  \tcH{E}{H}{e$_1$}{Boolean} \andalso \tcH{E}{H}{e$_2$}{Boolean}
+}{
+  \tcH{E}{H}{e$_1$ $\ovee$ e$_2$}{Boolean}
+}
+
+\inferrule{T-Priority}{\tcH{E}{H}{e}{T}}{\tcH{E}{H}{$\rho$ e}{T}}
+
+The following judgment is used to decide which expressions are valid
+as constraints.
+
+\inferrule{T-Constraint}{
+  \tcH{E}{H}{C}{Boolean}
+}{
+  {\tcC{E}{C}}
+}
+
+The above rule encodes the requirement that expressions used in
+constraints must evaluate to a boolean -- the constraint is that the
+expression evaluate to {\tt true}.
+
+\inferrule{T-Asgn}{
+  \tcH{E}{H}{x}{Undefined}
+}{
+  \tcHC{E}{H}{x = e}
+}
+\inferax{T-Undef}{\tcHC{E}{H}{x = nil}}
+
+The above two rules are key to allow assigning new variables and to
+undefine variables. Changing the type of a variable can thus be
+accomplished by first undefining it, and then assigning a new value.
+
 \judgment{\stepH{E}{H}{C}{s}{E$'$}{H$'$}{C$'$}{s$'$}}
 
 ``Configuration {\tt <E|H|C|s>} takes one step of execution to state {\tt <E$'$|H$'$|C$'$|s$'$>}.''
 
-In the rules below, stay({\tt E}) denotes, as earlier,  a
-conjunction of constraints of the form  weak $x=v$ for
-each {\tt x} in the domain of {\tt E}, where {\tt E}({\tt x}) = {\tt v}.
-The notation stay({\tt H}) is analogous except that these record
-constraints are ``exploded'' as discussed earlier.  For example, if
-{\tt H}({\tt r}) = {\tt \{x:2, y:5\}}, then the constraints
-weak $r_x = 2$ and weak $r_y=5$ are included in stay({\tt H}).
-Finally, dom({\tt H}) denotes the domain of {\tt H}.
+% In the rules below, stay({\tt E}) denotes, as earlier,  a
+% conjunction of constraints of the form  weak $x=v$ for
+% each {\tt x} in the domain of {\tt E}, where {\tt E}({\tt x}) = {\tt v}.
+% The notation stay({\tt H}) is analogous except that these record
+% constraints are ``exploded'' as discussed earlier.  For example, if
+% {\tt H}({\tt r}) = {\tt \{x:2, y:5\}}, then the constraints
+% weak $r_x = 2$ and weak $r_y=5$ are included in stay({\tt H}).
+% Finally, dom({\tt H}) denotes the domain of {\tt H}.
 
 %% FORMER VERSION:
 %% In the rules below, stay({\tt E}) denotes, as earlier,  a
@@ -2178,23 +2256,8 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
 %% {\tt weak rx = 2} and {\tt weak ry=5} are included in stay({\tt H}).
 %% Finally, dom({\tt H}) denotes the domain of {\tt H}.
 
-\inferrule{S-Asgn}{\evalH{E}{H}{e}{v} \andalso
-\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
-{\stepH{E}{H}{C}{x := e}{E$'$}{H$'$}{C}{skip}}
-
-\inferrule{S-AsgnFail}{\evalH{E}{H}{e}{v} \andalso
-\fail{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x=v)}}
-{\stepH{E}{H}{C}{x := e}{E}{H}{C}{fail}}
-
-\infrule[S-AsgnField]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
-\mbox{\solveH{E$'$}{H$'$}{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E$'$}{H$'$}{C}{skip}}}
-
-\infrule[S-AsgnFieldFail]{\mbox{\tcH{E}{H}{x}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-    \andalso 1 $\leq$ i $\leq$ n \andalso \evalH{E}{H}{e}{v}} \\ 
-\mbox{\failH{(C $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})} $\wedge$ x.l$_i$=v)}}}
-{\mbox{\stepH{E}{H}{C}{x.l$_i$ := e}{E}{H}{C}{fail}}}
+\inferrule{S-Asgn}{\evalH{E}{H}{e}{v}}
+{\stepH{E}{H}{C}{a := e}{E}{H}{C}{once x = nil; once a = v}}
 
 \infrule[S-AsgnNew]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
     \andalso r $\not\in$ dom({\tt H})} \\ 
@@ -2202,6 +2265,9 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
     stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
 {\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E$'$}{H$'$}{C}{skip}}}
 
+The above rule could also be defined through desugaring to a once
+constraint, but it'd be a bit weirder because we'd have to update the
+heap first to contain the new reference.
 
 \infrule[S-AsgnNewFail]{\mbox{\evalH{E}{H}{e$_1$}{v$_1$} $\cdots$ \evalH{E}{H}{e$_n$}{v$_n$}
     \andalso r $\not\in$ dom({\tt H})} \\ 
@@ -2209,19 +2275,31 @@ Finally, dom({\tt H}) denotes the domain of {\tt H}.
     stay({\tt H})} $\wedge$ x=r $\wedge$ r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\})}}}
 {\mbox{\stepH{E}{H}{C}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{E}{H}{C}{fail}}}
 
-Recall that the constraint {\tt r =
-  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}} in the above rule is shorthand for $n$
-constraints of the form $r_{li} = v_i$.
+\inferrule{S-Once}{\tcHC{E}{H}{C$_0$} \andalso
+\stay{E}{C$_e$}
+\andalso \stay{H}{C$_h$} \andalso
+\solveH{E$'$}{H$'$}{(C $\wedge$ C$_0$ $\wedge$ C$_e$ $\wedge$ C$_h$)}}
+{\stepH{E}{H}{C}{once C$_0$}{E$'$}{H$'$}{C}{skip}}
+
+
+\inferrule{S-OnceFail}{\tcHC{E}{H}{C$_0$} \andalso
+\stay{E}{C$_e$}
+\andalso \stay{H}{C$_h$} \andalso
+\failH{(C $\wedge$ C$_0$ $\wedge$ C$_e$ $\wedge$ C$_h$)}}
+{\stepH{E}{H}{C}{once C$_0$}{E}{H}{C}{fail}}
 
 \inferrule{S-Always}{\tcHC{E}{H}{C$_0$} \andalso
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
-\solveH{E$'$}{H$'$}{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
-{\stepH{E}{H}{C}{[weak] always C$_0$}{E$'$}{H$'$}{C$'$}{skip}}
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_e$}
+\andalso \stay{H}{C$_h$} \andalso
+\solveH{E$'$}{H$'$}{(C$'$ $\wedge$ C$_e$ $\wedge$ C$_h$)}}
+{\stepH{E}{H}{C}{always C$_0$}{E$'$}{H$'$}{C$'$}{skip}}
+
 
 \inferrule{S-AlwaysFail}{\tcHC{E}{H}{C$_0$} \andalso
-{\tt C$'$} = {\tt (C $\wedge$ [weak] C$_0$)} \andalso
-\failH{(C$'$ $\wedge$ {\rm stay({\tt E})} $\wedge$ {\rm stay({\tt H})})}}
-{\stepH{E}{H}{C}{[weak] always C$_0$}{E}{H}{C}{fail}}
+{\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_e$}
+\andalso \stay{H}{C$_h$} \andalso
+\failH{(C$'$ $\wedge$ C$_e$ $\wedge$ C$_h$)}}
+{\stepH{E}{H}{C}{always C$_0$}{E}{H}{C}{fail}}
 
 \inferrule{S-SeqStep}{\stepH{E}{H}{C}{s$_1$}{E$'$}{H$'$}{C$'$}{s$_1'$}}
 {\stepH{E}{H}{C}{s$_1$;s$_2$}{E$'$}{H$'$}{C$'$}{s$_1'$;s$_2$}}
@@ -2231,6 +2309,30 @@ constraints of the form $r_{li} = v_i$.
 
 \inferax{S-SeqFail}
 {\stepH{E}{H}{C}{fail;s$_2$}{E}{H}{C}{fail}}
+
+\inferrule{S-IfThen}{
+  \evalH{E}{H}{e}{true}
+}{
+  \stepH{E}{H}{C}{if e then s$_1$ else s$_2$}{E}{H}{C}{s$_1$}%
+}
+
+\inferrule{S-IfElse}{
+  \evalH{E}{H}{e}{false}
+}{
+  \stepH{E}{H}{C}{if e then s$_1$ else s$_2$}{E}{H}{C}{s$_2$}%
+}
+
+\inferrule{S-WhileDo}{
+  \evalH{E}{H}{e}{true}
+}{
+  \stepH{E}{H}{C}{while e do s}{E}{H}{C}{s; while e do s}
+}
+
+\inferrule{S-WhileSkip}{
+  \evalH{E}{H}{e}{false}
+}{
+  \stepH{E}{H}{C}{while e do s}{E}{H}{C}{skip}
+}
 
 \section{Babelsberg/Objects}
 \label{sec:babelsberg-objects}

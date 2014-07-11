@@ -54,6 +54,8 @@
 
 \newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
 
+\newcommand{\receq}{\stackrel{{\tt r}}{{\tt =}}}
+
 \sloppy
 
 \begin{document}
@@ -1760,6 +1762,9 @@ source programs.  \tdm{Not sure if we need that assumption.}
   assignment, and not as being just an expression?}  \tf{that ensures
   that we'll always have an explicit reference for each object from
   somewhere, which makes it easier for the semantics, I think}
+\tdm{The main issue is that new is a side-effecting operation --- it
+  updates the heap --- so it can't be evaluated as a pure expression
+  that just produces a value.}
 
 \begin{tt}
 \begin{tabular}{lrrl}
@@ -1767,9 +1772,12 @@ source programs.  \tdm{Not sure if we need that assumption.}
                 && $\mid$ & always C $\mid$ once C $\mid$ s;s $\mid$ fail \\
                 && $\mid$ & if e then s else s $\mid$ while e do s \\
 {\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
-{\rm Expression} & e & ::= & c $\mid$ x $\mid$ e.l $\mid$ r $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
+{\rm Expression} & e & ::= & c $\mid$ a $\mid$ a?\ $\mid$ r $\mid$ a
+$\receq$ a $\mid$ a == a $\mid$ e
+$\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
+{\rm Accessor} & a & ::= & x $\mid$ a.l \\
 {\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ {\rm base type constants}\\
-{\rm Variable} & x & ::= & {\rm variable names} $\mid$ x? \\\\
+{\rm Variable} & x & ::= & {\rm variable names} \\\\
 
 {\rm Label} & l & ::= & {\rm record label names}\\
 {\rm Object} & o & ::= & \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
@@ -1779,21 +1787,24 @@ source programs.  \tdm{Not sure if we need that assumption.}
 \end{tabular}
 \end{tt}
 
-(Note that $\olessthan$ now ranges also over the comparison operations
-between records, and the {\tt ==} operator, which tests object
-identity rather than equality.)
+Note that we augment the language with two operations over references, namely
+logical and pointer equality, respectively denoted $\receq$ and {\tt
+  ==}.  The arguments to these operations are not arbitrary
+expressions but rather {\em accessors}, which are essentially access
+paths through a reference.  This is no loss of expressiveness but is
+useful for the translation to the constraint solver.
 
 \subsubsection{Semantics}
 
 In addition to an environment, the semantics now requires a {\em
   heap}, which is a partial function from mutable references to record
-``objects'' of the form {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} as 
-well as to instances of primitive types (which also now live on the heap,
-for uniformity).
+``objects'' of the form {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}.
 Heaps are ranged over by metavariable {\tt H}\@.
 Most of the updates to the original rules are standard and straightforward.
 
 \judgment{\evalH{E}{H}{e}{v}}
+
+\judgment{\evalH{E}{H}{a}{v}}
 
 ``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
   E} and heap {\tt H}.''
@@ -1801,19 +1812,20 @@ Most of the updates to the original rules are standard and straightforward.
 \inferax{E-Const}{\evalH{E}{H}{c}{c}}
 \inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalH{E}{H}{x}{v}}
 \inferrule{E-Undef}{{\tt E}({\tt x})$\uparrow$}{\evalH{E}{H}{x}{nil}}
-\inferrule{E-ReadOnly}{
-  {\tt E(x) = v}
-}{
-  \evalH{E}{H}{x?}{v}
-}
-
 \inferrule{E-Field}{
-  \evalH{E}{H}{e}{r} \andalso
+  \evalH{E}{H}{a}{r} \andalso
   {\tt H}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
   1 $\leq$ i $\leq$ n
 }{
-  \evalH{E}{H}{e.l$_i$}{v$_i$}
+  \evalH{E}{H}{a.l$_i$}{v$_i$}
 }
+
+\inferrule{E-ReadOnly}{
+  \evalH{E}{H}{a}{v}
+}{
+  \evalH{E}{H}{a?}{v}
+}
+
 
 \inferax{E-Ref}{\evalH{E}{H}{r}{r}}
 
@@ -1830,20 +1842,9 @@ Most of the updates to the original rules are standard and straightforward.
   \evalH{E}{H}{e$_2$}{v$_2$} \andalso
   {\tt v$_1$ [[$\olessthan$]] v$_2$} = {\tt v}
 }{
-  \eval{E}{H}{e$_1$ $\olessthan$ e$_2$}{v}
+  \evalH{E}{H}{e$_1$ $\olessthan$ e$_2$}{v}
 }
 
-\infrule[E-CompareRec]{
-  \mbox{%
-    \evalH{E}{H}{e$_1$}{r$_1$} \andalso
-    \evalH{E}{H}{e$_2$}{r$_2$} \andalso
-    {\tt H}({\tt r$_1$}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
-    {\tt H}({\tt r$_2$}) = {\tt \{l$_1$:v$_{n+1}$,$\ldots$,l$_n$:v$_{2n}$\}}}\\
-  \mbox{%
-    \evalH{E}{H}{(v$_1$=v$_{n+1}$$\wedge$$\ldots$$\wedge$v$_n$=v$_{2n}$)}{v}}
-}{\mbox{%
-  \evalH{E}{H}{e$_1$ = e$_2$}{v}
-}}
 
 \inferrule{E-Combine}{
   \evalH{E}{H}{e$_1$}{v$_1$} \andalso
@@ -1855,7 +1856,35 @@ Most of the updates to the original rules are standard and straightforward.
 
 \tf{\@Todd: the above three rules with metavariables for operations
   all only work for primitives -- should we say \evalH{E}{H}{e}{c}
-  then instead?}
+  then instead?} \tdm{I'm neutral on this.}
+
+\infrule[E-CompareRec]{
+  \mbox{%
+    \evalH{E}{H}{a$_1$}{r$_1$} \andalso
+    \evalH{E}{H}{a$_2$}{r$_2$} \andalso
+    {\tt H}({\tt r$_1$}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+    {\tt H}({\tt r$_2$}) = {\tt \{l$_1$:v$_{n+1}$,$\ldots$,l$_n$:v$_{2n}$\}}}\\
+  \mbox{%
+    \evalH{E}{H}{(v$_1$=v$_{n+1}$$\wedge$$\ldots$$\wedge$v$_n$=v$_{2n}$)}{v}}
+}{\mbox{%
+  \evalH{E}{H}{a$_1$ $\receq$ a$_2$}{v}
+}}
+
+\infrule[E-CompareRecIDTrue]{
+  \mbox{%
+    \evalH{E}{H}{a$_1$}{r} \andalso
+    \evalH{E}{H}{a$_2$}{r}}
+}{\mbox{%
+  \evalH{E}{H}{a$_1$ == a$_2$}{true}
+}}
+
+\infrule[E-CompareRecIDFalse]{
+  \mbox{%
+    \evalH{E}{H}{a$_1$}{r$_1$} \andalso
+    \evalH{E}{H}{a$_2$}{r$_2$} \andalso {\tt r$_1$} $\neq$ {\tt r$_2$}}
+}{\mbox{%
+  \evalH{E}{H}{a$_1$ == a$_2$}{false}
+}}
 
 \judgment{\csolve{M}{C}}
 
@@ -1866,60 +1895,73 @@ This judgment still represents the call to the solver.
 
 \inferax{ToConst}{\toSolverH{c}{c}}
 
-\inferax{ToVar}{\toSolverH{x}{x}}
-
-\inferrule{ToReadOnly}{
-  \toSolverH{x}{x}
-}{
-  \toSolverH{x?}{x?}
-}
-
 \inferax{ToRef}{\toSolverH{r}{r}}
 
+Above for convenience we consider the solver to have a set of
+constants ranged over by metavariable $r$, with each reference from
+the program mapped to a distinct constant.  In practice we can simply
+use integers.
+
+\inferax{ToVar}{\toSolverH{x}{x}}
+
 \inferrule{ToFieldVar}{%
-  \evalH{E}{H}{e}{r} \andalso
-  \toSolverH{r}{r} \andalso
-  {\tt H}({\tt r}) = {\tt\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
-  $0 \leq i \leq n$
+  \toSolverH{a}{x}
 }{
-  \toSolverH{e.l$_i$}{r_{l_i}}
+  \toSolverH{a.l}{x_{l}}
 }
 
-The \textsc{ToFieldConst} rule from Babelsberg/Records is not required
-anymore, because all records must now have a reference on the heap,
-and cannot be used directly in expressions. A practical language could
-include constant records again as an optimization.
+The above translation of accessors introduces new variables.  For
+example, the expression {\tt b.f.g} will get translated to the
+variable $x_{f_g}$.  To relate these variables to the rest of the
+constraints, we also need to generate a set of axioms that are passed
+to the solver along with the translated constraint.  Specifically, for
+each variable in the constraint of the form $x_f$ (where $x$ itself
+may be subscripted multiple times), for each reference {\tt r} in
+dom({\tt H}), we generate the following axiom:
+
+$$x = r \Rightarrow x_f = x\_r_f$$
+
+Here $x\_r_f$ is a variable introduced by the stay constraints on the
+heap, defined below.
+Finally, we also recursively generate such axioms for the variable $x$
+itself if it is also subscripted.
+
+\inferrule{ToReadOnly}{
+  \toSolverH{a}{x}
+}{
+  \toSolverH{a?}{x?}
+}
 
 \inferrule{ToExpression}{\toSolverH{e$_1$}{e_1} \andalso \toSolverH{e$_2$}{e_2}}
 {\toSolverH{e$_1$ $\oplus$ e$_2$}{e_1 \oplus e_2}}
 
 \inferrule{ToAtomicConstraint}{
-  \toSolverH{e$_1$}{e_1} \andalso \toSolverH{e$_2$}{e_2} \andalso
-  \tcH{E}{H}{e$_1$}{B} \andalso \tcH{E}{H}{e$_2$}{B}
+  \toSolverH{e$_1$}{e_1} \andalso \toSolverH{e$_2$}{e_2} 
 }{
   \toSolverH{e$_1$ $\olessthan$ e$_2$}{e_1 \olessthan e_2}
 }
 
+\inferrule{ToConstraint}{\toSolverH{e$_1$}{e_1} \andalso \toSolverH{e$_2$}{e_2}}
+{\toSolverH{e$_1$ $\ovee$ e$_2$}{e_1 \ovee e_2}}
+
 \infrule[ToCompareRec]{
   \mbox{%
-    \tcH{E}{H}{e$_1$}{\{l$_1$:B$_1$,$\ldots$,l$_n$:B$_n$\}} \andalso
-    \tcH{E}{H}{e$_2$}{\{l$_1$:B$_1$,$\ldots$,l$_n$:B$_n$\}}
+    \evalH{E}{H}{a$_1$}{r$_1$} \andalso {\tt H(r$_1$) = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+    \evalH{E}{H}{a$_2$}{r$_2$} \andalso {\tt H(r$_2$) = \{l$_1$:v$_1'$,$\ldots$,l$_n$:v$_n'$\}}
   } \\
   \mbox{%
-    \toSolverH{e$_1$.l$_1$}{v_1},$\ldots$,\toSolverH{e$_1$.l$_n$}{v_n} \andalso
-    \toSolverH{e$_2$.l$_1$}{v_{n+1}},$\ldots$,\toSolverH{e$_2$.l$_n$}{v_{2n}}
+    \toSolverH{a$_1$.l$_1$ = a$_2$.l$_1$ $\wedge$ $\ldots$ $\wedge$
+      a$_1$.l$_n$ = a$_n$.l$_n$}{e}
   }
 }{
   \mbox{%
-    \toSolverH{e$_1$ = e$_2$}{%
-      e_1 = e_{n+1} \wedge \ldots \wedge e_n = e_{2n}
-    }}
+    \toSolverH{a$_1$ = a$_2$}{e}}
 }
 
 \inferrule{ToIdentical}{
-  \toSolverH{x$_1$}{x_1} \andalso \toSolverH{x$_2$}{x_2}
+  \toSolverH{a$_1$}{x_1} \andalso \toSolverH{a$_2$}{x_2}
 }{
-  \toSolverH{x$_1$ == x$_2$}{x_1 = x_2}
+  \toSolverH{a$_1$ == a$_2$}{x_1 = x_2}
 }
 
 The above rule shows that identity constraints are just constraints on
@@ -1935,11 +1977,10 @@ the solver can only use references that were created using new, and,
 in a practical language, that have not been garbage collected.)
 \tf{maybe we need to discuss this somewhere else?}
 
-\inferrule{ToConstraint}{\toSolverH{e$_1$}{C_1} \andalso \toSolverH{e$_2$}{C_2}}
-{\toSolverH{e$_1$ $\ovee$ e$_2$}{C_1 \ovee C_2}}
 
-\inferrule{ToPriority}{\toSolverH{e}{C}}
-{\toSolverH{$\rho$ e}{\rho\ C}}
+
+\inferrule{ToPriority}{\toSolverH{e}{e}}
+{\toSolverH{$\rho$ e}{\rho\ e}}
 
 
 \judgment{\fromSolverH{M}{E}{H}}
@@ -1959,19 +2000,29 @@ in a practical language, that have not been garbage collected.)
   $M(x) = r$ \andalso
   $M_0 = M \setminus \{(x,r)\}$ \andalso
   \fromSolverH{M_0}{E$_0$}{H$_0$} \andalso
-  {\tt E} = {\tt E$_0$} $\cup$ $\{({\tt x}, {\tt r})\}$ \andalso
-  {\tt H} = {\tt H$_0$} $\cup$ $\{({\tt r}, {\tt \{\}})\}$
+  {\tt E} = {\tt E$_0$} $\cup$ $\{({\tt x}, {\tt r})\}$
 }{
-  \fromSolverH{M}{E}{H}
+  \fromSolverH{M}{E}{H$_0$}
 }
 
 \infrule[FromField]{
-  \mbox{$M(r_{l_i}) = v$ \andalso
-  $M_0 = M \setminus \{(r_{l_i},v)\}$ \andalso
+  \mbox{$M(x\_r_{l}) = v$ \andalso
+  $M_0 = M \setminus \{(x\_r_{l},v)\}$ \andalso
   \fromSolverH{M_0}{E$_0$}{H$_0$} \andalso
-  {\tt H$_0$}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_{i-1}$:v$_{i-1}$\}}} \\
+  {\tt H$_0$}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_{i}$:v$_{i}$\}}} \\
   \mbox{{\tt H} = ({\tt H$_0$} $\setminus$ \{({\tt r}, {\tt H$_0$(r)})\}) $\cup$
-    \{({\tt r}, {\tt\{l$_1$:v$_1$,$\ldots$,l$_{i-1}$:v$_{i-1}$,l$_i$:v$_i$\}})\}}
+    \{({\tt r}, {\tt\{l$_1$:v$_1$,$\ldots$,l$_{i}$:v$_{i}$,l:v\}})\}}
+}{\mbox{%
+  \fromSolverH{M}{E$_0$}{H}
+}}
+
+\infrule[FromFieldFirst]{
+  \mbox{$M(x\_r_{l}) = v$ \andalso
+  $M_0 = M \setminus \{(x\_r_{l},v)\}$ \andalso
+  \fromSolverH{M_0}{E$_0$}{H$_0$} \andalso
+  {\tt r $\not\in$ dom(H$_0$)}} \\
+  \mbox{{\tt H} = {\tt H$_0$} $\cup$
+    \{({\tt r}, {\tt\{l:v\}})\}}
 }{\mbox{%
   \fromSolverH{M}{E$_0$}{H}
 }}
@@ -1998,7 +2049,7 @@ source-level ``stay'' constraint. The rules are unchanged for
 primitive types that are stored in the environment, but are amended
 for the heap.
 
-\inferax{StayEmpty}{\stay{$\emptyset$}{True}}
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
 
 \inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
   {\tt E} \setminus \{({\tt x},{\tt v})\}$
@@ -2013,8 +2064,8 @@ for the heap.
   \stay{H$_0$}{C$_0$}
 }{
   \stay{H}{
-    {\tt C$_0$} $\wedge$ {\tt weak r$_{l_0}$ = v$_0$ $\wedge$
-    $\ldots$ $\wedge$ weak r$_{l_n}$ = v$_n$ }}
+    {\tt C$_0$} $\wedge$ {\tt weak x\_r$_{l_0}$ = v$_0$ $\wedge$
+    $\ldots$ $\wedge$ weak x\_r$_{l_n}$ = v$_n$ }}
 }
 
 \judgment{\solveH{E}{H}{C}}

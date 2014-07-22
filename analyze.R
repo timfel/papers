@@ -165,6 +165,7 @@ bench.speed.osx.summary <- merge(
 bench.summary.speed.graph <- rbind(bench.speed.summary, bench.speed.osx.summary)
 bench.summary.speed.raw <- rbind(bench.speed.summary.raw, bench.speed.osx.summary.raw[bench.speed.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE])
 
+bench.summary.speed.graph <- bench.summary.speed.graph[bench.summary.speed.graph$VM %ni% c('Squeak'),,drop=TRUE]
 
 # Normalized bargraph 3
 dodge <- position_dodge(width=.8)
@@ -200,7 +201,8 @@ ggplot(data=bench.summary.speed.graph,
   ) +
   scale_x_discrete(labels=c('Bytecodes per second','Sends per second')) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
-  scale_fill_grey(name = "Virtual Machine") +
+  #scale_fill_grey(name = "Virtual Machine") +
+  scale_fill_brewer(name = "Virtual Machine", type="qual", palette="Set1") +
   facet_null()
 gg.file <- paste0(input.basename, "-speed.pdf")
 ggsave(gg.file, width=figure.width/2, height=figure.height * .95 , units=c("in"), colormodel='rgb')

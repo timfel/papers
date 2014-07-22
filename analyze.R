@@ -163,17 +163,18 @@ bench.speed.osx.summary <- merge(
 )
 
 bench.summary.speed.graph <- rbind(bench.speed.summary, bench.speed.osx.summary)
-bench.summary.speed.raw <- rbind(bench.speed.summary.raw, bench.speed.osx.summary.raw[bench.speed.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE])
+bench.summary.speed.raw <- merge(
+  rbind(bench.speed.summary.raw, bench.speed.osx.summary.raw[bench.speed.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE]),
+  bench.ids)
 
-bench.summary.speed.graph <- bench.summary.speed.graph[bench.summary.speed.graph$VM %ni% c('Squeak'),,drop=TRUE]
-
+data.speed <- merge(bench.summary.speed.graph[bench.summary.speed.graph$VM %ni% c('Squeak'),,drop=TRUE], bench.ids);
 # Normalized bargraph 3
 dodge <- position_dodge(width=.8)
 interval <- 50
-ymax <- round_any(max(1/bench.summary.speed.graph$lower), interval, ceiling)
-#ymax <- round_any(max(bench.summary.speed.graph$upper), interval, ceiling)
-ggplot(data=bench.summary.speed.graph,
-       aes(x=variable,y=1/mean.norm,group=interaction(variable,VM),fill=VM,)
+ymax <- round_any(max(1/data.speed$lower), interval, ceiling)
+#ymax <- round_any(max(data.speed$upper), interval, ceiling)
+ggplot(data=data.speed,
+       aes(x=variable,y=1/mean.norm,group=interaction(variable,VM),fill=VM)
 ) +
   geom_bar(stat="identity", position=dodge, width=.75, aes(fill = VM),  )+
   geom_errorbar(aes(ymin=1/lower, ymax = 1/upper),  position=dodge, color=I("black"), size=.33) +
@@ -189,7 +190,7 @@ ggplot(data=bench.summary.speed.graph,
     axis.text.x  = element_text(size=8),
     axis.title.y = element_text(face="bold", size=8),
     axis.text.y  = element_text(size=8), #angle=45, hjust=0.2, vjust=0.5,
-    legend.position=c(0.85, .65),
+    legend.position=c(0.75, 0.70),
     #plot.margin = unit(c(-3.2,3,-4,-1),"mm"),
     plot.margin = unit(c(1,3,-1.6,-.5),"mm"),
     legend.text = element_text(size=7),
@@ -201,8 +202,7 @@ ggplot(data=bench.summary.speed.graph,
   ) +
   scale_x_discrete(labels=c('Bytecodes per second','Sends per second')) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
-  #scale_fill_grey(name = "Virtual Machine") +
-  scale_fill_brewer(name = "Virtual Machine", type="qual", palette="Set1") +
+  scale_fill_brewer(name = "Browser", type="qual", palette="Set1",labels=levels(data.speed$VMshort)) +
   facet_null()
 gg.file <- paste0(input.basename, "-speed.pdf")
 ggsave(gg.file, width=figure.width/2, height=figure.height * .95 , units=c("in"), colormodel='rgb')
@@ -238,15 +238,17 @@ bench.timings.osx.summary <- merge(
 )
 
 bench.summary.graph <- rbind(bench.timings.summary, bench.timings.osx.summary)
-bench.summary.raw <- rbind(bench.timings.summary.raw, bench.timings.osx.summary.raw[bench.timings.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE])
+bench.summary.raw <- merge(
+  rbind(bench.timings.summary.raw, bench.timings.osx.summary.raw[bench.timings.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE]),
+  bench.ids)
 
-bench.summary.graph <- bench.summary.graph[bench.summary.graph$VM %ni% c('Squeak'),,drop=TRUE]
+data.bench <- merge(bench.summary.graph[bench.summary.graph$VM %ni% c('Squeak'),,drop=TRUE], bench.ids)
 # Normalized bargraph 3
 dodge <- position_dodge(width=.8)
 interval <- 50
-#ymax <- round_any(max(1/bench.summary.graph$lower), interval, ceiling)
-ymax <- round_any(max(bench.summary.graph$upper), interval, ceiling)
-ggplot(data=bench.summary.graph,
+#ymax <- round_any(max(1/data.bench$lower), interval, ceiling)
+ymax <- round_any(max(data.bench$upper), interval, ceiling)
+ggplot(data=data.bench,
        aes(x=Benchmark,y=mean.norm,group=interaction(Benchmark,VM),fill=VM,)
 ) +
   geom_bar(stat="identity", position=dodge, width=.75, aes(fill = VM),  )+
@@ -275,7 +277,7 @@ ggplot(data=bench.summary.graph,
   ) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
   #scale_fill_grey(name = "Virtual Machine") +
-  scale_fill_brewer(name = "Virtual Machine", type="qual", palette="Set1") +
+  scale_fill_brewer(name = "Browser", type="qual", palette="Set1", labels=levels(data.bench$VMshort)) +
   facet_null()
 gg.file <- paste0(input.basename, "-timings.pdf")
 ggsave(gg.file, width=figure.width, height=figure.height * 1.15 , units=c("in"), colormodel='rgb')
@@ -304,7 +306,7 @@ colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), f
                size="footnotesize", #center="centering",
                colheads=rep(c('mean', 'error'), len),
                col.just=rep(c('r','@{\\,\\si{\\milli\\second} \\ensuremath{\\pm}}r'), len),
-               cgroup=levels(droplevels(bench.summary.raw$VM)),
+               cgroup=levels(droplevels(bench.summary.raw$VMshort)),
                cdec=rep(3, len*2)
               )
 })()
@@ -320,7 +322,7 @@ colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), f
                size="footnotesize", #center="centering",
                colheads=rep(c('mean', 'error'), len),
                #col.just=rep(c('r','@{ BC/sec}', 'r', '@{ send/sec}'), len/2),
-               cgroup=levels(droplevels(bench.summary.speed.raw$VM)),
+               cgroup=levels(droplevels(bench.summary.speed.raw$VMshort)),
                cdec=rep(0, len*2)
   )
 })()

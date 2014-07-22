@@ -250,7 +250,7 @@ ggplot(data=bench.summary.graph,
   geom_bar(stat="identity", position=dodge, width=.75, aes(fill = VM),  )+
   geom_errorbar(aes(ymin=lower, ymax = upper),  position=dodge, color=I("black"), size=.33) +
   #   xlab("Benchmark") +
-  ylab("Relative Runtime") +
+  ylab("Relative Execution Time") +
   theme_bw(base_size=8, base_family="Helvetica") +
   theme(
     rect = element_rect(),

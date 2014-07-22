@@ -59,6 +59,8 @@ bench.speed.osx <- read.delim(speed.osx, comment.char = "#", header=TRUE)
 
 
 # ------ functions -----
+`%ni%` = Negate(`%in%`) 
+
 confInterval095Error <- function (samples) {
   if (length(sample) < 30)
     qnorm(0.975) * sd(samples) / sqrt(length(samples))
@@ -236,6 +238,7 @@ bench.timings.osx.summary <- merge(
 bench.summary.graph <- rbind(bench.timings.summary, bench.timings.osx.summary)
 bench.summary.raw <- rbind(bench.timings.summary.raw, bench.timings.osx.summary.raw[bench.timings.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE])
 
+bench.summary.graph <- bench.summary.graph[bench.summary.graph$VM %ni% c('Squeak'),,drop=TRUE]
 # Normalized bargraph 3
 dodge <- position_dodge(width=.8)
 interval <- 50
@@ -269,7 +272,8 @@ ggplot(data=bench.summary.graph,
     legend.key.size=unit(5,"mm")
   ) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
-  scale_fill_grey(name = "Virtual Machine") +
+  #scale_fill_grey(name = "Virtual Machine") +
+  scale_fill_brewer(name = "Virtual Machine", type="qual", palette="Set1") +
   facet_null()
 gg.file <- paste0(input.basename, "-timings.pdf")
 ggsave(gg.file, width=figure.width, height=figure.height * 1.15 , units=c("in"), colormodel='rgb')

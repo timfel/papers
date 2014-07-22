@@ -43,11 +43,11 @@ figure.width <- 7
 figure.height <- 2.5
 
 
-Platform.ids <- "benchmark-ids.txt"
-timings <- "benchmarks-timings.txt"
-timings.osx <- "benchmarks-timings-osx.txt"
-speed <- "benchmarks-tiny.txt"
-speed.osx <- "benchmarks-tiny-osx.txt"
+Platform.ids <- "benchmark-ids.tsv"
+timings <- "benchmarks-timings.tsv"
+timings.osx <- "benchmarks-timings-osx.tsv"
+speed <- "benchmarks-tiny.tsv"
+speed.osx <- "benchmarks-tiny-osx.tsv"
 
 input.basename <- "benchmarks"
 

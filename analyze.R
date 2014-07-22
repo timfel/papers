@@ -43,7 +43,7 @@ figure.width <- 7
 figure.height <- 2.5
 
 
-browser.ids <- "benchmark-ids.txt"
+Platform.ids <- "benchmark-ids.txt"
 timings <- "benchmarks-timings.txt"
 timings.osx <- "benchmarks-timings-osx.txt"
 speed <- "benchmarks-tiny.txt"
@@ -51,7 +51,7 @@ speed.osx <- "benchmarks-tiny-osx.txt"
 
 input.basename <- "benchmarks"
 
-bench.ids <- read.delim(browser.ids, comment.char = "#", header=TRUE)
+bench.ids <- read.delim(Platform.ids, comment.char = "#", header=TRUE)
 bench.timings <- read.delim(timings, comment.char = "#", header=TRUE)
 bench.timings.osx <- read.delim(timings.osx, comment.char = "#", header=TRUE)
 bench.speed <- read.delim(speed, comment.char = "#", header=TRUE)
@@ -202,7 +202,7 @@ ggplot(data=data.speed,
   ) +
   scale_x_discrete(labels=c('Bytecodes per second','Sends per second')) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
-  scale_fill_brewer(name = "Browser", type="qual", palette="Set1",labels=levels(data.speed$VMshort)) +
+  scale_fill_brewer(name = "Platform", type="qual", palette="Set1",labels=levels(data.speed$VMshort)) +
   facet_null()
 gg.file <- paste0(input.basename, "-speed.pdf")
 ggsave(gg.file, width=figure.width/2, height=figure.height * .95 , units=c("in"), colormodel='rgb')
@@ -277,7 +277,7 @@ ggplot(data=data.bench,
   ) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
   #scale_fill_grey(name = "Virtual Machine") +
-  scale_fill_brewer(name = "Browser", type="qual", palette="Set1", labels=levels(data.bench$VMshort)) +
+  scale_fill_brewer(name = "Platform", type="qual", palette="Set1", labels=levels(data.bench$VMshort)) +
   facet_null()
 gg.file <- paste0(input.basename, "-timings.pdf")
 ggsave(gg.file, width=figure.width, height=figure.height * 1.15 , units=c("in"), colormodel='rgb')

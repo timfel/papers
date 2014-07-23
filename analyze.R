@@ -163,9 +163,8 @@ bench.speed.osx.summary <- merge(
 )
 
 bench.summary.speed.graph <- rbind(bench.speed.summary, bench.speed.osx.summary[bench.speed.osx.summary$VM != 'SqueakOSX',,drop=TRUE])
-bench.summary.speed.raw <- merge(
-  rbind(bench.speed.summary.raw, bench.speed.osx.summary.raw),
-  bench.ids)
+bench.summary.speed.raw <- merge(bench.speed.summary.raw, bench.ids)
+bench.summary.speed.osx.raw <- merge(bench.speed.osx.summary.raw, bench.ids)
 
 data.speed <- merge(bench.summary.speed.graph[bench.summary.speed.graph$VM %ni% no.graph.vms,,drop=TRUE], bench.ids);
 # Normalized bargraph 3
@@ -238,9 +237,8 @@ bench.timings.osx.summary <- merge(
 )
 
 bench.summary.graph <- rbind(bench.timings.summary, bench.timings.osx.summary[bench.timings.osx.summary$VM != 'SqueakOSX',,drop=TRUE])
-bench.summary.raw <- merge(
-  rbind(bench.timings.summary.raw, bench.timings.osx.summary.raw),
-  bench.ids)
+bench.summary.raw <- merge(bench.timings.summary.raw,  bench.ids)
+bench.summary.osx.raw <- merge(bench.timings.osx.summary.raw, bench.ids)
 
 data.bench <- merge(bench.summary.graph[bench.summary.graph$VM %ni% no.graph.vms,,drop=TRUE], bench.ids)
 # Normalized bargraph 3
@@ -283,15 +281,30 @@ gg.file <- paste0(input.basename, "-timings.pdf")
 ggsave(gg.file, width=figure.width, height=figure.height * 1.15 , units=c("in"), colormodel='rgb')
 embed_fonts(gg.file, options="-dPDFSETTINGS=/prepress")
 
-bench.summary.sel <- dcast(melt(bench.summary.raw[c('Benchmark','VM','mean','err095')], id.vars=c('Benchmark','VM')), Benchmark ~ VM + variable)
-bench.summary.ltx <- bench.summary.sel[2:length(bench.summary.sel)]
-rownames(bench.summary.ltx) <- bench.summary.sel$Benchmark
-colnames(bench.summary.ltx) <- sapply(colnames(bench.summary.ltx), function(x) {sedit(x, '_', ' ')})
 
-bench.summary.speed.sel <- dcast(melt(bench.summary.speed.raw[c('variable','VM','mean','err095')], id.vars=c('variable','VM'), variable.name='result'), variable ~ VM + result)
-bench.summary.speed.ltx <- bench.summary.speed.sel[2:length(bench.summary.speed.sel)]
-rownames(bench.summary.speed.ltx) <- bench.summary.speed.sel$variable
-colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), function(x) {sedit(x, '_', ' ')})
+latexify <- function(df, df.sel, var){
+  df.ltx <- df.sel[2:length(df.sel)]
+  rownames(df.ltx) <- df.sel[[var]]
+  colnames(df.ltx) <- sapply(colnames(df.ltx), function(x) {sedit(x, '_', ' ')})
+  df.ltx
+}
+
+bench.summary.ltx <- latexify(
+  bench.summary.raw, 
+  dcast(melt(bench.summary.raw[c('Benchmark','VM','mean','err095')], id.vars=c('Benchmark','VM')), Benchmark ~ VM + variable),
+  'Benchmark')
+bench.summary.speed.ltx <- latexify(
+  bench.summary.speed.raw,
+  dcast(melt(bench.summary.speed.raw[c('variable','VM','mean','err095')], id.vars=c('variable','VM'), variable.name='result'), variable ~ VM + result), 
+  'variable')
+bench.summary.osx.ltx <- latexify(
+  bench.summary.osx.raw,
+  dcast(melt(bench.summary.osx.raw[c('Benchmark','VM','mean','err095')], id.vars=c('Benchmark','VM')), Benchmark ~ VM + variable),
+  'Benchmark')
+bench.summary.speed.osx.ltx <- latexify(
+  bench.summary.speed.osx.raw,
+  dcast(melt(bench.summary.speed.osx.raw[c('variable','VM','mean','err095')], id.vars=c('variable','VM'), variable.name='result'), variable ~ VM + result),
+  'variable')
 
 
 
@@ -324,6 +337,56 @@ colnames(bench.summary.speed.ltx) <- sapply(colnames(bench.summary.speed.ltx), f
                #col.just=rep(c('r','@{ BC/sec}', 'r', '@{ send/sec}'), len/2),
                cgroup=levels(droplevels(bench.summary.speed.raw$VMshort)),
                cdec=rep(0, len*2)
+  )
+})()
+
+# LaTeX table, timings
+(function() {
+  len <- length(bench.summary.osx.ltx)/2
+  out <- latex(bench.summary.osx.ltx,
+               file=paste0(input.basename, "-osx-timings.tex"),
+               rowlabel="Benchmark",
+               booktabs=TRUE,
+               table.env=FALSE, center="none",
+               size="footnotesize", #center="centering",
+               colheads=rep(c('mean', 'error'), len),
+               col.just=rep(c('r','@{\\,\\si{\\milli\\second} \\ensuremath{\\pm}}r'), len),
+               cgroup=levels(droplevels(bench.summary.osx.raw$VMshort)),
+               cdec=rep(3, len*2)
+  )
+})()
+
+# LaTeX table, speed
+(function() {
+  len <- length(bench.summary.speed.osx.ltx)/2
+  out <- latex(bench.summary.speed.osx.ltx,
+               file=paste0(input.basename, "-osx-speed.tex"),
+               rowlabel=" ",
+               booktabs=TRUE,
+               table.env=FALSE, center="none",
+               size="footnotesize", #center="centering",
+               colheads=rep(c('mean', 'error'), len),
+               #col.just=rep(c('r','@{ BC/sec}', 'r', '@{ send/sec}'), len/2),
+               cgroup=levels(droplevels(bench.summary.speed.osx.raw$VMshort)),
+               cdec=rep(0, len*2)
+  )
+})()
+
+bid <- data.frame(`Full version`=bench.ids$VMfull)
+rownames(bid) <- bench.ids$VMshort
+# LaTeX table, platforms
+(function() {
+  out <- latex(bid
+    ,file=paste0(input.basename, "-platforms.tex")
+    ,rowlabel=" "
+    ,booktabs=TRUE
+    ,table.env=FALSE, center="none"
+    ,size="footnotesize", #center="centering"
+    ,colheads=c('Full version')
+#                ,colheads=rep(c('mean', 'error'), len)
+#                #,col.just=rep(c('r','@{ BC/sec}', 'r', '@{ send/sec}'), len/2)
+#                ,cgroup=levels(droplevels(bench.summary.speed.osx.raw$VMshort))
+#                ,cdec=rep(0, len*2)
   )
 })()
 #

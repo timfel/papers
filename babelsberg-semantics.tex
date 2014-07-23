@@ -49,6 +49,8 @@
 \newcommand{\toSolverH}[2]{{\tt E,H} $\vdash$ {\tt #1} $\leadsto$ $#2$}
 \newcommand{\fromSolverH}[3]{$#1$ $\leadsto$ {\tt #2,#3}}
 
+\newcommand{\toSolverOO}[6]{{\tt #1,#2} $\vdash$ {\tt #3} $\leadsto$ {\tt #4,#5} $\mid$ $#6$}
+
 \newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
 \newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
 
@@ -2984,11 +2986,12 @@ mode is standard.
 \subsubsection{Syntax}
 
 The syntax from Babelsberg/UID is augmented to support method calls
-with and without arguments and {\tt self}. Class and method
+with and without arguments, returns, and {\tt self}. Class and method
 definitions are not relevant to this discussion and are omitted.
 
 \begin{tt}
 \begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & $\cdots$ $\mid$ return e \\
 {\rm Expression} & e & ::= & $\cdots$ $\mid$ self $\mid$ e.l(e$_1$,$\ldots$,e$_n$) \\
 \end{tabular}
 \end{tt}
@@ -3009,58 +3012,138 @@ This judgment still represents the call to the solver.
 \judgment{\toSolverH{e}{e}}
 \judgment{\toSolverH{C}{C}}
 
-The translation rules for expressions are unchanged. However, now that
-method calls can occur in constraints, any statement may also be part
-of a constraint. We augment the translation to support this, as well
-as {\tt self}.
+The translation rules for expression can remain, and are augmented
+with a rule to translate {\tt self}. However, now that method calls
+can occur in constraints, any statement may also be part of a
+constraint. Furthermore, translating statements has an effect on the
+heap and environment. We do not apply these effects during constraint
+construction, but we use the updated environment and heap to translate
+later statements. We add new translation judgments to support this.
+
+\judgment{\toSolverOO{E}{H}{s}{E'}{H$_1$}{C}}
+
+``Statement {\tt s} translates to constraint $C$ given the environment
+{\tt E} and the heap {\tt H}. Evaluation of the statement would update
+the environment and heap to {\tt E'} and {\tt H$_1$} respectively''
 
 \inferrule{ToSelf}{
-  \evalH{E}{H}{self}{v} \andalso \toSolver{v}{v}
+  \evalH{E}{H}{self}{v} \andalso \toSolverH{v}{v}
 }{
-  \toSolver{self}{v}
+  \toSolverH{self}{v}
 }
 
 \inferrule{ToAsgn}{
+  \stepH{E}{H}{C}{a := e}{E}{H}{C}{once a = nil; once a = e} \andalso
+  \toSolverOO{E}{H}{once a = nil; once a = e}{E$_1$}{H$_1$}{true}
 }{
+  \toSolverOO{E}{H}{a := e}{E$_1$}{H$_1$}{true}
 }
 
 \inferrule{ToAsgnRef}{
+  \stepH{E}{H}{C}{a := e}{E}{H}{C}{once a = nil; once a == e} \andalso
+  \toSolverOO{E}{H}{once a = nil; once a == e}{E$_1$}{H$_1$}{true}
 }{
+  \toSolverOO{E}{H}{a := e}{E$_1$}{H$_1$}{true}
 }
 
 \inferrule{ToAsgnNew}{
+  \stepH{E}{H}{C}{a := new o}{E$_1$}{H$_1$}{C}{skip}
 }{
-}
-
-\inferrule{ToAsgnRef}{
-}{
+  \toSolverOO{E}{H}{a := new o}{E$_1$}{H$_1$}{true}
 }
 
 \inferrule{ToOnce}{
+  \stepH{E}{H}{C}{once C}{E$_1$}{H$_1$}{C}{skip}
 }{
+  \toSolverOO{E}{H}{once C}{E$_1$}{H$_1$}{true}
 }
 
 \inferrule{ToAlways}{
+  \stepH{E}{H}{C}{always C}{E$_1$}{H$_1$}{C'}{skip}
 }{
+  \toSolverOO{E}{H}{always C}{E$_1$}{H$_1$}{C}
 }
 
 \inferrule{ToSeqStep}{
+  \toSolverOO{E}{H}{s$_1$}{E$_1$}{H$_1$}{C_1} \andalso
+  \toSolverOO{E$_1$}{H$_1$}{s$_2$}{E$_2$}{H$_2$}{C_2}
 }{
+  \toSolverOO{E}{H}{s$_1$;s$_2$}{E$_2$}{H$_2$}{C_1 \wedge C_2}
 }
 
 \inferrule{ToSeqSkip}{
+  \toSolverOO{E}{H}{s}{E$_1$}{H$_1$}{C}
 }{
+  \toSolverOO{E}{H}{skip;s}{E$_1$}{H$_1$}{C}
+}
+
+\inferrule{ToSeqFail}{
+  \toSolverOO{E}{H}{s}{E$_1$}{H$_1$}{C}
+}{
+  \toSolverOO{E}{H}{fail;s}{E$_1$}{H$_1$}{false}
 }
 
 \inferrule{ToIfThenElse}{
-  \toSolver{e}{e} \andalso \toSolver{s$_1$}{C_1} \andalso \toSolver{s$_2$}{C_2}
+  \toSolverH{e}{e} \andalso
+  \toSolverOO{E}{H}{s$_1$}{E$_1$}{H$_1$}{C}
 }{
-  \toSolver{if e then s$_1$ else s$_2$}{(e \wedge C_1) \vee (\neg e \wedge C_2)}
+  \toSolverOO{E}{H}{if e then s$_1$ else s$_2$}{E$_1$}{H$_1$}{e \wedge C_1}
 }
 
+\tf{the above rule should really allow both branches to be taken, but
+  I don't know how to express that we'll afterwards have either the
+  environment and heap from the then or from the else branch. I guess
+  one solution would be to have everything after a branch translated
+  to the solver for either branch?}
+
 \inferrule{ToWhile}{
+  \evalH{E}{H}{e}{true} \andalso
+  \toSolverOO{E}{H}{s}{E$_1$}{H$_1$}{C_0} \andalso
+  \toSolverOO{E$_1$}{H$_1$}{while e do s}{E$_2$}{H$_2$}{C_1}
 }{
+  \toSolverOO{E}{H}{while e do s}{E$_2$}{H$_2$}{C_0 \wedge C_1}
 }
+
+\tf{I somehow assume that the transformation for method calls would
+  look somewhat like this:}
+\begin{verbatim}
+class Point
+  ...
+  def x()
+    fakeX := self.x + 10;
+    return fakeX
+  end
+end
+pt := Point(1,1).new
+
+# now comes the constraint with a method call
+always pt.x() = 10
+# -> this should be _exactly_ the same as writing (if we allowed statements in constraints)
+always (fakeX := pt.x + 10; fakeX = 10) # where pt.x is a direct property access
+\end{verbatim}
+\tf{I'm assuming this because then we don't need translation rules
+    for return, because return will just be dropped, and then the first statement
+    will translate to $true$ and the second one to $fakeX = 10$ and the entire
+    thing will be $true \wedge fakeX = 10$, which we can solve}
+
+\judgment{\fromSolverH{M}{E}{H}}
+\judgment{\solveH{E}{H}{C}}
+\judgment{\failH{C}}
+\judgment{\stay{E}{C}}
+\judgment{\stay{H}{C}}
+
+The above judgments are unchanged. \tf{Right?}
+
+\judgment{\tcH{E}{H}{e}{T}}
+\judgment{\tcH{E}{H}{C}{T}}
+\judgment{\tcHC{E}{H}{C}}
+\tf{TODO: typing rules. Important: These need to include that
+    we cannot constrain newly created objects by identity...}
+
+\judgment{\stepH{E}{H}{C}{s}{E$'$}{H$'$}{C$'$}{s$'$}}
+
+This judgment is augmented to support return.
+\tf{TODO...}
 
 
 \subsection{Backwards Compatibility Mode for Methods}

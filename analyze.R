@@ -42,6 +42,7 @@ if (FALSE) {
 figure.width <- 7
 figure.height <- 2.5
 
+no.graph.vms <- c('Squeak', 'Potato')
 
 Platform.ids <- "benchmark-ids.tsv"
 timings <- "benchmarks-timings.tsv"
@@ -122,9 +123,8 @@ normalizeTo <- function(df, supergroup, group, val, var, vars=c(var)) {
 bench.speed.m <- melt(bench.speed, id.vars='VM')
 bench.speed.osx.m <- melt(bench.speed.osx, id.vars='VM')
 
-bench.timings$value <- bench.timings$total / bench.timings$repetition
-bench.timings.osx$value <- bench.timings.osx$total / bench.timings.osx$repetition
-
+bench.timings$value <- bench.timings$total
+bench.timings.osx$value <- bench.timings.osx$total
 
 bench.timings.err <- bootstrapTo(bench.timings, 'Benchmark', 'VM', 'Squeak', 'value')
 bench.timings.err.osx <- bootstrapTo(bench.timings.osx, 'Benchmark', 'VM', 'SqueakOSX', 'value')
@@ -158,16 +158,16 @@ bench.speed.summary <- merge(
   bench.speed.err
 )
 bench.speed.osx.summary <- merge(
-  bench.speed.osx.summary.norm[bench.speed.osx.summary.norm$VM != 'SqueakOSX',,drop=TRUE],
-  bench.speed.err.osx[bench.speed.err.osx$VM != 'SqueakOSX',,drop=TRUE]
+  bench.speed.osx.summary.norm, # [bench.speed.osx.summary.norm$VM != 'SqueakOSX',,drop=TRUE],
+  bench.speed.err.osx, #[bench.speed.err.osx$VM != 'SqueakOSX',,drop=TRUE]
 )
 
-bench.summary.speed.graph <- rbind(bench.speed.summary, bench.speed.osx.summary)
+bench.summary.speed.graph <- rbind(bench.speed.summary, bench.speed.osx.summary[bench.speed.osx.summary$VM != 'SqueakOSX',,drop=TRUE])
 bench.summary.speed.raw <- merge(
-  rbind(bench.speed.summary.raw, bench.speed.osx.summary.raw[bench.speed.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE]),
+  rbind(bench.speed.summary.raw, bench.speed.osx.summary.raw),
   bench.ids)
 
-data.speed <- merge(bench.summary.speed.graph[bench.summary.speed.graph$VM %ni% c('Squeak'),,drop=TRUE], bench.ids);
+data.speed <- merge(bench.summary.speed.graph[bench.summary.speed.graph$VM %ni% no.graph.vms,,drop=TRUE], bench.ids);
 # Normalized bargraph 3
 dodge <- position_dodge(width=.8)
 interval <- 50
@@ -190,7 +190,7 @@ ggplot(data=data.speed,
     axis.text.x  = element_text(size=8),
     axis.title.y = element_text(face="bold", size=8),
     axis.text.y  = element_text(size=8), #angle=45, hjust=0.2, vjust=0.5,
-    legend.position=c(0.75, 0.70),
+    legend.position=c(0.75, 0.78),
     #plot.margin = unit(c(-3.2,3,-4,-1),"mm"),
     plot.margin = unit(c(1,3,-1.6,-.5),"mm"),
     legend.text = element_text(size=7),
@@ -202,7 +202,7 @@ ggplot(data=data.speed,
   ) +
   scale_x_discrete(labels=c('Bytecodes per second','Sends per second')) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
-  scale_fill_brewer(name = "Platform", type="qual", palette="Set1",labels=levels(data.speed$VMshort)) +
+  scale_fill_brewer(name = "Platform", type="qual", palette="Set1",labels=levels(droplevels(data.speed$VMshort))) +
   facet_null()
 gg.file <- paste0(input.basename, "-speed.pdf")
 ggsave(gg.file, width=figure.width/2, height=figure.height * .95 , units=c("in"), colormodel='rgb')
@@ -233,16 +233,16 @@ bench.timings.summary <- merge(
   bench.timings.err
 )
 bench.timings.osx.summary <- merge(
-  bench.timings.osx.summary.norm[bench.timings.osx.summary.norm$VM != 'SqueakOSX',,drop=TRUE],
-  bench.timings.err.osx[bench.timings.err.osx$VM != 'SqueakOSX',,drop=TRUE]
+  bench.timings.osx.summary.norm, #[bench.timings.osx.summary.norm$VM != 'SqueakOSX',,drop=TRUE],
+  bench.timings.err.osx, #[bench.timings.err.osx$VM != 'SqueakOSX',,drop=TRUE]
 )
 
-bench.summary.graph <- rbind(bench.timings.summary, bench.timings.osx.summary)
+bench.summary.graph <- rbind(bench.timings.summary, bench.timings.osx.summary[bench.timings.osx.summary$VM != 'SqueakOSX',,drop=TRUE])
 bench.summary.raw <- merge(
-  rbind(bench.timings.summary.raw, bench.timings.osx.summary.raw[bench.timings.osx.summary.raw$VM != 'SqueakOSX',,drop=TRUE]),
+  rbind(bench.timings.summary.raw, bench.timings.osx.summary.raw),
   bench.ids)
 
-data.bench <- merge(bench.summary.graph[bench.summary.graph$VM %ni% c('Squeak'),,drop=TRUE], bench.ids)
+data.bench <- merge(bench.summary.graph[bench.summary.graph$VM %ni% no.graph.vms,,drop=TRUE], bench.ids)
 # Normalized bargraph 3
 dodge <- position_dodge(width=.8)
 interval <- 50
@@ -265,7 +265,7 @@ ggplot(data=data.bench,
     axis.text.x  = element_text(size=8),
     axis.title.y = element_text(face="bold", size=8),
     axis.text.y  = element_text(size=8), #angle=45, hjust=0.2, vjust=0.5,
-    legend.position=c(0.15, .75),
+    legend.position=c(0.75, .75),
     #plot.margin = unit(c(-3.2,3,-4,-1),"mm"),
     plot.margin = unit(c(1,3,-1.6,-.5),"mm"),
     legend.text = element_text(size=7),
@@ -277,7 +277,7 @@ ggplot(data=data.bench,
   ) +
   scale_y_continuous(breaks=seq(0,ymax,interval), limits=c(0,ymax),expand=c(0,0)) +
   #scale_fill_grey(name = "Virtual Machine") +
-  scale_fill_brewer(name = "Platform", type="qual", palette="Set1", labels=levels(data.bench$VMshort)) +
+  scale_fill_brewer(name = "Platform", type="qual", palette="Set1", labels=levels(droplevels(data.bench$VMshort))) +
   facet_null()
 gg.file <- paste0(input.basename, "-timings.pdf")
 ggsave(gg.file, width=figure.width, height=figure.height * 1.15 , units=c("in"), colormodel='rgb')

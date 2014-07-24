@@ -40,7 +40,7 @@ if (FALSE) {
 
 # in inches
 figure.width <- 7
-figure.height <- 2.5
+figure.height <- 2.75
 
 no.graph.vms <- c('Squeak', 'Potato')
 
@@ -278,7 +278,7 @@ ggplot(data=data.bench,
   scale_fill_brewer(name = "Platform", type="qual", palette="Set1", labels=levels(droplevels(data.bench$VMshort))) +
   facet_null()
 gg.file <- paste0(input.basename, "-timings.pdf")
-ggsave(gg.file, width=figure.width, height=figure.height * 1.15 , units=c("in"), colormodel='rgb')
+ggsave(gg.file, width=figure.width, height=figure.height , units=c("in"), colormodel='rgb')
 embed_fonts(gg.file, options="-dPDFSETTINGS=/prepress")
 
 

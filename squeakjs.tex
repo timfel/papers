@@ -48,6 +48,8 @@
 \copyrightdata{978-1-nnnn-nnnn-n/yy/mm}
 \doi{nnnnnnn.nnnnnnn}
 
+\nocaptionrule
+
 \titlebanner{preprint --- SqueakJS --- preprint}
 \preprintfooter{SqueakJS}
 
@@ -136,7 +138,7 @@ is desirable.
 \begin{figure}
   \centering
   \includegraphics[width=\linewidth]{squeakjs-running}
-  \caption{SqueakJS running an Etoys image in a stand-alone Web page}
+  \caption{\SqueakJS running an Etoys image in a stand-alone Web page}
   \label{fig:squeakjs}
 \end{figure}
 
@@ -300,7 +302,7 @@ fairly well separated from the rest of the interpreter. Potato only
 supports 1 bit per pixel color depths and a minimal set of graphics
 features. To support full color and all graphics features used in
 modern Squeak and Etoys image, the much larger Slang code
-for the BitBlt and WarpBlt plugins has to be transcribed to
+for the BitBlt and WarpBlt plugins had to be transcribed to
 \JS.
 
 Both BitBlt and WarpBlt can be simulated in Squeak, so conceivably,
@@ -322,6 +324,13 @@ contains an array of bytes. Whenever an update to the display is
 needed, the Squeak system calls a primitive, which we use to update
 the HTML5 canvas.
 
+Another module required by modern Squeak images is the ``Balloon'' 2D
+renderer. It supports anti-aliased drawing of graphics primitives not
+available in BitBlt, e.g. Bézier curves (needed to render TrueType fonts), and
+color gradients (used on various UI elements). Porting the Slang code for this
+module would have been a major undertaking, likely resulting in a very slow
+simulation. Instead, we use an off-screen HTML5 canvas to draw these shapes,
+read the pixels back, and composite them over the original Squeak bitmap.
 
 \subsection{Cleaning up Garbage}
 
@@ -334,7 +343,7 @@ instance. This is not possible in a hosted implementation where the host
 does not provide enumeration, as is the case for Java and
 \JS. Potato used a weak-key object table to keep track of
 objects to enumerate them. Other implementations, like R/Squeak-VM, use
-the RPython garbage-collection to trigger a full \ac{GC} and yield all
+the host garbage-collection to trigger a full \ac{GC} and yield all
 objects of a certain type. These are then temporarily kept in a list
 for enumeration. In \JS, neither weak references, nor access to
 the \ac{GC} is generally available, so neither option was possible for
@@ -379,8 +388,8 @@ objects that do not let their references survive. If, during a full
 those weak roots, that reference is removed, and the Squeak object is
 again garbage collected by the \JS \ac{GC}.
 
-\subsection{Making Squeak Happy on the Web}
-\label{sec:making-it-happy}
+\subsection{Adapting Squeak for the Web}
+\label{sec:adapting-for-web}
 
 A general problem when running Squeak in a Web browser is the
 asynchronous nature of \JS. While most \acp{VM} are implemented as a
@@ -466,11 +475,13 @@ accessed more quickly in arithmetic primitives.
 
 Essentially the same scheme is used in \SqueakJS. Since the layout of \JS
 objects does not have to be declared in advance, slots are added only when
-needed. That means the pointers (for instance variables and indexable fields),
-bytes, and words slots are only present if the object actually needs them, that
-is, they have at least one element. SmallIntegers are directly represented by
-\JS numbers. In places where the VM needs to distinguish SmallIntegers from
-other objects it uses a \lstinline|typeof| check.
+needed. The pointers (instance variables and indexable fields), words, and
+bytes slots are only present if the object actually needs them, that is, there
+is at least one element. We chose an array for storing instance variables
+rather than named \JS properties because the bytecodes reference them by
+index, not by name. SmallIntegers are directly represented by \JS numbers. In
+places where the VM needs to distinguish SmallIntegers from other objects it
+uses a \lstinline|typeof| check.
 
 For making common tests more efficient, \SqueakJS also adds flags to special
 objects. For example, the \lstinline|isNil| property is added to the
@@ -492,8 +503,8 @@ survives a full garbage collection, and during compaction oops are
 adjusted to account for released objects. This emulates the
 consecutive memory layout of the C Squeak VMs which is manifest in the
 snapshot format. The \lstinline|oop| also helps to distinguish objects
-while debugging. The full set of properties for a Squeak object in
-\SqueakJS is thus:
+while debugging. The essential properties for a Squeak object in
+\SqueakJS are thus:
 
 \begin{itemize}
 \item hash (\lstinline|number|)
@@ -563,8 +574,21 @@ old-space linked list is traversed, unmarked objects are unlinked, and the
 mark of remaining objects is cleared. Finally, the new objects from the first
 phase are linked to the end of the old-space list. The discovery of new
 objects from the ``virtual'' new space during the mark phase is what sets this
-GC apart. For a typical object memory of 300,000 objects this takes about 300
-milliseconds.
+GC apart.
+
+Interestingly, a full garbage collection does not occur regularly as in most
+other implementations, since our new space is essentially unlimited. No
+objects are tenured outside the full GC, so there is no need to regularly
+compact old space. In fact, that GC is invoked only from operations that are
+known to be expensive in the regular Squeak VM: \lstinline|become:|, and
+\lstinline|allInstances| / \lstinline|allObjects|. These operations are
+avoided in general because of their cost, and hence occur only in code
+sections that are not critical to performance. For example, during running the
+benchmarks in \autoref{sec:performance} not a single full GC happened, even
+though about 15 million objects were allocated. In contrast, the startup code
+of an Etoys image does 12 \lstinline|allInstances| calls resulting in as many
+full GCs, taking on average 300 ms, tenuring 980 of 150,000 allocated objects.
+But during normal operation, again, no full GCs occur.
 
 \subsection{Snapshotting}
 
@@ -629,9 +653,7 @@ individual pixel of 1, 2, 4, 8, 16, or 32 bits to a single 32 bit ABGR
 pixel as required by the Canvas API. This needs to be done even in the
 32 bit case because the order of color components differs between
 Squeak and HTML. These conversions incur additional overhead compared
-to the standard Squeak \ac{VM} (something that we share with
-e.\,g. R/Squeak-VM, which outputs to
-SDL\footnote{\url{http://www.libsdl.org/}}.) In
+to the standard Squeak \ac{VM}. In
 \autoref{sec:eval}, this additional overhead is visible in the greater
 slowdown incurred when actually drawing to the screen versus just blitting
 between bitmaps.
@@ -640,7 +662,7 @@ between bitmaps.
 
 In most Squeak VMs, the VM itself has a main loop that executes byte
 codes until the system quits. Not so in \SqueakJS: as described in
-\autoref{sec:making-it-happy}, the VM needs to break out of
+\autoref{sec:adapting-for-web}, the VM needs to break out of
 its interpreter loop periodically, to allow the web browser to update
 the screen or provide new input events.
 
@@ -687,7 +709,7 @@ newer images can fall back to using the stateful primitives, so
 \subsection{Files}
 \label{sec:files}
 
-As mentioned in \autoref{sec:making-it-happy}, a goal for \SqueakJS
+As mentioned in \autoref{sec:adapting-for-web}, a goal for \SqueakJS
 was to provide for offline storage. Persistent offline storage is a
 relatively new feature for web browsers. The most common way is the
 browser's \lstinline|localStorage|, which is synchronous, and very
@@ -809,6 +831,24 @@ Squeak.registerExternalModule('SimplePlugin',
 \section{Evaluation}
 \label{sec:eval}
 
+
+\begin{table*}
+  \centering
+  \begin{tabular}{r c c c}
+    \toprule
+    & Squeak VM (Slang) & R/Squeak-VM (Python) & \SqueakJS (\JS) \\
+    \midrule
+    Interpreter & 5000 & 700 & 1000 \\
+    Image \& Object Memory & 4000 & 1600 & 800 \\
+    Primitives & 2000 & 1200 & 1800 \\
+    BitBlt & 3000 & 900 & 1000 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Approximate lines of code for various \ac{VM} concerns in
+    different Squeak VMs}
+  \label{tab:sloc}
+\end{table*}
+
 We have evaluated \SqueakJS on two accounts: the amount of code it took us to
 produce a working version, and the performance compared to the regular
 Squeak \ac{VM}. Because we are interested in running \SqueakJS in any
@@ -825,21 +865,6 @@ code, which has not been counted towards the required lines of
 code. For Squeak, we have only counted the source code required for
 the so-called \emph{Interpreter \ac{VM}}, that does not include code
 for a \ac{JIT}.
-
-\begin{table*}
-  \centering
-  \begin{tabular}{r|c c c}
-    & Squeak VM (Slang) & R/Squeak-VM (Python) & \SqueakJS (\JS) \\
-    \hline
-    Interpreter & 5000 & 700 & 1000 \\
-    Image \& Object Memory & 4000 & 1600 & 800 \\
-    Primitives & 2000 & 1200 & 1800 \\
-    BitBlt & 3000 & 900 & 1000 \\
-  \end{tabular}
-  \caption{Approximate lines of code for various \ac{VM} concerns in
-    different Squeak VMs}
-  \label{tab:sloc}
-\end{table*}
 
 % \tim{what are out evaluation criteria?}
 % we could have
@@ -896,12 +921,13 @@ used for testing. Our benchmarks are:
   and filling it with constant data.
 \item[prims] measures raw bytecode performance by finding primes
   in a loop using a prime sieve.
-\item[richards] is an OS kernel simulation benchmark that measures
-  method call performance and works the garbage collector.
+\item[richards] measures allocation and send performance by simulating
+  an OS kernel.
 \end{description}
 Timing results of these benchmarks are presented in
-\autoref{fig:results}. The raw numbers are included in the appendix
-(\autoref{tab:all}).
+\autoref{fig:results}. The raw numbers for these browsers as well as
+those of Squeak 3.9 and Potato/JSqueak are included in the appendix
+(\autoref{tab:osx} and \autoref{tab:win}).
 
 A method, \lstinline|tinyBenchmarks|, is included in Squeak to measure
 raw speed of sends and bytecode processing. It is used by various
@@ -910,10 +936,10 @@ per second. Inverse speedup (i.\,e., slowdown) in bytecodes per second
 and sends per second is given in \autoref{fig:results2}.
 
 These results show that \SqueakJS is, depending on the browser,
-consistently between one and two orders of magnitude slower than
-Squeak. Note also that these numbers do not change significantly if we
-disable breaking out of the \ac{VM} to process browser events or run
-them on the headless V8 \acp{VM}.
+consistently between one and two orders of magnitude slower than the
+Squeak Interpreter in C. Note also that these numbers do not change
+significantly if we disable breaking out of the \ac{VM} to process
+browser events or run them on the headless V8 \ac{VM}.
 
 We have not spent time optimizing the \JS code because using \SqueakJS
 already feels responsive. We already regard these performance results
@@ -1052,7 +1078,7 @@ our implementation. The Squeak plugin interface that abstracts from
 many platform-specific details was implementable even in the \JS
 environment.
 
-Similar to R/Squeak-VM~\cite{Wassermann13}, our implementation was
+Our implementation was
 made easier by the fact that some non-essential primitives have
 fallback code in Squeak, so they can initially be skipped during the
 implementation, and only be added as an optimization. It would have
@@ -1060,18 +1086,21 @@ been nice if all non-essential primitives had working fallback code in
 image, so that implementing Squeak runtime support on new platform can
 be carried out even faster.
 
-There are different directions for future work. First, to improve performance,
-we are planning to add a \ac{JIT} that compiles Squeak methods to \JS. It would
-also be interesting to compile either the regular Squeak \ac{VM} or the
-R/Squeak-VM using Emscripten to compare performance. Second, we will
-investigate separating event-processing and bytecode interpretation; currently,
-the constant switching between both imposes a performance trade-off. Third,
-while modern images already work for non-graphical applications and simple
-graphics, we are missing an implementation of the Balloon plugin, which is used
-in modern Squeak images to draw gradients, polygons, and curves. This plugin is
-required to run a full Etoys image. Furthermore, we are planning to provide
-some support for additional smaller plugins, to allow \SqueakJS to perform Web
-requests or play sounds.
+There are different directions for future work. Firstly, we want to make
+\SqueakJS feature-complete so it can be used as a drop-in replacement for a
+regular Squeak \ac{VM}. Weak references and finalization are still missing, as
+are many modules, e.g. to allow \SqueakJS to play sounds or perform network
+requests. Secondly, to improve performance, we are planning to add a \ac{JIT}
+that compiles Squeak methods to \JS. We will investigate separating
+event-processing and bytecode interpretation; currently, the constant
+switching between both imposes a performance trade-off. Another significant
+increase in responsiveness would come from improving BitBlt performance. One
+idea would be to run BitBlt in a separate process to utilize multiple cores.
+It might also be possible to re-implement it using GPU processing via WebGL.
+Lastly, we would like to package \SqueakJS in a way to be easily used on any
+web page, transforming it from a novelty to a serious tool. This also means
+improving compatibility with a wider range of web browsers on both desktop and
+mobile platforms.
 
 \SqueakJS is still a very young project, but already
 performs well enough to be usable, and is complete enough to run both
@@ -1084,12 +1113,47 @@ old and modern Squeak images.
 
 \appendix
 \null
-\begin{sidewaystable}
-  \caption{All benchmarks, all speeds, raw numbers (run on an Intel Core i5-4300U CPU @ 2.80 GHz)}
-  \label{tab:all}
+
+\section*{Appendix}
+\label{sec:appendix}
+\setcounter{table}{0}
+\renewcommand*\thetable{\Alph{table}}
+\itshape
+
+For reference, we present the raw data for our benchmarks in \autoref{tab:win}
+and \autoref{tab:osx}. Due to operating system restrictions, it was impossible
+to run all Squeak platforms on the same machine. Therefore, the numbers for
+Safari are normalized to Squeak on OS\,X while all numbers of the other
+platforms are normalized to Squeak on Windows.
+
+\autoref{tab:platforms} lists all exact version numbers of the platforms used.
+
+\begin{table}
   \centering
-  \input{benchmarks-timings}
+  \input{benchmarks-platforms}
+  \caption{Exact platform versions}
+  \label{tab:platforms}
+\end{table}
+\begin{table}
+  \centering
+  \input{benchmarks-osx-timings}\\
+  \input{benchmarks-osx-speed}
+  \caption{Benchmarks and speeds, raw numbers (run on OS\,X on Intel Core i7-4850HQ CPU @ 2.30 GHz)}
+  \label{tab:osx}
+%  \vspace*{-3cm}
+\end{table}
+
+\begin{sidewaystable}
+  \centering
+  \input{benchmarks-timings}\\
   \input{benchmarks-speed}
+  \caption{Benchmarks and speeds, raw numbers (run on Windows on Intel
+    Core i5-4300U CPU @ 2.80 GHz).  Note that Potato could not run the
+    \textbf{draw} benchmark due to its incomplete BitBlt
+    implementation, and that the \textbf{fill} and \textbf{richards}
+    benchmarks, both of which put much pressure on the GC, perform
+    very badly on Potato.}
+  \label{tab:win}
 %  \vspace*{-3cm}
 \end{sidewaystable}
 

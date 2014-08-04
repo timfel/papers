@@ -1,0 +1,429 @@
+\chapter{Evaluation}
+\label{cha:evaluation}
+
+We have presented the example of a flight search and booking system in
+\autoref{sec:motivating-example}. For this system, we presented a
+possible bug report. In the report, a client searches for connections
+and the service returns a list of flights on the given date, with
+available seats and pricing. When the client clicks on the link to
+make a reservation, the reservation goes through, but possibly at a
+higher price.
+
+Our flight search interface uses \textsc{ajax} requests to keep prices
+and available seats up to date while the client is viewing Web
+site. However, the inherent problem in this system is the possibility
+for data races between price updates, the responses to the
+\textsc{ajax} requests of the Web site, and the click on the link to
+reserve a seat on a flight. These data races cannot be eliminated in a
+distributed system, and thus have to be dealt with. In order for
+developers to be able to deal with them, however, they have to
+understand that these races may occur.
+
+Traditionally, to prevent these kinds of failures, the developers
+would reason about possible event orders and their effects on the
+global state of the distributed system. That means the developer may
+use network diagrams and the documentation of the various
+services---in this case, the airlines' flight information and booking
+systems---to think of scenarios that may deviate enough from the
+default (the price does not change in the, on average, short time
+between search and reservation) that data races with undesired results
+may happen.
+
+In this example, some amount thinking will lead to the recognition of
+the data races that incur the discrepancy between the price for the
+search result and the reservation price. Some more thinking will lead
+to the conclusion that a transactional lock, in effect a reservation
+with an option to back out without cost, may not be possible with at
+least some of the airlines. A possible solution to this problem may be
+to inform the client about an intermediate price change before going
+through with the reservation.
+
+Given this solution, a developer with knowledge about the implemented
+system has to map this high-level description of a data race onto
+concrete code. In this example, a reservation request has to check the
+current price against the price returned for the search result. The
+code for the reservation is shown in
+\autoref{lst:reservation-code}. The system receives a \textsc{post}
+request to reserve a seat on a particular flight. It will forward this
+reservation request to the airline gateway on behalf of the client. If
+the reservation is not entirely successful, indicated by a status code
+other than \texttt{200}, the failure code is forwarded to the Web
+client, together with the contents of the airline gateway's
+response. To fix the above defect, this method has to be changed to
+accept not only the flight id for reservation, but also the desired
+price. The request can then be forwarded and if the price is not the
+expected, an additional confirmation Web page can be returned instead
+of the content of a successful reservation.
+
+\begin{code}[lst:reservation-code]{Flight Reservation Request Entry Point}{language=smalltalk,emph={response,code,data},emphstyle=\color{gray},float}
+  reserveSeat: flightId
+    <post: '/flights/%/reserve/?'>
+    | response code data |
+    data := 'id=', flightId.
+    response := (HTTPSocket httpRequestHandler)
+                 httpRequest: 'POST'
+                 url: self airlinesUrl, '/reserve'
+                 headers: ('Accept: */*',
+                           String crlf,
+                           'Content-Type: application/x-www-form-urlencoded',
+                           String crlf,
+                           'Content-Length: ', data size,
+                           String crlf)
+                 content: data
+                 response: [:rr | "Extract the response code"
+                            code := ((rr copyUpTo: String cr) findTokens: ' ')
+                                     second asNumber].
+    code ~= 200 ifTrue: [self status: code].
+    ^ response contents
+\end{code}  
+
+Using our prototype, we argue that these steps can be simplified. The
+flight system can be written with the most common case in mind, namely
+that the price will usually not change between search and
+reservation. Deployed in a test system, the continuous tracing can be
+enabled during load tests. As such tests will execute many searches
+and reservations in parallel, the data races leading to the above bug
+will certainly be among the recorded network schedules. In contrast to
+a diagnosis script written after a bug report, such network schedules
+may not be marked as failing, because the load tests will not include
+assertions for all undesired behavior, but only such behavior as the
+developers have thought of. That is not a problem, however, because
+just differencing all schedules recorded during load testing will
+yield a diff that can be used to reason about possible data
+races. Thus, reviewing the schedule enables developers to review the
+actual communication data generated in their system, rather than
+having to reason about possible communication patterns.
+
+Differencing all available communication data may still yield a lot of
+noise. This can be improved if the load tests are enriched with
+assertions of expected behavior, such as status codes, Web page
+contents like prices, available seats, and such, as well as assertions
+about request order. Using these assertions, our prototype can help
+developers divide the observed variances in communication schedules
+into critical and non-critical variances.
+
+Given any description of an undesired communication pattern, either
+through reasoning or using our trace differencing tool, we also help
+developers implement solutions to the various problems. In the
+traditional case, after deciding upon a fix for the
+problem---presenting an additional confirmation page if the price
+changed, for example---developers need knowledge about the system and
+the employed Web framework to know which code represents the entry
+point to implement the fix. Using our prototype, this can be
+simplified. Given network traces, developers can just click the
+network event that represents the reservation request, and our
+prototype will show the corresponding code in the receiving
+system. This will lead them directly to the code in
+\autoref{lst:reservation-code}, even without prior knowledge about the
+system.
+
+In the following sections we evaluate aspects of our prototype
+implementation corresponding to the goals we set ourselves, namely:
+~\\
+\begin{enumerate}
+\item We need a reasonably lightweight tracing mechanism
+\item Analyzing schedules should enable us to provide hints to
+  developers about where to start debugging
+\item Shaping network access in the running system has to be stable
+\item Server events are connected to code locations in our tooling
+\end{enumerate}
+
+\section{Tracing Overhead}
+\label{sec:wrapper-latency}
+
+Our prototype uses ContextS to implement the tracing, which itself has
+a very high overhead. To get an idea how much overhead ContextS
+imposes just for method dispatch, we have run a send heavy benchmark,
+calculating the Fibonacci number of 26 recursively, both without and
+with layer on a recent build of the Squeak CogVM. The CogVM includes a
+\textsc{jit} compiler with polymorphic send-site caching, which, after
+some warm-up, makes its method dispatch performance comparable to
+other languages with a \ac{jit} compiler, such as Java or C\#. For our
+benchmark, we ran the unchanged recursive Fibonacci implementation
+both unchanged and with a ContextS layer active, as well as the
+layered implementation, again both with layer on and off. We ran each
+benchmark 10 times for 5 seconds each. We recorded how many times per
+second the Fibonacci of 26 was calculated and averaged it over the ten
+runs. In \autoref{tab:contexts-bench} we show the results of this
+benchmark, rounded to 3 significant digits. From these numbers we can
+gather that just activating ContextS executing through non-layered
+methods introduces a large slowdown with a factor of 62.4. Just having
+layered method without any layer being active produces an
+insignificant slowdown of only 0.03. Note also that execution times
+for layered methods vary more than non-layered methods.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{l l | c c c}
+    \multicolumn{2}{c|}{Benchmark} & Avg Executions/s & $\sigma$ in percent of avg \\
+    \hline
+    No layer active & Non-layered & 52.2 & 0.847 \\
+    & Layered & 50.9 & 2.08 \\
+    1 Layer active & Non-layered & 0.836 & 0.335 \\
+    & Layered & 0.639 & 6.18 \\
+  \end{tabular}
+  \caption{ContextS Benchmark}
+  \label{tab:contexts-bench}
+\end{table}
+
+This drastic slowdown seems to preclude any intention of using
+ContextS for low-overhead tracing. Note, however, that a recursive
+Fibonacci is a very send-heavy benchmark, which escalates the
+overheads of the ContextS implementation. For tracing, we need only
+layer a select few methods
+(\cf{\autoref{sec:tracer-entry-points}}). Additionally, we argue that
+most of the time in a Web application is spent waiting for IO, and not
+the \textsc{CPU}. Our second benchmark thus consists of running a
+diagnosis script for the above reporting example both with and without
+tracing, also 10 times for 5 seconds each. The results of this can be
+seen in \autoref{tab:tracing-bench}. We think it is clear that the
+tracing overhead is minimal, with the tracing inducing a slowdown of
+only 0.01. The variance is comparable, as could be expected because
+the entry points were layered for both benchmarks. These performance
+results show that our prototype fulfills the requirement for
+low-overhead tracing, because the vast amount of time is not spent in
+method dispatch, but rather waiting for the network. These benchmarks
+were run on a local machine connecting through the loopback device, so
+in a distributed setup the overhead may be even more insignificant.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{l | c c}
+    Benchmark & Avg Executions/s & $\sigma$ in percent of avg \\
+    \hline
+    Normal execution & 8.51 & 3.64 \\
+    Tracing & 8.39 & 1.36 \\
+  \end{tabular}
+  \caption{Tracing Benchmark}
+  \label{tab:tracing-bench}
+\end{table}
+
+These results may be interesting for implementations of our approach
+on other languages. ContextS is one of the slowest available
+implementations of context-oriented
+programming~\cite{Appeltauer2009}. Given these results, a
+context-oriented implementation for other languages should equally
+have a very small practical overhead.
+
+\section{Case-Study: Reporting System}
+\label{sec:case-study:-reporting}
+
+To evaluate our approach with another system besides the flight search
+and booking example, we have adapted a system that is deployed in
+industry. The original system is written in Ruby on Rails and deployed
+in the intranet of a large company, with about a hundred users. The
+system implements a reporting Web service, which its users query to
+get current data about other systems within the company. A user will
+generally have a few prepared reports that provide a high-level
+overview various systems for different countries, industries, and
+company sectors. If any of the overview reports are not within
+expectations, the user will drill down into the reports to see more
+detailed listings of the available data.
+
+The technological challenge in this system are the large amounts of
+data which need to be processed as fast as possible to provide the
+most recent data to its users. The data is aggregated over various
+servers throughout the world, and preprocessed along the way before
+being imported into the reporting system. The whole process of
+updating and reporting takes about 30 minutes. The system overview is
+presented in \autoref{fig:reporting}. The client communicates with the
+reporting server through a Web site~\textcircled{1}, where reporting
+data is represented in \textsc{html} tables generated by the
+reporting. The reporting data is transmitted in chunks, so the summary
+numbers are transferred first, and the detailed numbers for drill down
+are transferred on-demand if the user decides to drill down. The
+reporting server obtains the reporting data from one of the databases,
+called \emph{Yin} and \emph{Yang}~\textcircled{2}. One of the
+databases will always be the \emph{active} database from which queries
+are served, and the other is used by the importer to provide the most
+recent data~\textcircled{3}. This is to ensure that queries are always
+done on complete data sets. Once an import is done, a switchover
+command is sent to the reporting server, which exchanges the roles of
+the databases.
+
+This system was deployed and some time later, the developers received
+a bug report very similar to our example report. In this report, one
+of the users noted that very rarely the sums in the overview will not
+match the numbers returned when drilling down into the data. This rare
+bug was triggered if, between requesting an overview and a drill down,
+the data import finished and the second query was run on different
+data. The eventual solution in the real system consisted of a simple
+message informing users about the updated data.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{reporting}
+  \caption{Reporting System}
+  \label{fig:reporting}
+\end{figure}
+
+We have reimplemented the system in Smalltalk, keeping the setup of
+servers and their responsibilities and communication the same as in
+the original, for evaluation with our prototype.
+
+\paragraph{User Trial}
+\label{sec:user-study}
+
+Our user trial was done with a Smalltalk programmer on the
+aforementioned reporting system bug. The different servers
+contributing to the system were run on one system for simplicity, and
+the bug report had already been converted into a diagnosis script
+executable through our test runner
+(\cf{\autoref{lst:diagnosis-script}}).
+
+\begin{code}[lst:diagnosis-script]{Diagnosis Script}{language=smalltalk,emph={details,overview,totalSum,detailsSum},emphstyle=\color{gray},float}
+    testBugReport001
+        | details overview totalSum detailsSum |
+        totalSum := detailsSum := nil.
+        overview := HTTPSocket httpGet: 'http://localhost:',
+                   DIODataWarehouse instance portNumber, '/overview/'.
+        totalSum := overview contents asInteger.
+        (Delay forMilliseconds: 100) wait. "Manager needs some time to click"
+        details := HTTPSocket httpGet: 'http://localhost:',
+                  DIODataWarehouse instance portNumber, '/details/'.
+        detailsSum := ((details contents findTokens: ', ') collect: #asInteger) sum.
+        self assert: detailsSum = totalSum.
+\end{code}  
+
+The participant did not know the code for the system beforehand, but
+we have explained to the purpose and setup before the trial. After
+explaining the bug report and that it was transformed into a diagnosis
+script, the participant started his debugging session.
+
+The participant knew the Path Tools suite and was able to use our
+modified Path Map to run 100 executions of the diagnosis script. Of
+those only 2 failed, both with the same schedule. The participant
+started examining the passes and the failure. He quickly realized that
+a minimal passing schedule only includes 3 lifelines. He was able to
+identify those lifelines as the diagnosis script, the reporting
+server, and a data store. He did this by clicking events on each and
+examining the source code associated with the events.
+
+He realized also that a failure included 2 more servers and recognized
+those as another data store and the data importer by jumping into the
+code and comparing with the system overview. 
+
+The connection from network events to code were used also to determine
+the request-response relationships of events. At this point the
+participant remarked that being able to add those connections manually
+would be useful.
+
+The participant then explained that he did not understand the
+significance of the colors in the diff traces. In the overall
+difference most events were highlighted with a high alpha, but two
+events were close to full red and had no transparency. We explained
+that those colors show variance in the traces and the stronger
+highlights should provide good entry points for debugging the problem.
+The participants clicked one of the highlights and ended up in the
+method that returns the drill down details for the report overview. He
+realized that this method returns data from the data store to the
+client. He realized that the problem is in concurrent modification of
+that data and checked that assumption by establishing request-response
+relationships in the failure schedule. He noticed that the drill-down
+and the data import switchover overlap. At this point we finished the
+trial.
+
+Using our tool, the participant was able to find out the communication
+schedules for a system unknown to him. He was also able to assign
+endpoint addresses to servers. Multiple open problems were identified:
+~\\
+\begin{enumerate}
+\item Our visualization of the differences between schedules is too
+  hard to understand. Visualization was not the focus of this work,
+  however.
+\item While we cannot automatically establish request-response
+  relationships for any asynchronous communication, developers should
+  be able to connect events manually when they find out how they are
+  connected. For larger schedules it is impractical to remember all
+  connections.
+\item To understand the concurrent modification problem, we think data
+  flow analysis may be useful to identify network events which
+  contribute to a particular data point. In our trial the participant
+  may have found out more quickly how the report data is modified once
+  he arrived at the method that returns the data.
+\end{enumerate}
+~
+
+Overall our approach seemed to be useful, but more tool features and
+better visualizations are needed so developers can use the approach on
+their own. As it stands now, a tool expert has to be present to
+explain the \emph{intended} way the tools should be used.
+
+\section{Scheduling Accuracy}
+\label{sec:sched-acc}
+
+Our approach hinges on the accuracy of our IO scheduler to shape
+traffic in the live system to match a previously recorded trace. 
+
+The scheduler can only uses events generated in the network, because
+it is not recording enough data to replay events from memory. In our
+examples the servers were running the full time. Some created events
+on an independent schedule, others reacted only to requests. The
+initial requests at the beginning of each trace were given by the bug
+report or user interaction with the Web frontend. However, this is a
+serious limitation in systems were not enough events are generated to
+re-enact a given schedule, and some claim that this may be the more
+common case~\cite{Geels2006Replay}. We are not aware of any studies to
+support one view or the other, but if indeed servers in a distributed
+system become unavailable often enough---due to net splits,
+maintenance, or any other reason---it would render our re-scheduling
+approach ineffective.
+
+A possible solution in that case may be to additionally record message
+contents as well as communication partners. While this may come at a
+larger overhead in both space and execution time, it would enable
+replay of single servers independent of the other systems, if, during
+replay, only the recorded message contents are used instead of actual
+live data.
+
+For our scheduler we have implemented a number of settings that can be
+tweaked to make successful reproduction of a schedule more
+probable. First, unexpected requests may be dropped during
+replay. Depending on the system, this may make a re-execution more
+probable, at the cost of dropping possibly valid requests in the live
+system. Another option for those requests is to hold them until the
+schedule is finished and release them later, which will increase the
+latency of the system. Another setting controls the timeouts for
+waiting for an expected event to occur. These timeouts may potentially
+be too long or too short for a given schedule, so schedules may
+sometimes fail to reproduce if they trigger timeouts. Tweaking those
+timeouts was sometimes necessary in our trials for successful replay.
+
+Given those settings, a hybrid approach between our approach and fully
+isolated replay from message contents may be preferable. If we record
+message contents, they could be used as a better fallback mechanism in
+these cases where an expected event does not occur within a specified
+time frame or where unscheduled requests require responses that are
+not part of the schedule. This may not only increase the robustness of
+our re-scheduling approach, but also further minimize disturbance of
+the live system, because unexpected requests at least receive a valid
+(if outdated) response, instead of a manufactured value that will, in
+most cases, not be a valid response.
+
+\section{Events to Code Mapping}
+\label{sec:events-code}
+
+Our prototype offers an overview of the global network events, as well
+as a call tree. Upon clicking on a network event, the scheduler
+re-executes the communication an logs the first 100 stack entries for
+each event. We use the Path Tools mechanism to find methods belonging
+to a certain project and search from the top of stack until we find
+one of those methods or give up.
+
+In practice this works well only for synchronous requests or if
+responses are handled in closures connected to the method which sent
+out the request. In the KomHttpServer framework, however, request and
+response objects are created in the framework and the application
+handlers are called at a later point. So at the time the scheduler
+encounters an event, the application method is not on the stack and
+can thus not be automatically connected to the event.
+
+To work around this limitation, we need a way to wrap all application
+methods in one-shot wrappers to record their activation. Those
+activations can then be associated with either the last incoming
+request or the next sent response.
+
+%%% Local Variables: 
+%%% mode: latex
+%%% TeX-master: "thesis"
+%%% End: 

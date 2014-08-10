@@ -620,6 +620,55 @@ Babelsberg/PrimitiveTypes are atomic --- we don't have recursive types
 or types that define values that hold other types (such as records,
 arrays, or sets). 
 
+Since we are modeling a dynamically typed language (even for
+Babelsberg/PrimitiveTypes), we need to consider the case of changing
+the type of a variable.  Here's a simple example program that
+illustrates this.
+
+\begin{verbatim}
+x := 5;
+x := "Hello";
+\end{verbatim}
+
+After the second statement we solve the following constraint
+
+\begin{tabular}{rl}
+weak     & $x = 5$ \\
+required & $x = $ \verb|"Hello"|
+\end{tabular}
+
+To make this to work for Babelsberg/PrimitiveTypes, \verb|x=y| should
+be legal (and evaluate to false) if \verb|x| and \verb|y| are of
+different types.
+
+\ab{We could, perhaps, also declare this to be ill-typed and hence
+  illegal, and just handle this when we get to Babelsberg/UID and
+  Babelsberg/Objects.  Is there some reason this would be preferable?}
+
+We can even have \verb|always| constraints whose meaning changes
+dynamically.  Suppose that for strings \verb|+| denotes string
+concatenation.
+
+\begin{verbatim}
+x := 5;
+always y = x+y
+x := "Hello";
+\end{verbatim}
+
+After the \verb|always| statement we have 
+$\texttt{x} \mapsto \texttt{5}$, $\texttt{y} \mapsto \texttt{10}$.
+Then after the final statement, we have the constraints
+
+\begin{tabular}{rl}
+weak     & $x=5$ \\
+weak     & $y=10$ \\
+required & $y=x+x$ \\
+required & $x=$ \texttt{"Hello"}
+\end{tabular}
+
+This has the solution
+$\texttt{x} \mapsto \texttt{"Hello"}$, $\texttt{y} \mapsto \texttt{"HelloHello"}$.
+
 \subsection{Formalism}
 \label{intformal}
 
@@ -714,12 +763,12 @@ Babelsberg/PrimitiveTypes defined above. Note, however, that the
 elements of the solver language are really distinct entities from
 those in the source language. We will see that they have a
 straightforward mapping, but they are not the same values that happen
-to be written in a different font~\footnote{With this our solver
+to be written in a different font.\footnote{With this our solver
   syntax is related to syntax defined in the SMTlib
   standard~\cite{barrett2010smt}. It defines a syntax for constraints
   based on S-expressions, but leaves it up to the solver to provide a
   meaning to those symbols. Since we treat the solver as a black box,
-  we do not assume anything about the meaning of the symbols}.
+  we do not assume anything about the meaning of the symbols.}
 
 Some solvers may only support a subset of the above syntax,
 for example requiring constraints to be in some canonical form, or
@@ -1599,6 +1648,10 @@ it, even if it is only used in a nested structure. This simplifies the
 semantics.  (Nested records could be supported directly with just a source code
 transformation.)
 
+\ab{I think the above is no longer true -- since we are now regarding
+  new {...} as an expression, we should be able to create nested
+  records directly.}
+
 Since object identity is now significant, we add identity constraints
 to the language (following Smalltalk syntax, 
 written \verb|==|, in contrast to \verb|=| for
@@ -1608,7 +1661,8 @@ and \verb|q| are identical, they must also be equal, but the converse
 is not necessarily true --- if \verb|p| and \verb|q| are equal, they
 might or might not be identical.
 
-Unlike Babelsberg/PrimitiveTypes, the weak stays on variables are
+Unlike Babelsberg/PrimitiveTypes and Babelsberg/Records, the weak stays 
+on variables are
 identity constraints rather than equality constraints.  For records,
 such a variable continues to refer to the same object unless
 reassigned. This is a direct consequence of the weak stays referring
@@ -1684,14 +1738,14 @@ together, we have the environment \linebreak
 \verb|a| $\mapsto$ \verb|5|, as well as the heap \verb|r| $\mapsto$
 \verb|{x:100, y:5}|.
 
-Here are a few examples that fail the structural compatibility checks.
+Here is an example that fails the structural compatibility checks.
 
 \begin{verbatim}
  p := new {x:2, y:5};
  always p.z = 5;
 \end{verbatim}
 
-As before, the solver is not allowed to add fields to records, so \verb|p|
+As before, the system is not allowed to add fields to records, so \verb|p|
 would be required to have a \verb|z| field already.
 
 Variables that refer to records refer only to references on the heap.

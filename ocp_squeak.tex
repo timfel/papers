@@ -1,6 +1,36 @@
 \section{Object Constraint Programming in Squeak}
-\label{ocp_squeak}
+\label{sec:ocp_squeak}
 
-\secmissing{Defining Constraints in Babelsberg/S}
-\secmissing{Constraints over Collections of Objects}
+%\secmissing{Defining Constraints in Babelsberg/S}
+%\secmissing{Constraints over Collections of Objects}
+This section describes how constraints are specified in Babelsberg/S. We use the rules of a Sudoku puzzle as example for all constraints.
 
+\begin{lstlisting}[caption=Defining the domain of a Sudoku cell, label=lst:first-Sudoku-constraint]
+constraint := [(sudoku at: 1 at: 1) between: 1 and: 9] 
+										alwaysSolveWith: solver.
+\end{lstlisting}
+
+\autoref{lst:first-Sudoku-constraint} shows the constraint for defining the domain of one Sudoku cell. In general, a constraint in Babelsberg/S is specified by sending the message \texttt{alwaysSolveWith:} to a constraint block. The argument should be an instance of \texttt{ConstraintSolver}. It is also possible to solve the constraint with a default constraint solver, which is global inside the Squeak image, by sending \texttt{alwaysTrue}. As mentioned in \autoref{sec:introduction}, the constraint is defined by using object-oriented method definitions rather than a \ac{dsl}. The keyword \texttt{sudoku} in \autoref{lst:first-Sudoku-constraint} is a variable of the interactive application and the method \texttt{between:and:} is a known method in Squeak.
+
+To construct the constraint, the constraint block is executed in a different mode, which is called \ac{ccm}. Instead of evaluating the source code normally, in \ac{ccm}, constraint expressions are created from the constraint code. After that, these constraint expressions are added to a \texttt{Constraint} object, which is solved by the given constraint solver. The solving is explained in \autoref{sec:maintain_constraints}. At the end, the method \texttt{alwaysSolveWith:} returns the constraint object.
+
+The implementation of Babelsberg/S uses a modified version of the image-side interpreter to evaluate the constraint block. First, a new process is spawned from the constraint block. Then, this process is interpreted stepwise by using the modified interpreter. To encapsulate the \ac{ccm} inside the Squeak image, Babelsberg/S uses a ContextS\cite{contextShirschfeld2008introduction} layer for constraint construction. Therefore, the modified interpreter is only used, if the layer \ac{ccm} is active. 
+We modified the image-side interpreter to replace variables inside the constraint by \texttt{ConstraintVariables}. All operators, like \textbf{+} and \textbf{-}, are then called on constraint variables and construct constraint expressions.
+
+
+\begin{lstlisting}[caption=Defining the domain of all Sudoku cells with a loop, label=lst:loop-Sudoku-constraint]
+(1 to: sudoku size) do: [:index | 
+		[(sudoku at: index) between: 1 and: 9] 
+				alwaysSolveWith: solver].
+\end{lstlisting}
+
+Back to the constraints of a Sudoku puzzle, we must define the domain of all cells inside the \texttt{sudoku}. The usual way in Babelsberg is shown in \autoref{lst:loop-Sudoku-constraint}. It uses a loop over all Sudoku cells.
+
+Babelsberg/Squeak contributes to more human-readable constraints by supporting the Collection \ac{api} in constraints. As a result, the domain constraint of a Sudoku puzzle can be expressed through sending \texttt{allSatisfy:} to \texttt{sudoku}, as shown in \autoref{lst:collectionAPI-Sudoku-constraint}.
+
+\begin{lstlisting}[caption=Defining the domain of all Sudoku cells with the Collection \ac{api}, label=lst:collectionAPI-Sudoku-constraint]
+[sudoku allSatisfy: [:cell | cell between: 1 and: 9]] 
+		alwaysSolveWith: solver.
+\end{lstlisting}
+
+The extension of Babelsberg/S for the Collection \ac{api} slightly changes the implementation. For maintaining the constraints automatically, as explained in \autoref{sec:maintain_constraints}, read and write access on constraint variables, e.g. on Sudoku cells, has to be detected. In Squeak, an access on an arbitrary collection calls \texttt{at:} or \texttt{at:put:} on an internal array, that maintains the elements of the collection. Therefore, sending the messages \texttt{at:} and \texttt{at:put:} to an array have to be modified. To reach this, in \ac{ccm}, the internal array is replaced by a \texttt{ConstraintArray}, that inherits from \texttt{Array} and overrides the accessor methods \texttt{at:} and \texttt{at:put:}. 

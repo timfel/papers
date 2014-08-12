@@ -1,0 +1,172 @@
+A Penultimate Plethora of Potentially Problematic Programs
+
+Here is a list of potentially problematic programs in Babelsberg, in
+in some cases along with suggestions about what their result should be.
+These are classified by language.
+
+____________________________________________________________
+BABELSBERG/PRIMITIVE_TYPES
+
+x := 3;
+x := "hello";
+/* if we are modeling a dynamically typed language, this should
+   certainly work */
+
+x := 3;
+always y=x;
+x := "hello";
+/* This should work as well, unless we say that we can't have
+   constraints on variables whose type may change (which would be 
+   a weird restriction.  Note that we have a weak stay on y that it be
+   an int, along with the required constraint that forces it to be a
+   string. */
+
+x := 3;
+always y=x+x;
+x := "Hello";
+/* Probably this works too, if + also means string concatenation.
+First we have y=6, then y="HelloHello" */
+
+
+/* The above program but with 'once' constraints.  Should be OK. */
+once x = 3;
+always y=x+x;
+once x = "hello";
+
+x := 3;
+always medium x=8;
+always medium x="squid";
+/* Weird, but probably OK.  We have two dueling medium constraints,
+   and can satisfy only one of them. */
+
+
+____________________________________________________________
+BABELSBERG/RECORDS
+
+a := {x:1};
+a := {y:10};
+/* this should be OK */
+
+once a = {x:1};
+once a = {y:10};
+/* same thing but with once constraints - also OK? */
+
+a := {x: 4};
+always a.x=10;
+always a=b;
+a := {y:30, x:4};
+/* should be OK - a and b both now refer to a record with y and x fields */
+
+a := {x:1};
+b := {y:1};
+medium a=b;
+/* Probably this is OK, and has a solution either a=b={x:1} or a=b={y:1}.
+   However, we don't want the system to come up with a new type like 
+   a=b={x:1, y:1}. */
+
+
+a := {x:2};
+always a.y = 100;
+/* this fails, since a doesn't have a y field (the system doesn't add
+   one spontaneously) */
+
+a := {x:1};
+b := {};
+always a.x=b.x
+/* this should fail - it shouldn't assign a record to b with an x field */
+
+a := {x:1};
+b := a;
+always b=a;
+a := {};
+/* this should succeed, and end up with an empty record in both a and b */
+
+
+
+____________________________________________________________
+BABELSBERG/UID
+
+p := new {x:0, y:0}; 
+q := new {z:0}; 
+always p.x = 10; 
+always q.z = 100; 
+always p == r; 
+always weak q == r; 
+/* Should this succeed?  If so the weak identity constraint can't be
+   satisfied.  (Note that maybe this doesn't succeed because together
+   the first three always constraints require that p and q be different
+  types, and p and r be the same type.) */
+
+p := new {x:0}; 
+q := new {x:1}; 
+always p.x = 5; 
+always q.x = 10; 
+always weak p == q; 
+/* Should this succeed?  If so, again the weak identity constraint can't 
+   be satisfied.  However, in this case it is the value constraints
+   that are incompatible with it. That would mean we can't first solve
+   for object identity and then for values.  We could just say it's a
+   dynamically detected error. */
+
+p := new {x:0}; 
+q := new {x:1}; 
+always medium p.x = 5; 
+always medium q.x = 10; 
+always weak p == q; 
+/* same as the previous example, but if we first solve for object
+   identity and then for object values, we satisfy a weak identity
+   constraint in preference to a medium value constraint */
+
+a := new {x:1, y:2};
+b := new {ref:a};
+always b.ref.x = 2;
+c := new {x:2}
+once b.ref==c;
+/* this should work - at the end b has a ref field that points to a
+   record {x:2}; c also points to this same record */
+
+
+a := new {x:1, y:2};
+b := new {ref:a};
+always b.ref.x = 2;
+c := new {x:2}
+once b.ref==c && b.ref.x=2
+/* same program up to the last line.  Do we want to allow identity
+   constraints and constraints on values to be intermingled? */
+
+
+____________________________________________________________
+BABELSBERG/OBJECTS
+
+/* the PrimitiveTypes program, but with object (and + as a message) */
+x := 3;
+always y=x+x;
+x := "hello";
+
+x := stack.pop;
+/* this works, because the RHS of the assignment is evaluated first, and 
+   then we set up a once constraint (thus the RHS can have side effects) */
+
+once x = stack.pop;
+/* not allowed, since we don't allow side effects in constraints */
+
+always x = stack.pop;
+/* definitely not allowed! */
+
+s := Rectangle.new( ...);
+always a = s.area
+s := Circle.new( ...);
+/* this should be fine.  Note that the class of s changes, but both
+   have an area method */
+
+
+/* is this legal? */
+def identity()
+  always x==self;
+  return x;
+end;
+
+a := Rectangle.new(...);
+b := Circle.new(...);
+always b == identity(a);
+

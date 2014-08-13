@@ -1,0 +1,267 @@
+A Penultimate Plethora of Potentially Problematic Programs
+
+Here is a list of potentially problematic programs in Babelsberg, in
+in some cases along with suggestions about what their result should be.
+These are classified by language.
+
+____________________________________________________________
+BABELSBERG/PRIMITIVE_TYPES
+
+x := 3;
+x := "hello";
+/* if we are modeling a dynamically typed language, this should
+   certainly work */
+
+x := 3;
+always y=x;
+x := "hello";
+/* This should work as well, unless we say that we can't have
+   constraints on variables whose type may change (which would be 
+   a weird restriction.  Note that we have a weak stay on y that it be
+   an int, along with the required constraint that forces it to be a
+   string. */
+
+x := 3;
+always y=x+x;
+x := "Hello";
+/* Probably this works too, if + also means string concatenation.
+First we have y=6, then y="HelloHello" */
+
+
+/* not ok, since once constraints can't change type */
+x := 3;
+once x = "hello";
+
+x := 3;
+always medium x=8;
+always medium x="squid";
+/* not ok, since again constraints can't change type (even though in
+   this case it's only one of the constraints that would require changing
+   the type */
+
+
+
+____________________________________________________________
+BABELSBERG/RECORDS
+
+a := {x:1};
+a := {y:10};
+/* this should be OK */
+
+once a = {x:1};
+once a = {y:10};
+/* same thing but with once constraints - not ok */
+
+a := {x: 4};
+always a.x=10;
+always a=b;
+a := {y:30, x:4};
+/* OK - a and b both now refer to a record with y and x fields */
+
+a := {x:1};
+b := {y:1};
+always medium a=b;
+/* Not ok, because either a or b would have to change their structure */
+
+a := {x:2};
+always a.y = 100;
+/* this fails, since a doesn't have a y field (the system doesn't add
+   one spontaneously) */
+
+a := {x:1};
+b := {};
+always a.x=b.x
+/* this should fail - it shouldn't assign a record to b with an x field */
+
+a := {x:1};
+b := a;
+always b=a;
+a := {};
+/* this should succeed, and end up with an empty record in both a and b */
+
+a := {x:1};
+always b=a;
+a := {};
+/* what about this?  b is uninitialized at the point we encounter the
+   always constraint, but requiring the initialization first is annoying
+   for the programer.  But then why can't we change a to nil instead
+   to satisfy the constraint? */
+
+One idea is that the above program is illegal in the formal
+semantics.  However, in practical implementations, we have a hack to
+allow it.  It only works for = constraints where one side is
+uninitialized (perhaps the semantics is that it first assigns the
+other side to the uninitialized variable, and then adds the always
+constraint). 
+
+
+____________________________________________________________
+BABELSBERG/UID
+
+p := new {x:0, y:0}; 
+q := new {z:0}; 
+r := p;
+always p.x = 10; 
+always q.z = 100; 
+always p == r; 
+always weak q == r; 
+/* This is not allowed, because non-required identity constraints 
+   are not allowed on the program level. This is so that the
+   identities can be solved first */
+
+p := new {x:0}; 
+q := new {x:1}; 
+always p.x = 5; 
+always q.x = 10; 
+always weak p == q; 
+/* This example shows why we don't allow non-required identity
+   constraints, because they might conflict with higher-priority value
+   constraints and then we could not satisfy these
+   independently. Another way to look at this is that this would allow
+   value constraints to have an indirect effect on the references */
+
+p := new {x:0}; 
+q := new {x:1}; 
+always medium p.x = 5; 
+always medium q.x = 10; 
+always weak p == q; 
+/* same as the previous example */
+
+a := new {x:1, y:2};
+b := new {ref:a};
+always b.ref.x = 2;
+c := new {x:2}
+once b.ref==c;
+/* this should work - at the end b has a ref field that points to a
+   record {x:2}; c also points to this same record */
+
+
+a := new {x:1, y:2};
+b := new {ref:a};
+always b.ref.x = 2;
+c := new {x:2}
+once b.ref==c && b.ref.x=2
+/* same program up to the last line.  Do we want to allow identity
+   constraints and constraints on values to be intermingled? No,
+   because even though this would work for conjunction, we'd want to
+   allow disjunction as well, and short of eagerly selecting a branch
+   (as in the current implementations) this would prevent separately
+   satisfying identity and value constraints */
+
+
+____________________________________________________________
+BABELSBERG/OBJECTS
+
+x := 3;
+always y=x;
+x := "hello";
+
+x = "jello"
+y == x
+
+x := 3;
+always x = "5";
+
+x := 3;
+always y=x+x;
+x := "hello";
+/* it seems like this should work as well in Babelsberg/Objects */
+
+x := 5;
+always x = "hello"
+/* Should this give an error?  (It does in the current implementation.) */
+
+x := 5;
+always y=x;
+/* Pragmatically, having this give an error is annoying, since the
+   programmer has to set y to a number just so that you can put a
+   constraint on it.  Variations of this follow: */
+
+x := 5;
+always x=3.1416;
+/* int->float issues? */
+/* let's not have coercion in the semantics. If the base language does
+   implement the `=' method to also coerce its argument and check again,
+   than that's fine. But this won't affect the types of the involved
+   operands, it just allows an int and a float to be tested for equality,
+   because really we're doing something like
+        ^ x.asInt = y.asInt || x.asFloat = y.asFloat"
+   in the implementation of the method `=' */
+
+x := 5;
+always y=2*x;
+
+x := 5;
+always 0.5*y=x;
+
+x := stack.pop;
+/* this works, because the RHS of the assignment is evaluated first, and 
+   then we set up a once constraint (thus the RHS can have side effects) */
+
+once x = stack.pop;
+/* not allowed, since we don't allow side effects in constraints */
+
+always x = stack.pop;
+/* definitely not allowed! */
+
+s := Rectangle.new( ...);
+always a = s.area
+s := Circle.new( ...);
+/* this should be fine.  Note that the class of s changes, but both
+   have an area method */
+
+
+/* is this legal? */
+def identity()
+  always x==self;
+  return x;
+end;
+
+a := Rectangle.new(...);
+b := Circle.new(...);
+always b == identity(a);
+/* we first eval the argument, and get
+      x == a && _
+   as a remembered constraint, and then we evaluate the identity and
+   add it and get
+      x == a && b == x
+*/
+
+a := Rectangle.new(...);
+b := Circle.new(...);
+always b.left = identity(a).left;
+/* we first eval the argument, and get
+      x == a && _
+   as a remembered constraint, and then we evaluate the equals and
+   add it and get
+      x == a && b.left = x.left
+*/
+
+a := Rectangle.new(...);
+b := Circle.new(...);
+always b.left = identity(a).left || b.left = a.left;
+/* we first eval the argument, and get
+      x == a && _
+   as a remembered constraint, and then we evaluate the equals and
+   add it and get
+      (x == a && b.left = x.left) || b.left = a.left
+*/
+
+a := Rectangle.new(...);
+b := Circle.new(...);
+x := identity(a); // asserts x == a
+always b.left = x.left || b.left = a.left
+
+
+def pointlessId()
+  z := Circle.new(...)
+  y := nil
+  always y == z
+  return self
+
+
+
+p1 := Point.new(2,3);
+p2 := Point3d.new(0,0,0);
+always p1=p2;
+/* does this succeed with p1 and p2 

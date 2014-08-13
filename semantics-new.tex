@@ -176,19 +176,6 @@ $\llbracket {\tt o} \rrbracket$.
   \eval{E}{x}{v}
 }
 
-% \inferrule{E-Undef}{
-%   {\tt E(x)$\uparrow$}
-% }{
-%   \eval{E}{x}{nil}
-% }
-
-\tdm{Do we still want to invent variables on the fly and give them the
-  value {\tt nil}, as in the
-  commented-out rule above?  Not clear this is really desirable, since
-  for example a constraint like {\tt x=y} where {\tt y} is previously
-  undeclared could simply result in setting both {\tt x} and {\tt y}
-  to {\tt nil}.}
-
 
 \inferrule{E-ReadOnly}{
   {\tt E(x) = v}
@@ -361,7 +348,7 @@ records and the ability to access fields of a record:
 {\rm Expression} & e & ::= & $\cdots$ $\mid$
 \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
 {\rm Label} & l & ::= & {\rm record label names} \\\\
-{\rm Value} & v & ::= c $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
+{\rm Value} & v & ::= & c $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
 \end{tabular}
 \end{tt}
 
@@ -389,21 +376,6 @@ Expression evaluation is updated to support records.
 }{
   \eval{E}{e.l$_i$}{v$_i$}
 }
-
-\tdm{I omitted the explicit rule for record equality, since it's
-  technically covered by the {\tt [[=]]} semantic function and hence
-  by the evaluation rule from Babelsberg/PrimitiveTypes.  It may be
-  useful to make it explicit, but then we need to disambiguate with
-  that earlier rule, which will be ugly.}
-
-% \inferrule{E-CompareRec}{
-%   \eval{E}{e$_1$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
-%   \eval{E}{e$_2$}{\{l$_1$:v$_{n+1}$,$\ldots$,l$_n$:v$_{2n}$\}} \andalso
-%   \eval{E}{(v$_1$=v$_{n+1}$$\wedge$$\ldots$$\wedge$v$_n$=v$_{2n}$)}{v}
-%   % \andalso \tc{E}{e$_1$ = e$_2$}{T}
-% }{
-%   \eval{E}{e$_1$ = e$_2$}{v}
-% }
 
 
 \judgment{\tc{E}{e}{T}}
@@ -471,6 +443,12 @@ order to satisfy a record equality constraint.
   \tc{E}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
 }
 
+\inferrule{T-Rec}{
+  \tc{E}{e$_1$}{T$_1$} $\cdots$ \tc{E}{e$_n$}{T$_n$}
+}{
+  \tc{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
 \inferrule{T-Field}{
   \tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
   \andalso $1 \leq i \leq n$
@@ -497,7 +475,8 @@ The following two rules simply ensure that a constraint is well typed.
 \tdm{We should be able to prove that constraint solving preserves
   typing, at least for ``once'' and ``always'' constraints -- not for
   assignments, since there we explicitly allow changing types (see
-  below).  This would be a nice way to validate our choice of typing rules.}
+  below).  And that assignment statements can only change the type of
+  the variable that was assigned.  This would be a nice way to validate our choice of typing rules.}
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
 
@@ -506,9 +485,33 @@ before, except that now we typecheck constraints before we solve
 them.  Implicitly we get ``stuck'' if such a check fails.
 In a practical language, this could be extended to
 generate an exception instead.  We only show the modified rules
-below.  Note that the rules for assignment are unchanged; in
-particular we do not do any typechecking for an assignment, thereby
-allowing the structure of variables to change as a result.
+below.  
+
+\inferrule{S-Asgn}{
+  \eval{E}{e}{v} \andalso \tcC{E[x $\mapsto$ v]}{C} \andalso
+  \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+}{
+  \step{E}{C}{x := e}{E$'$}{C}{skip}
+}
+
+The second premise above is necessary so that we don't pass the solver
+an ill-typed set of constraints.  Specifically, since the assignment
+can change the type of {\tt x}, we have to make sure that the global
+constraints in scope, {\tt C}, are well typed with respect to this new
+type.  Note that the stay constraint for {\tt x} within {\tt C$_s$} may not be well
+typed with respect to the new type of {\tt x}, but that's ok since the
+required constraint {\tt x = v} will take precedence.  The syntax {\tt
+  E[x $\mapsto$ v]} denotes the environment identical to {\tt E} but
+with {\tt x} mapped to the value {\tt v}.
+
+\inferrule{S-AsgnFail}{
+  \eval{E}{e}{v} \andalso \tcC{E[x $\mapsto$ v]}{C} \andalso
+  \stay{E}{C$_s$} \andalso
+  \fail{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+}{
+  \step{E}{C}{x := e}{E}{C}{fail}
+}
 
 \inferrule{S-Once}{\tcC{E}{C$_0$} \andalso
   \stay{E}{C$_s$} \andalso

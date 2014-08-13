@@ -1,0 +1,544 @@
+\documentclass{article}
+\setlength{\topmargin}{-0.25 in}
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{8.5 in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\parindent}{0.0in}
+\setlength{\parskip}{7pt plus 1pt}
+
+\usepackage{textcomp}
+\usepackage{bcprules}
+\usepackage{xcolor}				% Allow for color (annotations)
+\usepackage{stmaryrd}
+\usepackage{amssymb}
+\usepackage{hyperref}
+
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\tableautorefname{Table}
+\def\figureautorefname{Figure}
+
+\def\tdm#1{\textcolor{blue}{\textsf{TDM: #1}}}
+\def\ab#1{\textcolor{red}{\textsf{AB: #1}}}
+\def\tf#1{\textcolor{purple}{\textsf{TF: #1}}}
+
+\newcommand{\maybe}{{\bf\footnotesize{?}}\kern-1pt}
+
+\newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
+\newcommand{\stay}[2]{stay({\tt #1}) $=$ {\tt #2}}
+\newcommand{\toSolver}[2]{{\tt E} $\vdash$ {\tt #1} $\leadsto$ $#2$}
+\newcommand{\fromSolver}[2]{$#1$ $\leadsto$ {\tt #2}}
+\newcommand{\csolve}[2]{$#1$ $\models$ $#2$}
+\newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
+\newcommand{\cfail}[1]{$\not\models$ $#1$}
+\newcommand{\fail}[1]{$\not\models$ {\tt #1}}
+\newcommand{\step}[6]{{\tt <#1|#2|#3>} $\longrightarrow$
+  {\tt <#4|#5|#6>}}
+\newcommand{\tc}[3]{{\tt #1} $\vdash$ {\tt #2} : {\tt #3}}
+\newcommand{\tcC}[2]{{\tt #1} $\vdash$ {\tt #2}}
+
+\newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
+\newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
+\newcommand{\failH}[1]{$\not\models_{E,H}$ {\tt #1}}
+\newcommand{\stepH}[8]{{\tt <#1|#2|#3|#4>} $\longrightarrow$
+  {\tt <#5|#6|#7|#8>}}
+\newcommand{\tcH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} : {\tt #4}}
+\newcommand{\tcHC}[3]{{\tt #1;#2} $\vdash$ {\tt #3}}
+\newcommand{\toSolverH}[2]{{\tt E,H} $\vdash$ {\tt #1} $\leadsto$ $#2$}
+\newcommand{\fromSolverH}[3]{$#1$ $\leadsto$ {\tt #2,#3}}
+
+\newcommand{\toSolverOO}[6]{{\tt #1,#2} $\vdash$ {\tt #3} $\leadsto$ {\tt #4,#5} $\mid$ $#6$}
+
+\newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
+\newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
+
+\newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
+
+\newcommand{\receq}{\stackrel{{\tt r}}{{\tt =}}}
+
+\sloppy
+
+\begin{document}
+
+\title{New Semantics for Babelsberg}
+\author{Tim Felgentreff, Todd Millstein, and Alan Borning}
+\date{}
+
+% changed title to make it different from the title of the
+% hypothetical POPL submission
+
+\maketitle
+
+\section{Introduction}
+
+In this semantics the goal is to understand the restrictions we'd like
+to put on constraint solving that arise solely due to the desire to
+limit surprises for programmers.  To that end, in this semantics we
+assume that the constraint solver directly ``understands'' the
+constraints that can be expressed at the source level, with no need
+for any kind of translation.
+
+
+\section{Babelsberg/PrimitiveTypes}
+\label{sec:babelsberg/int}
+
+
+We present the formal semantics of Babelsberg/PrimitiveTypes. Besides
+the program, there is an \emph{environment} that maps names to values.
+
+\subsection{Syntax}
+\label{sec:babelsberg-primitivetypes-syntax}
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ once C $\mid$ s;s $\mid$ fail \\
+  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+{\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
+{\rm Expression} & e & ::= & c $\mid$ x $\mid$ x? $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
+{\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ {\rm base type constants}\\
+{\rm Variable} & x & ::= & {\rm variable names} \\\\
+
+{\rm Value} & v & ::= & c
+\end{tabular}
+\end{tt}
+
+The language includes a set of boolean and real constants and the
+undefined value {\tt nil}, ranged over by metavariable {\tt c}. A
+finite set of operators on expressions is ranged over by $\oplus$. For
+booleans this set includes no operations, but it does include
+operations on the reals such as {\tt +}, {\tt *}, and {\tt   \textsurd}. 
+The symbol $\olessthan$ ranges over a set of {\em predicate} operators
+({\tt $=$} and {\tt $\neq$} for booleans, $\leq$, $<$, $=$, and so on
+for reals.)  These test properties of base types in the language. The
+symbol $\ovee$ ranges over a set of logical operators for combining
+boolean expressions (e.g., {\tt $\wedge$}, {\tt $\vee$}).  The
+predicate operators are assumed to include at least an equality
+operator {\tt =} for each primitive type in the language, and the
+logical operators are assumed to include at least conjunction {\tt $\wedge$}.
+The syntax of this language does have some limitations as compared
+with that of a practical language --- for example, there are only
+binary operators (not unary or ternary), and the result must have the
+same type as the arguments.  We make these simplifications since the
+purpose of Babelsberg/PrimitiveTypes is to elucidate the semantics of
+such languages as as a step toward Babelsberg/Objects, rather than to
+specify a real language.
+
+For constraints, the symbol $\rho$ ranges over a finite and totally
+ordered set of constraint {\em priorities} and is assumed to include a
+bottom element {\em weak}, an intermediate element {\em strong} and
+top element {\em required}.  A constraint with no explicit priority is
+assumed to have the priority {\em required}.
+
+The syntax is thus that of a simple, 
+standard imperative language except for the
+{\tt always} and {\tt once} statements, which declare constraints, and
+the {\tt ?} annotation for variables. An {\tt always} constraint must
+hold for the rest of the programs execution, whereas a {\tt once}
+constraint is satisfied by the solver and then retracted. The {\tt ?}
+indicates that a variable is read-only if used in a constraint,
+i.e.\@, the programmer does not allow the solver to change the
+variables in the expression to satisfy constraints. Finally, the {\tt
+  fail} statement is not intended for use at the source level, but
+rather is used in the semantics to make explicit that the program
+halts due either to an unsatisfiable constraint or to the solver being
+unable to determine whether the constraint is satisfiable.  (The
+formal semantics doesn't distinguish between these two cases, but
+lumps them both together as {\tt fail}.  In a practical
+implementation, we would likely want to distinguish them, since it's
+useful if we can inform the programmer that the constraints are truly
+not satisfiable.  We could also add standard exception handling to
+remove the unsatisfiable or unknown constraint and continue, but omit
+this here for simplicity.)
+
+\subsection{Semantics}
+
+The semantics is defined by several judgments, defined below.  These
+judgments depend on the notion of an {\em environment}, which is a
+partial function from program variables to program
+values. Metavariable {\tt E} ranges over environments. We use {\tt
+  E(x)$\uparrow$} to indicate that {\tt E} has no mapping for {\tt
+  x}. When convenient we also view an environment as a set of (program
+variable, program value) pairs.  For each operator {\tt o} in the language
+we assume the existence of a corresponding semantic function denoted
+$\llbracket {\tt o} \rrbracket$.
+
+\judgment{\eval{E}{e}{v}}
+
+``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
+  E}.''
+
+\inferax{E-Const}{\eval{E}{c}{c}}
+\inferrule{E-Var}{
+  {\tt E(x) = v}
+}{
+  \eval{E}{x}{v}
+}
+
+% \inferrule{E-Undef}{
+%   {\tt E(x)$\uparrow$}
+% }{
+%   \eval{E}{x}{nil}
+% }
+
+\tdm{Do we still want to invent variables on the fly and give them the
+  value {\tt nil}, as in the
+  commented-out rule above?  Not clear this is really desirable, since
+  for example a constraint like {\tt x=y} where {\tt y} is previously
+  undeclared could simply result in setting both {\tt x} and {\tt y}
+  to {\tt nil}.}
+
+
+\inferrule{E-ReadOnly}{
+  {\tt E(x) = v}
+}{
+  \eval{E}{x?}{v}
+}
+
+\inferrule{E-Op}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = {\tt v}
+}{
+  \eval{E}{e$_1$ $\oplus$ e$_2$}{v}
+}
+
+\inferrule{E-Compare}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = {\tt v}
+}{
+  \eval{E}{e$_1$ $\olessthan$ e$_2$}{v}
+}
+
+\inferrule{E-Combine}{
+  \eval{E}{e$_1$}{v$_1$} \andalso
+  \eval{E}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = {\tt v}
+}{
+  \eval{E}{e$_1$ $\ovee$ e$_2$}{v}
+}
+
+
+\judgment{\solve{E}{C}}
+
+This judgment represents a call to the constraint solver, which we
+treat as a black box.  The proposition 
+\solve{E}{C} denotes that environment {\tt E} is a {\em solution} to the constraint
+{\tt C} (and further one that is optimal according to the solver's
+semantics, as discussed earlier).  
+
+We use the notation \fail{C} to mean that there is no environment {\tt E}
+such that \solve{E}{C}, i.e., the solver is unable to find a
+solution, either because {\tt C} is unsatisfiable or because it is
+satisfiable but the solver is unable to find one.
+
+\judgment{\stay{E}{C}}
+
+This judgment defines how to translate an environment into a
+source-level ``stay'' constraint.
+
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
+
+\inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
+  {\tt E} \setminus \{({\tt x},{\tt v})\}$
+  \andalso \stay{E$_0$}{C$_0$} \andalso {\tt C} = {\tt C$_0$}
+  $\wedge$ {\tt weak x=v}}
+{\stay{E}{C}}
+
+We provide judgments to support the notion of different types for
+expressions. These provide a non-standard form of type-checking to
+check whether a constraint expression is valid (i.e., it returns a
+boolean.) It is non-standard because it only happens dynamically on a
+constraint, in the context of the current run-time environment.  The
+types are also nonstandard: we only distinguish between booleans,
+undefined values, and lump all other primitive types together.
+
+
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+
+``Configuration {\tt <E|C|s>} takes one step of execution to state {\tt <E$'$|C$'$|s$'$>}.''
+
+A ``configuration'' defining the state of an execution includes a
+concrete context, represented by the environment, a symbolic context,
+represented by the constraint, and a statement to be executed.  The
+environment and statement are standard, while the constraint is not
+part of the state of a computation in most languages.  Intuitively,
+the environment comes from constraint solving during the evaluation of
+the immediately preceding statement, and the constraint records the
+\verb|always| constraints that have been declared so far during
+execution. 
+
+\inferrule{S-Asgn}{
+  \eval{E}{e}{v} \andalso
+  \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+}{
+  \step{E}{C}{x := e}{E$'$}{C}{skip}
+}
+
+\inferrule{S-AsgnFail}{
+  \eval{E}{e}{v} \andalso
+  \stay{E}{C$_s$} \andalso
+  \fail{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+}{
+  \step{E}{C}{x := e}{E}{C}{fail}
+}
+
+\inferrule{S-Once}{
+  \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}
+{\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
+
+\inferrule{S-OnceFail}{
+  \stay{E}{C$_s$} \andalso
+  \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}{
+  \step{E}{C}{once C$_0$}{E}{C}{fail}
+}
+
+\inferrule{S-Always}{
+  {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C$'$ $\wedge$ C$_s$)}
+}{
+  \step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}
+}
+
+\inferrule{S-AlwaysFail}{
+  {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
+  \fail{(C$'$ $\wedge$ C$_s$)}
+}{
+  \step{E}{C}{always C$_0$}{E}{C}{fail}
+}
+
+\inferax{S-SeqSkip}{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
+
+\inferrule{S-SeqStep}{
+  \step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}
+}{
+  \step{E}{C}{s$_1$;s$_2$}{E$'$}{C$'$}{s$_1'$;s$_2$}
+}
+
+\inferax{S-SeqFail}{\step{E}{C}{fail;s$_2$}{E}{C}{fail}}
+
+\inferrule{S-IfThen}{
+  \eval{E}{e}{true}
+}{
+  \step{E}{C}{if e then s$_1$ else s$_2$}{E}{C}{s$_1$}%
+}
+
+\inferrule{S-IfElse}{
+  \eval{E}{e}{false}
+}{
+  \step{E}{C}{if e then s$_1$ else s$_2$}{E}{C}{s$_2$}%
+}
+
+\inferrule{S-WhileDo}{
+  \eval{E}{e}{true}
+}{
+  \step{E}{C}{while e do s}{E}{C}{s; while e do s}
+}
+
+\inferrule{S-WhileSkip}{
+  \eval{E}{e}{false}
+}{
+  \step{E}{C}{while e do s}{E}{C}{skip}
+}
+
+\section{Babelsberg/Records}
+\label{sec:babelsberg-records}
+
+
+\subsection{Syntax}
+
+The syntax from Section~\ref{babelsberg/int} is augmented now to support
+records and the ability to access fields of a record:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Expression} & e & ::= & $\cdots$ $\mid$
+\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ e.l \\
+{\rm Label} & l & ::= & {\rm record label names} \\\\
+{\rm Value} & v & ::= c $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
+\end{tabular}
+\end{tt}
+
+We now assume the solver ``understands'' records and record operations
+directly.  We assume the equality operator {\tt =} can be used to
+compare two records for logical equality, but no other operators apply
+to record values.
+
+\subsection{Semantics}
+
+
+\judgment{\eval{E}{e}{v}}
+
+Expression evaluation is updated to support records. 
+
+\inferrule{E-Rec}{
+  \eval{E}{e$_1$}{v$_1$} $\cdots$ \eval{E}{e$_n$}{v$_n$}
+}{
+  \eval{E}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+}
+
+\inferrule{E-Field}{
+  \eval{E}{e}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+  \andalso 1 $\leq$ $i$ $\leq$ $n$
+}{
+  \eval{E}{e.l$_i$}{v$_i$}
+}
+
+\tdm{I omitted the explicit rule for record equality, since it's
+  technically covered by the {\tt [[=]]} semantic function and hence
+  by the evaluation rule from Babelsberg/PrimitiveTypes.  It may be
+  useful to make it explicit, but then we need to disambiguate with
+  that earlier rule, which will be ugly.}
+
+% \inferrule{E-CompareRec}{
+%   \eval{E}{e$_1$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+%   \eval{E}{e$_2$}{\{l$_1$:v$_{n+1}$,$\ldots$,l$_n$:v$_{2n}$\}} \andalso
+%   \eval{E}{(v$_1$=v$_{n+1}$$\wedge$$\ldots$$\wedge$v$_n$=v$_{2n}$)}{v}
+%   % \andalso \tc{E}{e$_1$ = e$_2$}{T}
+% }{
+%   \eval{E}{e$_1$ = e$_2$}{v}
+% }
+
+
+\judgment{\tc{E}{e}{T}}
+
+\judgment{\tcC{E}{C}}
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt E}.''
+
+``Constraint {\tt C} is well formed in the context of environment
+{\tt E}.''
+
+We use a notion of typechecking to prevent undesirable nondeterminism
+in constraints.  Specifically, we would like for constraint solving to
+preserve the structure of the values of variables, changing only the
+underlying primitive data as part of a solution.  We formalize our
+notion of structure through a simple syntax of types:
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & PrimitiveType $\mid$ \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}
+\end{tabular}
+\end{tt}
+
+The typechecking rules are mostly standard.  However, we check
+expressions dynamically just before constraint solving, so we
+typecheck in the context of an runtime environment, which is somewhat unusual.
+
+\inferax{T-Constant}{
+  \tc{E}{c}{PrimitiveType}
+}
+
+\inferrule{T-Variable}{
+  \eval{E}{x}{v} \andalso \tc{E}{v}{T}
+}{
+  \tc{E}{x}{T}
+}
+
+\inferrule{T-ReadOnly}{
+  \tc{E}{x}{T}
+}{
+  \tc{E}{x?}{T}
+}
+
+\inferrule{T-Op}{
+  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+}{
+  \tc{E}{e$_1$ $\oplus$ e$_2$}{T}
+}
+
+\inferrule{T-Compare}{
+  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+}{
+  \tc{E}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
+}
+
+The above rule ensures that two records can only be compared for
+equality when they have the same structure.  This is necessary to
+ensure that the solver will never have to invent record fields in
+order to satisfy a record equality constraint.
+
+\inferrule{T-Combine}{
+  \tc{E}{e$_1$}{PrimitiveType} \andalso \tc{E}{e$_2$}{PrimitiveType}
+}{
+  \tc{E}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Field}{
+  \tc{E}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+  \andalso $1 \leq i \leq n$
+}{
+  \tc{E}{e.l$_i$}{T$_i$}
+}
+
+The above rule ensures that a field of a record can only be referenced
+when it already exists in the record. This is necessary to ensure that
+the solver will never have to invent record fields in order to satisfy
+a constraint containing field accesses.
+
+
+The following two rules simply ensure that a constraint is well typed.
+
+\inferrule{T-Constraint}{
+  \tc{E}{e}{T}
+}{
+  {\tcC{E}{e}}
+}
+
+\inferrule{T-Priority}{\tc{E}{e}{T}}{\tcC{E}{$\rho$ e}}
+
+\tdm{We should be able to prove that constraint solving preserves
+  typing, at least for ``once'' and ``always'' constraints -- not for
+  assignments, since there we explicitly allow changing types (see
+  below).  This would be a nice way to validate our choice of typing rules.}
+
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+
+The semantics for executing statements is essentially identical to what we had
+before, except that now we typecheck constraints before we solve
+them.  Implicitly we get ``stuck'' if such a check fails.
+In a practical language, this could be extended to
+generate an exception instead.  We only show the modified rules
+below.  Note that the rules for assignment are unchanged; in
+particular we do not do any typechecking for an assignment, thereby
+allowing the structure of variables to change as a result.
+
+\inferrule{S-Once}{\tcC{E}{C$_0$} \andalso
+  \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}
+{\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
+
+\inferrule{S-OnceFail}{\tcC{E}{C$_0$} \andalso
+  \stay{E}{C$_s$} \andalso
+  \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}{
+  \step{E}{C}{once C$_0$}{E}{C}{fail}
+}
+
+\inferrule{S-Always}{\tcC{E}{C$_0$} \andalso
+  \stay{E}{C$_s$} \andalso
+  \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}{
+  \step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}
+}
+
+\inferrule{S-AlwaysFail}{\tcC{E}{C$_0$} \andalso
+\stay{E}{C$_s$} \andalso
+  \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}{
+  \step{E}{C}{always C$_0$}{E}{C}{fail}
+}
+
+
+
+
+\end{document}
+

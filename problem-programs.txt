@@ -1,7 +1,7 @@
 A Penultimate Plethora of Potentially Problematic Programs
 
-Here is a list of potentially problematic programs in Babelsberg, in
-in some cases along with suggestions about what their result should be.
+Here is a list of potentially problematic programs in Babelsberg,
+usually along with our decisions about what their result should be.
 These are classified by language.
 
 ____________________________________________________________
@@ -9,36 +9,44 @@ BABELSBERG/PRIMITIVE_TYPES
 
 x := 3;
 x := "hello";
-/* if we are modeling a dynamically typed language, this should
-   certainly work */
+/* Assignment can change the type of a variable.  (If we are modeling
+a dynamically typed language, this should certainly work.) */
 
 x := 3;
 always y=x;
 x := "hello";
-/* This should work as well, unless we say that we can't have
-   constraints on variables whose type may change (which would be 
-   a weird restriction.  Note that we have a weak stay on y that it be
-   an int, along with the required constraint that forces it to be a
-   string. */
+/* Probably a type error.  We could make this work for
+Babelsberg/PrimitiveTypes (we would have a weak stay on y that it be
+an int, along with the required constraint that forces it to be a
+string).  However, when we get to Babelsberg/Objects, this doesn't
+seem to work, and since we are using Babelsberg/PrimitiveTypes as a
+stepping stone toward the full language, for compatibility we declare
+this to be an error here also. */
+
+x := 3;
+always y=x;
+y := "hello";
+/* Also a type error.  Here we are changing y rather than x.  For
+Babelsberg/PrimitiveTypes this doesn't make a difference, but in
+Babelsberg/Objects y is the object that will get the '=' message (and
+its type will be string, comparing with an integer). */
 
 x := 3;
 always y=x+x;
 x := "Hello";
-/* Probably this works too, if + also means string concatenation.
-First we have y=6, then y="HelloHello" */
+/* This is probably a type error as well.  (If + is overloaded to mean
+string concatenation as well as addition and the previous example
+worked, first we would have y=6, then y="HelloHello".  But we're
+deciding this is an error. */
 
-
-/* not ok, since once constraints can't change type */
 x := 3;
 once x = "hello";
+/* again, not ok, since once constraints can't change type */
 
 x := 3;
 always medium x=8;
 always medium x="squid";
-/* not ok, since again constraints can't change type (even though in
-   this case it's only one of the constraints that would require changing
-   the type */
-
+/* another type error */
 
 
 ____________________________________________________________
@@ -46,7 +54,7 @@ BABELSBERG/RECORDS
 
 a := {x:1};
 a := {y:10};
-/* this should be OK */
+/* this is OK - again, assignment can change the type of a variable */
 
 once a = {x:1};
 once a = {y:10};
@@ -56,7 +64,8 @@ a := {x: 4};
 always a.x=10;
 always a=b;
 a := {y:30, x:4};
-/* OK - a and b both now refer to a record with y and x fields */
+/* OK - after the last statement a and b both refer to a record with y
+and x fields  (and we can still satisfy both always constraints) */
 
 a := {x:1};
 b := {y:1};
@@ -71,28 +80,28 @@ always a.y = 100;
 a := {x:1};
 b := {};
 always a.x=b.x
-/* this should fail - it shouldn't assign a record to b with an x field */
+/* fails - the system won't assign a record to b with an x field */
 
 a := {x:1};
 b := a;
 always b=a;
 a := {};
-/* this should succeed, and end up with an empty record in both a and b */
+/* this succeeds, and ends up with an empty record in both a and b */
 
 a := {x:1};
 always b=a;
 a := {};
-/* what about this?  b is uninitialized at the point we encounter the
-   always constraint, but requiring the initialization first is annoying
-   for the programer.  But then why can't we change a to nil instead
-   to satisfy the constraint? */
+/* b is uninitialized at the point we encounter the
+always constraint, so this is not legal. */
 
-One idea is that the above program is illegal in the formal
-semantics.  However, in practical implementations, we have a hack to
-allow it.  It only works for = constraints where one side is
-uninitialized (perhaps the semantics is that it first assigns the
+About the last program: requiring that variables be initialized before
+equating them with something is annoying for the programer.  We
+decided that indeed the above program is illegal in the formal
+semantics.  However, in practical implementations, we can have a hack
+to allow it.  It only works for = constraints where one side is
+uninitialized.  (Perhaps the semantics is that it first assigns the
 other side to the uninitialized variable, and then adds the always
-constraint). 
+constraint.)
 
 
 ____________________________________________________________
@@ -105,35 +114,39 @@ always p.x = 10;
 always q.z = 100; 
 always p == r; 
 always weak q == r; 
-/* This is not allowed, because non-required identity constraints 
-   are not allowed on the program level. This is so that the
-   identities can be solved first */
+/* This is not allowed, because explicit soft identity constraints are
+not allowed on the program level. This allows us to solve for
+identities first.  We also couldn't come up with any clear use cases
+for programmer-written weak identity constraints.  In the semantics we
+do have weak identity stay constraints, but these are implicit rather
+than written explicitly by the programmer. */
 
 p := new {x:0}; 
 q := new {x:1}; 
 always p.x = 5; 
 always q.x = 10; 
 always weak p == q; 
-/* This example shows why we don't allow non-required identity
-   constraints, because they might conflict with higher-priority value
-   constraints and then we could not satisfy these
-   independently. Another way to look at this is that this would allow
-   value constraints to have an indirect effect on the references */
+/* Also not allowed.  This example shows one reason we don't allow
+non-required identity constraints, because they might conflict with
+higher-priority value constraints and then we could not satisfy these
+independently.  Another way to look at this is that this would allow
+value constraints to have an indirect effect on the references. */
 
 p := new {x:0}; 
 q := new {x:1}; 
 always medium p.x = 5; 
 always medium q.x = 10; 
 always weak p == q; 
-/* same as the previous example */
+/* not allowed - similar to the previous example, but using soft (but
+stronger) constraints on p.x and q.x */
 
 a := new {x:1, y:2};
 b := new {ref:a};
 always b.ref.x = 2;
 c := new {x:2}
 once b.ref==c;
-/* this should work - at the end b has a ref field that points to a
-   record {x:2}; c also points to this same record */
+/* this works - at the end b has a ref field that points to a record
+{x:2}; c also points to this same record */
 
 
 a := new {x:1, y:2};
@@ -141,62 +154,53 @@ b := new {ref:a};
 always b.ref.x = 2;
 c := new {x:2}
 once b.ref==c && b.ref.x=2
-/* same program up to the last line.  Do we want to allow identity
-   constraints and constraints on values to be intermingled? No,
-   because even though this would work for conjunction, we'd want to
-   allow disjunction as well, and short of eagerly selecting a branch
-   (as in the current implementations) this would prevent separately
-   satisfying identity and value constraints */
+/* Not allowed.  This is the same program up to the last line.  We
+don't want to allow identity constraints and constraints on values to
+be intermingled.  Even though this would work for conjunction, we'd
+want to allow disjunction as well, and short of eagerly selecting a
+branch (as in the current implementations, which arguably don't
+implement the correct semantics) this would prevent separately
+satisfying identity and value constraints. */
 
 
 ____________________________________________________________
 BABELSBERG/OBJECTS
 
 x := 3;
+y := 3;
 always y=x;
 x := "hello";
-
-x = "jello"
-y == x
-
-x := 3;
-always x = "5";
-
-x := 3;
-always y=x+x;
-x := "hello";
-/* it seems like this should work as well in Babelsberg/Objects */
-
-x := 5;
-always x = "hello"
-/* Should this give an error?  (It does in the current implementation.) */
+/* This gives a type error.  The problem is that after assigning
+"hello" to x, y is still an integer, and so integer = is trying to
+satisfy the constraint that it be equal to a string. */
 
 x := 5;
 always y=x;
-/* Pragmatically, having this give an error is annoying, since the
-   programmer has to set y to a number just so that you can put a
-   constraint on it.  Variations of this follow: */
 
+/* This gives an error.  As discussed above, in practical
+implementations needing to initialize y to an integer just to allow
+the equality to be asserted is annoying, and so we can have a hack to
+allow it. */
+
+
+/* this example illustrates coercion issues (in this case int->float) */
 x := 5;
 always x=3.1416;
-/* int->float issues? */
-/* let's not have coercion in the semantics. If the base language does
-   implement the `=' method to also coerce its argument and check again,
-   than that's fine. But this won't affect the types of the involved
-   operands, it just allows an int and a float to be tested for equality,
-   because really we're doing something like
-        ^ x.asInt = y.asInt || x.asFloat = y.asFloat"
-   in the implementation of the method `=' */
 
-x := 5;
-always y=2*x;
-
-x := 5;
-always 0.5*y=x;
+/* We decided not to have coercion in the formal semantics, so this
+fails.  In an actual Babelsberg, if the base language does implement
+the `=' method to coerce its argument if the basic check fails and
+then check again, than that's fine. But this won't affect the types of
+the involved operands; it just allows an int and a float to be tested
+for equality, because really we're doing something like this:
+    ^ x.asInt = y.asInt || x.asFloat = y.asFloat
+in the implementation of the method `=' */
 
 x := stack.pop;
-/* this works, because the RHS of the assignment is evaluated first, and 
-   then we set up a once constraint (thus the RHS can have side effects) */
+/* This works, because the RHS of the assignment is evaluated first, and 
+then we set up a once constraint using the value popped from the
+stack.  (The RHS of an assignment can have side effects, in contrast
+to always or once constraints.) */
 
 once x = stack.pop;
 /* not allowed, since we don't allow side effects in constraints */
@@ -207,9 +211,42 @@ always x = stack.pop;
 s := Rectangle.new( ...);
 always a = s.area
 s := Circle.new( ...);
-/* this should be fine.  Note that the class of s changes, but both
-   have an area method */
+/* This should be fine.  Note that the class of s changes, but both
+have an area method */
 
+p1 := Point.new(2,3);
+p2 := Point3d.new(0,0,0);
+always p1=p2;
+/* This is a bit weird, but if = for 2D points is written in a
+reasonable way (i.e., = just calls the the x and y methods of the
+argument and checks them for equality with the result of calling its
+own x and y methods), this should succeed with p1.x=p2.x and
+p1.y=p2.y; there are no constraints on p2.z */
+
+p1 := Point.new(2,3);
+p2 := Point3d.new(0,0,0);
+always p2=p1;
+/* This fails, assuming p1 has no z method */
+
+
+
+Finally, there is the question of whether constraints can call methods
+that create other constraints.  If they can, what is the semantics?
+For example, if the method includes a conditional whose test depends
+on the result of satisfying some constraints, then that argues for
+nested constraint construction and solution.  This seems complex, but
+the alternative of collapsing all the constraint construction doesn't
+handle the conditional properly.  Can such methods create identity
+constraints?
+
+Do we need this at all?  What if we had a restriction that methods
+called from constraints can't themselves create additional
+constraints?  Or is there a version of this restriction that lets us
+create other constraints inside methods but they somehow don't escape?
+(This woudl be somewhat in analogy with using methods that create new
+objects in constraints.)
+
+Some incomplete examples follow:
 
 /* is this legal? */
 def identity()
@@ -259,9 +296,3 @@ def pointlessId()
   always y == z
   return self
 
-
-
-p1 := Point.new(2,3);
-p2 := Point3d.new(0,0,0);
-always p1=p2;
-/* does this succeed with p1 and p2 

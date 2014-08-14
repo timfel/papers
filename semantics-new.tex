@@ -40,8 +40,8 @@
 \newcommand{\tcC}[2]{{\tt #1} $\vdash$ {\tt #2}}
 
 \newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
-% \newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
-\newcommand{\solveH}[3]{{\tt #1} $\models_{E,H}$ {\tt #3}}
+\newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
+% \newcommand{\solveH}[3]{{\tt #1} $\models_{E,H}$ {\tt #3}}
 \newcommand{\failH}[1]{$\not\models_{E,H}$ {\tt #1}}
 \newcommand{\stepH}[8]{{\tt <#1|#2|#3|I|#4>} $\longrightarrow$
   {\tt <#5|#6|#7|I|#8>}}
@@ -557,16 +557,14 @@ constraints that can only be {\tt required}.
 \begin{tt}
 \begin{tabular}{lrrl}
 {\rm Statement} & s & ::= & $\ldots$ $\mid$ x := new o $\mid$ always I $\mid$ once I\\
-{\rm Identity Constraint} & I & ::= & e == e\\
-{\rm Expression} & e & ::= & $\ldots$ $\mid$ e == e\\
+{\rm Identity} & I & ::= & e == e\\
+{\rm Expression} & e & ::= & $\ldots$ $\mid$ I\\
 {\rm Record} & o & ::= & \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
 {\rm Reference} & r & ::= & {\rm references to heap records} \\\\
 
 {\rm Value} & v & ::= & c $\mid$ r \\
 \end{tabular}
 \end{tt}
-
-\tf{Hm. Ambiguity with identities}
 
 \subsection{Semantics}
 
@@ -607,7 +605,6 @@ that includes the heap. The only new rules are \textsc{E-Ref} and
 }{
   \evalH{E}{H}{e?}{v}
 }
-
 
 \inferax{E-Ref}{\evalH{E}{H}{r}{r}}
 
@@ -655,8 +652,10 @@ that includes the heap. The only new rules are \textsc{E-Ref} and
 \judgment{\tcHC{E}{H}{C}}
 
 The typing rules also are augmented with the heap. They are otherwise
-unchanged. The additional thing to type are references and identity
-expressions.
+unchanged. The additional thing to type are references. We do not add
+type rules for identities. This ensures that constraints involving
+them do not typecheck, so identity checks cannot occur in ordinary
+constraints.
 
 \inferrule{T-Ref}{
   \tcH{E}{H}{o}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
@@ -665,68 +664,165 @@ expressions.
   \tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
 }
 
-\inferax{T-Identity}{\tc{E}{e$_1$ == e$_2$}{PrimitiveType}}
-
-\tf{this does not prevent identities in conjunctions or disjunctions
-  to type. what can we do there?}
-
 \judgment{\solveH{E}{H}{C}}
-\judgment{\solveH{E}{H}{I}}
 
-This still represents the call to the solver. The solver only
-determines the environment, not the heap. New references on the heap
-can only be created through {\tt new o}, and the solver can only
-determine which reference a variable in the environment points to
-through identity constraints. The second judgment solves for identity
-constraints.
+This still represents the call to the solver. The solver now
+determines values on the heap and in the environment. \tf{todo: show
+  that the solver won't invent or change references. Only fields and
+  variables pointing to references are allowed to change to point to
+  other references.}
 
 \judgment{\stay{E}{C}}
+\judgment{\stay{H}{C}}
 
-The rules for the stays are unchanged. The solver does not touch the
-heap, the only way it interacts with that is through the weak stays on
-references that are now also generated from the environment.
+These judgments define how to translate environment and heap into a
+source-level ``stay'' constraint. The rules are unchanged for
+primitive types that are stored in the environment, but are amended
+for the heap.
 
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
+
+\inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
+  {\tt E} \setminus \{({\tt x},{\tt v})\}$
+  \andalso \stay{E$_0$}{C$_0$} \andalso {\tt C} = {\tt C$_0$}
+  $\wedge$ {\tt weak x=v}}
+{\stay{E}{C}}
+
+\inferrule{StayHeap}{
+  ${\tt o} = $\{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\} \andalso
+  ${\tt H}({\tt r}) = {\tt o}$ \andalso
+  ${\tt H}_0 = {\tt H} \setminus \{({\tt r},{\tt o})\}$ \andalso
+  \stay{H$_0$}{C$_0$}
+}{
+  \stay{H}{
+    {\tt C$_0$} $\wedge$ {\tt weak r$_{l_0}$ = v$_0$ $\wedge$
+    $\ldots$ $\wedge$ weak r$_{l_n}$ = v$_n$ }}
+}
 
 \judgment{{\tt <E|H|C|I|s>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$'$>}}
 
 The semantics for executing statements is extended to what we had
-before. We now solve first for the identity constraints if a reference
-is assigned and then for the value constraints. Also, for assignment,
-we propagate the type changes through the identity constraints by
-solving for them and then type the value constraints against the
-environment returned by solving for the identities.
+before. When updating a variable, we now solve first for the identity
+constraints and then for the value constraints. This propagates any
+type changes through the identity constraints. We then type the value
+constraints against the environment returned by solving for the
+identities.
 
-\inferrule{S-Asgn}{
-  \evalH{E}{H}{e}{c} \andalso \tcC{E[x $\mapsto$ c]}{C} \andalso
-  \stay{E}{C$_s$} \andalso
-  \solveH{E$'$}{H}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+\infrule[S-Asgn]{
+  \mbox{
+    \evalH{E}{H}{e}{v}}\\
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    \solveH{E$'$}{H$'$}{(I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ x=v)}}\\
+  \mbox{
+    \stay{E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \tcHC{E$'$}{H$'$}{C} \andalso
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+  \stepH{E}{H}{C}{x := e}{E$'$}{H$'$}{C}{skip}
+}}
+
+Implicitly this rule gets stuck if either a) the identity constraints
+cannot be solved, b) the value constraints do not type if the
+identities are solved, or c) the value constraints cannot be solved. A
+practical implementation would add explicit exceptions for these cases
+for the programmer to handle.
+
+The next rules are essentially unchanged from their previous version
+and just augmented with the heap references. For constraints we omit
+the fail rules and just implicitly get stuck if either the constraint
+does not type or the solver fails to produce a solution.
+
+\inferrule{S-Once}{
+  \tcHC{E}{H}{C$_0$} \andalso
+  \stay{E}{C$_{E_s}$} \andalso
+  \stay{H}{C$_{H_s}$} \andalso
+  \solveH{E$'$}{H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0$$)$}
+}
+{\stepH{E}{H}{C}{once C$_0$}{E$'$}{H$'$}{C}{skip}}
+
+\inferrule{S-Always}{
+  \tcHC{E}{H}{C$_0$} \andalso
+  \stay{E}{C$_{E_s}$} \andalso
+  \stay{H}{C$_{H_s}$} \andalso
+  {\tt C}$'$ = ({\tt C} $\wedge$ {\tt C}$_0$) \andalso
+  \solveH{E$'$}{H$'$}{C$'$ $\wedge$ {\tt C}$_{E_s}$ $\wedge$ {\tt C}$_{H_s}$}
 }{
-  \stepH{E}{H}{C}{x := e}{E$'$}{H}{C}{skip}
+  \stepH{E}{H}{C}{always C$_0$}{E$'$}{H$'$}{C$'$}{skip}
 }
 
-The rule for assigning primitives are unchanged.
+\inferax{S-SeqSkip}{\stepH{E}{H}{C}{skip;s$_2$}{E}{H}{C}{s$_2$}}
 
-\inferrule{S-AsgnRef}{
-  \evalH{E}{H}{e}{r} \andalso
-  \stay{E}{C$_s$} \andalso
-  \solveH{E$'$}{H}{(I $\wedge$ C$_s$ $\wedge$ x=r)} \andalso
-  \tcC{E$'$}{C} \andalso
-  \solve{E$''$}{(C $\wedge$ C$_s$)}
+\inferrule{S-SeqStep}{
+  {\tt <E|H|C|I|s$_1$>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$_1'$>}
 }{
-  \stepH{E}{H}{C}{x := e}{E$'$}{H}{C}{skip}
+  {\tt <E|H|C|I|s$_1$;s$_2$>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$_1'$;s$_2$>}
 }
 
-As noted above, the rules for assigning a reference first triggers
-solving for identities.
+\inferax{S-SeqFail}{\stepH{E}{H}{C}{fail;s$_2$}{E}{H}{C}{fail}}
 
-\tf{Todo: fail rules}
+\inferrule{S-IfThen}{
+  \evalH{E}{H}{e}{true}
+}{
+  \stepH{E}{H}{C}{if e then s$_1$ else s$_2$}{E}{H}{C}{s$_1$}%
+}
 
-The other rules are unchanged, because only assignment can change the
-types of variables, and only then do we need to solve for identities.
+\inferrule{S-IfElse}{
+  \evalH{E}{H}{e}{false}
+}{
+  \stepH{E}{H}{C}{if e then s$_1$ else s$_2$}{E}{H}{C}{s$_2$}%
+}
 
-\tf{Todo: add rules for creating new identity constraints after we
-  figure out how to tell them apart from normal
-  expressions/constraints}
+\inferrule{S-WhileDo}{
+  \evalH{E}{H}{e}{true}
+}{
+  \stepH{E}{H}{C}{while e do s}{E}{H}{C}{s; while e do s}
+}
+
+\inferrule{S-WhileSkip}{
+  \evalH{E}{H}{e}{false}
+}{
+  \stepH{E}{H}{C}{while e do s}{E}{H}{C}{skip}
+}
+
+The next rules are additions to create identity constraints. Note that
+the above rules for always and once match only constraints that do not
+include identity comparisons, because those would not type. For adding
+identity constraints, we need to solve for identities and then type
+and solve the value constraints again.
+
+\infrule[S-OnceIdentity]{
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    \solveH{E$'$}{H$'$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ I$_0$$)$}}\\
+  \mbox{
+    \stay{E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \tcHC{E$'$}{H$'$}{C} \andalso
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+    \stepH{E}{H}{C}{once I$_0$}{E$''$}{H$''$}{C}{skip}
+}}
+
+\infrule[S-AlwaysIdentity]{
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    {\tt I}$'$ = ({\tt I} $\wedge$ {\tt I}$_0$) \andalso
+    \solveH{E$'$}{H$'$}{$($I$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$$)$}}\\
+  \mbox{
+    \stay{E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \tcHC{E$'$}{H$'$}{C} \andalso
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+    \stepHI{E}{H}{I}{always I$_0$}{E$''$}{H$''$}{I$'$}{skip}
+}}
+
+
 
 \end{document}
 

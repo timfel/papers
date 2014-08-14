@@ -547,17 +547,20 @@ with {\tt x} mapped to the value {\tt v}.
 
 \subsection{Syntax}
 
-
 The syntax is augmented to create records on the heap with the {\tt
-  new} keyword. We also add references as values and an equality
-operation {\tt ==} to compare records by identity rather than by
-structure. Finally, we add identity constraints as a separate class of
-constraints that can only be {\tt required}.
+  new} keyword. We also add references as values and an identity
+operation {\tt ==} to compare values by identity rather than by
+structure (for primitive values, this is the same as {\tt =}). The
+arguments to identity operations are not arbitrary expressions but
+rather {\em accessors}, which are essentially access paths through a
+reference.  This is no loss of expressiveness but is useful for the
+translation to the constraint solver.
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & $\ldots$ $\mid$ x := new o $\mid$ always I $\mid$ once I\\
+{\rm Statement} & s & ::= & $\ldots$ $\mid$ x := new o\\
 {\rm Identity} & I & ::= & e == e\\
+{\rm Accessor} & a & ::= & x $\mid$ a.l \\
 {\rm Expression} & e & ::= & $\ldots$ $\mid$ I\\
 {\rm Record} & o & ::= & \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
 {\rm Reference} & r & ::= & {\rm references to heap records} \\\\
@@ -593,17 +596,17 @@ that includes the heap. The only new rules are \textsc{E-Ref} and
 \inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalH{E}{H}{x}{v}}
 
 \inferrule{E-Field}{
-  \evalH{E}{H}{e}{r} \andalso
+  \evalH{E}{H}{a}{r} \andalso
   {\tt H}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
   1 $\leq$ i $\leq$ n
 }{
-  \evalH{E}{H}{e.l$_i$}{v$_i$}
+  \evalH{E}{H}{a.l$_i$}{v$_i$}
 }
 
 \inferrule{E-ReadOnly}{
-  \evalH{E}{H}{e}{v}
+  \evalH{E}{H}{a}{v}
 }{
-  \evalH{E}{H}{e?}{v}
+  \evalH{E}{H}{a?}{v}
 }
 
 \inferax{E-Ref}{\evalH{E}{H}{r}{r}}
@@ -634,18 +637,18 @@ that includes the heap. The only new rules are \textsc{E-Ref} and
 
 \infrule[E-IdentityTrue]{
   \mbox{%
-    \evalH{E}{H}{e$_1$}{r} \andalso
-    \evalH{E}{H}{e$_2$}{r}}
+    \evalH{E}{H}{a$_1$}{r} \andalso
+    \evalH{E}{H}{a$_2$}{r}}
 }{\mbox{%
-  \evalH{E}{H}{e$_1$ == e$_2$}{true}
+  \evalH{E}{H}{a$_1$ == a$_2$}{true}
 }}
 
 \infrule[E-IdentityFalse]{
   \mbox{%
-    \evalH{E}{H}{e$_1$}{r$_1$} \andalso
-    \evalH{E}{H}{e$_2$}{r$_2$} \andalso {\tt r$_1$} $\neq$ {\tt r$_2$}}
+    \evalH{E}{H}{a$_1$}{r$_1$} \andalso
+    \evalH{E}{H}{a$_2$}{r$_2$} \andalso {\tt r$_1$} $\neq$ {\tt r$_2$}}
 }{\mbox{%
-  \evalH{E}{H}{e$_1$ == e$_2$}{false}
+  \evalH{E}{H}{a$_1$ == a$_2$}{false}
 }}
 
 \judgment{\tcH{E}{H}{e}{T}}
@@ -797,21 +800,21 @@ and solve the value constraints again.
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
     \stay{H}{C$_{H_s}$} \andalso
-    \solveH{E$'$}{H$'$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ I$_0$$)$}}\\
+    \solveH{E$'$}{H$'$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ a$_0$=a$_1$$)$}}\\
   \mbox{
     \stay{E$'$}{C$_{{E'}_s}$} \andalso
     \stay{H$'$}{C$_{{H'}_s}$} \andalso
     \tcHC{E$'$}{H$'$}{C} \andalso
     \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
 }{\mbox{
-    \stepH{E}{H}{C}{once I$_0$}{E$''$}{H$''$}{C}{skip}
+    \stepH{E}{H}{C}{once a$_0$ == a$_1$}{E$''$}{H$''$}{C}{skip}
 }}
 
 \infrule[S-AlwaysIdentity]{
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
     \stay{H}{C$_{H_s}$} \andalso
-    {\tt I}$'$ = ({\tt I} $\wedge$ {\tt I}$_0$) \andalso
+    {\tt I}$'$ = ({\tt I} $\wedge$ {\tt a}$_0$={\tt a}$_1$) \andalso
     \solveH{E$'$}{H$'$}{$($I$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$$)$}}\\
   \mbox{
     \stay{E$'$}{C$_{{E'}_s}$} \andalso
@@ -819,7 +822,7 @@ and solve the value constraints again.
     \tcHC{E$'$}{H$'$}{C} \andalso
     \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
 }{\mbox{
-    \stepHI{E}{H}{I}{always I$_0$}{E$''$}{H$''$}{I$'$}{skip}
+    \stepHI{E}{H}{I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{I$'$}{skip}
 }}
 
 

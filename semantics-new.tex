@@ -40,10 +40,13 @@
 \newcommand{\tcC}[2]{{\tt #1} $\vdash$ {\tt #2}}
 
 \newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
-\newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
+% \newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
+\newcommand{\solveH}[3]{{\tt #1} $\models_{E,H}$ {\tt #3}}
 \newcommand{\failH}[1]{$\not\models_{E,H}$ {\tt #1}}
-\newcommand{\stepH}[8]{{\tt <#1|#2|#3|#4>} $\longrightarrow$
-  {\tt <#5|#6|#7|#8>}}
+\newcommand{\stepH}[8]{{\tt <#1|#2|#3|I|#4>} $\longrightarrow$
+  {\tt <#5|#6|#7|I|#8>}}
+\newcommand{\stepHI}[8]{{\tt <#1|#2|C|#3|#4>} $\longrightarrow$
+  {\tt <#5|#6|C|#7|#8>}}
 \newcommand{\tcH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} : {\tt #4}}
 \newcommand{\tcHC}[3]{{\tt #1;#2} $\vdash$ {\tt #3}}
 \newcommand{\toSolverH}[2]{{\tt E,H} $\vdash$ {\tt #1} $\leadsto$ $#2$}
@@ -540,8 +543,195 @@ with {\tt x} mapped to the value {\tt v}.
   \step{E}{C}{always C$_0$}{E}{C}{fail}
 }
 
+\section{Babelsberg/UID}
+
+\subsection{Syntax}
 
 
+The syntax is augmented to create records on the heap with the {\tt
+  new} keyword. We also add references as values and an equality
+operation {\tt ==} to compare records by identity rather than by
+structure. Finally, we add identity constraints as a separate class of
+constraints that can only be {\tt required}.
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Statement} & s & ::= & $\ldots$ $\mid$ x := new o $\mid$ always I $\mid$ once I\\
+{\rm Identity Constraint} & I & ::= & e == e\\
+{\rm Expression} & e & ::= & $\ldots$ $\mid$ e == e\\
+{\rm Record} & o & ::= & \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
+{\rm Reference} & r & ::= & {\rm references to heap records} \\\\
+
+{\rm Value} & v & ::= & c $\mid$ r \\
+\end{tabular}
+\end{tt}
+
+\tf{Hm. Ambiguity with identities}
+
+\subsection{Semantics}
+
+\subsubsection{Semantics}
+
+In addition to an environment, the semantics now requires a {\em
+  heap}, which is a partial function from mutable references to record
+``objects'' of the form {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}.
+Heaps are ranged over by metavariable {\tt H}\@. Secondly, in addition
+to the normal active constraints, we also now have a number of
+required identity constraints that are active. These are represented
+by by {\tt I}.
+
+
+\judgment{\evalH{E}{H}{e}{v}}
+
+``Expression {\tt e} evaluates to value {\tt v} in the context of environment {\tt
+  E} and heap {\tt H}.''
+
+Most of the updates to the expression rules just use the new judgment
+that includes the heap. The only new rules are \textsc{E-Ref} and
+\textsc{E-Identity}.
+
+\inferax{E-Const}{\evalH{E}{H}{c}{c}}
+
+\inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalH{E}{H}{x}{v}}
+
+\inferrule{E-Field}{
+  \evalH{E}{H}{e}{r} \andalso
+  {\tt H}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ i $\leq$ n
+}{
+  \evalH{E}{H}{e.l$_i$}{v$_i$}
+}
+
+\inferrule{E-ReadOnly}{
+  \evalH{E}{H}{e}{v}
+}{
+  \evalH{E}{H}{e?}{v}
+}
+
+
+\inferax{E-Ref}{\evalH{E}{H}{r}{r}}
+
+\inferrule{E-Op}{
+  \evalH{E}{H}{e$_1$}{v$_1$} \andalso
+  \evalH{E}{H}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalH{E}{H}{e$_1$ $\oplus$ e$_2$}{v}
+}
+
+\inferrule{E-Compare}{
+  \evalH{E}{H}{e$_1$}{v$_1$} \andalso
+  \evalH{E}{H}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalH{E}{H}{e$_1$ $\olessthan$ e$_2$}{v}
+}
+
+\inferrule{E-Combine}{
+  \evalH{E}{H}{e$_1$}{v$_1$} \andalso
+  \evalH{E}{H}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalH{E}{H}{e$_1$ $\ovee$ e$_2$}{v}
+}
+
+\infrule[E-IdentityTrue]{
+  \mbox{%
+    \evalH{E}{H}{e$_1$}{r} \andalso
+    \evalH{E}{H}{e$_2$}{r}}
+}{\mbox{%
+  \evalH{E}{H}{e$_1$ == e$_2$}{true}
+}}
+
+\infrule[E-IdentityFalse]{
+  \mbox{%
+    \evalH{E}{H}{e$_1$}{r$_1$} \andalso
+    \evalH{E}{H}{e$_2$}{r$_2$} \andalso {\tt r$_1$} $\neq$ {\tt r$_2$}}
+}{\mbox{%
+  \evalH{E}{H}{e$_1$ == e$_2$}{false}
+}}
+
+\judgment{\tcH{E}{H}{e}{T}}
+\judgment{\tcHC{E}{H}{C}}
+
+The typing rules also are augmented with the heap. They are otherwise
+unchanged. The additional thing to type are references and identity
+expressions.
+
+\inferrule{T-Ref}{
+  \tcH{E}{H}{o}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+  {\tt H}({\tt r})={\tt o}
+}{
+  \tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+\inferax{T-Identity}{\tc{E}{e$_1$ == e$_2$}{PrimitiveType}}
+
+\tf{this does not prevent identities in conjunctions or disjunctions
+  to type. what can we do there?}
+
+\judgment{\solveH{E}{H}{C}}
+\judgment{\solveH{E}{H}{I}}
+
+This still represents the call to the solver. The solver only
+determines the environment, not the heap. New references on the heap
+can only be created through {\tt new o}, and the solver can only
+determine which reference a variable in the environment points to
+through identity constraints. The second judgment solves for identity
+constraints.
+
+\judgment{\stay{E}{C}}
+
+The rules for the stays are unchanged. The solver does not touch the
+heap, the only way it interacts with that is through the weak stays on
+references that are now also generated from the environment.
+
+
+\judgment{{\tt <E|H|C|I|s>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$'$>}}
+
+The semantics for executing statements is extended to what we had
+before. We now solve first for the identity constraints if a reference
+is assigned and then for the value constraints. Also, for assignment,
+we propagate the type changes through the identity constraints by
+solving for them and then type the value constraints against the
+environment returned by solving for the identities.
+
+\inferrule{S-Asgn}{
+  \evalH{E}{H}{e}{c} \andalso \tcC{E[x $\mapsto$ c]}{C} \andalso
+  \stay{E}{C$_s$} \andalso
+  \solveH{E$'$}{H}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+}{
+  \stepH{E}{H}{C}{x := e}{E$'$}{H}{C}{skip}
+}
+
+The rule for assigning primitives are unchanged.
+
+\inferrule{S-AsgnRef}{
+  \evalH{E}{H}{e}{r} \andalso
+  \stay{E}{C$_s$} \andalso
+  \solveH{E$'$}{H}{(I $\wedge$ C$_s$ $\wedge$ x=r)} \andalso
+  \tcC{E$'$}{C} \andalso
+  \solve{E$''$}{(C $\wedge$ C$_s$)}
+}{
+  \stepH{E}{H}{C}{x := e}{E$'$}{H}{C}{skip}
+}
+
+As noted above, the rules for assigning a reference first triggers
+solving for identities.
+
+\tf{Todo: fail rules}
+
+The other rules are unchanged, because only assignment can change the
+types of variables, and only then do we need to solve for identities.
+
+\tf{Todo: add rules for creating new identity constraints after we
+  figure out how to tell them apart from normal
+  expressions/constraints}
 
 \end{document}
 
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:

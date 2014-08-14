@@ -15,38 +15,41 @@ a dynamically typed language, this should certainly work.) */
 x := 3;
 always y=x;
 x := "hello";
-/* Probably a type error.  We could make this work for
-Babelsberg/PrimitiveTypes (we would have a weak stay on y that it be
-an int, along with the required constraint that forces it to be a
-string).  However, when we get to Babelsberg/Objects, this doesn't
-seem to work, and since we are using Babelsberg/PrimitiveTypes as a
-stepping stone toward the full language, for compatibility we declare
-this to be an error here also. */
+/* This will work if the solver allows it.  After the second
+assignment, we would have a weak stay on y that it be an int, along
+with the required constraint that forces it to be a string.  If the
+solver can handle constraints that ask x to be of different types,
+then it works.  Note that we will be a bit inconsistent with
+Babelsberg/Records, in which an analogous program will *not* be legal.
+A rationale for this is that we are treating all the primitive types
+as similar -- they are atomic -- and what we are doing with our type
+checking rules is avoiding changing *structure*.  If we did want to
+disallow this program, we could add some suitable type checking rules.
+*/
 
 x := 3;
-always y=x;
-y := "hello";
-/* Also a type error.  Here we are changing y rather than x.  For
-Babelsberg/PrimitiveTypes this doesn't make a difference, but in
-Babelsberg/Objects y is the object that will get the '=' message (and
-its type will be string, comparing with an integer). */
+always weak x=5;
+always weak x="hello";
+/* This is also legal if the solver accepts it.  Here the solver is
+free to choose either an int or a string for x.  Arguably this
+nondeterminism isn't any worse than allowing the solver to select
+either 3 or 5 as the value for a variable (and certainly we allow
+that). */
 
 x := 3;
 always y=x+x;
 x := "Hello";
-/* This is probably a type error as well.  (If + is overloaded to mean
-string concatenation as well as addition and the previous example
-worked, first we would have y=6, then y="HelloHello".  But we're
-deciding this is an error. */
+/* Similarly, legal if the solver can accommodate it and if + is
+overloaded to mean string concatenation as well as addition.  First we
+would have y=6, then y="HelloHello". */
 
-x := 3;
-once x = "hello";
-/* again, not ok, since once constraints can't change type */
-
-x := 3;
-always medium x=8;
-always medium x="squid";
-/* another type error */
+/* This program is intended to illustrate coercion issues.  Suppose we 
+have both integers and floats as primitive types */
+x := 5;  
+y := 10;  
+always y=x+3.1416;
+/* Similarly, legal if the solver can accomodate it (in this case by
+doing a coercion from int to float) */
 
 
 ____________________________________________________________
@@ -58,41 +61,38 @@ a := {y:10};
 
 once a = {x:1};
 once a = {y:10};
-/* same thing but with once constraints - not ok */
+/* Not legal - the type check (which is a structural check) fails.
+This is in contrast to the similar examples with primitive types,
+which work if the solver can handle the resulting constraints. */
 
 a := {x: 4};
 always a.x=10;
+b := {x: 0};
 always a=b;
 a := {y:30, x:4};
-/* OK - after the last statement a and b both refer to a record with y
-and x fields  (and we can still satisfy both always constraints) */
+/* Not legal - the assignment to a at the end gives it a different type
+than b, so the equality constraint fails to typecheck */
 
 a := {x:1};
 b := {y:1};
 always medium a=b;
-/* Not ok, because either a or b would have to change their structure */
+/* Not legal, because either a or b would have to change their structure */
 
 a := {x:2};
 always a.y = 100;
-/* this fails, since a doesn't have a y field (the system doesn't add
-   one spontaneously) */
+/* Not legal, since a doesn't have a y field (the system doesn't add
+one spontaneously) */
 
 a := {x:1};
 b := {};
 always a.x=b.x
-/* fails - the system won't assign a record to b with an x field */
-
-a := {x:1};
-b := a;
-always b=a;
-a := {};
-/* this succeeds, and ends up with an empty record in both a and b */
+/* Not legal- the system won't assign a record to b with an x field */
 
 a := {x:1};
 always b=a;
 a := {};
-/* b is uninitialized at the point we encounter the
-always constraint, so this is not legal. */
+/* Not legal - b is uninitialized at the point we encounter the
+always constraint. */
 
 About the last program: requiring that variables be initialized before
 equating them with something is annoying for the programer.  We
@@ -109,92 +109,57 @@ BABELSBERG/UID
 
 p := new {x:0, y:0}; 
 q := new {z:0}; 
-r := p;
-always p.x = 10; 
-always q.z = 100; 
-always p == r; 
-always weak q == r; 
+always p == q; 
+/* Legal - identity constraints don't include the structural
+compatibility checks.  To satisfy the final constraint the solver will
+make p and q be idential.  It is nondeterministic whether p will be set
+to q or vice versa, but the system will use one or the other (it won't
+create a new object). */
+
+p := new {x:0}; 
+q := new {x:0}; 
+always medium p.x = 0; 
+always medium q.x = 1; 
+always weak p == q; 
 /* This is not allowed, because explicit soft identity constraints are
 not allowed on the program level. This allows us to solve for
-identities first.  We also couldn't come up with any clear use cases
-for programmer-written weak identity constraints.  In the semantics we
-do have weak identity stay constraints, but these are implicit rather
-than written explicitly by the programmer. */
-
-p := new {x:0}; 
-q := new {x:1}; 
-always p.x = 5; 
-always q.x = 10; 
-always weak p == q; 
-/* Also not allowed.  This example shows one reason we don't allow
-non-required identity constraints, because they might conflict with
-higher-priority value constraints and then we could not satisfy these
-independently.  Another way to look at this is that this would allow
-value constraints to have an indirect effect on the references. */
-
-p := new {x:0}; 
-q := new {x:1}; 
-always medium p.x = 5; 
-always medium q.x = 10; 
-always weak p == q; 
-/* not allowed - similar to the previous example, but using soft (but
-stronger) constraints on p.x and q.x */
-
-a := new {x:1, y:2};
-b := new {ref:a};
-always b.ref.x = 2;
-c := new {x:2}
-once b.ref==c;
-/* this works - at the end b has a ref field that points to a record
-{x:2}; c also points to this same record */
-
+identities first.  (If this were legal, either we would violate a
+medium priority constraint in favor of a weak one, or else we would
+need to change identities in response to value constraints.)  In the
+semantics we do have weak identity stay constraints, but these are
+implicit rather than written explicitly by the programmer. */
 
 a := new {x:1, y:2};
 b := new {ref:a};
 always b.ref.x = 2;
 c := new {x:2}
 once b.ref==c && b.ref.x=2
-/* Not allowed.  This is the same program up to the last line.  We
-don't want to allow identity constraints and constraints on values to
-be intermingled.  Even though this would work for conjunction, we'd
-want to allow disjunction as well, and short of eagerly selecting a
-branch (as in the current implementations, which arguably don't
-implement the correct semantics) this would prevent separately
-satisfying identity and value constraints. */
+/* Not allowed.  We don't want to allow identity constraints and
+constraints on values to be intermingled.  Even though this would work
+for conjunction, we'd want to allow disjunction as well, and short of
+eagerly selecting a branch (as in the current implementations, which
+arguably don't implement the correct semantics) this would prevent
+separately satisfying identity and value constraints. */
 
 
 ____________________________________________________________
 BABELSBERG/OBJECTS
 
 x := 3;
-y := 3;
-always y=x;
+always y=x;  /*uses an equality constraint */
 x := "hello";
-/* This gives a type error.  The problem is that after assigning
-"hello" to x, y is still an integer, and so integer = is trying to
-satisfy the constraint that it be equal to a string. */
+/* This is the same as one of the Babelsberg/PrimitiveTypes programs.
+It is legal as far as the semantics is concerned.  If the = method for
+String can accept an integer as the argument, then the program
+succeeds with x and y both bound to "hello"; and otherwise it fails. */
 
-x := 5;
-always y=x;
-
-/* This gives an error.  As discussed above, in practical
-implementations needing to initialize y to an integer just to allow
-the equality to be asserted is annoying, and so we can have a hack to
-allow it. */
-
-
-/* this example illustrates coercion issues (in this case int->float) */
-x := 5;
-always x=3.1416;
-
-/* We decided not to have coercion in the formal semantics, so this
-fails.  In an actual Babelsberg, if the base language does implement
-the `=' method to coerce its argument if the basic check fails and
-then check again, than that's fine. But this won't affect the types of
-the involved operands; it just allows an int and a float to be tested
-for equality, because really we're doing something like this:
-    ^ x.asInt = y.asInt || x.asFloat = y.asFloat
-in the implementation of the method `=' */
+x := 3;
+always y==x;  /*uses an identity constraint */
+x := "hello";
+/* This is again legal as far as the semantics is concerned, but in
+this case we also know that it must succeed with x and y both bound to
+"hello", since we are using an identity constraint (which for
+uniformity we also allow for primitive types). */
 
 x := stack.pop;
 /* This works, because the RHS of the assignment is evaluated first, and 
@@ -211,17 +176,19 @@ always x = stack.pop;
 s := Rectangle.new( ...);
 always a = s.area
 s := Circle.new( ...);
-/* This should be fine.  Note that the class of s changes, but both
-have an area method */
+/* Legal.  Note that the class of s changes, but both have an area
+method */
 
 p1 := Point.new(2,3);
 p2 := Point3d.new(0,0,0);
 always p1=p2;
-/* This is a bit weird, but if = for 2D points is written in a
-reasonable way (i.e., = just calls the the x and y methods of the
-argument and checks them for equality with the result of calling its
-own x and y methods), this should succeed with p1.x=p2.x and
-p1.y=p2.y; there are no constraints on p2.z */
+/* If = for 2D points is written in a reasonable way (i.e., = just
+calls the the x and y methods of the argument and checks them for
+equality with the result of calling its own x and y methods), this
+should succeed with p1.x=p2.x and p1.y=p2.y; there are no constraints
+on p2.z.  This is a bit weird, but no more weird than the standard OO
+definition of = for points.  (It would seem less weird if we weren't
+overloading =, but instead called it two_d_point_equals.) */
 
 p1 := Point.new(2,3);
 p2 := Point3d.new(0,0,0);
@@ -229,70 +196,67 @@ always p2=p1;
 /* This fails, assuming p1 has no z method */
 
 
+We decided that constraints cannot call methods that create other
+constraints.  This would be easy to check in a practical
+implementation if we wanted to do so.  Note that this is not the same
+as having a method, called in the ordinary way, that creates
+constraints.  That seems useful and is fine.
 
-Finally, there is the question of whether constraints can call methods
-that create other constraints.  If they can, what is the semantics?
-For example, if the method includes a conditional whose test depends
-on the result of satisfying some constraints, then that argues for
-nested constraint construction and solution.  This seems complex, but
-the alternative of collapsing all the constraint construction doesn't
-handle the conditional properly.  Can such methods create identity
-constraints?
+In some cases, creating a constraint is a kind of side effect, and
+would be forbidden under our restriction that methods called by
+constraints must be side-effect-free.  (There is an example of this
+below.)  There are other examples that could be made to work, but we
+don't have any good use cases.  So for simplicity let's just not allow it.
 
-Do we need this at all?  What if we had a restriction that methods
-called from constraints can't themselves create additional
-constraints?  Or is there a version of this restriction that lets us
-create other constraints inside methods but they somehow don't escape?
-(This woudl be somewhat in analogy with using methods that create new
-objects in constraints.)
+For the record, here are some examples (even though we are forbidding it).
 
-Some incomplete examples follow:
-
-/* is this legal? */
-def identity()
-  always x==self;
-  return x;
+def test(x)
+  always y=x+2;
+  return y;
 end;
-
-a := Rectangle.new(...);
-b := Circle.new(...);
-always b == identity(a);
-/* we first eval the argument, and get
-      x == a && _
-   as a remembered constraint, and then we evaluate the identity and
-   add it and get
-      x == a && b == x
-*/
-
-a := Rectangle.new(...);
-b := Circle.new(...);
-always b.left = identity(a).left;
-/* we first eval the argument, and get
-      x == a && _
-   as a remembered constraint, and then we evaluate the equals and
-   add it and get
-      x == a && b.left = x.left
-*/
-
-a := Rectangle.new(...);
-b := Circle.new(...);
-always b.left = identity(a).left || b.left = a.left;
-/* we first eval the argument, and get
-      x == a && _
-   as a remembered constraint, and then we evaluate the equals and
-   add it and get
-      (x == a && b.left = x.left) || b.left = a.left
-*/
-
-a := Rectangle.new(...);
-b := Circle.new(...);
-x := identity(a); // asserts x == a
-always b.left = x.left || b.left = a.left
+a := 10;
+b := 10;
+always b=test(a);
+/* Note that the effects of the y=x+2 constraint persist after the
+method returns. */
 
 
-def pointlessId()
-  z := Circle.new(...)
-  y := nil
-  always y == z
-  return self
+If we allowed using such methods in constraint expressions, we would
+need to solve their constraints eagerly rather than just accumulating
+the constraints and solving all at once.  Here's an example that shows
+the need to solve the constraints eagerly.
+
+def test(x)
+  always y=x;
+  if y>10 then return 1 else return 0;
+end;
+a := 5;
+always b=test(a);
+/* If we don't solve eagerly, y doesn't have a value when we evaluate the
+test in the 'if' statement. */
+
+The following program is not allowed, and illustrates why adding
+constraints in methods called from constraints can have side effects.
+Suppose we are using a least-squares solver that supports soft
+constraints.
+
+def test(x)
+  always medium x=5;
+  return x+1;
+end;
+a := 0;
+b := 0;
+always medium a=10;
+always b=test(a);
+/* Every time we evaluate the expression b=test(a), we add another
+medium constraint that a=5.  Since we are finding a least squares
+solution, this nudges a more toward 5 each time, diminishing the
+influence of the a=10 constraint. */
+
+Finally, if we did allow this, what if the method adds soft
+constraints, and is itself invoked by a soft constraint?  For example,
+suppose that in the above program we instead had "always weak b=test(a)".
+We would need an algebra for combining priorities, for example, take
+the minimum of the priorities, but this just seems like one more
+complication.
 

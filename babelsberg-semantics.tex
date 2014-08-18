@@ -154,6 +154,7 @@ be adapted.
 \ab{expand this motivation section (at least for a POPL paper)}
 
 \section{Constraints}
+\label{sec:constraints}
 
 The semantics for each of these languages includes a step in which we
 assert that some set of values for variables is a correct solution to
@@ -322,7 +323,25 @@ primitive values. In Babelsberg, constraints are expressions that
 return a boolean -- the constraint solver's task is to get the
 expression to evaluate to true. So Boolean is a required datatype for
 all Babelsberg languages. In addition, we add reals as a second
-primitive type. Here are some examples.
+primitive type.
+
+The evaluation model for Babelsberg/Reals is mostly standard for
+ordinary expressions and statements.  In contrast, a statement that
+adds a constraint starts with a duration, namely \verb|always| or
+\verb|once|.  The expression following the duration is taken
+unevaluated and added to the \emph{constraint store}.  For
+\verb|always|, the constraint remains for the duration of the
+program's execution; for \verb|once|, it is removed after the solver
+finds a solution to the current set of constraints.  The only wrinkle
+in the evaluation model for ordinary statements is that for an
+assignment statement, we evaluate the expression on the right hand
+side of the assignment, constrain the variable on the left hand side
+of the assignment to be equal to the result using a \verb|once|
+constraint, and then turn all the constraints over to the solver.
+Doing this ensures that assignment interacts correctly with other
+constraints.
+
+Here are some examples.
 
 \begin{verbatim}
 x := 3;
@@ -330,26 +349,30 @@ x := 4;
 always x>=10
 \end{verbatim}
 
-Babelsberg/Reals, as with the other languages, uses two different
-execution modes: \emph{imperative execution mode} and \emph{constraint
-  construction mode}.  For ordinary statements, expressions are
-evaluated in imperative execution mode.  This is mostly standard,
-except that assignment is syntactic sugar for a \texttt{once}
-constraint (i.e., a constraint that is asserted and then retracted).
-This \verb|once| constraint is formed by evaluating the expression on
-the right hand side of the assignment, and then constraining the
-variable on the left hand side of the assignment to be equal to the
-result.  In contrast, constraint construction mode is used with
-constraints that are created by an explicit \verb|always| or
-\verb|once| constraint.  The semantic model includes a
-\emph{constraint store} consisting of closures corresponding to
-constraints encountered in an \verb|always| or \verb|once| statement:
-when an \verb|always| or \verb|once| statement is encountered, the
-interpeter (as specified by the formal semantics) constructs a closure
-over the expression's environment of definition and saves it in the
-constraint store.  For \verb|always|, the closure remains for the
-duration of the program's execution; for \verb|once|, it is removed
-after the constraints are satisfied.
+%% Old version, with imperative execution mode and constraint
+%% construction mode.  (We might need the ideas about closures and the
+%% environment of definition later, for Babelsberg/Objects.)
+%%
+%% Babelsberg/Reals, as with the other Babelsberg languages, uses two different
+%% execution modes: \emph{imperative execution mode} and \emph{constraint
+%%   construction mode}.  For ordinary statements, expressions are
+%% evaluated in imperative execution mode.  This is mostly standard,
+%% except that assignment is syntactic sugar for a \texttt{once}
+%% constraint (i.e., a constraint that is asserted and then retracted).
+%% This \verb|once| constraint is formed by evaluating the expression on
+%% the right hand side of the assignment, and then constraining the
+%% variable on the left hand side of the assignment to be equal to the
+%% result.  In contrast, constraint construction mode is used with
+%% constraints that are created by an explicit \verb|always| or
+%% \verb|once| constraint.  The semantic model includes a
+%% \emph{constraint store} consisting of closures corresponding to
+%% constraints encountered in an \verb|always| or \verb|once| statement:
+%% when an \verb|always| or \verb|once| statement is encountered, the
+%% interpeter (as specified by the formal semantics) constructs a closure
+%% over the expression's environment of definition and saves it in the
+%% constraint store.  For \verb|always|, the closure remains for the
+%% duration of the program's execution; for \verb|once|, it is removed
+%% after the constraints are satisfied.
 
 After evaluating the first statement we hand the following \verb|once|
 constraint to the solver to find a value for \texttt{x}:
@@ -361,15 +384,9 @@ required & $x=3$
 The solver finds a value for $x$, which is then used to update the
 environment to be $\texttt{x} \mapsto \texttt{3}$.
 
-Note that programs are written in fixed pitch font, while solver
-constraints are in math font, with the priority in normal font.  This
-reflects that the statements in the program are different semantically
-from the constraints in the language provided to the solver.  For
-Babelsberg/Reals the translation is trivial, but will become non-trivial
-in subsequent languages.  Finally, the variable names and values in
-the environment are again in fixed pitch font, since these are
-variable names from the program and constants in the Babelsberg/Reals
-language.
+Note that programs, as well as the variable names and values in the
+environment, are written in fixed pitch font.  For contrast, we write
+the constraints that are handed to the solver in math font.
 
 Continuing with the example, after the second statement we hand the
 following constraints to the solver:
@@ -384,11 +401,8 @@ retain its previous value, while the required $x=4$ constraint comes
 from the second assignment.  This has the solution $x=4$, resulting in
 a new environment $\texttt{x} \mapsto \texttt{4}$.  
 
-The third statement adds a closure representing the \texttt{always}
-constraint to the constraint store.  For Babelsberg/Reals, the
-translation from a constraint in the source language to one in the
-solver language is trivial.  (However, it will be more complex in
-later languages.)  So after that statement we have the following
+The third statement adds the \texttt{always} constraint to the
+constraint store.  So after that statement we have the following
 constraints:
 
 \begin{tabular}{rl}
@@ -396,52 +410,73 @@ weak     & $x=4$ \\
 required & $x \geq 10$
 \end{tabular}
 
-If we use a metric comparator such as weighted-sum-better (WSB) we get
-the solution $x=10$, since this minimizes the error for the weak
-constraint.  If we use LPB, then any $x \in [10,\infty)$ is a
-  solution, and the system is free to select any of them.  (However,
-  as noted above, typically we wouldn't use LPB if we have
-  inequalities.)
+If we use a metric comparator such as weighted-sum-better or
+least-squares-better, we get the solution $x=10$, since this minimizes
+the error for the weak constraint.  If we use
+locally-predicate-better, then every $x \in [10,\infty)$ is a solution,
+and the system is free to select any of them.  (However, as noted in
+Section \ref{sec:constraints}, typically we wouldn't use LPB if we
+have inequalities.)
 
-Here is another example that involves using a variable on the right
-hand sides of assignment statements, as well as showing the
+The following example illustrates using the same variable on the left
+and right hand sides of an assignment statement, as well as the
 interaction of assignments with \verb|always| constraints.
 \begin{verbatim}
 x := 3;
+y := 0;
 always y = x+100;
 x := x+2
 \end{verbatim}
 
-After evaluating the first statement and solving the resulting
-constraint, the environment has the binding $\texttt{x} \mapsto
-\texttt{3}$.  The second statement causes the constraint
-\verb|always y = x+100| to be added to the constraint store.  We then
-hand the following
-constraints to the solver to find values for \texttt{x} and
-\texttt{y}:
+After evaluating the first two statements and solving the resulting
+constraints, the environment has the binding 
+$\texttt{x} \mapsto \texttt{3}$, $\texttt{y} \mapsto 0$.  The third
+statement causes the constraint \verb|always y = x+100| to be added to
+the constraint store.  We then hand the following constraints to the
+solver to find values for \texttt{x} and \texttt{y}:
 
 \begin{tabular}{rl}
 weak     & $x=3$ \\
+weak     & $y=0$ \\
 required & $y=x+100$
 \end{tabular}
 
-As before, the weak $x=3$ constraint is the stay constraint that
-\texttt{x} retain its previous value.  This has the solution
-$\texttt{x} \mapsto 3$, $\texttt{y} \mapsto 103$.
+This has multiple possible solutions, and the solver can select any
+one of them.  Suppose it picks $\texttt{x} \mapsto 3$, 
+$\texttt{y} \mapsto 103$.
 
-After evaluating the third statement, we have the following constraints:
+After evaluating the next statement, we have the following constraints:
 
 \begin{tabular}{rl}
 weak     & $x=3$ \\
+weak     & $y=103$ \\
 required & $y=x+100$ \\
 required & $x=5$
 \end{tabular}
 
-The first constraint is the weak stay on \verb|x|, the second comes
-from the always constraint in the constraint store, and the third
-comes from the assignment \verb|x:=x+2| (where we evaluated \verb|x+2|
-in the old environment to get 5).  After solving these constraints, we
-have $\texttt{x} \mapsto 5$, $\texttt{y} \mapsto 105$.
+The first two constraints are the weak stays on \verb|x| and \verb|y|,
+the third comes from the always constraint in the constraint store,
+and the fourth comes from the assignment \verb|x:=x+2| (where we
+evaluated \verb|x+2| in the old environment to get 5).  After solving
+these constraints, we have $\texttt{x} \mapsto 5$, 
+$\texttt{y} \mapsto 105$.
+
+New variables must be initialized with an assignment statement.  Thus
+the following program is illegal --- we would need to initialize
+\verb|x| first with an assignment statement before adding the
+\verb|always| constraint.
+
+\begin{verbatim}
+always x=10;
+\end{verbatim}
+
+Requiring that variables be initialized before equating them with
+something can be annoying for the programer.  We decided that indeed
+the above program is illegal in the formal semantics.  However, in
+practical implementations, we can have a hack to allow it.  It would
+only works for = constraints where one side is uninitialized --- the
+semantics would that it first assigns the other side to the
+uninitialized variable, and then adds the always constraint.
 
 An interesting aspect of this semantics, both as presented informally
 above and in the formalism that follows, is that we no longer model
@@ -455,7 +490,7 @@ considering the value of \texttt{x} at different times is achieved by
 first evaluating the right hand side of an assignment in the old
 environment, and then asserting \verb|once| constraints that cause
 variable values to be updated as needed.\footnote{These models are
-  equivalent, at least for Babelsberg/Reals, so this is just a
+  equivalent, so this is just a
   question of presentation.  In the refinement model, when we
   represent an assignment as a constraint among variables at time $t$
   on the right hand side, and a variable at $t+1$ on the left hand
@@ -620,38 +655,42 @@ Babelsberg/PrimitiveTypes are atomic --- we don't have recursive types
 or types that define values that hold other types (such as records,
 arrays, or sets). 
 
-Since we are modeling a dynamically typed language (even for
-Babelsberg/PrimitiveTypes), we need to consider the case of changing
-the type of a variable.  Here's a simple example program that
-illustrates this.
+Since we are modeling a dynamically typed language, we need to
+consider the case of changing the type of a variable.  Here's a simple
+example program that illustrates this.
 
 \begin{verbatim}
 x := 5;
 x := "Hello";
 \end{verbatim}
 
-After the second statement we solve the following constraint
+After the second statement we solve the following constraints:
 
 \begin{tabular}{rl}
 weak     & $x = 5$ \\
 required & $x = $ \verb|"Hello"|
 \end{tabular}
 
-To make this to work for Babelsberg/PrimitiveTypes, \verb|x=y| should
-be legal (and evaluate to false) if \verb|x| and \verb|y| are of
-different types.
+The final result is $\texttt{x} \mapsto \texttt{"Hello"}$.
 
-\ab{We could, perhaps, also declare this to be ill-typed and hence
-  illegal, and just handle this when we get to Babelsberg/UID and
-  Babelsberg/Objects.  Is there some reason this would be preferable?}
-
-We can even have \verb|always| constraints whose meaning changes
-dynamically.  Suppose that for strings \verb|+| denotes string
-concatenation.
+The changed type might propagate through an \verb|always| constraint:
 
 \begin{verbatim}
 x := 5;
-always y = x+y
+y := 10;
+always y = x;
+x := "Hello";
+\end{verbatim}
+
+The final result is that both \verb|x| and \verb|y| are strings.
+
+There is also a potential interaction with overloaded operators.
+Suppose that for strings \verb|+| denotes string concatenation:
+
+\begin{verbatim}
+x := 5;
+y := 10;
+always y = x+x;
 x := "Hello";
 \end{verbatim}
 
@@ -666,8 +705,21 @@ required & $y=x+x$ \\
 required & $x=$ \texttt{"Hello"}
 \end{tabular}
 
-This has the solution
-$\texttt{x} \mapsto \texttt{"Hello"}$, $\texttt{y} \mapsto \texttt{"HelloHello"}$.
+This has the solution $\texttt{x} \mapsto \texttt{"Hello"}$, 
+$\texttt{y} \mapsto \texttt{"HelloHello"}$.
+
+Nondeterminism can arise for types as well as values:
+
+\begin{verbatim}
+x := 3;
+always weak x=5;
+always weak x="hello";
+\end{verbatim}
+
+Here the solver is free to choose either an integer or a string for
+\verb|x|.  This is a bit strange, but arguably this nondeterminism
+isn't any worse than allowing the solver to select either 3 or 5 as
+the value for a variable.
 
 \subsection{Formalism}
 \label{intformal}
@@ -1180,6 +1232,8 @@ mapping from values in the solver language back to values in the
 environment more complex, requiring recursive rules, and seems to add
 little value to our incremental exposition.)
 
+\ab{do we still need this restriction?}
+
 There is no notion of object identity for Babelsberg/Records --- we can
 test whether two records are equal, but whether or not they are
 identical would be an implementation issue and not part of the semantics.
@@ -1189,137 +1243,147 @@ access.  Here are examples of expressions, assignment statements, and
 constraints involving records:
 
 \begin{verbatim}
- p := {x:2, y:5};   /* assign a record to p */
- a := p.x;          /* access a field of a record and assign it to a variable */
- q := p;            /* q is now a copy of p (or maybe it's shared; we can't tell
-                       the difference) */
- always p.x = 100;  /* a constraint on a record field */
- always r = p;      /* an equality constraint between two records */
+p := {x:2, y:5};   /* assign a record to p */
+a := p.x;          /* access a field of a record and assign it to a variable */
+q := p;            /* q is now a copy of p (or maybe it's shared; we can't tell
+                      the difference) */
+always p.x = 100;  /* a constraint on a record field */
+always q = p;      /* an equality constraint between two records */
+always q.y = 20;
 \end{verbatim}
 
-There is no static type checking --- checking is all done dynamically.
-Our model includes structural compatibility checks on constraints.
-These allow us to desugar all of the record constraints (recursively)
-into constraints on the individual components.  Thus, the record
-constructs are all handled by the semantic rules, and the constraint
-solver does not need to know anything about records.  The alternative
-of having the solver itself know about records is more complex and
-seems to lead to more indeterminism, as well as some odd cases
-(including requiring that the constraint solver sometimes
-spontaneously generate records with additional fields).  There are
-approaches that accomplish this, for example in BackTalk
-\cite{roy-joop-1997}.  For Babelsberg we did not select this
-alternative due to the added complexity; but for completeness, we
-outline it in Appendix
-\ref{sec:structural-compatability-check-alternatives}.
+Note the difference between the assignment \verb|q:=p| and the
+constraint \verb|always q=p|.  After the \verb|always p.x=100|
+constraint, we have $\texttt{p} \mapsto \texttt{\{x:100, y:5\}}$ but
+$\texttt{q} \mapsto \texttt{\{x:2, y:5\}}$ --- at this point \verb|p|
+and \verb|q| are unrelated, so adding the constraint on \verb|p.x| had no
+effect on \verb|q|.  However, after the final constraint, we have
+$\texttt{p} \mapsto \texttt{\{x:100, y:20\}}$ and
+$\texttt{q} \mapsto \texttt{\{x:100, y:20\}}$, since \verb|p| and
+\verb|q| are now constrained to be equal.
 
-The structural compatibility checks are assertions that are checked
-before desugaring the constructs involving records, for example,
-checking whether a variable holds a record, and whether the record has
-the necessary fields.  While these assertions are checked, unlike
-normal constraints the system will never change anything to enforce
-them --- if one is violated it's just an error.  Instead, the
-programmer must ensure that a record with the expected fields is first
-assigned to a variable used in record constraints, just as a
-programmer would need to ensure that a record with the expected fields
-was assigned to a record-valued variable in a standard language.  The
-check also succeeds for a constraint \verb|p=q| where \verb|p| is
-uninitialized and \verb|q| holds a value, or vice versa.  This is on
-the one hand convenient, but is actually also essential, because we
-convert assignments into \verb|once| equality constraints and
-otherwise there would be no way to initialize a variable.
+The solver must now also handle records.  To tame the power of the
+solver so that it does not (for example) invent new fields for
+records, we add \emph{structural compatibility checks} on constraints.
+These structural compatibility checks are assertions that are checked
+dynamically before sending the constraints involving records to the
+solver, for example, checking whether a variable is bound to a record,
+and whether the record has the necessary fields.  While these
+assertions are checked, unlike normal constraints the system will
+never change anything to enforce them --- if one is violated it's just
+an error.  Instead, the programmer must ensure that a record with the
+expected fields is first assigned to a variable used in record
+constraints, just as a programmer would need to ensure that a record
+with the expected fields was assigned to a record-valued variable in a
+standard language.
 
-Here are a few examples.
+Here are a few examples of structural compatibility checks.
 
 \begin{verbatim}
- p := {x:2, y:5};
- always p.x = 100;
+p := {x:2, y:5};
+always p.x = 100;
 \end{verbatim}
-After executing the two statements, the environment is 
-\verb|p| $\mapsto$ \verb|{x:100, y:5}|.  Here is how the system
-handles the \verb|always| constraint.  The structural compatibility
-check is that \verb|p| is a record that has an \verb|x| field.  We
-desugar the record constraint, so that after evaluating the
-\verb|always p.x = 100| statement the constraints are:
+The structural compatibility check is that \verb|p| is a record that
+has an \verb|x| field, which succeeds.
 
-\begin{tabular}{rl}
-weak      & $p_x=2$ \\
-weak      & $p_y=5$ \\
-required  & $p_x=100$
-\end{tabular}
+The following program is OK --- just as in Babelsberg/PrimitiveTypes,
+we can change the type of a variable using an assignment.
 
-where $p_x$ and $p_y$ are new variables.
+\begin{verbatim}
+a := {x:1};
+a := {y:10};
+\end{verbatim}
 
-These constraints have the solution $p_x=100$, $p_y=5$, which is then
-reassembled to yield the environment \linebreak
-\verb|p| $\mapsto$ \verb|{x:100, y:5}|.
+However, in contrast to Babelsberg/PrimitiveTypes, the following
+program fails the structural compatibility check --- only an
+assignment can change the type of a variable.
 
-The following program fails the structural compatability checks, since
+\begin{verbatim}
+a := {x:1};
+once a = {y:10};
+\end{verbatim}
+
+This program fails as well:
+\begin{verbatim}
+a := {x:1};
+b := {x:1};
+always a=b;
+a := {x:1, y:10};
+\end{verbatim}
+Here, assigning a record with a different structure to \verb|a| is OK on its
+own, but the \verb|always| constraint would also require \verb|b| to
+change.  It's a bit weird that this behavior is different from the
+behavior with primitive types (in which a similar program was OK).
+However, once we introduce object identity, we will be able to have
+changes to the types of variables ripple through the system via
+identity constraints (but it will need to be via identity constraints
+and not value constraints).
+
+A few more examples:
+
+These two programs fail, because as in Babelsberg/PrimitiveTypes only
+assignment can initialize variables.
+\begin{verbatim}
+once a = {y:10};
+\end{verbatim}
+
+\begin{verbatim}
+a := {y:10};
+always b=a;
+\end{verbatim}
+
+The following program also fails the structural compatability check, since
 the \verb|always| constraint expects \verb|p| to have a \verb|y| field
 but it doesn't:
 \begin{verbatim}
- p := {x:2};
- always p.y = 100;
+p := {x:2};
+always p.y = 100;
 \end{verbatim}
 
 This program fails as well, since constraining a record to be equal to
 a number fails the compatability check:
 \begin{verbatim}
- p := {x:2};
- always p = 5;
+p := {x:2};
+always p = 5;
 \end{verbatim}
 
 The following program passes the structural compatibility checks, but
 fails with an unsatisfiable constraint error, since we are requiring
 that \verb|p.x| be both 100 and 2:
 \begin{verbatim}  
- p := {x:0, y:0};
- always p.x = 100;
- p := {x:2, y:5};
+p := {x:0, y:0};
+always p.x = 100;
+p := {x:2, y:5};
 \end{verbatim}
 
 However, the following program is OK:
 \begin{verbatim} 
- p := {x:0};
- always weak p = {x:3};
- always weak p = {x:4}
+p := {x:0};
+always medium p = {x:3};
+always medium p = {x:4}
 \end{verbatim}
-
-This desugars to the constraints weak $p_x=3$ and
-weak $p_x=4$, plus weak $p_x=0$ representing the stay
-constraint.  Using the LPB comparator, there are three possible
-solutions for $p_x$, which would yield the three different
-environments
-\verb|p| $\mapsto$ \verb|{x:0}|, 
-\verb|p| $\mapsto$ \verb|{x:3}|, or
-\verb|p| $\mapsto$ \verb|{x:4}|.
-A WSB comparator would allow $x$ to take on any value in $[0,4]$, although
-Cassowary would produce either 1, 3 or 4 (but not something in
-between), i.e., the same solutions as LPB\@.  (If we made the
-\verb|always| constraints slightly higher priority than the stay, the
-solutions would be either 
-\verb|p| $\mapsto$ \verb|{x:3}| or
-\verb|p| $\mapsto$ \verb|{x:4}|.)
+The solution will be that \verb|p| is a record with a single field
+\verb|x| bound to a number, with the exact value depending on the
+solver (3, 4, or 3.5 being the most reasonable possibilities).
 
 Here's another example that fails a structural compatibility check:
 \begin{verbatim}
- a := {x:0};
- b := {y:0};
- always weak a.x = 3
- always weak b.y = 10
- always weak a=b
+a := {x:0};
+b := {y:5};
+always a=b
 \end{verbatim}
+
 This is the case even though there actually are records that would
-satisfy all of the weak constraints.  Thus, if the initial assignments
-had been different:
-\begin{verbatim}
- a := {x:0, y:0};
- b := {x:0, y:0};
- always weak a.x = 3
- always weak b.y = 10
- always weak a=b
-\end{verbatim}
-the program works.
+satisfy the required constraints --- the issue is that the assignment
+to \verb|a| leaves it with a record type that has a single \verb|x|
+field, the assignment to \verb|b| leaves it with a record type that
+has a single \verb|y| field, and the structural compatibility check
+prevents the solver from changing either of these types.  This
+illustrates one aspect of using the structural compatibility checks to
+tame the solver --- one could otherwise imagine the solver coming up
+with the solution 
+$\texttt{a} \mapsto \texttt{\{x:0, y:5\}}$ and
+$\texttt{b} \mapsto \texttt{\{x:0, y:5\}}$.
 
 \subsection{Formalism}
 \label{recformal}
@@ -1583,14 +1647,11 @@ allow field acccesses as l-values, e.g.,
  p.x := 100;
 \end{verbatim}
 
-After the second assignment, this desugars to the constraints
-weak $p_x=0$, weak $p_y=0$, required $p_x=100$, which after solving
-and putting the record back together results in the environment
+After the second assignment, we would have 
 \verb|p| $\mapsto$ \verb|{x:100, y:0}|.  This doesn't add any
 particular complications to the semantics.
 
-However, since we translate assignment statements into ``once''
-constraints, the only additional feature provided by such an extension
+However, the only additional feature provided by such an extension
 would be the syntax allowing field accesses as l-values --- we can
 always convert such a program into one that only has immutable
 records.  For example, the above program is equivalent to the
@@ -1632,6 +1693,8 @@ However, to emphasize that we now allocate records on the heap, we use
 the keyword \verb|new| when creating one. The syntax includes field
 accesses as both r-values and l-values.
 
+\ab{do we still want to describe this in terms of a heap?}
+
 Primitive types, however, still don't live on the heap.  (It would be
 possible to store all data on the heap, but we elected not to, since
 having everything on the heap makes the descriptions more complex ---
@@ -1655,7 +1718,7 @@ transformation.)
 Since object identity is now significant, we add identity constraints
 to the language (following Smalltalk syntax, 
 written \verb|==|, in contrast to \verb|=| for
-equality constraints).  Assignment is now translated to a \verb|once|
+equality constraints).  Assignment is now translated using a \verb|once|
 identity constraint.  For records \verb|p| and \verb|q|, if \verb|p|
 and \verb|q| are identical, they must also be equal, but the converse
 is not necessarily true --- if \verb|p| and \verb|q| are equal, they
@@ -1677,19 +1740,19 @@ complicates the semantics.)
 
 Here are some examples involving record fields and constraints:
 \begin{verbatim}
- p := new {x:2, y:5}; /* create a record on the heap and save the reference in p */
- a := p.x;            /* read a field of a record and assign it to a variable */
- p.x := 6;            /* assign 6 to the field p.x */
- always p.x = 100;
+p := new {x:2, y:5}; /* create a record on the heap and save the reference in p */
+a := p.x;            /* read a field of a record and assign it to a variable */
+p.x := 6;            /* assign 6 to the field p.x */
+always p.x = 100;
 \end{verbatim}
 
 As with Babelsberg/Records, there is no static type checking ---
-checking is all done dynamically.  Again, our model includes
-structural compatibility checks on constraints, which allows us to
-desugar all of the record constraints (recursively) into constraints
-on the individual components, so that the record constructs are all
-handled by the semantic rules, and the constraint solver does not need
-to know anything about records.
+checking is all done dynamically.  As before, our model includes
+structural compatibility checks on constraints, which tames the solver
+so that it doesn't do things such as invent new records or add fields
+to a record.  (The only way to create a new record is with an explicit
+\verb|new| expression in the program, and this also defines all of the
+fields that it has.)
 
 After executing the first statement, the above example desugars into
 the following constraints (where $r$ is a reference):
@@ -1738,93 +1801,123 @@ together, we have the environment \linebreak
 \verb|a| $\mapsto$ \verb|5|, as well as the heap \verb|r| $\mapsto$
 \verb|{x:100, y:5}|.
 
+\ab{TODO: fix up the above description in light of our decisions about the
+  semantic rules}
+
 Here is an example that fails the structural compatibility checks.
 
 \begin{verbatim}
- p := new {x:2, y:5};
- always p.z = 5;
+p := new {x:2, y:5};
+always p.z = 5;
 \end{verbatim}
 
 As before, the system is not allowed to add fields to records, so \verb|p|
 would be required to have a \verb|z| field already.
 
-Variables that refer to records refer only to references on the heap.
 The following example demonstrates one form of aliasing:
 \begin{verbatim}
- p := new {x:2, y:5};
- always q == p;
- p.x := 100;
+p := new {x:2, y:5};
+q := p;
+p.x := 100;
+q := new {z:10};
+p.x := 200;
 \end{verbatim}
-Now, \verb|q| holds the same reference as \verb|p|, so both will
-always point to the same record.
+After the assignment \verb|q:=p|, \verb|q| holds the same reference as
+\verb|p|, so the subsequent assignment to \verb|p.x| changes both.
+But then we break the alias with another assignment to \verb|q|, so
+the second assignment to \verb|p.x| doesn't affect \verb|q| (which by
+that point no longer has an \verb|x| field).
 
-The more common form of aliasing is this:
+There can also be explicit identity constraints:
 \begin{verbatim}
- p := new {x:2, y:5};
- q := p;
- p.x := 100;
+p := new {x:2, y:5};
+q := p;
+always q==p;
+q := new {z:10};
 \end{verbatim}
-Now \verb|p| and \verb|q| are aliased, so after the program runs we have 
-\verb|p| $\mapsto$ \verb|r| and \verb|q| $\mapsto$ \verb|r| (the same
-\verb|r| in both mappings), where \verb|r| is a reference that points
-to the record value \verb|{x:100,y:0}| in the heap. Note that in the
-latter case (as is known from imperative programs), the aliasing is
-only temporary and might be broken later.
+After the last statement both \verb|p| and \verb|q| point to the same
+\verb|{z:10}| record.  Note that we don't need the structural
+compatibility checks for identity constraints, so that the assignment
+to \verb|q| that changes its structure ripples around to change
+\verb|p| as well.  However, in the formal semantics we still do
+require that variables be created in an assignment statement --- the
+above program would have been illegal if we didn't have the
+\verb|q:=p| statement but just tried to create \verb|q| with the
+\verb|always| constraint.  Note also that if the always constraint had
+been a record equality constraint rather than an identity constraint,
+the last assignment to \verb|q| would have failed the structural
+compatibility check, which would have expected it to be a record with
+\verb|x| and \verb|y| fields.
 
-Another example:
-
+Nondeterminism can arise with identity constraints, just as it did
+with value constraints in Babelsberg/PrimitiveTypes.  For example:
 \begin{verbatim}
- p := new {x:0, y:0};
- always p == q;
- q := new {a:10};
+p := new {x:2};
+q := new {y:5}
+always q==p;
 \end{verbatim}
 
-Now both \verb|p| and \verb|q| refer to the same record \verb|{a:10}|.
-Note that we don't need the structural compatibility checks for
-identity constraints.  For example, it's OK that \verb|q| doesn't have
-a value before evaluating \verb|always p==q|; and we can also change
-the structure of \verb|p| as well as  \verb|q| with the final assignment.
-(If the always constraint had been a record equality constraint rather than
-an identity constraint, the assignment to \verb|q| would have failed
-the structural compatibility check, which would have expected it to be
-a record with \verb|x| and \verb|y| fields.)
+Both \verb|p| and \verb|q| will point to the same record, but it might
+be either \verb|{x:2}| or \verb|{y:5}|.  (However, it will one of the
+records that was already created by the \verb|new| expressions --- the
+solver won't invent a new one.)
 
-The programmer can annotate identity constraints with priorities:
+If the programmer cared which record was selected, the directionality
+could be specified by using a read-only annotation:
 \begin{verbatim}
- p := new {x:0, y:0};
- q := new {z:0};
- always p.x = 10;
- always q.z = 100;
- always p == r; 
- always weak q == r; 
+p := new {x:2};
+q := new {y:5}
+always q==p?;
 \end{verbatim}
-Here, the weak identity constraint \verb|always weak q == r| can't be
-satisfied.
 
-One more issue concerns object identities in constraints. Although
-identity constraints require the solver to change references, it
-should not be allowed to change references when there are no identity
-constraints. Consider this program:
+However, explicit priorities on identity constraints are not allowed.
+(There are only the implicit weak identity stay constraints on all
+variables.)  This restriction simplifies both the language, making it
+more understandable, and also the implementation, since now we can
+first determine the types and identities of all variables, and then
+solve for the values.
+
+This program is thus illegal:
 \begin{verbatim}
- account1 := new {balance: 100};
- customer1 := new {account: account1};
- account2 := new {balance: 1000};
- customer2 := new {account: account2};
- always customer1.account.balance? > 100;
+p := new {x:0};
+q := new {x:5};
+always medium p.x = 0;
+always medium q.x = 5;
+always weak p==q; 
 \end{verbatim}
-This constraint should fail. We try to add a constraint that there
-should always be some amount of money left in the account of
-\texttt{customer1}, but the solver is not actually allowed to change
-the balance (because that would be cheating.) In this situation, even
-though the solver will be handling the identity constraints between
-the customers and their accounts, it should not be allowed to just
-point \texttt{customer1}'s account field to \texttt{account2} (because
-that would not be very social.) Thus, implicitly, all references that
-occur in constraints that are not identity constraints are read-only
-for the solver, i.e., the solver is not allowed to change references
-to satisfy constraints other than identity constraints. This is
-ensured by a set of axioms relating solver variables to references in
-constraints below.
+Without the restriction, we would either need to interleave
+determining values and identities, or else leave a medium value
+constraint unsatisfied in preference to a weak identity constraint.
+Similarly, we don't allow identity constraints in disjunctions or
+conjunctions with value constraints (and for simplicity, don't allow
+them in conjunctions or disjunctions at all).
+
+%% This example no longer needed?
+%% 
+%% One more issue concerns object identities in constraints. Although
+%% identity constraints require the solver to change references, it
+%% should not be allowed to change references when there are no identity
+%% constraints. Consider this program:
+%% \begin{verbatim}
+%%  account1 := new {balance: 100};
+%%  customer1 := new {account: account1};
+%%  account2 := new {balance: 1000};
+%%  customer2 := new {account: account2};
+%%  always customer1.account.balance? > 100;
+%% \end{verbatim}
+%% This constraint should fail. We try to add a constraint that there
+%% should always be some amount of money left in the account of
+%% \texttt{customer1}, but the solver is not actually allowed to change
+%% the balance (because that would be cheating.) In this situation, even
+%% though the solver will be handling the identity constraints between
+%% the customers and their accounts, it should not be allowed to just
+%% point \texttt{customer1}'s account field to \texttt{account2} (because
+%% that would not be very social.) Thus, implicitly, all references that
+%% occur in constraints that are not identity constraints are read-only
+%% for the solver, i.e., the solver is not allowed to change references
+%% to satisfy constraints other than identity constraints. This is
+%% ensured by a set of axioms relating solver variables to references in
+%% constraints below.
 
 \subsection{Formalism}
 
@@ -2464,6 +2557,8 @@ of the solver becomes more complex, since we now want to support
 constraints on objects and in particular on the results of message
 sends.
 
+\ab{TODO: revise the discussion of the solver language as needed.}
+
 To accomplish this, we start with a standard model for an
 object-oriented language with instances, classes, messages, methods,
 and inheritance, and add constraints on top of that.  Some of the
@@ -2492,6 +2587,8 @@ aren't mapped to operations in the solver language, for example a
 have types and operations in the solver language without equivalents
 in the source language (although expressions involving them could
 never be generated).
+
+\ab{do we have two execution modes for Babelsberg/Objects??}
 
 As with the previous languages, the semantics includes two different
 execution modes: imperative execution mode and constraint construction
@@ -2839,37 +2936,19 @@ always w1.width = 200;
 always w2.width = 300;
 \end{verbatim}
 
-These variants, in which we make the constraints on the window's
-widths strong rather than required, or use a weak
-identity constraint instead of an assignment, result in an error as
-well.  In these cases, there aren't any unsatisfied required
-constraints, but we would have weak constraints satisfied in
-preference to strong ones, which would violate the definition of
-correct solutions to the set of hard and soft constraints.
+This variant, in which we make the constraints on the window's widths
+strong rather than required, result in an error as well.  In this
+case, there aren't any unsatisfied required constraints, but we would
+have weak identity stay constraints satisfied in preference to strong
+ones.
+
+\ab{TODO: is this what we want?  Actually I think this program is OK!}
 
 \begin{verbatim}
 w1 := Window.new(....);
 w2 := w1;
 always strong w1.width = 200;
 always strong w2.width = 300;
-\end{verbatim}
-
-\begin{verbatim}
-w1 := Window.new(....);
-always weak w2 == w1;
-always strong w1.width = 200;
-always strong w2.width = 300;
-\end{verbatim}
-
-As a final variant, this program is OK, since we aren't creating new
-objects to satisfy constraints and we don't have weak constraints
-being satisfied in preference to strong ones. 
-
-\begin{verbatim}
-w1 := Window.new(....);
-always strong w2 == w1;
-always weak w1.width = 200;
-always weak w2.width = 300;
 \end{verbatim}
 
 As a point of comparison, this restriction on not creating new objects
@@ -2888,45 +2967,68 @@ This is fine --- after the assignment \verb|q := p|, \verb|q| is a
 separate record from \verb|p|, and so there is no problem satisfying
 the final constraint.
 
-Here are a few examples to illustrate the behavior of weak identity
-constraints.
-
+There can be explicit identity constraints, as in Babelsberg/UID\@.
+For example:
 \begin{verbatim}
-p := Point.new(0,0);
-q := Point.new(5,5);
-always p.x=10;
-always q.x=20;
-always weak p==q  /* this is a weak identity constraint */
+x:= Window.new(....);
+y := x;
+always y==x;
+x := Circle.new(....);
 \end{verbatim}
 
-This is OK; the final weak identity constraint isn't satisfied.  
+Since \verb|y| is constrained to be identical to \verb|x|, after the
+last assignment both \verb|x| and \verb|y| refer to the newly created
+circle.   This example also illustrates how type changes must
+originate with an assignment statement, but can ripple further via
+explicit identity constraints. 
 
-But consider the program with the constraints reordered:
+\subsection{Side Effects}
+
+Methods can of course have side effects, but such methods can't be
+used in the expressions that define constraints (unless the side
+effects are benign).  Consider the \verb|pop| method for a class
+\verb|Stack|, which has a side effect as well as returning the value
+popped from the stack.  This program fragment is OK:
 
 \begin{verbatim}
-p := Point.new(0,0);
-q := Point.new(5,5);
-always weak p==q;
-always p.x=10;
-always q.x=20;
+x := stack.pop;
 \end{verbatim}
 
-After we satisfy the weak identity constraint, \verb|p| and \verb|q|
-will be aliased, and since we are disallowing the creation of new
-objects to satisfy constraints, we can't satisfy the last constraint,
-and the program halts with an error.  It's a little weird that
-reordering the constraints has this effect, but particularly since in
-a practical system we would have a specific exception for the
-situation it should not present a program comprehension problem.
+This works, because the RHS of the assignment is evaluated first, and
+then we set up a once constraint using the value popped from the
+stack.  (The RHS of an assignment can have side effects, in contrast
+to always or once constraints.)
 
-The same thing happens with \verb|strong| rather than \verb|required|
-constraints:
+In contrast, these programs are not OK:
 \begin{verbatim}
-p := Point.new(0,0);
-q := Point.new(5,5);
-weak p==q;
-always strong p.x=10;
-always strong q.x=20;
+once x == stack.pop;
+\end{verbatim}
+
+\begin{verbatim}
+always x == stack.pop;
+\end{verbatim}
+
+\ab{TODO: can't call methods from a constraint that creates other
+  constraints}
+
+\subsection{Scope Issues}
+
+\ab{include an example showing constraints that persist beyond the
+life of the method that creates them}
+
+Calling the \verb|make_double| method should cause the \verb|y| field
+of the point to always be twice the value of its \verb|x| field.
+This is somewhat artificial --- but notice that \verb|temp| needs to
+persist after the \verb|make_double| method has returned, to maintain
+the relation between the \verb|x| and \verb|y| fields of the point.
+
+\begin{verbatim}
+class Point
+def make_double
+  temp := 0;
+  always temp = self.x;
+  always self.y = 2*temp;
+end;
 \end{verbatim}
 
 \subsection{Arrays}

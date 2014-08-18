@@ -40,7 +40,8 @@
 \newcommand{\tcC}[2]{{\tt #1} $\vdash$ {\tt #2}}
 
 \newcommand{\evalH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\Downarrow$ {\tt #4}}
-\newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
+\newcommand{\solveH}[3]{{\tt #1;#2} $\models$ {\tt #3}}
+% \newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
 % \newcommand{\solveH}[3]{{\tt #1} $\models_{E,H}$ {\tt #3}}
 \newcommand{\failH}[1]{$\not\models_{E,H}$ {\tt #1}}
 \newcommand{\stepH}[8]{{\tt <#1|#2|#3|I|#4>} $\longrightarrow$
@@ -60,6 +61,10 @@
 \newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
 
 \newcommand{\receq}{\stackrel{{\tt r}}{{\tt =}}}
+
+\newcommand{\lookup}[3]{\textit{lookup}({\tt #1},{\tt #2}) = {\tt #3}}
+\newcommand{\enter}[3]{\textit{enter}({\tt #1},{\tt #2}) $=$ {\tt #3}}
+\newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5,#6>}}
 
 \sloppy
 
@@ -843,6 +848,302 @@ structure to make clear which structure we end up with afterwards.
     \stepHI{E}{H}{I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{I$'$}{skip}
 }}
 
+\section{Babelsberg/Objects}
+\label{sec:babelsbergobjects}
+
+In this final language, we add classes, inheritance, methods, and
+messages.  For simplicity, we remove field access entirely --- access
+to an objects variables is only possible through message sends. This
+language is intended to capture the essential features of actual
+object constraint languages including Babelsberg/R, Babelsberg/JS, and
+Babelsberg/Squeak.
+
+Since concerns like class and method definitions are orthogonal to
+this semantics, we omit it entirely.
+
+
+\subsection{Syntax}
+
+The syntax is augmented to include method invocation.
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Method Body} & b & ::= & s; return e $\mid$ return e\\
+{\rm Accessor} & a & ::= & $\cdots$ $\mid$ a.l(a$_1$,$\ldots$,a$_n$)\\
+\end{tabular}
+\end{tt}
+
+Method bodies are assumed to include one or more statements and then
+return an expression. A method body that includes only a return is
+syntactic sugar for {\tt skip; return e}.
+
+\subsection{Semantics}
+
+\judgment{\evalH{E}{H}{e}{v}}
+
+This judgment is changed to account for method invocation scoping. The
+environment is replaced with an environment stack. {\tt E} is now
+defined as a mapping from variable names in the current scope to their
+values.
+
+The precise semantics of method lookup are also not important, so we
+just use it as an opaque (partial) function from values and labels to
+statements.
+
+\judgment{\lookup{v}{l}{b}}
+
+``Lookup of method {\tt l} in the object or value {\tt v} returns the
+body {\tt b}''
+
+\judgment{\enter{v}{e$_1$$,\ldots,$e$_n$}{E}}
+
+``Invoking a method on {\tt a} with the (possibly empty) argument list
+{\tt e$_1$} to {\tt e$_n$} creates an environment E for the execution
+of the method body.''
+
+\infrule[E-Call]{\mbox{
+  \evalH{E}{H}{a}{v} \andalso
+  \lookup{v}{l}{b} \andalso
+  {\tt b} = {\tt s; return e} \andalso
+  \enter{v}{e$_1$$,\ldots,$e$_n$}{E$'$}}\\
+\mbox{
+  {\tt <E$'$|H|C|I|s>} $\longrightarrow$ {\tt <E$''$|H$'$|C$'$|I$'$|s$'$>} \andalso
+  \evalH{E$''$}{H$'$}{e}{v$_r$}}
+}{\mbox{
+  \evalH{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{v$_r$}
+}}
+
+\tf{how to we retain side-effects on the heap and to constraints? do
+  we change eval so expressions can update the heap?}
+
+\judgment{\tcH{E}{H}{e}{T}}
+\judgment{\tcH{E}{H}{s}{T}}
+\judgment{\tcHC{E}{H}{C}}
+
+The typing rules are unchanged. In particular, even though we allow
+method calls in expressions and thus in constraints syntactically,
+these do not type. Instead, our rules for creating constraints given
+below inline method invocations.
+
+\judgment{\solveH{E}{H}{C}}
+
+For simplicity of this semantics we assumed that the solver natively
+supports records and maps. We do not assume, however, that the solver
+understands methods, which can now be part of constraint
+expressions. This requires us to essentially inline methods before
+passing constraints to the solver.
+
+\judgment{\stay{E}{C}}
+\judgment{\stay{H}{C}}
+
+The rules for creating stay constraints are unchanged.
+
+\judgment{\inline{E}{H}{e}{E}{H$'$}{e$'$}}
+\judgment{\inline{E}{H}{s}{E$'$}{H$'$}{s$'$}}
+
+``Inlining expression {\tt e} may update the heap and otherwise turns
+into expression {\tt e$'$}''
+
+``Inlining statement {\tt s} may update the environment and heap and
+otherwise turns into expression {\tt s$'$}''
+
+\inferax{I-Const}{\inline{E}{H}{c}{E}{H}{c}}
+
+\inferax{I-Var}{\inline{E}{H}{x}{E}{H}{x}}
+
+\inferax{I-Field}{\inline{E}{H}{a.l}{E}{H}{a.l}}
+
+\inferax{I-ReadOnly}{\inline{E}{H}{a?}{E}{H}{a?}}
+
+\inferax{I-Ref}{\inline{E}{H}{r}{E}{H}{r}}
+
+\inferrule{I-Op}{
+  \inline{E}{H}{e$_1$}{E}{H$'$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{E}{H$''$}{e$_b$}
+}{
+  \inline{E}{H}{e$_1$ $\oplus$ e$_2$}{E}{H$''$}{e$_a$ $\oplus$ e$_b$}
+}
+
+\inferrule{I-Compare}{
+  \inline{E}{H}{e$_1$}{E}{H$'$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{E}{H$''$}{e$_b$}
+}{
+  \inline{E}{H}{e$_1$ $\olessthan$ e$_2$}{E}{H$''$}{e$_a$ $\olessthan$ e$_b$}
+}
+
+\inferrule{I-Combine}{
+  \inline{E}{H}{e$_1$}{E}{H$'$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{E}{H$''$}{e$_b$}
+}{
+  \inline{E}{H}{e$_1$ $\ovee$ e$_2$}{E}{H$''$}{e$_a$ $\ovee$ e$_b$}
+}
+
+\inferrule{I-Identity}{
+  \inline{E}{H}{e$_1$}{E}{H$'$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{E}{H$''$}{e$_b$}
+}{
+  \inline{E}{H}{e$_1$ == e$_2$}{E}{H$''$}{e$_a$ == e$_b$}
+}
+
+\infrule[I-Call]{
+  \mbox{
+    \evalH{E}{H}{a}{v} \andalso
+    \lookup{v}{l}{b} \andalso
+    {\tt b} = {\tt s; return e}}\\
+  \mbox{
+    \inline{E}{H}{s}{E$'$}{H$'$}{skip} \andalso
+    \inline{E$'$}{H$'$}{e}{E$'$}{H$'$}{e$'$}}
+}{\mbox{
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{E}{H$'$}{e$'$}
+}}
+
+\tf{this rule has the same problem as the eval rule for calls. the
+  heap updates are not considered when evaluating for the value of
+  {\tt a}}
+
+The last rule is key: it drops the changes to the environment that
+happen when executing the statements in the method body, and only
+retains the changes to the heap. If we had executed the method, the
+environment changes would have happened in the method scope, so they shouldn't
+be seen outside.
+
+Now follow the rules for inlining statements.
+
+\inferrule{I-Asgn}{
+  \stepH{E}{H}{C}{a := e}{E$'$}{H$'$}{C}{skip}
+}{
+  \inline{E}{H}{a := e}{E$'$}{H$'$}{skip}
+}
+
+The above rule just executes the assignment, but does not set up a
+required equality constraint between the LHS and RHS. In a practical
+language we found it sometimes useful to include a ``backwards
+compatibility mode'' which does just that. We also do give no inlining
+rules for {\tt once} and {\tt always} statements, because these are
+not allowed to be nested. Again, a practical language might want to
+include support for nested constraints in a ``backwards compatibility
+mode.''
+
+Note also that if the assignment execution fails (for example due to
+conflicting constraints), the inlining gets stuck dynamically.
+
+\inferrule{I-SeqSkip}{
+  \inline{E}{H}{s}{E$'$}{H$'$}{s$'$}
+}{
+  \inline{E}{H}{skip;s}{E$'$}{H$'$}{s$'$}
+}
+
+\inferrule{I-SeqStep}{
+  \inline{E}{H}{s$_1$}{E$'$}{H$'$}{s$_1'$}
+}{
+  \inline{E}{H}{s$_1$;s$_2$}{E$'$}{H$'$}{s$_1'$;s$_2$}
+}
+
+\inferrule{I-IfThen}{
+  \evalH{E}{H}{e}{true} \andalso
+  \inline{E}{H}{s$_1$}{E$'$}{H$'$}{s$_1'$}
+}{
+  \inline{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{s$_1'$}
+}
+
+\inferrule{I-IfElse}{
+  \evalH{E}{H}{e}{true} \andalso
+  \inline{E}{H}{s$_2$}{E$'$}{H$'$}{s$_2'$}
+}{
+  \inline{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{s$_1'$}
+}
+
+The above two rules show that we are eagerly choosing one branch of
+the if-statement for inlining. Similarly, the next two rules eagerly
+unroll loops.
+
+\inferrule{I-WhileDo}{
+  \evalH{E}{H}{e}{true} \andalso
+  \inline{E}{H}{s}{E$'$}{H$'$}{s$'$}
+}{
+  \inline{E}{H}{while e do s}{E$'$}{H$'$}{s$'$; while e do s}
+}
+
+\inferrule{I-WhileSkip}{
+  \evalH{E}{H}{e}{false}
+}{
+  \inline{E}{H}{while e do s}{E}{H}{skip}
+}
+
+
+\judgment{{\tt <E|H|C|I|s>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$'$>}}
+
+The rules for normal execution are unchanged. However, the rules for
+creating constraints are amended to inline method calls (and execute
+possible side-effects on the heap.)
+
+\infrule[S-Once]{
+  \mbox{
+    {\tt C$_0$} = $\rho$ {\tt e} \andalso
+    \inline{E}{H$_0$}{e}{E}{H}{e$'$} \andalso
+    {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
+    \tcHC{E}{H}{C$_0'$}
+  }\\
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    \solveH{E$'$}{H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
+}
+{\mbox{\stepH{E}{H$_0$}{C}{once C$_0$}{E$'$}{H$'$}{C}{skip}}}
+
+\infrule[S-Always]{
+  \mbox{
+    {\tt C$_0$} = $\rho$ {\tt e} \andalso
+    \inline{E}{H$_0$}{e}{E}{H}{e$'$} \andalso
+    {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
+    \tcHC{E}{H}{C$_0'$}
+  }\\
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    {\tt C}$'$ = ({\tt C} $\wedge$ {\tt C}$_0'$) \andalso
+    \solveH{E$'$}{H$'$}{$($C$'$ $\wedge$ {\tt C}$_{E_s}$ $\wedge$ {\tt C}$_{H_s}$$)$}}
+}
+{\mbox{\stepH{E}{H$_0$}{C}{once C$_0$}{E$'$}{H$'$}{C$'$}{skip}}}
+
+\infrule[S-OnceIdentity]{
+  \mbox{
+    \inline{E}{H$_0$}{a$_0$}{E}{H$_0'$}{a$_0'$} \andalso
+    \inline{E}{H$_0'$}{a$_1$}{E}{H}{a$_1'$} \andalso
+    \tcH{E}{H}{a$_0'$}{T} \andalso
+    \tcH{E}{H}{a$_1'$}{T}}\\
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    \solveH{E$'$}{H$'$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ a$_0'$=a$_1'$$)$}}\\
+  \mbox{
+    \stay{E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \tcHC{E$'$}{H$'$}{C} \andalso
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+    \stepH{E}{H$_0$}{C}{once a$_0$ == a$_1$}{E$''$}{H$''$}{C}{skip}
+}}
+
+\infrule[S-AlwaysIdentity]{
+  \mbox{
+    \inline{E}{H$_0$}{a$_0$}{E}{H$_0'$}{a$_0'$} \andalso
+    \inline{E}{H$_0'$}{a$_1$}{E}{H}{a$_1'$} \andalso
+    \tcH{E}{H}{a$_0'$}{T} \andalso
+    \tcH{E}{H}{a$_1'$}{T}}\\
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    {\tt I}$'$ = ({\tt I} $\wedge$ {\tt a}$_0'$={\tt a}$_1'$) \andalso
+    \solveH{E$'$}{H$'$}{$($I$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$$)$}}\\
+  \mbox{
+    \stay{E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \tcHC{E$'$}{H$'$}{C} \andalso
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+    \stepHI{E}{H$_0$}{I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{I$'$}{skip}
+}}
 
 
 \end{document}

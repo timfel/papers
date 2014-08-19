@@ -67,6 +67,8 @@
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
 \newcommand{\evalBigC}[9]{{\tt <#1|#2|#3|#4|#5>} $\Downarrow$ {\tt <#6|#7|#8|#9>}}
 
+\newcommand{\construct}{TODO: constraint construction}
+
 \sloppy
 
 \begin{document}
@@ -841,6 +843,9 @@ also allow creating new objects as expressions now.
 \end{tabular}
 \end{tt}
 
+\tf{BUG: accessor syntax elements cannot be methods if they are used
+  as l-values}
+
 Method bodies are assumed to include one or more statements and then
 return an expression. A method body that includes only a return can be
 expressed as {\tt skip; return e}.
@@ -963,18 +968,6 @@ otherwise turns into expression {\tt s$'$}''
   \inline{E}{H}{e$_1$ == e$_2$}{H$''$}{e$_a$ == e$_b$}
 }
 
-% \infrule[I-Call]{
-%   \mbox{
-%     \evalBig{E}{H}{a}{H$'$}{v} \andalso
-%     \lookup{v}{l}{s; return e} \andalso
-%     \enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I}}\\
-%   \mbox{
-%     \inlineS{E$_m$}{H$_n$}{s}{E$'$}{H$''$}{skip} \andalso
-%     \inline{E$'$}{H$''$}{e}{H$'''$}{e$'$}}
-% }{\mbox{
-%   \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
-% }}
-
 \infrule[I-Accessor]{
   \mbox{
     \evalBig{E}{H}{a}{H$'$}{v} \andalso
@@ -999,11 +992,6 @@ Now follow the rules for inlining statements. These just execute the
 statements normally, except for assignments, which are only allowed to
 locals.
 
-% \inferrule{I-Asgn}{
-%   \stepH{E}{H}{C}{I}{a := e}{E$'$}{H$'$}{C}{I}
-% }{
-%   \inlineS{E}{H}{a := e}{E$'$}{H$'$}{skip}
-% }
 \inferrule{I-AsgnTmp}{
   \stepH{E}{H}{C}{I}{x := e}{E$'$}{H$'$}{C}{I}
 }{
@@ -1075,7 +1063,7 @@ unroll loops.
 
 \judgment{\stepH{E}{H}{C}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}
 
-The rules for normal execution are unchanged. However, the rules for
+The rules for normal execution are mostly. However, the rules for
 creating constraints are amended to inline method calls (and execute
 possible side-effects on the heap.)
 
@@ -1146,6 +1134,46 @@ possible side-effects on the heap.)
 }{\mbox{
     \stepH{E}{H$_0$}{C}{I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{C}{I$'$}
 }}
+
+\section{Babelsberg/Objects}
+\label{sec:babelsbergobjects-1}
+
+This final language adds support for using methods in constraints that
+are more complex than accessors. Its syntax is unchanged from what we
+had previously.
+
+\subsection{Semantics}
+
+Only the inlining rules are extended. We now inline calls that are
+more than simple accessors (so \textsc{I-Accessor} is replaced by
+\textsc{I-Call}, and we allow assignments to fields of objects that do
+not escape the dynamic extent of the constraint expression by
+replacing \textsc{I-AsgnTmp} with \textsc{I-Asgn}. To do that we add a
+judgment to translate the return expression lazily so we can construct
+a constraint network for e.g. objects returned from them.
+
+\judgment{\construct}
+
+\tf{TODO: fix the below rules}
+
+\infrule[I-Call]{
+  \mbox{
+    \evalBig{E}{H}{a}{H$'$}{v} \andalso
+    \lookup{v}{l}{s; return e}}\\
+  \mbox{\enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I}}\\
+  \mbox{
+    \inlineS{E$_m$}{H$_n$}{s}{E$'$}{H$''$}{skip} \andalso
+    \inline{E$'$}{H$''$}{e}{H$'''$}{e$'$}}
+}{\mbox{
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
+}}
+
+\inferrule{I-Asgn}{
+  \stepH{E}{H}{C}{I}{a := e}{E$'$}{H$'$}{C}{I}
+}{
+  \inlineS{E}{H}{a := e}{E$'$}{H$'$}{skip}
+}
+
 
 
 \end{document}

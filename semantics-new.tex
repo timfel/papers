@@ -34,8 +34,8 @@
 \newcommand{\solve}[2]{{\tt #1} $\models$ {\tt #2}}
 \newcommand{\cfail}[1]{$\not\models$ $#1$}
 \newcommand{\fail}[1]{$\not\models$ {\tt #1}}
-\newcommand{\step}[6]{{\tt <#1|#2|#3>} $\longrightarrow$
-  {\tt <#4|#5|#6>}}
+\newcommand{\step}[5]{{\tt <#1|#2|#3>} $\longrightarrow$
+  {\tt <#4|#5>}}
 \newcommand{\tc}[3]{{\tt #1} $\vdash$ {\tt #2} : {\tt #3}}
 \newcommand{\tcC}[2]{{\tt #1} $\vdash$ {\tt #2}}
 
@@ -44,10 +44,8 @@
 % \newcommand{\solveH}[3]{{\tt #1;#2} $\models_{E,H}$ {\tt #3}}
 % \newcommand{\solveH}[3]{{\tt #1} $\models_{E,H}$ {\tt #3}}
 \newcommand{\failH}[1]{$\not\models_{E,H}$ {\tt #1}}
-\newcommand{\stepH}[8]{{\tt <#1|#2|#3|I|#4>} $\longrightarrow$
-  {\tt <#5|#6|#7|I|#8>}}
-\newcommand{\stepHI}[8]{{\tt <#1|#2|C|#3|#4>} $\longrightarrow$
-  {\tt <#5|#6|C|#7|#8>}}
+\newcommand{\stepH}[9]{{\tt <#1|#2|#3|#4|#5>} $\longrightarrow$
+  {\tt <#6|#7|#8|#9>}}
 \newcommand{\tcH}[4]{{\tt #1;#2} $\vdash$ {\tt #3} : {\tt #4}}
 \newcommand{\tcHC}[3]{{\tt #1;#2} $\vdash$ {\tt #3}}
 \newcommand{\toSolverH}[2]{{\tt E,H} $\vdash$ {\tt #1} $\leadsto$ $#2$}
@@ -64,6 +62,7 @@
 
 \newcommand{\lookup}[3]{\textit{lookup}({\tt #1},{\tt #2}) = {\tt #3}}
 \newcommand{\enter}[3]{\textit{enter}({\tt #1},{\tt #2}) $=$ {\tt #3}}
+
 \newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5,#6>}}
 
 \sloppy
@@ -101,7 +100,7 @@ the program, there is an \emph{environment} that maps names to values.
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ once C $\mid$ s;s $\mid$ fail \\
+{\rm Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
   & & & $\mid$ if e then s else s $\mid$ while e do s \\
 {\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
 {\rm Expression} & e & ::= & c $\mid$ x $\mid$ x? $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e\\
@@ -147,18 +146,17 @@ hold for the rest of the programs execution, whereas a {\tt once}
 constraint is satisfied by the solver and then retracted. The {\tt ?}
 indicates that a variable is read-only if used in a constraint,
 i.e.\@, the programmer does not allow the solver to change the
-variables in the expression to satisfy constraints. Finally, the {\tt
-  fail} statement is not intended for use at the source level, but
-rather is used in the semantics to make explicit that the program
-halts due either to an unsatisfiable constraint or to the solver being
-unable to determine whether the constraint is satisfiable.  (The
-formal semantics doesn't distinguish between these two cases, but
-lumps them both together as {\tt fail}.  In a practical
-implementation, we would likely want to distinguish them, since it's
-useful if we can inform the programmer that the constraints are truly
-not satisfiable.  We could also add standard exception handling to
-remove the unsatisfiable or unknown constraint and continue, but omit
-this here for simplicity.)
+variables in the expression to satisfy constraints.
+
+Note that for simplicity this semantics implicitly gets stuck whenever
+the solver cannot satisfy a constraint, either due to an unsatisfiable
+constraint or due to the solver being unable to determine whether the
+constraint is satisfiable. In a practical implementation, we would
+likely want to make these cases explicit, since it's useful if we can
+inform the programmer that the constraints are truly not satisfiable.
+We could also add standard exception handling to remove the
+unsatisfiable or unknown constraint and continue, but omit this here
+for simplicity.
 
 \subsection{Semantics}
 
@@ -224,11 +222,6 @@ treat as a black box.  The proposition
 {\tt C} (and further one that is optimal according to the solver's
 semantics, as discussed earlier).  
 
-We use the notation \fail{C} to mean that there is no environment {\tt E}
-such that \solve{E}{C}, i.e., the solver is unable to find a
-solution, either because {\tt C} is unsatisfiable or because it is
-satisfiable but the solver is unable to find one.
-
 \judgment{\stay{E}{C}}
 
 This judgment defines how to translate an environment into a
@@ -251,9 +244,9 @@ types are also nonstandard: we only distinguish between booleans,
 undefined values, and lump all other primitive types together.
 
 
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
 
-``Configuration {\tt <E|C|s>} takes one step of execution to state {\tt <E$'$|C$'$|s$'$>}.''
+``Execution starting from configuration {\tt <E|C|s>} ends in state {\tt <E$'$|C$'$>}.''
 
 A ``configuration'' defining the state of an execution includes a
 concrete context, represented by the environment, a symbolic context,
@@ -263,83 +256,69 @@ part of the state of a computation in most languages.  Intuitively,
 the environment comes from constraint solving during the evaluation of
 the immediately preceding statement, and the constraint records the
 \verb|always| constraints that have been declared so far during
-execution. 
+execution. Note that our execution implicitly gets stuck if the solver
+cannot produce a model.
 
 \inferrule{S-Asgn}{
   \eval{E}{e}{v} \andalso
   \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
 }{
-  \step{E}{C}{x := e}{E$'$}{C}{skip}
-}
-
-\inferrule{S-AsgnFail}{
-  \eval{E}{e}{v} \andalso
-  \stay{E}{C$_s$} \andalso
-  \fail{(C $\wedge$ C$_s$ $\wedge$ x = v)}
-}{
-  \step{E}{C}{x := e}{E}{C}{fail}
+  \step{E}{C}{x := e}{E$'$}{C}
 }
 
 \inferrule{S-Once}{
   \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }
-{\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
-
-\inferrule{S-OnceFail}{
-  \stay{E}{C$_s$} \andalso
-  \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
-}{
-  \step{E}{C}{once C$_0$}{E}{C}{fail}
-}
+{\step{E}{C}{once C$_0$}{E$'$}{C}}
 
 \inferrule{S-Always}{
   {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C$'$ $\wedge$ C$_s$)}
 }{
-  \step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}
+  \step{E}{C}{always C$_0$}{E$'$}{C$'$}
 }
 
-\inferrule{S-AlwaysFail}{
-  {\tt C$'$} = {\tt (C $\wedge$ C$_0$)} \andalso \stay{E}{C$_s$} \andalso
-  \fail{(C$'$ $\wedge$ C$_s$)}
+\inferrule{S-SeqSkip}{
+  \step{E}{C}{s}{E$'$}{C$'$}
 }{
-  \step{E}{C}{always C$_0$}{E}{C}{fail}
+  \step{E}{C}{skip;s}{E$'$}{C$'$}
 }
-
-\inferax{S-SeqSkip}{\step{E}{C}{skip;s$_2$}{E}{C}{s$_2$}}
 
 \inferrule{S-SeqStep}{
-  \step{E}{C}{s$_1$}{E$'$}{C$'$}{s$_1'$}
+  \step{E}{C}{s$_1$}{E$'$}{C$'$} \andalso
+  \step{E$'$}{C$'$}{s$_2$}{E$''$}{C$''$}
 }{
-  \step{E}{C}{s$_1$;s$_2$}{E$'$}{C$'$}{s$_1'$;s$_2$}
+  \step{E}{C}{s$_1$;s$_2$}{E$''$}{C$''$}
 }
 
-\inferax{S-SeqFail}{\step{E}{C}{fail;s$_2$}{E}{C}{fail}}
-
 \inferrule{S-IfThen}{
-  \eval{E}{e}{true}
+  \eval{E}{e}{true} \andalso
+  \step{E}{C}{s$_1$}{E$'$}{C$'$}
 }{
-  \step{E}{C}{if e then s$_1$ else s$_2$}{E}{C}{s$_1$}%
+  \step{E}{C}{if e then s$_1$ else s$_2$}{E$'$}{C$'$}%
 }
 
 \inferrule{S-IfElse}{
-  \eval{E}{e}{false}
+  \eval{E}{e}{false} \andalso
+  \step{E}{C}{s$_2$}{E$'$}{C$'$}
 }{
-  \step{E}{C}{if e then s$_1$ else s$_2$}{E}{C}{s$_2$}%
+  \step{E}{C}{if e then s$_1$ else s$_2$}{E$'$}{C$'$}%
 }
 
 \inferrule{S-WhileDo}{
-  \eval{E}{e}{true}
+  \eval{E}{e}{true} \andalso
+  \step{E}{C}{s}{E$'$}{C$'$} \andalso
+  \step{E$'$}{C$'$}{while e do s}{E$''$}{C$''$}
 }{
-  \step{E}{C}{while e do s}{E}{C}{s; while e do s}
+  \step{E}{C}{while e do s}{E$''$}{C$''$}
 }
 
 \inferrule{S-WhileSkip}{
   \eval{E}{e}{false}
 }{
-  \step{E}{C}{while e do s}{E}{C}{skip}
+  \step{E}{C}{while e do s}{E}{C}
 }
 
 \section{Babelsberg/Records}
@@ -486,7 +465,7 @@ The following two rules simply ensure that a constraint is well typed.
   below).  And that assignment statements can only change the type of
   the variable that was assigned.  This would be a nice way to validate our choice of typing rules.}
 
-\judgment{\step{E}{C}{s}{E$'$}{C$'$}{s$'$}}
+\judgment{\step{E}{C}{s}{E$'$}{C$'$}}
 
 The semantics for executing statements is essentially identical to what we had
 before, except that now we typecheck constraints before we solve
@@ -500,7 +479,7 @@ below.
   \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
 }{
-  \step{E}{C}{x := e}{E$'$}{C}{skip}
+  \step{E}{C}{x := e}{E$'$}{C}
 }
 
 The second premise above is necessary so that we don't pass the solver
@@ -513,39 +492,17 @@ required constraint {\tt x = v} will take precedence.  The syntax {\tt
   E[x $\mapsto$ v]} denotes the environment identical to {\tt E} but
 with {\tt x} mapped to the value {\tt v}.
 
-\inferrule{S-AsgnFail}{
-  \eval{E}{e}{v} \andalso \tcC{E[x $\mapsto$ v]}{C} \andalso
-  \stay{E}{C$_s$} \andalso
-  \fail{(C $\wedge$ C$_s$ $\wedge$ x = v)}
-}{
-  \step{E}{C}{x := e}{E}{C}{fail}
-}
-
 \inferrule{S-Once}{\tcC{E}{C$_0$} \andalso
   \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }
-{\step{E}{C}{once C$_0$}{E$'$}{C}{skip}}
-
-\inferrule{S-OnceFail}{\tcC{E}{C$_0$} \andalso
-  \stay{E}{C$_s$} \andalso
-  \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
-}{
-  \step{E}{C}{once C$_0$}{E}{C}{fail}
-}
+{\step{E}{C}{once C$_0$}{E$'$}{C}}
 
 \inferrule{S-Always}{\tcC{E}{C$_0$} \andalso
   \stay{E}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }{
-  \step{E}{C}{always C$_0$}{E$'$}{C$'$}{skip}
-}
-
-\inferrule{S-AlwaysFail}{\tcC{E}{C$_0$} \andalso
-\stay{E}{C$_s$} \andalso
-  \fail{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
-}{
-  \step{E}{C}{always C$_0$}{E}{C}{fail}
+  \step{E}{C}{always C$_0$}{E$'$}{C$'$}
 }
 
 \section{Babelsberg/UID}
@@ -717,7 +674,7 @@ specific object on the heap. New references can only be created using
 the {\tt new} keyword, so the solver cannot change the set of
 references when solving.
 
-\judgment{{\tt <E|H|C|I|s>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$'$>}}
+\judgment{\stepH{E}{H}{C}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}
 
 The semantics for executing statements is extended to what we had
 before. When updating a variable, we now solve first for the identity
@@ -739,7 +696,7 @@ identities.
     \tcHC{E$'$}{H$'$}{C} \andalso
     \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
 }{\mbox{
-  \stepH{E}{H}{C}{a := e}{E$'$}{H$'$}{C}{skip}
+  \stepH{E}{H}{C}{I}{a := e}{E$'$}{H$'$}{C}{I}
 }}
 
 Implicitly this rule gets stuck if either a) the identity constraints
@@ -749,9 +706,7 @@ practical implementation would add explicit exceptions for these cases
 for the programmer to handle.
 
 The next rules are essentially unchanged from their previous version
-and just augmented with the heap references. For constraints we omit
-the fail rules and just implicitly get stuck if either the constraint
-does not type or the solver fails to produce a solution.
+and just augmented with the heap references.
 
 \inferrule{S-Once}{
   \tcHC{E}{H}{C$_0$} \andalso
@@ -759,7 +714,7 @@ does not type or the solver fails to produce a solution.
   \stay{H}{C$_{H_s}$} \andalso
   \solveH{E$'$}{H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0$$)$}
 }
-{\stepH{E}{H}{C}{once C$_0$}{E$'$}{H$'$}{C}{skip}}
+{\stepH{E}{H}{C}{I}{once C$_0$}{E$'$}{H$'$}{C}{I}}
 
 \inferrule{S-Always}{
   \tcHC{E}{H}{C$_0$} \andalso
@@ -768,39 +723,48 @@ does not type or the solver fails to produce a solution.
   {\tt C}$'$ = ({\tt C} $\wedge$ {\tt C}$_0$) \andalso
   \solveH{E$'$}{H$'$}{C$'$ $\wedge$ {\tt C}$_{E_s}$ $\wedge$ {\tt C}$_{H_s}$}
 }{
-  \stepH{E}{H}{C}{always C$_0$}{E$'$}{H$'$}{C$'$}{skip}
+  \stepH{E}{H}{C}{I}{always C$_0$}{E$'$}{H$'$}{C$'$}{I}
 }
 
-\inferax{S-SeqSkip}{\stepH{E}{H}{C}{skip;s$_2$}{E}{H}{C}{s$_2$}}
+\inferrule{S-SeqSkip}{
+  \stepH{E}{H}{C}{I}{s$_2$}{E$'$}{H$'$}{C}{I}
+}{
+  \stepH{E}{H}{C}{I}{skip;s$_2$}{E$'$}{H$'$}{C}{I}
+}
 
 \inferrule{S-SeqStep}{
-  {\tt <E|H|C|I|s$_1$>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$_1'$>}
+  \stepH{E}{H}{C}{I}{s$_1$}{E$'$}{H$'$}{C$'$}{I$'$} \andalso
+  \stepH{E$'$}{H$'$}{C$'$}{I$'$}{s$_2$}{E$''$}{H$''$}{C$''$}{I$''$}
 }{
-  {\tt <E|H|C|I|s$_1$;s$_2$>} $\longrightarrow$ {\tt <E$'$|H$'$|C$'$|I$'$|s$_1'$;s$_2$>}
+  \stepH{E}{H}{C}{I}{s$_1$;s$_2$}{E$''$}{H$''$}{C$''$}{I$''$}
 }
 
 \inferrule{S-IfThen}{
-  \evalH{E}{H}{e}{true}
+  \evalH{E}{H}{e}{true} \andalso
+  \stepH{E}{H}{C}{I}{s$_1$}{E$'$}{H$'$}{C$'$}{I$'$}
 }{
-  \stepH{E}{H}{C}{if e then s$_1$ else s$_2$}{E}{H}{C}{s$_1$}%
+  \stepH{E}{H}{C}{I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}%
 }
 
 \inferrule{S-IfElse}{
-  \evalH{E}{H}{e}{false}
+  \evalH{E}{H}{e}{false} \andalso
+  \stepH{E}{H}{C}{I}{s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}
 }{
-  \stepH{E}{H}{C}{if e then s$_1$ else s$_2$}{E}{H}{C}{s$_2$}%
+  \stepH{E}{H}{C}{I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}%
 }
 
 \inferrule{S-WhileDo}{
-  \evalH{E}{H}{e}{true}
+  \evalH{E}{H}{e}{true} \andalso
+  \stepH{E}{C}{H}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$} \andalso
+  \stepH{E$'$}{H$'$}{C$'$}{I$'$}{while e do s}{E$''$}{H$''$}{C$''$}{I$''$}
 }{
-  \stepH{E}{H}{C}{while e do s}{E}{H}{C}{s; while e do s}
+  \stepH{E}{H}{C}{I}{while e do s}{E$''$}{H$''$}{C$''$}{I$''$}
 }
 
 \inferrule{S-WhileSkip}{
   \evalH{E}{H}{e}{false}
 }{
-  \stepH{E}{H}{C}{while e do s}{E}{H}{C}{skip}
+  \stepH{E}{H}{C}{I}{while e do s}{E}{H}{C}{I}
 }
 
 The next rules are additions to create identity constraints. Note that

@@ -61,9 +61,10 @@
 \newcommand{\receq}{\stackrel{{\tt r}}{{\tt =}}}
 
 \newcommand{\lookup}[3]{\textit{lookup}({\tt #1},{\tt #2}) = {\tt #3}}
-\newcommand{\enter}[3]{\textit{enter}({\tt #1},{\tt #2}) $=$ {\tt #3}}
-
+\newcommand{\enter}[9]{\textit{enter}({\tt #1},{\tt #2},{\tt #3},{\tt #4},{\tt #5},{\tt e$_1$},$\cdots$,{\tt e$_n$}) = ({\tt #6},{\tt #7},{\tt #8},{\tt #9})}
 \newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5,#6>}}
+\newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
+\newcommand{\evalBigC}[9]{{\tt <#1|#2|#3|#4|#5>} $\Downarrow$ {\tt <#6|#7|#8|#9>}}
 
 \sloppy
 
@@ -163,11 +164,10 @@ for simplicity.
 The semantics is defined by several judgments, defined below.  These
 judgments depend on the notion of an {\em environment}, which is a
 partial function from program variables to program
-values. Metavariable {\tt E} ranges over environments. We use {\tt
-  E(x)$\uparrow$} to indicate that {\tt E} has no mapping for {\tt
-  x}. When convenient we also view an environment as a set of (program
-variable, program value) pairs.  For each operator {\tt o} in the language
-we assume the existence of a corresponding semantic function denoted
+values. Metavariable {\tt E} ranges over environments. When convenient
+we also view an environment as a set of (program variable, program
+value) pairs.  For each operator {\tt o} in the language we assume the
+existence of a corresponding semantic function denoted
 $\llbracket {\tt o} \rrbracket$.
 
 \judgment{\eval{E}{e}{v}}
@@ -828,57 +828,67 @@ this semantics, we omit it entirely.
 
 \subsection{Syntax}
 
-The syntax is augmented to include method invocation.
+The syntax is augmented to include method invocation. Additionally, we
+also allow creating new objects as expressions now.
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Method Body} & b & ::= & s; return e $\mid$ return e\\
+{\rm Expression} & e & ::= & $\cdots$ $\mid$ new o\\
+{\rm Method Body} & b & ::= & s; return e\\
 {\rm Accessor} & a & ::= & $\cdots$ $\mid$ a.l(a$_1$,$\ldots$,a$_n$)\\
 \end{tabular}
 \end{tt}
 
 Method bodies are assumed to include one or more statements and then
-return an expression. A method body that includes only a return is
-syntactic sugar for {\tt skip; return e}.
+return an expression. A method body that includes only a return can be
+expressed as {\tt skip; return e}.
 
 \subsection{Semantics}
 
-\judgment{\evalH{E}{H}{e}{v}}
+\judgment{\evalBig{E}{H}{e}{H}{v}}
 
-This judgment is changed to account for method invocation scoping. The
-environment is replaced with an environment stack. {\tt E} is now
-defined as a mapping from variable names in the current scope to their
-values.
+Expression evaluation is changed to account for method invocation and
+object instantiation as expressions. These operations may have an
+effect on the heap, the active constraints, and the identity
+constraints, so this judgment now returns updates to these besides the
+value.
 
-The precise semantics of method lookup are also not important, so we
-just use it as an opaque (partial) function from values and labels to
-statements.
+Evaluation also needs two helpers, one for method lookup and one for
+setting up method scope and evaluating the argument. The precise
+semantics of method lookup are not important, so we just use it as an
+opaque (partial) function from values and labels to statements.
 
 \judgment{\lookup{v}{l}{b}}
 
 ``Lookup of method {\tt l} in the object or value {\tt v} returns the
 body {\tt b}''
 
-\judgment{\enter{v}{e$_1$$,\ldots,$e$_n$}{E}}
+\judgment{\enter{E}{H}{C}{I}{v}{E$_m$}{H$'$}{C$'$}{I$'$}}
 
-``Invoking a method on {\tt a} with the (possibly empty) argument list
-{\tt e$_1$} to {\tt e$_n$} creates an environment E for the execution
-of the method body.''
+``Invoking a method on {\tt v} constructs the method scope {\tt E$_m$}
+may have a side-effects''
 
-\infrule[E-Call]{\mbox{
-  \evalH{E}{H}{a}{v} \andalso
-  \lookup{v}{l}{b} \andalso
-  {\tt b} = {\tt s; return e} \andalso
-  \enter{v}{e$_1$$,\ldots,$e$_n$}{E$'$}}\\
+\infrule[Enter]{
+  \mbox{
+  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_1$}{C$_1$}{I$_1$}{v$_1$}
+  $\cdots$
+  \evalBigC{E}{H$_{n-1}$}{C$_{n-1}$}{I$_{n-1}$}{e$_n$}{H$_n$}{C$_n$}{I$_n$}{v$_n$}}\\
 \mbox{
-  {\tt <E$'$|H|C|I|s>} $\longrightarrow$ {\tt <E$''$|H$'$|C$'$|I$'$|s$'$>} \andalso
-  \evalH{E$''$}{H$'$}{e}{v$_r$}}
+  {\tt E$_m$} = \{({\tt self}, {\tt v}),({\tt e$_1$}, {\tt v$_1$}),$\cdots$,({\tt e$_n$}, {\tt v$_n$})\}}
 }{\mbox{
-  \evalH{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{v$_r$}
+  \enter{E}{H}{C}{I}{v}{E$_m$}{H$_n$}{C$_n$}{I$_n$}
 }}
 
-\tf{how to we retain side-effects on the heap and to constraints? do
-  we change eval so expressions can update the heap?}
+\infrule[E-Call]{\mbox{
+  \evalBigC{E}{H}{C}{I}{a}{H$_0$}{C$_0$}{I$_0$}{v} \andalso
+  \lookup{v}{l}{s; return e} \andalso
+  \enter{E}{H$_0$}{C$_0$}{I$_0$}{v}{E$_m$}{H$_n$}{C$_n$}{I$_n$}}\\
+\mbox{
+  \stepH{E$_m$}{H$_n$}{C$_n$}{I$_n$}{s}{E$'$}{H$'$}{C$'$}{I$'$} \andalso
+  \evalBigC{E$'$}{H$'$}{C$'$}{I$'$}{e}{H$''$}{C$''$}{I$''$}{v$_r$}}
+}{\mbox{
+  \evalBigC{E}{H}{C}{I}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{C$''$}{I$''$}{v$_r$}
+}}
 
 \judgment{\tcH{E}{H}{e}{T}}
 \judgment{\tcH{E}{H}{s}{T}}
@@ -951,19 +961,15 @@ otherwise turns into expression {\tt s$'$}''
 
 \infrule[I-Call]{
   \mbox{
-    \evalH{E}{H}{a}{v} \andalso
-    \lookup{v}{l}{b} \andalso
-    {\tt b} = {\tt s; return e}}\\
+    \evalBig{E}{H}{a}{H$'$}{v} \andalso
+    \lookup{v}{l}{s; return e} \andalso
+    \enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I}}\\
   \mbox{
-    \inline{E}{H}{s}{E$'$}{H$'$}{skip} \andalso
-    \inline{E$'$}{H$'$}{e}{E$'$}{H$'$}{e$'$}}
+    \inline{E$_m$}{H$_n$}{s}{E$'$}{H$''$}{skip} \andalso
+    \inline{E$'$}{H$''$}{e}{E$'$}{H$'''$}{e$'$}}
 }{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{E}{H$'$}{e$'$}
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{E}{H$'''$}{e$'$}
 }}
-
-\tf{this rule has the same problem as the eval rule for calls. the
-  heap updates are not considered when evaluating for the value of
-  {\tt a}}
 
 The last rule is key: it drops the changes to the environment that
 happen when executing the statements in the method body, and only
@@ -1005,17 +1011,17 @@ conflicting constraints), the inlining gets stuck dynamically.
 }
 
 \inferrule{I-IfThen}{
-  \evalH{E}{H}{e}{true} \andalso
-  \inline{E}{H}{s$_1$}{E$'$}{H$'$}{skip}
+  \evalBig{E}{H}{e}{H$'$}{true} \andalso
+  \inline{E}{H$'$}{s$_1$}{E$'$}{H$''$}{skip}
 }{
-  \inline{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{skip}
+  \inline{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$''$}{skip}
 }
 
 \inferrule{I-IfElse}{
-  \evalH{E}{H}{e}{true} \andalso
-  \inline{E}{H}{s$_2$}{E$'$}{H$'$}{skip}
+  \evalBig{E}{H}{e}{H$'$}{true} \andalso
+  \inline{E}{H$'$}{s$_2$}{E$'$}{H$''$}{skip}
 }{
-  \inline{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{skip}
+  \inline{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$''$}{skip}
 }
 
 The above two rules show that we are eagerly choosing one branch of
@@ -1023,17 +1029,17 @@ the if-statement for inlining. Similarly, the next two rules eagerly
 unroll loops.
 
 \inferrule{I-WhileDo}{
-  \evalH{E}{H}{e}{true} \andalso
-  \inline{E}{H}{s}{E$'$}{H$'$}{s$'$} \andalso
-  \inline{E$'$}{H$'$}{while e do s}{E$''$}{H$''$}{skip}
+  \evalBig{E}{H}{e}{H$'$}{true} \andalso
+  \inline{E}{H$'$}{s}{E$'$}{H$''$}{s$'$} \andalso
+  \inline{E$'$}{H$''$}{while e do s}{E$''$}{H$'''$}{skip}
 }{
-  \inline{E}{H}{while e do s}{E$''$}{H$''$}{skip}
+  \inline{E}{H}{while e do s}{E$''$}{H$'''$}{skip}
 }
 
 \inferrule{I-WhileSkip}{
-  \evalH{E}{H}{e}{false}
+  \evalH{E}{H}{e}{H$'$}{false}
 }{
-  \inline{E}{H}{while e do s}{E}{H}{skip}
+  \inline{E}{H}{while e do s}{E}{H$'$}{skip}
 }
 
 

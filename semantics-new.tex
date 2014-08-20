@@ -67,7 +67,7 @@
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
 \newcommand{\evalBigC}[9]{{\tt <#1|#2|#3|#4|#5>} $\Downarrow$ {\tt <#6|#7|#8|#9>}}
 
-\newcommand{\construct}{TODO: constraint construction}
+\newcommand{\hoist}[3]{{\tt (#1,#2)} $\leadsto$ {\tt #3}}
 
 \sloppy
 
@@ -833,18 +833,29 @@ this semantics, we omit it entirely.
 \subsection{Syntax}
 
 The syntax is augmented to include method invocation. Additionally, we
-also allow creating new objects as expressions now.
+also allow creating new objects as expressions now. We remove record
+syntax and the {\tt new} object syntax and associated rules. New
+objects are created by calling the constructor (assumed to be defined
+globally.) The entire syntax is given below.
 
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Expression} & e & ::= & $\cdots$ $\mid$ new o\\
+{\rm Statement} & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
+  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+{\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
+{\rm Expression} & e & ::= & c $\mid$ a $\mid$ a? $\mid$ e $\oplus$ e  $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I \\
+{\rm Identity} & I & ::= & a == a\\
+{\rm Accessor} & a & L $\mid$ a.l(a$_1$,$\ldots$,a$_n$) $\mid$ l(a$_1$,$\ldots$,a$_n$) \\
+{\rm L-Value} & L & ::= & x $\mid$ a.l \\
+{\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ {\rm base type constants}\\
+{\rm Variable} & x & ::= & {\rm variable names} \\
+{\rm Label} & l & ::= & {\rm record label names} \\
+{\rm Reference} & r & ::= & {\rm references to heap records} \\\\
 {\rm Method Body} & b & ::= & s; return e\\
-{\rm Accessor} & a & ::= & $\cdots$ $\mid$ a.l(a$_1$,$\ldots$,a$_n$)\\
+
+{\rm Value} & v & ::= & c $\mid$ r\\
 \end{tabular}
 \end{tt}
-
-\tf{BUG: accessor syntax elements cannot be methods if they are used
-  as l-values}
 
 Method bodies are assumed to include one or more statements and then
 return an expression. A method body that includes only a return can be
@@ -1063,9 +1074,25 @@ unroll loops.
 
 \judgment{\stepH{E}{H}{C}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}
 
-The rules for normal execution are mostly. However, the rules for
-creating constraints are amended to inline method calls (and execute
-possible side-effects on the heap.)
+The rules for normal execution are mostly unchanged.
+
+\infrule[S-Asgn]{
+  \mbox{
+    \evalH{E}{H}{e}{v}}\\
+  \mbox{
+    \stay{E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{H_s}$} \andalso
+    \solveH{E$'$}{H$'$}{(I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ L=v)}}\\
+  \mbox{
+    \stay{E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \tcHC{E$'$}{H$'$}{C} \andalso
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+  \stepH{E}{H}{C}{I}{L := e}{E$'$}{H$'$}{C}{I}
+}}
+
+Assignment changes to work only for l-values, not all accessors.
 
 \infrule[S-Once]{
   \mbox{
@@ -1135,26 +1162,96 @@ possible side-effects on the heap.)
     \stepH{E}{H$_0$}{C}{I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{C}{I$'$}
 }}
 
+The rules for creating constraints are amended to inline method calls
+(and execute possible side-effects on the heap.)
+
 \section{Babelsberg/Objects}
 \label{sec:babelsbergobjects-1}
 
 This final language adds support for using methods in constraints that
-are more complex than accessors. Its syntax is unchanged from what we
-had previously.
+are more complex than accessors.
+
+\subsection{Syntax}
+
+The syntax is augmented to allow methods that only return and have no
+further statements.
+
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Method Body} & b & ::= & s; return e $\mid$ return e\\
+\end{tabular}
+\end{tt}
 
 \subsection{Semantics}
 
 Only the inlining rules are extended. We now inline calls that are
 more than simple accessors (so \textsc{I-Accessor} is replaced by
-\textsc{I-Call}, and we allow assignments to fields of objects that do
-not escape the dynamic extent of the constraint expression by
-replacing \textsc{I-AsgnTmp} with \textsc{I-Asgn}. To do that we add a
-judgment to translate the return expression lazily so we can construct
-a constraint network for e.g. objects returned from them.
+\textsc{I-Call}% , and we allow assignments to fields of objects that do
+% not escape the dynamic extent of the constraint expression by
+% replacing \textsc{I-AsgnTmp} with \textsc{I-Asgn}
+. To do that we add a
+judgment to hoist the return expression lazily into the caller
+context, so we can construct a constraint network.
 
-\judgment{\construct}
+\tf{Bug: these are very similar to the inlining methods, just more
+  restrictive. Opportunity for refactoring.}
 
-\tf{TODO: fix the below rules}
+\judgment{\hoist{L}{e}{e$'$}}
+
+``Translating expression {\tt e} into the context where self is bound
+to the l-value {\tt L} transforms it into {\tt e$'$}.''
+
+\inferax{H-Const}{\hoist{a}{c}{c}}
+
+\inferax{H-Self}{\hoist{a}{self}{a}}
+
+\inferrule{H-Field}{
+  \hoist{a$_1$}{a$_2$}{a$_2'$}
+}{
+  \hoist{a$_1$}{a$_2$.l}{a$_2'$.l}
+}
+
+\inferrule{H-ReadOnly}{
+  \hoist{a$_1$}{a$_2$}{a$_2'$}
+}{
+  \hoist{a$_1$}{a$_2$?}{a$_2'$?}
+}
+
+\inferrule{H-Op}{
+  \hoist{a}{e$_1$}{e$_1'$} \andalso
+  \hoist{a}{e$_2$}{e$_2'$}
+}{
+  \hoist{a}{e$_1$ $\oplus$ e$_2$}{e$_1'$ $\oplus$ e$_2'$}
+}
+
+\inferrule{H-Compare}{
+  \hoist{a}{e$_1$}{e$_1'$} \andalso
+  \hoist{a}{e$_2$}{e$_2'$}
+}{
+  \hoist{a}{e$_1$ $\olessthan$ e$_2$}{e$_1'$ $\olessthan$ e$_2'$}
+}
+
+\inferrule{H-Combine}{
+  \hoist{a}{e$_1$}{e$_1'$} \andalso
+  \hoist{a}{e$_2$}{e$_2'$}
+}{
+  \hoist{a}{e$_1$ $\ovee$ e$_2$}{e$_1'$ $\ovee$ e$_2'$}
+}
+
+\tf{Bug: no hoisting of nested methods and method arguments. needs to
+  be fixed. Otherwise,
+  simple stuff like\\
+  \texttt{equals(o) \{ return self.eqPt(o) \}\\
+   eqPt(o) \{ return self.x == o.x \&\& self.y == o.y \}}\\
+doesn't work :(
+}
+
+\judgment{\inline{E}{H}{e}{H$'$}{e$'$}}
+\judgment{\inlineS{E}{H}{s}{E$'$}{H$'$}{s$'$}}
+
+These judgments change to allow multi-way constraints on methods that
+only have a return expression and no statements, and one-way
+constraints on methods that include statements.
 
 \infrule[I-Call]{
   \mbox{
@@ -1163,16 +1260,60 @@ a constraint network for e.g. objects returned from them.
   \mbox{\enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I}}\\
   \mbox{
     \inlineS{E$_m$}{H$_n$}{s}{E$'$}{H$''$}{skip} \andalso
-    \inline{E$'$}{H$''$}{e}{H$'''$}{e$'$}}
+    \evalBig{E$'$}{H$''$}{e}{H$'''$}{v$_r$}}
 }{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{v$_r$}
 }}
 
-\inferrule{I-Asgn}{
-  \stepH{E}{H}{C}{I}{a := e}{E$'$}{H$'$}{C}{I}
-}{
-  \inlineS{E}{H}{a := e}{E$'$}{H$'$}{skip}
-}
+Methods that have any statements at all can only be used in a one-way
+manner. This is ensured by evaluating the return expression and using
+only the value in the constraint. Because we are retranslating all
+constraints on each semantic step, this return value will get updated
+when its dependencies change, it just won't work in the other direction.
+
+\infrule[I-MultiWayCall]{
+  \mbox{
+    \evalBig{E}{H}{L}{H$'$}{v} \andalso
+    \lookup{v}{l}{return e}}\\
+  \mbox{\enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I} \andalso
+    \hoist{L}{e}{e$'$}}
+}{\mbox{
+  \inline{E}{H}{L.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
+}}
+
+\tf{Bug: no hoisting of methods on methods. needs to be
+  fixed. Otherwise,
+  simple stuff like\\
+  \texttt{always rect.getTopLeft().getX() == 10 \}}\\
+  doesn't work :( }
+
+For methods that only return an expression, we hoist the expression
+into the parent context and pass it to the solver.
+
+\tf{\@Todd: if hoisting gets stuck, can we say this?} Not all return
+expressions can be properly inlined into the parent context (for
+example, if returning a call to a method that includes statements.)
+In this case, we again get a one-way constraint.
+
+\infrule[I-UnhoistableCall]{
+  \mbox{
+    \evalBig{E}{H}{a}{H$'$}{v} \andalso
+    \lookup{v}{l}{return e}}\\
+  \mbox{\enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I}}\\
+  \mbox{\evalBig{E$_m$}{H$_n$}{e}{H$''$}{v$_r$}}
+}{\mbox{
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{v$_r$}
+}}
+
+
+\tf{I'd also like a rule to allow assignments to fields of objects
+  that do not escape from the dynamic extent of the constraint, but
+  I'm not sure how to do that}
+% \inferrule{I-Asgn}{
+%   \stepH{E}{H}{C}{I}{a := e}{E$'$}{H$'$}{C}{I}
+% }{
+%   \inlineS{E}{H}{a := e}{E$'$}{H$'$}{skip}
+% }
 
 
 

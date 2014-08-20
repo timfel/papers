@@ -461,8 +461,8 @@ evaluated \verb|x+2| in the old environment to get 5).  After solving
 these constraints, we have $\texttt{x} \mapsto 5$, 
 $\texttt{y} \mapsto 105$.
 
-New variables must be initialized with an assignment statement.  Thus
-the following program is illegal --- we would need to initialize
+New variables must be created with an assignment statement.  Thus
+the following program is illegal --- we would need to create
 \verb|x| first with an assignment statement before adding the
 \verb|always| constraint.
 
@@ -470,13 +470,15 @@ the following program is illegal --- we would need to initialize
 always x=10;
 \end{verbatim}
 
-Requiring that variables be initialized before equating them with
+Requiring that variables be created before equating them with
 something can be annoying for the programer.  We decided that indeed
 the above program is illegal in the formal semantics.  However, in
-practical implementations, we can have a hack to allow it.  It would
-only works for = constraints where one side is uninitialized --- the
-semantics would that it first assigns the other side to the
-uninitialized variable, and then adds the always constraint.
+practical implementations, we can have a shortcut to allow it.  It
+would only work for = constraints where one side is a new variable and
+all variables on the other side already exist.  The behavior would be
+that the system would create the new variable, evaluate the other side
+of the equality, assign it to the new variable, and then add the
+equality constraint as an always constraint.
 
 An interesting aspect of this semantics, both as presented informally
 above and in the formalism that follows, is that we no longer model
@@ -564,6 +566,7 @@ would assign 20 to x on the last statement, and then bump it down to
 fail state.
 
 \subsection{Requirements for Constraint Expressions}
+\label{sec:constraint-expression-requirements} 
 
 The expressions that define constraints have a number of restrictions.
 These will apply to all of the Babelsberg languages.
@@ -615,9 +618,8 @@ if x=4 or x/0=10
 On the other hand, conjunctions or disjunctions in constraints that
 are evaluated in constraint construction mode, and that then generate
 boolean constraints for the solver, are not evaluated using
-short-circuit evaluation --- everything gets encoded in the expression
-in the solver language, and then turned over to the solver.  Also,
-separate from \verb|if| statements, we could have \verb|if|
+short-circuit evaluation --- everything gets turned over to the solver.
+Also, separate from \verb|if| statements, we could have \verb|if|
 expressions in constraints.  (We don't actually have \verb|if|
 expressions in Babelsberg/PrimitiveTypes, since there is a simple
 translation into conjunctions and disjunctions, but it's useful
@@ -1374,7 +1376,7 @@ always a=b
 \end{verbatim}
 
 This is the case even though there actually are records that would
-satisfy the required constraints --- the issue is that the assignment
+satisfy the required \verb|a=b| constraint --- the issue is that the assignment
 to \verb|a| leaves it with a record type that has a single \verb|x|
 field, the assignment to \verb|b| leaves it with a record type that
 has a single \verb|y| field, and the structural compatibility check
@@ -1752,7 +1754,10 @@ structural compatibility checks on constraints, which tames the solver
 so that it doesn't do things such as invent new records or add fields
 to a record.  (The only way to create a new record is with an explicit
 \verb|new| expression in the program, and this also defines all of the
-fields that it has.)
+fields that it has and will ever have.)
+
+\ab{TODO: fix up the following description in light of our decisions
+  about the semantic rules}
 
 After executing the first statement, the above example desugars into
 the following constraints (where $r$ is a reference):
@@ -1800,9 +1805,6 @@ together, we have the environment \linebreak
 \verb|p| $\mapsto$ \verb|r| $\wedge$
 \verb|a| $\mapsto$ \verb|5|, as well as the heap \verb|r| $\mapsto$
 \verb|{x:100, y:5}|.
-
-\ab{TODO: fix up the above description in light of our decisions about the
-  semantic rules}
 
 Here is an example that fails the structural compatibility checks.
 
@@ -2537,6 +2539,8 @@ center of a rectangle:
 always r.center = Point.new(100,50);
 \end{verbatim}
 
+\ab{Is this constraint still OK?  If not we could use r.center.x = 100}
+
 The constraint here is an equality constraint on the result of sending
 the message \verb|center| to \verb|r|, where \verb|center| may be
 computed rather than being stored.  Even the \verb|x| message to a
@@ -2847,13 +2851,218 @@ end;
 If we use this in a constraint \verb|always 10=double(a)|, the system
 should satisfy the constraint by making \verb|a| be 5.
 
-Methods can themselves use \verb|once| or \verb|always| constraints
-(including when they are invoked from other constraint expressions).
-\ab{Do we need an example?  Are there any particular complications?}
-
 \ab{TODO: Have an example that shows the need to re-evaluate the constraint
 closures (for example, re-binding a point to a different instance of
 the same class, and then to an instance of a different class)}
+
+\subsection{Side Effects}
+
+Methods can of course have side effects, but such methods can't be
+used in the expressions that define constraints, unless the side
+effects are benign.  (This is one of the restrictions noted in Section
+\ref{sec:constraint-expression-requirements}.)
+
+Consider the \verb|pop| method for a class \verb|Stack|, which has a
+side effect as well as returning the value popped from the stack.
+This program fragment is OK:
+
+\begin{verbatim}
+x := stack.pop;
+\end{verbatim}
+
+This works, because the RHS of the assignment is evaluated first, and
+then we set up a once constraint using the value popped from the
+stack.  (The RHS of an assignment can have side effects, in contrast
+to always or once constraints.)
+
+In contrast, these programs are not OK:
+\begin{verbatim}
+once x == stack.pop;
+\end{verbatim}
+
+\begin{verbatim}
+always x == stack.pop;
+\end{verbatim}
+
+Another restriction is that methods called from a constraint
+expression cannot themselves explicitly create other constraints.  For
+example, this is not legal, because the \verb|test| method creates an
+\verb|always| constraint, and is itself called from a constraint
+creation statement:
+
+\begin{verbatim}
+def test(x)
+  always y=x+2;
+  return y;
+end;
+a := 10;
+b := 10;
+always b=test(a);
+\end{verbatim}
+
+Note that the effects of the \verb|y=x+2| constraint would need to
+persist after the method returns. We could probably make this work out
+in this case, but there are other cases in which creating constraints
+in methods called by other constraints actually have a side effect.
+(There is an example below.)  Since we also couldn't think of any good
+use cases for simplicity we decided just to disallow it altogether.
+
+It would be easy to check for constraints that called methods that
+created other constraints in a practical implementation if we wanted
+to do so.  Note that this is not the same as having a method, called
+in the ordinary way, that creates constraints.  That seems useful and
+is fine.
+
+The following program is not allowed, and illustrates why adding
+constraints in methods called from constraints can have side effects.
+Suppose we are using a least-squares solver that supports soft
+constraints.
+
+\begin{verbatim}
+def test(x)
+  always medium x=5;
+  return x+1;
+end;
+a := 0;
+b := 0;
+always medium a=10;
+always b=test(a);
+\end{verbatim}
+
+Every time we evaluate the expression \verb|b=test(a)|, we add another
+medium constraint that \verb|a=5|.  Since we are finding a least
+squares solution, this nudges \verb|a| more toward 5 each time,
+diminishing the influence of the \verb|a=10| constraint.
+
+Two other issues, again for the record:
+
+If we allowed using such methods in constraint expressions, we would
+need to solve their constraints eagerly rather than just accumulating
+the constraints and solving all at once.  Here's an example that
+demonstrates this.
+
+\begin{verbatim}
+def test(x)
+  always y=x;
+  if y>10 then return 1 else return 0;
+end;
+a := 5;
+always b=test(a);
+\end{verbatim}
+If we don't solve eagerly, \verb|y| doesn't have a value when we
+evaluate the test in the \verb|if| statement.
+
+Finally, if we did allow this, what if the method adds soft
+constraints, and is itself invoked by a soft constraint?  For example,
+suppose that in the above program we instead had \verb|always weak b=test(a)|.
+We would need an algebra for combining priorities, for example, take
+the minimum of the priorities, but this just seems like one more
+complication.
+
+\subsection{Arrays}
+
+While it is not strictly necessary to include arrays in
+Babelsberg/Objects, we have used arrays in some examples that follow.
+We treat the length of an array is part of its structure, and use the
+same structural compatability checks for the existence of array
+elements that we do for the existence of fields in a record.  Thus, we
+would not, for example, grow an array to allow a constraint on its
+$i^{th}$ element to be satisfied if it didn't already have an $i^{th}$
+element.
+
+\subsection{Other Restrictions on Methods Called by Constraints}
+
+Methods called by constraints can have assignment statements to local
+variables, but not to instance variables or globals (which would be
+side effects).  If this is done, the method can only be used in the
+forwards direction in constraints that call it (i.e., to compute the
+result given the inputs).
+
+In fact we generalize this restriction as follows: for a method to be
+used in other than just the forward direction in constraints that call
+it, the method must consist of a single \verb|return| statement that
+returns some expression --- if it has more than one statement, it can
+only be used in the forwards direction.  The expression should
+should either not create new objects, or only create certain simple
+sorts of objects (e.g., points) that can be treated in a record-like
+fashion.
+
+\ab{make the above restriction about ``objects treated in a
+  record-like fashion'' precise!}
+
+Here are some examples.
+
+Consider an iterative \verb|sum| method for
+the class \verb|Array|.
+
+\begin{verbatim}
+def sum
+  ans := 0;
+  i := 0;
+  while i<self.length
+    ans := ans + self[i];
+    i := i+1;
+  end;
+  return ans;
+end
+\end{verbatim}
+
+This works as expected for normal imperative code, and can also be
+used in the forward direction in a constraint, for example:
+
+\begin{verbatim}
+a := Array.new(2);
+a[0] := 10;
+a[1] := 20;
+always s = array.sum;
+a[0] := 100;
+\end{verbatim}
+
+After the \verb|always| constraint is executed, \verb|s| is 30; then
+after the final assignment to \verb|a[0]|, \verb|s| becomes 120.
+
+However, the method doesn't work backwards --- for example, we can't
+constrain the sum of the array and expect the system to update one or
+more elements to satisfy the constraint.  For example this doesn't
+work:
+
+\begin{verbatim}
+a := Array.new(2);
+a[0] := 10;
+a[1] := 20;
+always 50 = array.sum;
+\end{verbatim}
+
+Instead, to write methods that work properly with constraints, the
+programmer should write the method to consist of a single statement,
+with no side effects.  For example, here are two correct versions of
+the \verb|sum| method.  These use recursion, and will create as many
+partial sums as needed.  With either of these methods, both of the
+above programs work as expected.
+
+\ab{do these actually work?  They have an if with returns on the then
+  and else parts.  Is that OK?  If so we need to update our
+  restriction.  Or else have an if *expression*}
+
+\begin{verbatim}
+def sum
+  if self.length=0 
+    then return 0
+    else return self[0] + self[1..self.length].sum
+  end;
+end;
+
+def sum
+  return self.sum_from(0);
+end;
+
+def sum_from(start)
+  if start >= self.length
+    then return 0
+    else return self[start] + self.sum_from(start+1);
+  end;
+end;
+\end{verbatim}
 
 \subsection{Identity Constraint Examples}
 
@@ -2936,13 +3145,9 @@ always w1.width = 200;
 always w2.width = 300;
 \end{verbatim}
 
-This variant, in which we make the constraints on the window's widths
-strong rather than required, result in an error as well.  In this
-case, there aren't any unsatisfied required constraints, but we would
-have weak identity stay constraints satisfied in preference to strong
-ones.
-
-\ab{TODO: is this what we want?  Actually I think this program is OK!}
+However, this variant, in which we make the constraints on the
+window's widths strong rather than required, is OK.  (We don't create
+a new window to satisfy the strong constraints on the widths.)
 
 \begin{verbatim}
 w1 := Window.new(....);
@@ -2981,150 +3186,6 @@ last assignment both \verb|x| and \verb|y| refer to the newly created
 circle.   This example also illustrates how type changes must
 originate with an assignment statement, but can ripple further via
 explicit identity constraints. 
-
-\subsection{Side Effects}
-
-Methods can of course have side effects, but such methods can't be
-used in the expressions that define constraints (unless the side
-effects are benign).  Consider the \verb|pop| method for a class
-\verb|Stack|, which has a side effect as well as returning the value
-popped from the stack.  This program fragment is OK:
-
-\begin{verbatim}
-x := stack.pop;
-\end{verbatim}
-
-This works, because the RHS of the assignment is evaluated first, and
-then we set up a once constraint using the value popped from the
-stack.  (The RHS of an assignment can have side effects, in contrast
-to always or once constraints.)
-
-In contrast, these programs are not OK:
-\begin{verbatim}
-once x == stack.pop;
-\end{verbatim}
-
-\begin{verbatim}
-always x == stack.pop;
-\end{verbatim}
-
-\ab{TODO: can't call methods from a constraint that creates other
-  constraints}
-
-\subsection{Scope Issues}
-
-\ab{include an example showing constraints that persist beyond the
-life of the method that creates them}
-
-Calling the \verb|make_double| method should cause the \verb|y| field
-of the point to always be twice the value of its \verb|x| field.
-This is somewhat artificial --- but notice that \verb|temp| needs to
-persist after the \verb|make_double| method has returned, to maintain
-the relation between the \verb|x| and \verb|y| fields of the point.
-
-\begin{verbatim}
-class Point
-def make_double
-  temp := 0;
-  always temp = self.x;
-  always self.y = 2*temp;
-end;
-\end{verbatim}
-
-\subsection{Arrays}
-
-While it is not strictly necessary to include arrays in
-Babelsberg/Objects, we have used arrays in some examples that follow.  We treat
-the length of an array is part of its structure, and use the same
-structural compatability checks for the existence of array elements
-that we do for the existence of fields in a record.  Thus, we would
-not, for example, grow an array to allow a constraint on its $i^{th}$
-element to be satisfied if it didn't already have an $i^{th}$ element.
-
-\subsection{Assignments in Methods Called by Constraints}
-
-Methods called by constraints can have assignment statements, just as
-any other method.  Generally, however, this will mean that the method
-can only be used in the forwards direction (i.e., to compute the
-result given the inputs).  Consider an iterative \verb|sum| method for
-the class \verb|Array|.
-
-\begin{verbatim}
-def sum
-  ans := 0;
-  i := 0;
-  while i<self.length
-    ans := ans + self[i];
-    i := i+1;
-  end;
-  return ans;
-end
-\end{verbatim}
-
-This works as expected for normal imperative code, and can also be
-used in the forward direction in a constraint, for example:
-
-\begin{verbatim}
-a := Array.new(2);
-a[0] := 10;
-a[1] := 20;
-always s = array.sum;
-a[0] := 100;
-\end{verbatim}
-
-After the \verb|always| constraint is executed, \verb|s| is 30; then
-after the final assignment to \verb|a[0]|, \verb|s| becomes 120.
-
-However, if we attempted to constrain the sum of the array and
-expected that the system would update one or more elements to satisfy
-the constraint, the result would not be as desired --- instead, the
-answer would be overridden to no effect.  For example:
-\begin{verbatim}
-a := Array.new(2);
-a[0] := 10;
-a[1] := 20;
-always 50 = array.sum;
-\end{verbatim}
-
-Here \verb|ans| in the \verb|sum| method becomes 50 to satisfy the
-constraint, but since it was assigned to (which becomes a \verb|once|
-constraint), rather than being permanently constrained, this result
-is lost.  This is almost certainly not what the programmer intended,
-so in a practical language we should issue a warning.  (The general
-class of warning here is that the result of a method call is being
-constrained or set, and that result doesn't have an \verb|always|
-constraint on it, so will likely be lost.)  \ab{Should we make this an
-  error rather than a warning?  Or maybe there should be a general
-  warning for any method that includes assignments that is used other
-  than in the forward direction?}
-
-Generally, to write methods that work properly with constraints, the
-programmer should write the method using constraints rather than
-assignment statements.  For example, here are two correct versions of
-the \verb|sum| method.  These use recursion, and will create as many
-partial sums as needed.  With either of these methods, both of the above
-programs work as expected.
-
-\begin{verbatim}
-def sum
-  if self.length=0 
-    then return 0
-    else return self[0] + self[1..self.length].sum
-  end;
-end;
-
-def sum
-  return self.sum_from(0);
-end;
-
-def sum_from(start)
-  if start >= self.length
-    then return 0
-    else return self[start] + self.sum_from(start+1);
-  end;
-end;
-\end{verbatim}
-
 
 \subsection{Formalism}
 
@@ -3313,107 +3374,110 @@ This judgment is augmented to support return.
 \tf{TODO...}
 
 
-\subsection{Backwards Compatibility Mode for Methods}
-\label{sec:backwards-compatibility-mode}
+%% THIS SECTION COMMENTED OUT, SINCE IT DOESN'T WORK UNDER THE CURRENT
+%% RESTRICTIONS (CAN'T CREATE EXPLICIT CONSTRAINTS IN METHODS CALLED BY
+%% OTHER CONSTRAINTS)
+%% \subsection{Backwards Compatibility Mode for Methods}
+%% \label{sec:backwards-compatibility-mode}
 
-In Babelsberg/R, when methods are evaluated in constraint construction
-mode, assignment statements are converted to two-way equality
-constraints.  This is useful for backward compatibility with existing
-code.  (It won't allow an arbitrary method to be successfully used in
-all modes in a constraint, but it increases the chances that it will
-work.)  However, this doesn't seem entirely clean, so we omit it from
-the formal semantics.  Instead, a practical implementation of
-Babelsberg might elect to include a backwards compatibility mode for
-methods that does this transformation, as well as other
-transformations that increase the chances the method can be used in
-multi-directional constraints.  In addition to converting assignments
-to constraints, the transformation should create fresh variables each
-time a variable is used on the left-hand-side of an assignment, and
-systematically use that new variable thereafter (until another
-assignment).  First, here is an example that just uses straight-line
-code.
+%% In Babelsberg/R, when methods are evaluated in constraint construction
+%% mode, assignment statements are converted to two-way equality
+%% constraints.  This is useful for backward compatibility with existing
+%% code.  (It won't allow an arbitrary method to be successfully used in
+%% all modes in a constraint, but it increases the chances that it will
+%% work.)  However, this doesn't seem entirely clean, so we omit it from
+%% the formal semantics.  Instead, a practical implementation of
+%% Babelsberg might elect to include a backwards compatibility mode for
+%% methods that does this transformation, as well as other
+%% transformations that increase the chances the method can be used in
+%% multi-directional constraints.  In addition to converting assignments
+%% to constraints, the transformation should create fresh variables each
+%% time a variable is used on the left-hand-side of an assignment, and
+%% systematically use that new variable thereafter (until another
+%% assignment).  First, here is an example that just uses straight-line
+%% code.
 
-\begin{verbatim}
-def add_and_double(x,y,z)
-  sum := 0;
-  sum := sum+x;
-  sum := sum+y;
-  sum := sum+z;
-  return 2*sum;
-end;
-\end{verbatim}
+%% \begin{verbatim}
+%% def add_and_double(x,y,z)
+%%   sum := 0;
+%%   sum := sum+x;
+%%   sum := sum+y;
+%%   sum := sum+z;
+%%   return 2*sum;
+%% end;
+%% \end{verbatim}
 
-In backward compatibility mode this is rewritten as:
-\begin{verbatim}
-def add_and_double(x,y,z)
-  sum_1 = 0;
-  sum_2 = sum_1+x;
-  sum_3 = sum_2+y;
-  sum_4 = sum_3+z;
-  return 2*sum_4;
-end;
-\end{verbatim}
+%% In backward compatibility mode this is rewritten as:
+%% \begin{verbatim}
+%% def add_and_double(x,y,z)
+%%   sum_1 = 0;
+%%   sum_2 = sum_1+x;
+%%   sum_3 = sum_2+y;
+%%   sum_4 = sum_3+z;
+%%   return 2*sum_4;
+%% end;
+%% \end{verbatim}
 
-Notice that a fresh variable is introduced for each assignment, but
-not for the return statement.  Now, if we evaluate the constraint 
-\verb|always 100 = add_and_double(10,15,n)|, the system should satisfy
-the constraint by making \verb|n| be 25.
+%% Notice that a fresh variable is introduced for each assignment, but
+%% not for the return statement.  Now, if we evaluate the constraint 
+%% \verb|always 100 = add_and_double(10,15,n)|, the system should satisfy
+%% the constraint by making \verb|n| be 25.
 
-Conditionals, in which a variable might or might not be assigned to,
-are easily handled by using a required equality constraint to pass
-through the old value for the other branch of the conditional.  For
-example:
+%% Conditionals, in which a variable might or might not be assigned to,
+%% are easily handled by using a required equality constraint to pass
+%% through the old value for the other branch of the conditional.  For
+%% example:
 
-\begin{verbatim}
-def maybe_double(x)
-  ans := x;
-  if x<10
-    then ans := 2*ans;
-  end;
-  return ans;
-end;
-\end{verbatim}
+%% \begin{verbatim}
+%% def maybe_double(x)
+%%   ans := x;
+%%   if x<10
+%%     then ans := 2*ans;
+%%   end;
+%%   return ans;
+%% end;
+%% \end{verbatim}
 
-This becomes:
+%% This becomes:
 
-\begin{verbatim}
-def maybe_double(x)
-  ans_1 = x;
-  if x<10
-    then ans_2 = 2*ans_1;
-    else ans_2 = ans_1;
-  end;
-  return ans_2;
-end;
-\end{verbatim}
+%% \begin{verbatim}
+%% def maybe_double(x)
+%%   ans_1 = x;
+%%   if x<10
+%%     then ans_2 = 2*ans_1;
+%%     else ans_2 = ans_1;
+%%   end;
+%%   return ans_2;
+%% end;
+%% \end{verbatim}
 
-Methods with loops could be converted automatically to recursions.
-Here is a version of \verb|sum| that might be automatically generated in
-this fashion:
+%% Methods with loops could be converted automatically to recursions.
+%% Here is a version of \verb|sum| that might be automatically generated in
+%% this fashion:
 
-\begin{verbatim}
-def sum
-  helper(0,i,0,ans);
-  return ans;
-end;
+%% \begin{verbatim}
+%% def sum
+%%   helper(0,i,0,ans);
+%%   return ans;
+%% end;
 
-def helper(old_i, new_i, old_ans, new_ans)
-  if old_i<self.length
-    then 
-      temp_ans = old_ans + self[old_i];
-      temp_i = old_i + 1;
-      helper(temp_i,new_i,temp_ans,new_ans);
-    else 
-      new_ans = old_ans;
-      new_i = old_i;
-  end;
-end;
-\end{verbatim}
+%% def helper(old_i, new_i, old_ans, new_ans)
+%%   if old_i<self.length
+%%     then 
+%%       temp_ans = old_ans + self[old_i];
+%%       temp_i = old_i + 1;
+%%       helper(temp_i,new_i,temp_ans,new_ans);
+%%     else 
+%%       new_ans = old_ans;
+%%       new_i = old_i;
+%%   end;
+%% end;
+%% \end{verbatim}
 
-Here, \verb|helper| is produced automatically from the \verb|while| by
-parameterizing the helper method with the old and new values of
-\verb|i| and \verb|ans|, and converting the \verb|while| to an
-\verb|if| with a recursive call.  \ab{Is there a simpler conversion?}
+%% Here, \verb|helper| is produced automatically from the \verb|while| by
+%% parameterizing the helper method with the old and new values of
+%% \verb|i| and \verb|ans|, and converting the \verb|while| to an
+%% \verb|if| with a recursive call.  \ab{Is there a simpler conversion?}
 
 \subsection{Circular Structures}
 \label{sec:circular-structures}

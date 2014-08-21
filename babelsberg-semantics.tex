@@ -579,7 +579,8 @@ These will apply to all of the Babelsberg languages.
 
 \item \label{item:side-effects} The constraint expression should
   either be free of side effects, or if there are side effects, they
-  should be benign, for example, doing caching.  (This isn't checked.) 
+  should be benign, for example, doing caching.  (In the formal
+  semantics, we simply disallow side effects.)
 
 \item \label{item:deterministic} The result of evaluating the block
   should be deterministic.  For example, an expression whose value
@@ -615,10 +616,9 @@ if x=4 or x/0=10
   else x := 200
 \end{verbatim}
 
-On the other hand, conjunctions or disjunctions in constraints that
-are evaluated in constraint construction mode, and that then generate
-boolean constraints for the solver, are not evaluated using
-short-circuit evaluation --- everything gets turned over to the solver.
+On the other hand, constraints with conjunctions or disjunctions are
+just turned over to the solver, rather than being evaluated using
+short-circuit evaluation.
 Also, separate from \verb|if| statements, we could have \verb|if|
 expressions in constraints.  (We don't actually have \verb|if|
 expressions in Babelsberg/PrimitiveTypes, since there is a simple
@@ -637,6 +637,9 @@ It is equivalent to this constraint:
 \begin{verbatim}
 always (x=4 and x=5) or (x!=4 and x=10)
 \end{verbatim}
+
+Again, we would turn this entire constraint over to the solver to find
+a solution for \verb|x|.
 
 Here is an example of an unsatisfiable constraint of this sort:
 \begin{verbatim}
@@ -1224,18 +1227,6 @@ Records are written as lists of name/value pairs in curly braces:
   {x:5, y:10}
 \end{verbatim}
 
-For simplicity, we restrict the records to be
-flat, i.e., the fields can only contain primitives and not other
-records.  (Defining the semantics for recursive record structures
-turns out to be easier once we have references, so we postpone
-supporting this until the Babelsberg/UID language.  Allowing recursive
-records in Babelsberg/Records is possible, but makes the formalism for
-mapping from values in the solver language back to values in the
-environment more complex, requiring recursive rules, and seems to add
-little value to our incremental exposition.)
-
-\ab{do we still need this restriction?}
-
 There is no notion of object identity for Babelsberg/Records --- we can
 test whether two records are equal, but whether or not they are
 identical would be an implementation issue and not part of the semantics.
@@ -1366,7 +1357,11 @@ always medium p = {x:4}
 \end{verbatim}
 The solution will be that \verb|p| is a record with a single field
 \verb|x| bound to a number, with the exact value depending on the
-solver (3, 4, or 3.5 being the most reasonable possibilities).
+solver (3, 4, or 3.5 being the most reasonable possibilities).  Note
+that the solver may need to adjudicate among solutions that have
+different primitive types in a given field, but the structural
+compatibility checks ensure that it doesn't need to decide between
+two records with e.g.\ different numbers of fields.
 
 Here's another example that fails a structural compatibility check:
 \begin{verbatim}
@@ -1695,8 +1690,6 @@ However, to emphasize that we now allocate records on the heap, we use
 the keyword \verb|new| when creating one. The syntax includes field
 accesses as both r-values and l-values.
 
-\ab{do we still want to describe this in terms of a heap?}
-
 Primitive types, however, still don't live on the heap.  (It would be
 possible to store all data on the heap, but we elected not to, since
 having everything on the heap makes the descriptions more complex ---
@@ -1729,7 +1722,9 @@ on variables are
 identity constraints rather than equality constraints.  For records,
 such a variable continues to refer to the same object unless
 reassigned. This is a direct consequence of the weak stays referring
-to the references the variables hold, not the records on the heap.
+to the references the variables hold, not the records on the heap.  In
+addition, there are also weak stay constraints on the values in the
+record fields.
 
 For simplicity, we also allow identity tests and constraints on
 primitive types.  (Otherwise we would need two different translations
@@ -2590,68 +2585,58 @@ have types and operations in the solver language without equivalents
 in the source language (although expressions involving them could
 never be generated).
 
-\ab{do we have two execution modes for Babelsberg/Objects??}
-
-As with the previous languages, the semantics includes two different
-execution modes: imperative execution mode and constraint construction
-mode.  For ordinary statements, expressions are evaluated in
-imperative execution mode.  After every statement execution, the
-current set of constraints is solved and the environment is updated.
-The current set of constraints is determined as follows.  If the
-statement is an assignment, we evaluate the right hand side in
-imperative execution mode, and then set up a constraint between the
-resulting value and the left hand side, as in the previous simpler
-Babelsberg languages.  (As with Babelsberg/UID, and in contrast to the
+As with the previous languages, in the semantics, after every
+statement execution the current set of constraints is solved and the
+environment is updated.  The current set of constraints is determined
+as follows.  If the statement is an assignment, we evaluate the right
+hand side and then set up a constraint between the resulting value and
+the left hand side.  (As with Babelsberg/UID, and in contrast to the
 simpler languages, this will be an identity constraint rather than an
-equality constraint.)  In addition, each closure in the constraint
-store is evaluated to produce a set of constraints in the solver
-language.\footnote{Note that this is just a description of the
-  semantics.  In a practical implementation, we would for example only
-  re-evaluate a closure in the constraint store when needed rather
-  than after executing every statement.  However, this is just an
-  optimization, which shouldn't change the result of executing the
-  program.}  The resulting collection of constraints in the solver
-language is given to the solver.  If the solver finds a solution, the
-environment is updated; but if the constraints have no solution, or if
-they are too hard for the solver, the system enters the \verb|fail|
-state.
+equality constraint.)  Otherwise, it must be a method call, which is
+called normally.  In addition to any constraint resulting from an
+assignment statement, each constraint in the constraint store is added
+to the set of constraints as well, and the resulting set of
+constraints is given to the solver.  If the solver finds a solution,
+the environment is updated; but if the constraints have no solution,
+or if they are too hard for the solver, the system enters the
+\verb|fail| state.
 
-Also as before, the evaluation of the closures in the constraint store
-is done in constraint construction mode rather than in imperative
-execution mode.  This is more complex than in the previous languages
-since constraint expressions might invoke methods.  In constraint
-construction mode, when we encounter a message send that corresponds
-to an operation on a primitive type in the solver language, we
-construct the corresponding parse tree fragment for the solver
-language.  Otherwise, we do a normal method lookup and evaluate the
-body of the method.  If we we encounter something we cannot transform
-(such as a side-effect), we don't transform it, and instead execute.
-As before, assignment statements are converted to \texttt{once}
-identity constraints with the right-hand-side annotated as read-only.
+%% OLD MATERIAL ON CONSTRAINT CONSTRUCTION MODE:
 
-There are two interpretations or meanings \ab{what's the right word?}
-for each constraint at a particular step in the execution of a program
-in the Babelsberg/Objects semantics: first, saying the constraint is
-satisfied is equivalent to saying that the result of evaluting the
-constraint expression in imperative execution mode is \verb|true|; and
-second, saying the constraint is satisfied is equivalent to saying
-that the generated constraint in the solver language is satisfied.
-Ideally, we would be able to prove that these two interpretations are
-equivalent for all Babelsberg/Objects programs, based on the rules in
-the formal semantics.  Further, the behavior of an interpreter or
-compiler for an actual Babelsberg language should match this
-interpretation --- the result of evaluating the constraint expression
-in imperative execution model should give the same result as given by
-the formal semantics.
+%% Also as before, the evaluation of the closures in the constraint store
+%% is done in constraint construction mode rather than in imperative
+%% execution mode.  This is more complex than in the previous languages
+%% since constraint expressions might invoke methods.  In constraint
+%% construction mode, when we encounter a message send that corresponds
+%% to an operation on a primitive type in the solver language, we
+%% construct the corresponding parse tree fragment for the solver
+%% language.  Otherwise, we do a normal method lookup and evaluate the
+%% body of the method.  If we we encounter something we cannot transform
+%% (such as a side-effect), we don't transform it, and instead execute.
+%% As before, assignment statements are converted to \texttt{once}
+%% identity constraints with the right-hand-side annotated as read-only.
 
-\ab{The above paragraph is a bit confused but I think it captures an
-  important idea, namely that there are two meanings for constraints
-  in the formalism, and they should be provably equivalent.  This
-  reminds me of work on constraint logic programming, in which one
-  would show that the operational and the model theoretic semantics
-  were equivalent, at least under some conditions.}
+%% There are two interpretations or meanings \ab{what's the right word?}
+%% for each constraint at a particular step in the execution of a program
+%% in the Babelsberg/Objects semantics: first, saying the constraint is
+%% satisfied is equivalent to saying that the result of evaluting the
+%% constraint expression in imperative execution mode is \verb|true|; and
+%% second, saying the constraint is satisfied is equivalent to saying
+%% that the generated constraint in the solver language is satisfied.
+%% Ideally, we would be able to prove that these two interpretations are
+%% equivalent for all Babelsberg/Objects programs, based on the rules in
+%% the formal semantics.  Further, the behavior of an interpreter or
+%% compiler for an actual Babelsberg language should match this
+%% interpretation --- the result of evaluating the constraint expression
+%% in imperative execution model should give the same result as given by
+%% the formal semantics.
 
-\ab{Todd said he would clean up the above paragraph \ldots}
+%% \ab{The above paragraph is a bit confused but I think it captures an
+%%   important idea, namely that there are two meanings for constraints
+%%   in the formalism, and they should be provably equivalent.  This
+%%   reminds me of work on constraint logic programming, in which one
+%%   would show that the operational and the model theoretic semantics
+%%   were equivalent, at least under some conditions.}
 
 \subsection{Control Structures and Methods}
 
@@ -2677,18 +2662,12 @@ of the method in a new environment, and return the result.  Arguments
 are passed by value (with pointer semantics), as in most standard
 object-oriented languages.
 
-\ab{TODO: do we want to change the language about ``constraint
-  construction mode'' below?}
-
 Methods can also be invoked by constraint expressions.  There are a
 number of restrictions on methods to allow them to be used in this way
 --- briefly, they can't have side effects, and if they consist of more
 than just a single return statement they can only be used in the
 forward direction in constraints.  (See Section
-\ref{sec:additional-constraint-restrictions} for more details.)  The
-correct method is looked up in the standard way, but now the body of
-the method is evaluated in constraint construction mode rather than
-imperative execution mode.
+\ref{sec:additional-constraint-restrictions} for more details.)  
 
 If the method can only be used in the forward direction in the
 constraint, then it can still be called in the usual way, including
@@ -2751,9 +2730,7 @@ required & $x=4$
 This has the solution $x=4$, resulting in a new environment
 $\texttt{x} \mapsto \texttt{4}$.  Executing the third statement adds
 the \texttt{always} constraint to the current constraint store.  We
-then evaluate the body of the closure in constraint construction mode,
-resulting in the constraint required $x \geq 10$.  We now hand this
-constraint and the stay constraint to the solver:
+now hand this constraint and the stay constraint to the solver:
 
 \begin{tabular}{rl}
 weak     & $x=4$ \\
@@ -2848,7 +2825,8 @@ end
 \end{verbatim}
 
 The constraint is evaluated in the following way.  We look up the
-\verb|center| method, and evaluate it in constraint construction mode.
+\verb|center| method, and use it to construct an appropriate set of
+constraints.
 This sets up an equality constraint between the result of evaluating
 \verb|(self.upper_left + self.lower_right) / 2| and a new point with
 \verb|x=100|, \verb|y=50|.  The \verb|=| method for points is then
@@ -3208,8 +3186,8 @@ the heap, and \verb|p| refers to it.  After the second statement, we
 add the constraint \verb|p.x = 100| to the constraint store (closed
 over its environment of definition, so that \verb|p| is bound
 appropriately).  Then we solve the weak stay constraint on \verb|p|'s
-identity, and then we evaluate the body of the constraint in
-constraint construction mode, yielding an integer constraint on the
+identity, and then we evaluate the body of the constraint,
+yielding an integer constraint on the
 \verb|x| field of \verb|p|.  This results in \verb|p| continuing to
 refer to the same point, which now has 100 in its \verb|x| field.  So
 far so good.  The third statement sets up an identity constraint
@@ -3298,13 +3276,7 @@ explicit identity constraints.
 \ab{TODO: to be written}
 
 This subsection will present the formal semantics for
-Babelsberg/Objects, including how constraints in the solver language
-are produced in constraint construction mode. The usual
-object-oriented features such as inheritance, method lookup, scope and
-binding are inherited from the host language, and are omitted here to
-focus on constraint construction mode and how it interacts with method
-calls; inheritance and method lookup during constraint construction
-mode is standard.
+Babelsberg/Objects. 
 
 \subsubsection{Syntax}
 
@@ -3694,7 +3666,7 @@ propagation constraints to the solver language.
 
 In Babelsberg/JS, when a DeltaBlue constraint is constructed, and an
 equality constraint is encountered with two variables of the same type
-on either side, in constraint construction mode the interpreter
+on either side, when processing a constraint the interpreter
 doesn't descend further, but instead asserts the equality on those
 variables. So, for example, for two points the constraint expression
 does not desugar into multiple constraints on the x and y variables.
@@ -3728,15 +3700,17 @@ issue a warning in this case?
 \subsection{Backwards Compatibility Mode for Methods}
 \label{sec:backwards-compatibility-mode}
 
-In the Babelsberg/Ruby implementation as of summer 2014, when methods
-are evaluated in constraint construction mode, assignment statements
-are converted to two-way equality constraints.  This is useful for
-backward compatibility with existing code.  (It won't allow an
-arbitrary method to be successfully used in all modes in a constraint,
-but it increases the chances that it will work.)  However, we've now
-decided that methods called from a constraint expression cannot
-themselves create other constraints, or call further methods that do so
-(Section \ref{sec:additional-constraint-restrictions}), which rules this out.
+The Babelsberg/Ruby implementation uses two interpreter modes:
+standard imperative execution mode and constraint construction mode.
+In the current version, when methods are evaluated in constraint
+construction mode, assignment statements are converted to two-way
+equality constraints.  This is useful for backward compatibility with
+existing code.  (It won't allow an arbitrary method to be successfully
+used in all modes in a constraint, but it increases the chances that
+it will work.)  However, we've now decided that methods called from a
+constraint expression cannot themselves create other constraints, or
+call further methods that do so (Section
+\ref{sec:additional-constraint-restrictions}), which rules this out.
 
 For the record, though, if we remove this restriction, we could do
 this conversion.  It still doesn't seem entirely clean, so we should
@@ -3831,7 +3805,7 @@ end;
 Here, \verb|helper| is produced automatically from the \verb|while| by
 parameterizing the helper method with the old and new values of
 \verb|i| and \verb|ans|, and converting the \verb|while| to an
-\verb|if| with a recursive call.  \ab{Is there a simpler conversion?}
+\verb|if| with a recursive call.
 
 \end{document}
 

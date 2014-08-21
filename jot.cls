@@ -50,7 +50,7 @@
 \newcommand\jot@journaldoiaddress{\jot@doiderefaddress\jot@journaldoi} % not used
 \newcommand\jot@journalname{Journal of Object Technology}
 \newcommand\jot@journaladdress{http://www.jot.fm/}
-\newcommand{\jot@cclicenseurl}{http://creativecommons.org/licenses/by/3.0/}
+\newcommand{\jot@cclicenseurl}{http://creativecommons.org/licenses/by/4.0/}
 \newcommand{\jot@publisher}{AITO --- Association Internationale pour les Technologies Objets}
 \newcommand{\jot@copyright}{\copyright\,JOT 2011}
 \newcommand{\jot@licenseurl}{\jot@journaladdress/copyright.html}

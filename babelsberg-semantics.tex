@@ -2618,17 +2618,18 @@ With a metric comparator this yields the solution $x=10$.
 %% (upper_left.y + lower_right.y) / 2 = 50
 %% \end{verbatim}
 
-The following example illustrates that methods can also be used with
-constraints on primitive types.
+Here is a simple example of using a method in a constraint.
 
 \begin{verbatim}
 def double(x)
-  return 2*x
+  return x+x
 end;
 \end{verbatim}
 
 If we use this in a constraint \verb|always 10=double(a)|, the system
-should satisfy the constraint by making \verb|a| be 5.
+should satisfy the constraint by making \verb|a| be 5.  In this case,
+the argument was a primitive type, but we can also use it in a constraint
+\verb|always q=double(p)| for points \verb|p| and \verb|q|.
 
 As noted above, methods called in the ordinary way can create new
 constraints, which then persist after the method returns.  Here is a
@@ -2640,12 +2641,14 @@ def require_double_y(pt)
 end;
 \end{verbatim}
 
-Now, if we call \verb|require_double_y(p)| on some point \verb|p|,
-thereafter its y value must be twice its x value (a persistent
-constraint).  Implementing this requires that the semantics (and 
-implementations) keep the local variables in such a method as long as
-the constraints it creates are active.  Here is a somewhat artificial
-variant of the method to illustrate this:
+Now suppose we call \verb|require_double_y(p)| on some point \verb|p|.
+(This is just calling the method from an ordinary statement, either at
+the top level or some other method, \emph{not} from a constraint
+expression.)  Thereafter the y value of \verb|p| must be twice its x
+value (a persistent constraint).  Implementing this requires that the
+semantics (and implementations) keep the local variables in such a
+method as long as the constraints it creates are active.  Here is a
+somewhat artificial variant of the method to illustrate this:
 \begin{verbatim}
 def require_double_y_with_locals(pt)
   my_x := pt.x;
@@ -2768,7 +2771,13 @@ always b=test(a);
 Every time we evaluate the expression \verb|b=test(a)|, we add another
 medium constraint that \verb|a=5|.  Since we are finding a least
 squares solution, this nudges \verb|a| more toward 5 each time,
-diminishing the influence of the \verb|a=10| constraint.
+diminishing the influence of the \verb|a=10| constraint.\footnote{This 
+ issue only arises with soft constraints and
+ a global comparator.  With constraints that are required, re-adding a
+ required constraint is idempotent.  Or if we use a local comparator,
+ re-adding the soft constraint will also not change the resulting
+ solution.  But in any case, adding a constraint is conceptually 
+ different from testing whether it is satisfied.}
 
 Two issues with constraints that call methods that add constraints,
 for the record in case we do want to try to allow this:
@@ -3059,33 +3068,6 @@ circle.   This example also illustrates how type changes must
 originate with an assignment statement, but can ripple further via
 explicit identity constraints. 
 
-%% CREATING CIRCULAR STRUCTURES IS NO LONGER AN ISSUE - COMMENTED THIS OUT
-%%
-%% \subsection{Circular Structures}
-%% \label{sec:circular-structures}
-%%
-%% There is an issue regarding creating circular structures if we convert
-%% assignment statements to \verb|once| constraints, with the right hand
-%% side annotated as read only.  Consider:
-%% \begin{verbatim}
-%% c := Cons.new(10,nil);
-%% c.cdr := c;
-%% \end{verbatim}
-%%
-%% If the second assignment is converted to the constraint
-%% \verb|once c.cdr == c?| this is unsatisfiable.  However, there is a
-%% simple workaround, namely to replace such an assignment with a
-%% \verb|once| identity constraint without the read-only annotation:
-%% \begin{verbatim}
-%% c := Cons.new(10,nil);
-%% once c.cdr == c
-%% \end{verbatim}
-%%
-%% This is a bit strange.  But this solution doesn't require any changes
-%% to the formal semantics, and addresses all the previous issues.  Also
-%% see Appendix \ref{sec:alternatives-for-creating-circular-structures}
-%% for a practical variant that avoids this problem.
-
 \subsection{Formalism}
 
 \subsubsection{Syntax}
@@ -3253,6 +3235,145 @@ observations that are potentially of interest, but that aren't
 essential to the main purpose of this note (which is to develop a
 formal semantics for Babelsberg).
 
+\subsection{Warnings and Debugging}
+\label{sec:warnings-and-debugging}
+
+\ab{TODO: collect the different ideas about warnings scattered around
+  the document and copy or move them to here}
+
+A non-required \verb|always| constraint might undo the result of an
+assignment.
+
+\begin{verbatim}
+x := 0;
+always strong x=10;
+x := 5;
+\end{verbatim}
+
+\verb|x| starts out as 0, then is 10 to satisfy the \verb|always|
+constraint, then gets set to 5, and then at the next time step, the
+\verb|always| constraint causes it to be set back to 10.  In a
+practical implementation, should we issue a warning in this case?
+This seems like a simple case to check for.
+
+\subsection{Issues with Using Once Constraints in the Semantics 
+  for Assignments}
+
+In all of the Babelsbergs, in the semantics we model an assignment by
+evaluating the right-hand-side, creating a new variable if needed for
+the left-hand-side, setting it to the new value, and then solving the
+set of constraints that include a \verb|once| constraint that the
+left-hand-side equal that value.  This lets assignment interact
+correctly with other constraints (if any) in the constraint store.
+For example, as a consequence of this semantics, the following program
+will fail (i.e., get stuck in the formal semantics; or raise an
+exception in a practical implementation):
+
+\begin{verbatim}
+x := 0;
+always x=10;
+x := 5;
+\end{verbatim}
+
+However, there are some subtle issues in connection with this
+representation, which for the record are noted here.
+
+This still works as expected in Babelsberg/Records:
+
+\begin{verbatim}
+x := {a:0};
+always x.a=10;
+x := {a:5};
+\end{verbatim}
+This also fails, since records in Babelsberg/Records are immutable.
+
+But once we get to Babelsberg/UID and Babelsberg/Objects, the
+situation changes.  Consider the analogous program in Babelsberg/UID:
+\begin{verbatim}
+x := new {a:0};
+always x.a=10;
+x := new {a:5};
+\end{verbatim}
+
+Here, the right-hand-side of the last assignment is evaluated, the
+reference to the new record is assigned to \verb|x|, and then the
+system immediately changes its \verb|a| field to 10 --- it is only the
+reference that is immutable, not the record on the heap.  This is
+arguably weird, and so one of the design alternatives we considered
+was to make the right hand side be read-only (recursively).  However,
+this might be computationally expensive, and would also cause
+difficulties when creating circular structures (see below).  So in the
+current version of the document, we just evaluate the right-hand-side
+to a value, but don't do anything further about making it recursively
+read-only.
+
+In addition to issues with circular structures, another curious aspect
+of this arises if there is a soft constraint on the variable on the
+left hand side of the assignment, as described in Section
+\ref{sec:warnings-and-debugging}.  This arises no matter what we do
+about making the right-hand-side recursively read-only or not.
+
+\subsubsection{Circular Structures}
+\label{sec:circular-structures}
+
+There is an issue regarding creating circular structures if we convert
+assignment statements to \verb|once| constraints, with the value on
+the right hand side recursively annotated as read only.  (The same
+issue arose in an earlier version of the semantics in which we simply
+turned an assignment into a \verb|once| constraint with the right hand
+side annotated as read only, instead of first evaluating the right
+hand side.)  Consider:
+\begin{verbatim}
+c := Cons.new(10,nil);
+c.cdr := c;
+\end{verbatim}
+
+If the second assignment is converted to the constraint
+\verb|once c.cdr == c?| this is unsatisfiable.  However, there is a
+simple workaround, namely to replace such an assignment with a
+\verb|once| identity constraint without the read-only annotation:
+\begin{verbatim}
+c := Cons.new(10,nil);
+once c.cdr == c
+\end{verbatim}
+
+This would be a bit strange.  But this solution doesn't require any
+changes to the formal semantics, and addresses all the previous
+issues. 
+
+{\bf Selectively Eliding the Read-Only Annotation.}
+A variant that provides a more standard syntax is to make the entire
+object on the right-hand side of the assignment be read-only, except
+for a field that is assigned to (if any).  The constraints would be
+exactly the same for all the examples except for the circular
+structures one:
+
+\begin{verbatim}
+c := Cons.new(10,nil);
+c.cdr := c;
+\end{verbatim}
+
+Here, \verb|c.car| and the reference to \verb|c| itself are read-only, but not
+\verb|c.cdr|.
+
+This seems similar to the way that mutable state is modeled in Dedalus
+(where there is a persistence rule that says facts continue to hold,
+unless explicitly negated).
+
+This variant seems mostly of practical interest --- as far as the
+formal semantics is concerned, the simpler proposal described above
+seems preferable.
+
+{\bf Distinguishing Ownership from Reference.}  Another alternative to
+making the entire object on the right-hand side of the assignment
+read-only is to distinguish ownership of parts from references to
+other objects.  If an instance variable is for an ``owned'' part, then
+that instance variable is made read-only; but otherwise not.  For
+compatibility with the host language, the default would be that
+instance variables do not refer to owned parts; rather, this must be
+declared explicitly.  (It only needs to be declared if there are
+constraints on the parts or subparts.)
+
 \subsection{Alternatives to Structural Compatibility Checks}
 \label{sec:structural-compatibility-check-alternatives}
 
@@ -3346,55 +3467,6 @@ requiring that the constraint solver generate new classes on the fly;
 there will also be multiple possible classes.  As before, this seems
 overly complex and unpredictable.
 
-%% CREATING CIRCULAR STRUCTURES IS NO LONGER AN ISSUE - COMMENTED THIS OUT
-%%
-%% \subsection{Alternatives for Creating Circular Structures}
-%% \label{sec:alternatives-for-creating-circular-structures}
-
-%% As discussed in Section \ref{sec:circular-structures}, there is an
-%% issue with circular structures if we convert assignment statements to
-%% \verb|once| constraints with the right hand side annotated as read
-%% only.
-
-%% \subsubsection{Selectively Eliding the Read-Only Annotation}
-
-%% A variant that provides a more standard syntax is to make the entire
-%% object on the right-hand side of the assignment be read-only, except
-%% for a field that is assigned to (if any).  The constraints would be
-%% exactly the same for all the examples except for the circular
-%% structures one:
-
-%% \begin{verbatim}
-%% c := Cons.new(10,nil);
-%% c.cdr := c;
-%% \end{verbatim}
-
-%% Here, \verb|c.car| and the reference to \verb|c| itself are read-only, but not
-%% \verb|c.cdr|.
-
-%% This seems similar to the way that mutable state is modeled in Dedalus
-%% (where there is a persistence rule that says facts continue to hold,
-%% unless explicitly negated).
-
-%% This variant seems mostly of practical interest --- as far as the
-%% formal semantics is concerned, the simpler proposal described in
-%% Section \ref{sec:circular-structures} seems preferable.
-
-%% \subsubsection{Another Alternative: Distinguishing Ownership from Reference}
-
-%% Another alternative to making the entire object on the right-hand side of
-%% the assignment read-only is to distinguish ownership of parts from
-%% references to other objects.  If an instance variable is for an
-%% ``owned'' part, then that instance variable is made read-only; but
-%% otherwise not.  For compatibility with the host language, the default
-%% would be that instance variables do not refer to owned parts; rather,
-%% this must be declared explicitly.  (It only needs to be declared if
-%% there are constraints on the parts or subparts.)
-
-%% This alternative does get rid of the workaround for creating
-%% circular structures, but is otherwise more complex, so we didn't
-%% select it.
-
 \subsection{Adding New Solvers and Extending the Solver Language}
 \label{sec:adding-solvers}
 
@@ -3433,25 +3505,6 @@ programming within Babelsberg.  A key observation here is that this
 would be in a separate set of constraints --- we wouldn't try to
 change the basic Babelsberg semantics to allow backtracking with
 Babelsberg \verb|if| statements.
-
-\subsection{Warnings and Debugging}
-
-\ab{TODO: collect the different ideas about warnings scattered around
-  the document and copy or move them to here}
-
-A non-required \verb|always| constraint might undo the result of an
-assignment.
-
-\begin{verbatim}
-x := 0;
-always strong x=10;
-x := 5;
-\end{verbatim}
-
-\verb|x| starts out as 0, then is 10 to satisfy the \verb|always|
-constraint, then gets set to 5, and then at the next time step, the
-\verb|always| constraint causes it to be set back to 10.  Should we
-issue a warning in this case?
 
 \subsection{Backwards Compatibility Mode for Methods}
 \label{sec:backwards-compatibility-mode}

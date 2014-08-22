@@ -578,8 +578,8 @@ x_2 & = & x_1? + 15
 However, it is \emph{different} from the behavior of the perturbation
 model, in which we
 would assign 20 to x on the last statement, and then bump it down to
-10 to satisfy the {\tt always} constraint, rather than moving to the
-fail state.
+10 to satisfy the {\tt always} constraint, rather than ending up with
+an unsatisfiable set of constraints.
 
 \subsection{Requirements for Constraint Expressions}
 \label{sec:constraint-expression-requirements} 
@@ -2294,17 +2294,21 @@ simplicity, we remove field access entirely --- access to an objects
 variables is only possible through message sends.
 
 We can thus now write constraints on the results of message sends,
-such as the following constraint on the center of a rectangle:
+such as the following constraint on the x coordinate of a point:
 \begin{verbatim}
-always r.center = Point.new(100,50);
+always p.x = 100;
 \end{verbatim}
 
-\ab{Is this constraint still OK?  If not we could use r.center.x = 100}
+%% formerly:
+%%   always r.center = Point.new(100,50);
+%% which is a nicer example, but we currently don't allow creating new
+%% objects in constraints
 
 The constraint here is an equality constraint on the result of sending
-the message \verb|center| to \verb|r|, where \verb|center| may be
-computed rather than being stored.  Even the \verb|x| message to a
-point might compute the x value, if the point is stored in polar
+the message \verb|x| to \verb|p|, and then sending the \verb|=|
+message to the result of that.  Note that \verb|x| might be
+computed rather than being stored, for example if the
+point is stored in polar
 coordinates.  Further, expressions such as \verb|a+b| are now treated
 in an object-oriented fashion, so that this means ``send the message
 \verb|+| with the argument \verb|b| to the object \verb|a|,'' with the
@@ -2313,15 +2317,24 @@ meaning of \verb|+| in this expression (and in constraints such as
 
 As with the earlier Babelsbergs presented in this memo, we use a
 solver language to represent the constraints that are sent to the
-constraint solvers.  Syntactically we will be able to use the same
-solver language that we defined for Babelsberg/PrimitiveTypes (Section
-\ref{sec:babelsberg-primitivetypes-syntax}).  Semantically, however,
-the simple translation from source-level constraints into the language
-of the solver becomes more complex, since we now want to support
-constraints on objects and in particular on the results of message
-sends.
+constraint solvers.  We will be able to use the same language as for
+Babelsberg/UID (Section \ref{sec:babelsberg-uid}) --- as before, the
+solver needs to know about records as well as primitive types; but it
+does not know about methods or inheritance.
 
-\ab{TODO: revise the discussion of the solver language as needed.}
+%% As with the earlier Babelsbergs presented in this memo, we use a
+%% solver language to represent the constraints that are sent to the
+%% constraint solvers.  Syntactically we will be able to use the same
+%% solver language that we defined for Babelsberg/PrimitiveTypes (Section
+%% \ref{sec:babelsberg-primitivetypes-syntax}).  Semantically, however,
+%% the simple translation from source-level constraints into the language
+%% of the solver becomes more complex, since we now want to support
+%% constraints on objects and in particular on the results of message
+%% sends.
+
+\ab{TODO: Is this right?  I'm not sure what to say here (see the
+  commented-out paragraph in the latex source, which was the previous
+  version of this).}
 
 To accomplish this, we start with a standard model for an
 object-oriented language with instances, classes, messages, methods,
@@ -2365,11 +2378,10 @@ assignment statement, each constraint in the constraint store is added
 to the set of constraints as well, and the resulting set of
 constraints is given to the solver.  If the solver finds a solution,
 the environment is updated; but if the constraints have no solution,
-or if they are too hard for the solver, the system enters the
-\verb|fail| state.
+or if they are too hard for the solver, our execution implicitly gets stuck.
 
 %% OLD MATERIAL ON CONSTRAINT CONSTRUCTION MODE:
-
+%%
 %% Also as before, the evaluation of the closures in the constraint store
 %% is done in constraint construction mode rather than in imperative
 %% execution mode.  This is more complex than in the previous languages
@@ -2418,7 +2430,8 @@ language in the absence of constraints, in imperative execution mode,
 methods are standard.  Suppose we are evaluating \verb|x.m(a,b)|.  We first
 look in \verb|x|'s class for a method with selector \verb|m|, then its
 superclass, and so on up the superclass chain.  If no such method is
-found, we enter the \verb|fail| state.\footnote{This is analogous to the
+found, the rules get stuck (implicitly representing encountering an
+error).\footnote{This is analogous to the
 structural compatibility checks from Babelsberg/Records, and just as
 in Babelsberg/Records we don't invent a new field for a record if
 needed to satisfy a constraint, in Babelsberg/Objects we don't convert
@@ -2428,6 +2441,10 @@ method it's just an error.}  Otherwise we evaluate the body
 of the method in a new environment, and return the result.  Arguments
 are passed by value (with pointer semantics), as in most standard
 object-oriented languages.
+
+Methods called in the ordinary way can create new constraints, which
+then persist after the method returns.  There is an example in the
+next section to illustrate this.
 
 Methods can also be invoked by constraint expressions.  There are a
 number of restrictions on methods to allow them to be used in this way
@@ -2452,9 +2469,6 @@ that for example we can find a value for \verb|b| given values for
 method is inlined so that the resulting constraints can be turned over
 to the solver.
 
-\ab{Argh!  The above description is in desperate need of being made
-  precise.}
-
 %% OLD IDEA ABOUT CALL-BY-IDENTITY:
 %% The arguments are passed by call-by-identity (i.e., by setting up
 %% required identity constraints between the actual and formal
@@ -2462,10 +2476,6 @@ to the solver.
 %% constraint expression is replaced with a new temporary variable, and
 %% the result returned by the method has an identity constraint that it
 %% have the same reference as that temporary.
-
-\ab{should we mention closures and Smalltalk-style control structures?
-  Probably not. Should we explicitly say that we don't deal with
-  closures in the formal semantics?}
 
 \subsection{Examples}
 
@@ -2506,19 +2516,24 @@ required & $x \geq 10$
 
 With a metric comparator this yields the solution $x=10$.
 
-Next, consider methods and constraints involving an object with parts
-and subparts, namely a rectangle represented by storing points that
-represent the upper left and lower right corners (called \verb|origin|
-and \verb|corner| in Smalltalk).
+%% THIS EXAMPLE NOT ALLOWED UNTIL WE ENABLE CREATING OBJECTS IN CONSTRAINTS
+%% Next, consider methods and constraints involving an object with parts
+%% and subparts, namely a rectangle represented by storing points that
+%% represent the upper left and lower right corners (called \verb|origin|
+%% and \verb|corner| in Smalltalk).
 
-Here is a constraint on the upper left corner of a rectangle:
-\begin{verbatim}
-always r.upper_left = Point.new(10,10);
-\end{verbatim}
+%% Here is a constraint on the upper left corner of a rectangle:
+%% \begin{verbatim}
+%% always r.upper_left.x = 10;
+%% always r.upper_left.y = 20;
+%% \end{verbatim}
 
-\ab{The following section is commented out for now, for the version of
-  the memo on the VPRI website}
+%% (Better style would be \verb|always r.upper_left = Point.new(10,10)|,
+%% but for now we can't create new objects in constraint expressions --- this
+%% is left for future work.  See Section 
+%% \ref{sec:additional-constraint-restrictions}.)
 
+%% THE FOLLOWING NEEDS TO BE OVERHAULED:
 %% In the evaluation, this explodes, maybe, to something like this:
 %% \begin{verbatim}
 %% always r.upper_left = { p = Point.allocate
@@ -2567,43 +2582,41 @@ always r.upper_left = Point.new(10,10);
 %% required & $r\_upper\_left\_ref_{y}=p\_ref_{y}$ \\
 %% \end{tabular}
 
-\tf{The above long-winded explanation may not help much -- it takes
-  too many liberties with the syntax and makes too many
-  assumptions. But I'd like to have the idea in there, to explain how
-  method lookup, primitive evaluation and new object creation work in
-  constraint construction mode}
+%% \tf{The above long-winded explanation may not help much -- it takes
+%%   too many liberties with the syntax and makes too many
+%%   assumptions. But I'd like to have the idea in there, to explain how
+%%   method lookup, primitive evaluation and new object creation work in
+%%   constraint construction mode}
 
-\ab{If we keep the example, clean up the terminology about atomic
-  constraints.  I think we want to distinguish constraints in the
-  source language from constraints in the solver language.}
+%% \ab{If we keep the example, clean up the terminology about atomic
+%%   constraints.  I think we want to distinguish constraints in the
+%%   source language from constraints in the solver language.}
 
-Next, here is a constraint on the center of a rectangle.  The center
-is a computed value rather than being stored as an instance variable.
+%% Next, here is a constraint on the center x of a rectangle.  The center
+%% is a computed value rather than being stored as an instance variable.
 
-\begin{verbatim}
-always r.center = Point.new(100,50);
-\end{verbatim}
+%% \begin{verbatim}
+%% always r.center.x = 100;
+%% \end{verbatim}
 
-The \verb|center| method for \verb|Rectangle| is defined as follows:
-\begin{verbatim}
-def center
-  return (self.upper_left + self.lower_right) / 2
-end
-\end{verbatim}
+%% The \verb|center| method for \verb|Rectangle| is defined as follows:
+%% \begin{verbatim}
+%% def center
+%%   return (self.upper_left + self.lower_right) / 2
+%% end
+%% \end{verbatim}
 
-The constraint is evaluated in the following way.  We look up the
-\verb|center| method, and use it to construct an appropriate set of
-constraints.
-This sets up an equality constraint between the result of evaluating
-\verb|(self.upper_left + self.lower_right) / 2| and a new point with
-\verb|x=100|, \verb|y=50|.  The \verb|=| method for points is then
-called, resulting in a network of primitive constraints in the solver language:
-\begin{verbatim}
-(upper_left.x + lower_right.x) / 2 = 100
-(upper_left.y + lower_right.y) / 2 = 50
-\end{verbatim}
-
-\ab{TODO: clean up and expand the above description}
+%% The constraint is evaluated in the following way.  We look up the
+%% \verb|center| method, and use it to construct an appropriate set of
+%% constraints.
+%% This sets up an equality constraint between the result of evaluating
+%% \verb|(self.upper_left + self.lower_right) / 2| and a new point with
+%% \verb|x=100|, \verb|y=50|.  The \verb|=| method for points is then
+%% called, resulting in a network of primitive constraints in the solver language:
+%% \begin{verbatim}
+%% (upper_left.x + lower_right.x) / 2 = 100
+%% (upper_left.y + lower_right.y) / 2 = 50
+%% \end{verbatim}
 
 The following example illustrates that methods can also be used with
 constraints on primitive types.
@@ -2616,6 +2629,31 @@ end;
 
 If we use this in a constraint \verb|always 10=double(a)|, the system
 should satisfy the constraint by making \verb|a| be 5.
+
+As noted above, methods called in the ordinary way can create new
+constraints, which then persist after the method returns.  Here is a
+simple example.
+
+\begin{verbatim}
+def require_double_y(pt)
+  always pt.y = 2*pt.x
+end;
+\end{verbatim}
+
+Now, if we call \verb|require_double_y(p)| on some point \verb|p|,
+thereafter its y value must be twice its x value (a persistent
+constraint).  Implementing this requires that the semantics (and 
+implementations) keep the local variables in such a method as long as
+the constraints it creates are active.  Here is a somewhat artificial
+variant of the method to illustrate this:
+\begin{verbatim}
+def require_double_y_with_locals(pt)
+  my_x := pt.x;
+  my_y := pt.y;
+  always my_y = 2*my_x;
+end;
+\end{verbatim}
+
 
 \ab{TODO: Have an example that shows the need to re-evaluate the constraint
 closures (for example, re-binding a point to a different instance of
@@ -2673,23 +2711,32 @@ true the constraint is satisfied.  This would just not work in these
 stack examples.
 
 There are some complications with respect to creating new objects in
-methods called by constraints: basically, to meet the restriction that
-there be no side effects, if we do create new objects, their identity
-can't leak out in such a way that re-evaluating the constraint
-expression as a test would return a different result.  And of course
-the prohibition on side effects would also forbid saving the newly
-created object in an instance variable (for example), because this
-would be a visible side effect.
+methods called by constraints.  For simplicity, for now we simply
+disallow this in the formal semantics.  However, this is awkward in a
+practical Babelsberg implementation, and so a direction for future
+work is to figure out a good set of restrictions that do allow
+creating new objects under some conditions.  One issue is that if we
+were to allow creating new objects in constraints, we'd need a
+restriction that their identity couldn't leak out in such a way that
+re-evaluating the constraint expression as a test would return a
+different result.  And of course the prohibition on side effects would
+also forbid saving the newly created object in an instance variable
+(for example), because this would be a visible side effect if someone
+later tested the identity of that instance variable.
 
-\ab{make this more precise!}
-
-For example, this constraint involves creating a new point, but the
-point's identity doesn't leak out beyond the constraint, and
-re-evaluating the constraint expression as a test will return true
-if the constraint is satisfied.  So this is OK:
+For example, suppose that rectangles store their upper left and lower
+right corners in fields; the center is computed on demand using the
+\verb|center| method.  The following constraint is then a natural way
+to constrain the center of a rectangle.  But it involves creating new
+points (both explicitly for the test, and in the \verb|center| method|
+which itself creates a new point), and so is currently disallowed.
 \begin{verbatim}
 always r.center = Point.new(100,50);
 \end{verbatim}
+(In the future with some more liberal rule about this, one would like
+this to be OK since the point's identity doesn't leak out beyond the
+constraint, and re-evaluating the constraint expression as a test will
+return true if the constraint is satisfied.)
 
 On the other hand, if we made the constraint into an identity
 constraint, the point's identity does leak (i.e., affect the value of
@@ -2698,41 +2745,14 @@ will always return false:
 \begin{verbatim}
 always r.center == Point.new(100,50);
 \end{verbatim}
-So this is not allowed.
+So this should not be allowed in any case.
 
 Another restriction is that methods called from a constraint
 expression cannot themselves create other constraints, or call further
-methods that do so.  For example, this is not legal, because the
-\verb|test| method creates an \verb|always| constraint, and is itself
-called from a constraint creation statement:
-
-\begin{verbatim}
-def test(x)
-  always y=x+2;
-  return y;
-end;
-a := 10;
-b := 10;
-always b=test(a);
-\end{verbatim}
-
-Note that the effects of the \verb|y=x+2| constraint would need to
-persist after the method returns. We could make this work out
-in this case, but there are other cases in which creating constraints
-in methods called by other constraints actually have a side effect.
-(There is an example below.)  Since we also couldn't think of any good
-use cases for simplicity we decided just to disallow it altogether.
-
-It would be easy to check for constraints that called methods that
-created other constraints in a practical implementation if we wanted
-to do so.  Note that this is not the same as having a method, called
-in the ordinary way, that creates constraints.  That seems useful and
-is fine.
-
-The following program is not allowed, and illustrates why adding
-constraints in methods called from constraints can have side effects.
-Suppose we are using a least-squares solver that supports soft
-constraints.
+methods that do so.  The following program is not allowed, and
+illustrates side effects resulting from adding constraints in methods
+called from other constraints.  Suppose we are using a least-squares
+solver that supports soft constraints.
 
 \begin{verbatim}
 def test(x)
@@ -2750,12 +2770,12 @@ medium constraint that \verb|a=5|.  Since we are finding a least
 squares solution, this nudges \verb|a| more toward 5 each time,
 diminishing the influence of the \verb|a=10| constraint.
 
-Two other issues, again for the record:
+Two issues with constraints that call methods that add constraints,
+for the record in case we do want to try to allow this:
 
-If we allowed using such methods in constraint expressions, we would
-need to solve their constraints eagerly rather than just accumulating
-the constraints and solving all at once.  Here's an example that
-demonstrates this.
+First, we would need to solve their constraints eagerly rather than
+just accumulating the constraints and solving all at once.  Here's an
+example that demonstrates this.
 
 \begin{verbatim}
 def test(x)
@@ -2768,7 +2788,7 @@ always b=test(a);
 If we don't solve eagerly, \verb|y| doesn't have a value when we
 evaluate the test in the \verb|if| statement.
 
-Finally, what if the method adds soft constraints, and is itself
+Second, what if the method adds soft constraints, and is itself
 invoked by a soft constraint?  For example, suppose that in the above
 program we instead had \verb|always weak b=test(a)|.  We would need an
 algebra for combining priorities, for example, take the minimum of the
@@ -2784,16 +2804,17 @@ In fact we generalize this restriction as follows: for a method to be
 used in other than just the forward direction in constraints that call
 it, the method must consist of a single \verb|return| statement; if it
 has more than one statement, it can only be used in the forwards
-direction.  The expression should either not create new objects, or
-only create certain simple sorts of objects (e.g., points) that can be
-treated in a record-like fashion.  This is intended to operationalize
-the restriction on not creating new objects in such a way that their
-identity leaks.  This is a conservative approach for now --- we may be
-able to loosen the restrictions a bit, but defer this until we gain
-some additional experience.
+direction.  
 
-\ab{make the above restriction about ``objects treated in a
-  record-like fashion'' precise!}
+%% HERE IS SOME WORDING ABOUT RESTRICTIONS ON CREATING NEW OBJECTS IN
+%% METHODS CALLED BY CONSTRAINTS -- COMMENTED OUT UNTIL WE FIGURE THIS OUT
+%% The expression should either not create new objects, or
+%% only create certain simple sorts of objects (e.g., points) that can be
+%% treated in a record-like fashion.  This is intended to operationalize
+%% the restriction on not creating new objects in such a way that their
+%% identity leaks.  This is a conservative approach for now --- we may be
+%% able to loosen the restrictions a bit, but defer this until we gain
+%% some additional experience.
 
 Here are some examples.
 
@@ -2979,9 +3000,9 @@ same point, which has \verb|x=5,y=0|.  Trying to satisfy the final
 constraint on \verb|q.x| fails.  We could satisfy the constraints by
 first cloning \verb|q| from \verb|p| and then changing its \verb|x|,
 but we forbid creating new objects to satisfy constraints.  In the
-semantics, this results in the \verb|fail| state, just as would an
+semantics, this results in getting stuck, just as would an
 unsatisfiable required constraint.  (In a practical implementation, we
-might want to raise a different sort of exception in this case, to
+might want to raise different sorts of exceptions for these two cases, to
 indicate that forcing an object to be created to satisfy a constraint
 is not allowed.)
 
@@ -3038,37 +3059,41 @@ circle.   This example also illustrates how type changes must
 originate with an assignment statement, but can ripple further via
 explicit identity constraints. 
 
-\subsection{Circular Structures}
-\label{sec:circular-structures}
-
-There is an issue regarding creating circular structures if we convert
-assignment statements to \verb|once| constraints, with the right hand
-side annotated as read only.  Consider:
-\begin{verbatim}
-c := Cons.new(10,nil);
-c.cdr := c;
-\end{verbatim}
-
-If the second assignment is converted to the constraint
-\verb|once c.cdr == c?| this is unsatisfiable.  However, there is a
-simple workaround, namely to replace such an assignment with a
-\verb|once| identity constraint without the read-only annotation:
-\begin{verbatim}
-c := Cons.new(10,nil);
-once c.cdr == c
-\end{verbatim}
-
-This is a bit strange.  But this solution doesn't require any changes
-to the formal semantics, and addresses all the previous issues.  Also
-see Appendix \ref{sec:alternatives-for-creating-circular-structures}
-for a practical variant that avoids this problem.
+%% CREATING CIRCULAR STRUCTURES IS NO LONGER AN ISSUE - COMMENTED THIS OUT
+%%
+%% \subsection{Circular Structures}
+%% \label{sec:circular-structures}
+%%
+%% There is an issue regarding creating circular structures if we convert
+%% assignment statements to \verb|once| constraints, with the right hand
+%% side annotated as read only.  Consider:
+%% \begin{verbatim}
+%% c := Cons.new(10,nil);
+%% c.cdr := c;
+%% \end{verbatim}
+%%
+%% If the second assignment is converted to the constraint
+%% \verb|once c.cdr == c?| this is unsatisfiable.  However, there is a
+%% simple workaround, namely to replace such an assignment with a
+%% \verb|once| identity constraint without the read-only annotation:
+%% \begin{verbatim}
+%% c := Cons.new(10,nil);
+%% once c.cdr == c
+%% \end{verbatim}
+%%
+%% This is a bit strange.  But this solution doesn't require any changes
+%% to the formal semantics, and addresses all the previous issues.  Also
+%% see Appendix \ref{sec:alternatives-for-creating-circular-structures}
+%% for a practical variant that avoids this problem.
 
 \subsection{Formalism}
 
 \subsubsection{Syntax}
 
 The syntax is augmented to allow methods that only return and have no
-further statements.
+further statements.  Note that we still don't have anonymous functions
+(blocks in Smalltalk parlance), and hence no control structures using
+such anonymous functions.
 
 \begin{tt}
 \begin{tabular}{lrrl}
@@ -3321,52 +3346,54 @@ requiring that the constraint solver generate new classes on the fly;
 there will also be multiple possible classes.  As before, this seems
 overly complex and unpredictable.
 
-\subsection{Alternatives for Creating Circular Structures}
-\label{sec:alternatives-for-creating-circular-structures}
+%% CREATING CIRCULAR STRUCTURES IS NO LONGER AN ISSUE - COMMENTED THIS OUT
+%%
+%% \subsection{Alternatives for Creating Circular Structures}
+%% \label{sec:alternatives-for-creating-circular-structures}
 
-As discussed in Section \ref{sec:circular-structures}, there is an
-issue with circular structures if we convert assignment statements to
-\verb|once| constraints with the right hand side annotated as read
-only.
+%% As discussed in Section \ref{sec:circular-structures}, there is an
+%% issue with circular structures if we convert assignment statements to
+%% \verb|once| constraints with the right hand side annotated as read
+%% only.
 
-\subsubsection{Selectively Eliding the Read-Only Annotation}
+%% \subsubsection{Selectively Eliding the Read-Only Annotation}
 
-A variant that provides a more standard syntax is to make the entire
-object on the right-hand side of the assignment be read-only, except
-for a field that is assigned to (if any).  The constraints would be
-exactly the same for all the examples except for the circular
-structures one:
+%% A variant that provides a more standard syntax is to make the entire
+%% object on the right-hand side of the assignment be read-only, except
+%% for a field that is assigned to (if any).  The constraints would be
+%% exactly the same for all the examples except for the circular
+%% structures one:
 
-\begin{verbatim}
-c := Cons.new(10,nil);
-c.cdr := c;
-\end{verbatim}
+%% \begin{verbatim}
+%% c := Cons.new(10,nil);
+%% c.cdr := c;
+%% \end{verbatim}
 
-Here, \verb|c.car| and the reference to \verb|c| itself are read-only, but not
-\verb|c.cdr|.
+%% Here, \verb|c.car| and the reference to \verb|c| itself are read-only, but not
+%% \verb|c.cdr|.
 
-This seems similar to the way that mutable state is modeled in Dedalus
-(where there is a persistence rule that says facts continue to hold,
-unless explicitly negated).
+%% This seems similar to the way that mutable state is modeled in Dedalus
+%% (where there is a persistence rule that says facts continue to hold,
+%% unless explicitly negated).
 
-This variant seems mostly of practical interest --- as far as the
-formal semantics is concerned, the simpler proposal described in
-Section \ref{sec:circular-structures} seems preferable.
+%% This variant seems mostly of practical interest --- as far as the
+%% formal semantics is concerned, the simpler proposal described in
+%% Section \ref{sec:circular-structures} seems preferable.
 
-\subsubsection{Another Alternative: Distinguishing Ownership from Reference}
+%% \subsubsection{Another Alternative: Distinguishing Ownership from Reference}
 
-Another alternative to making the entire object on the right-hand side of
-the assignment read-only is to distinguish ownership of parts from
-references to other objects.  If an instance variable is for an
-``owned'' part, then that instance variable is made read-only; but
-otherwise not.  For compatibility with the host language, the default
-would be that instance variables do not refer to owned parts; rather,
-this must be declared explicitly.  (It only needs to be declared if
-there are constraints on the parts or subparts.)
+%% Another alternative to making the entire object on the right-hand side of
+%% the assignment read-only is to distinguish ownership of parts from
+%% references to other objects.  If an instance variable is for an
+%% ``owned'' part, then that instance variable is made read-only; but
+%% otherwise not.  For compatibility with the host language, the default
+%% would be that instance variables do not refer to owned parts; rather,
+%% this must be declared explicitly.  (It only needs to be declared if
+%% there are constraints on the parts or subparts.)
 
-This alternative does get rid of the workaround for creating
-circular structures, but is otherwise more complex, so we didn't
-select it.
+%% This alternative does get rid of the workaround for creating
+%% circular structures, but is otherwise more complex, so we didn't
+%% select it.
 
 \subsection{Adding New Solvers and Extending the Solver Language}
 \label{sec:adding-solvers}

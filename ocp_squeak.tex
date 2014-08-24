@@ -25,7 +25,7 @@ object-oriented method definitions rather than a \ac{dsl}. The keyword
 of the interactive application and the method \texttt{between:and:} is
 a known method in Squeak.
 
-\paragraph{Constraint Construction}
+\paragraph{Constraint Construction in Babelsberg/S}
 \label{sec:constr-constr}
 
 To construct the constraint, the constraint block is executed in a
@@ -43,31 +43,71 @@ fails, an exception is raised which must be handled by the
 programmer. In that case, the constraint is not added and the system
 remains unperturbed.
 
-Squeak/Smalltalk includes an in-image Smalltalk interpreter. Squeak
-stack frames can be reified into subinstances of the
-\lstinline!ContextPart! class. These provide methods to interpret each
-bytecode. This facility is used by the Squeak debugger.
-
-Babelsberg/S uses a modified version of the image-side interpreter to
+Squeak/Smalltalk includes an in-image Smalltalk interpreter which we
+instrumented to implement \ac{ccm}. The resulting architecture is
+shown in \autoref{fig:arch}. Squeak stack frames can be reified into
+subinstances of the \lstinline!ContextPart! class. These provide
+methods to interpret each bytecode. This facility is used by the
+Squeak debugger. Babelsberg/S uses the instrumented interpreter to
 evaluate the constraint block. The \lstinline!alwaysTrue! method
-creates a new Process (a Smalltalk green-thread) from the constraint
-block. This process is interpreted stepwise using the interface of the
-ContextPart objects. Where interpretation in \ac{ccm} deviates from
-normal Smalltalk semantics, we use
-ContextS\cite{contextShirschfeld2008introduction} to layer methods
-whose behavior needs to change inside a \ac{ccm} layer.
+creates a new Process (a Smalltalk green-thread) that is interpreted
+stepwise using the interface of the ContextPart objects. Where
+interpretation in \ac{ccm} deviates from normal Smalltalk semantics,
+we use ContextS\cite{contextShirschfeld2008introduction} to instrument
+methods whose behavior needs to change inside a \ac{ccm} layer.
 
-We modified the interpreter to create \texttt{ConstraintVariable}
-objects for instance variables that are accessed through accessor
-methods. We wrap the accessors to go through these variables to read
-and write values. All methods, including operator methods such as
-\textbf{+} and \textbf{-}, are then called on constraint variables and
-construct constraint expressions instead of evaluating directly.
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{architecture}
+  \caption{The architecture of Babelsberg/S constraint construction mode}
+  \label{fig:arch}
+\end{figure}
 
-Back to the constraints of a Sudoku puzzle, we must define the domain
-of all cells inside the \texttt{sudoku}. The usual way in Babelsberg
-is shown in \autoref{lst:loop-Sudoku-constraint}. It uses a loop over
-all Sudoku cells.
+The modified interpreter creates \texttt{ConstraintVariable} objects
+for instance variables that are accessed through accessor methods. All
+methods, including operator methods such as \textbf{+} and \textbf{-},
+are then called on these \texttt{ConstraintVariable} objects and
+construct constraint expressions instead of evaluating directly. This
+is equivalent to the implementations in Ruby and
+JavaScript.
+
+Additionally, the interpreter creates instance-specific method
+wrappers to intercept access to these variables going forward. These
+wrappers delegate read and write access to the corresponding
+\texttt{ConstraintVariable}, which calls the solver as needed to keep
+the constraints satisfied.
+
+In contrast to JavaScript or Ruby, Squeak/Smalltalk does not allow
+instance-specific behavior directly. All methods and instance
+variables are declared on the class. However, wrapping accessors on
+the class of any encountered object would cause all instances of that
+class in the system to go through our wrapper, which imposes
+considerable performance overhead. To wrap only the encountered
+instances, we create anonymous subclasses of their class, and use
+Smalltalks \lstinline!become:! facility to change the class of the
+object to the anonymous subclass. We then install our wrappers only on
+this instance-specific subclass.
+
+This solution to instance-specific behavior means that there is no
+runtime overhead when using objects that have no constraints on
+them. However, it is not perfect and easily discovered through
+Smalltalks meta-programming interface. We have also encountered
+methods in the core system that checks for the class of its arguments
+not using the \lstinline!isKindOf:! method (which works correctly for
+subinstances), but by directly comparing the class pointer. We are
+working on a better solution to instance-specific behavior that is
+completely transparent to these common uses of meta-programming.
+
+\paragraph{Constraints on Collections}
+
+The existing Babelsberg design does not support constraints on
+collections directly, proposing to use a specialized solver for
+collections instead\cite{felgentreff2014jot}. To model an entire
+Sudoku puzzle, we need to assert the constraint given in
+\autoref{lst:first-Sudoku-constraint} for each cell. With the existing
+Babelsberg design, this would either require a solver for collections
+that supports domains for numbers, or alternatively, an loop over the
+cells imperatively:
 
 \begin{lstlisting}[caption=Defining the domain of all Sudoku cells with a loop, label=lst:loop-Sudoku-constraint]
 (1 to: sudoku size) do: [:index | 
@@ -75,14 +115,80 @@ all Sudoku cells.
 				alwaysSolveWith: solver].
 \end{lstlisting}
 
-Babelsberg/Squeak contributes to more human-readable constraints by supporting the Collection \ac{api} in constraints. As a result, the domain constraint of a Sudoku puzzle can be expressed through sending \texttt{allSatisfy:} to \texttt{sudoku}, as shown in \autoref{lst:collectionAPI-Sudoku-constraint}.
+This code is incorrect if the size of the sudoku can change, because
+new elements will not have constraints on them. Additionally, if there
+is a method that hides the loop (e.g. \lstinline!allCellsDo:!), it
+might not always be clear for developers if a method can be used in a constraint.
+
+Babelsberg/Squeak contributes to more consistent and human-readable
+constraints by supporting the Collection \ac{api} directly in
+constraints without requiring a specialized solver for arrays. As a
+result, the domain constraint of a Sudoku puzzle can be expressed
+through sending \texttt{allSatisfy:} to \texttt{sudoku}, as shown in
+\autoref{lst:collectionAPI-Sudoku-constraint}.
 
 \begin{lstlisting}[caption=Defining the domain of all Sudoku cells with the Collection \ac{api}, label=lst:collectionAPI-Sudoku-constraint]
 [sudoku allSatisfy: [:cell | cell between: 1 and: 9]] 
 		alwaysSolveWith: solver.
 \end{lstlisting}
 
-The extension of Babelsberg/S for the Collection \ac{api} slightly changes the implementation. For maintaining the constraints automatically, as explained in \autoref{sec:maintain_constraints}, read and write access on constraint variables, e.g. on Sudoku cells, has to be detected. In Squeak, an access on an arbitrary collection calls \texttt{at:} or \texttt{at:put:} on an internal array, that maintains the elements of the collection. Therefore, sending the messages \texttt{at:} and \texttt{at:put:} to an array have to be modified. To reach this, in \ac{ccm}, the internal array is replaced by a \texttt{ConstraintArray}, that inherits from \texttt{Array} and overrides the accessor methods \texttt{at:} and \texttt{at:put:}. 
+The extension to support collections directly in Babelsberg/S
+leverages the fact that Smalltalk comes with only one fixed-size
+pointer array type, upon which the Smalltalk collections library
+builds. This type provides three methods implemented in primitives for
+all low-level access: \lstinline!at:!, \lstinline!at:put:!, and
+\lstinline!replaceFrom:to:with:startingAt:!.
+
+Babelsberg/S subclasses the basic \lstinline!Array! class and
+overrides the three low-level access methods to intercept any
+modifications to the array. In addition, it overrides the
+\lstinline!copyFrom:to:! method, which is regularly used in Squeak to
+access sub-sequences of an array.
+
+In \ac{ccm}, any array that is visited in the dynamic extent of the
+execution is transparently replaced by the Babelsberg/S
+subclass. Besides the overridden methods, this subclass is a
+completely transparent proxy. Each element in the array is wrapped in
+a \texttt{ConstraintVariable} that delegates access to the solver.
+
+The predicates of the collection \ac{api} are straightforward to
+support. The predicates \lstinline!allSatisfy:!,
+\lstinline!anySatisfy:!, and \lstinline!noneSatisfy:! are mapped as
+per \autoref{tbl:mapping}. Note that for the first relation, a
+disjunction over all elements must be created. For solvers that do not
+support disjunctions, Babelsberg/S forces the first element to satisfy
+the block. This prevents the system from finding solutions in many
+cases. However, to find additional solutions with solvers without
+disjunctions we would need to introduce backtracking in the case of
+unsatisfiable constraints, which we omitted for now due to performance
+considerations.
+
+\begin{table}
+  \centering
+  \begin{tabular}{c|c}
+    \lstinline!anySatisfy:! & $\exists x \in self : f(x)$ \\
+    \lstinline!noneSatisfy:! & $\forall x \in self : \neg f(x)$ \\
+    \lstinline!allSatisfy:! & $\forall x \in self : f(x)$ \\
+  \end{tabular}
+  \label{tbl:mapping}
+\end{table}
+
+Additional predicate methods such as \lstinline!allDifferent! are
+mapped to pair-wise inequalities. Reduction methods including
+\lstinline!sum! and \lstinline!count:!, which sum the elements or
+count the number of elements which satisfy a particular condition, are
+represented as linear expressions. The constraints created with these
+methods are reconstructed when the elements in the array change, but
+since the size of arrays is fixed, the length of the linear
+expressions is bounded.
+
+The use cases for methods that create new collections from existing
+ones are less clear in the general case, and we do not support them
+for now. We have found that uses of \lstinline!select:!,
+\lstinline!collect:!, and \lstinline!detect:! in predicate expressions
+can usually be replaced by the direct predicate methods. We might lift
+this restriction in the future if we encounter other legitimate uses
+of these methods.
 
 %%% Local Variables:
 %%% mode: latex

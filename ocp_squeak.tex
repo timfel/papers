@@ -14,47 +14,53 @@ constraint := [(sudoku at: 1 at: 1) between: 1 and: 9]
 
 \autoref{lst:first-Sudoku-constraint} shows the constraint for
 defining the domain of one Sudoku cell. In general, a constraint in
-Babelsberg/S is specified by sending the message
-\texttt{alwaysSolveWith:} to a constraint block. The argument should
+Babelsberg/S is specified as a block that evaluates to a boolean ---
+if the block evaluates to \texttt{true}, the constraint is satisfied.
+The constraint is created by sending the message
+\texttt{alwaysSolveWith:} to the block. The argument should
 be an instance of \texttt{ConstraintSolver}. It is also possible to
 solve the constraint with a default constraint solver, which is global
 inside the Squeak image, by sending \texttt{alwaysTrue}. As mentioned
 in \autoref{sec:introduction}, the constraint is defined by using
-object-oriented method definitions rather than a \ac{dsl}. The keyword
+object-oriented method definitions in Squeak 
+rather than a \ac{dsl}. The keyword
 \texttt{sudoku} in \autoref{lst:first-Sudoku-constraint} is a variable
 of the interactive application and the method \texttt{between:and:} is
 a known method in Squeak.
+%% AB: TODO: say what between:and: does here
 
 \paragraph{Constraint Construction in Babelsberg/S}
 \label{sec:constr-constr}
 
 To construct the constraint, the constraint block is executed in a
-different execution mode called \ac{ccm}. Instead of evaluating the
-source code normally, in \ac{ccm}, constraint expressions are created
+different execution mode called constraint construction mode. Instead of evaluating the
+source code normally, in constraint construction mode, constraint expressions are created
 from the constraint code. After that, these constraint expressions are
 added to a \texttt{Constraint} object, which is passed to the
 constraint solver. We explain the solving process in more detail in
-\autoref{sec:maintain_constraints}. If solving succeeded, the method
+\autoref{sec:maintain_constraints}. If solving succeeds, the method
 \texttt{alwaysSolveWith:} returns the newly created constraint
-object. This object can then be used to reflect on the constraint
-(e.g., to inspect which variables participate in it), as well as to
+object. This object can then be used for reflection
+(e.g., to inspect which variables participate in the constraint), as well as to
 dynamically disable and re-enable the constraint later. If solving
 fails, an exception is raised which must be handled by the
 programmer. In that case, the constraint is not added and the system
 remains unperturbed.
 
 Squeak/Smalltalk includes an in-image Smalltalk interpreter which we
-instrumented to implement \ac{ccm}. The resulting architecture is
+instrumented to implement constraint construction mode. The resulting architecture is
 shown in \autoref{fig:arch}. Squeak stack frames can be reified into
-subinstances of the \lstinline!ContextPart! class. These provide
+instances of subclasses of the \lstinline!ContextPart! class. These provide
 methods to interpret each bytecode. This facility is used by the
 Squeak debugger. Babelsberg/S uses the instrumented interpreter to
 evaluate the constraint block. The \lstinline!alwaysTrue! method
 creates a new Process (a Smalltalk green-thread) that is interpreted
 stepwise using the interface of the ContextPart objects. Where
-interpretation in \ac{ccm} deviates from normal Smalltalk semantics,
-we use ContextS\cite{contextShirschfeld2008introduction} to instrument
-methods whose behavior needs to change inside a \ac{ccm} layer.
+interpretation in constraint construction mode deviates from normal Smalltalk semantics,
+we use ContextS \cite{contextShirschfeld2008introduction} to instrument
+methods whose behavior needs to change inside a constraint construction mode layer.
+
+%% TODO: an example would be useful here (if there is time to write one)
 
 \begin{figure}
   \centering
@@ -68,7 +74,7 @@ for instance variables that are accessed through accessor methods. All
 methods, including operator methods such as \textbf{+} and \textbf{-},
 are then called on these \texttt{ConstraintVariable} objects and
 construct constraint expressions instead of evaluating directly. This
-is equivalent to the implementations in Ruby and
+is equivalent to the Babelsberg implementations in Ruby and
 JavaScript.
 
 Additionally, the interpreter creates instance-specific method
@@ -88,25 +94,32 @@ Smalltalks \lstinline!become:! facility to change the class of the
 object to the anonymous subclass. We then install our wrappers only on
 this instance-specific subclass.
 
+%% TODO: what does not perfect mean here?  Why does it matter if it's
+%% discoverable through the meta-programming interface?  Also, the
+%% fact that there are methods that check for the class of arguments
+%% directly rather than using isKindOf: seems like a bug in those
+%% methods, not in the approach here.  What is the better solution?
+%% Not sure this needs to be your problem.
+
 This solution to instance-specific behavior means that there is no
 runtime overhead when using objects that have no constraints on
 them. However, it is not perfect and easily discovered through
 Smalltalks meta-programming interface. We have also encountered
 methods in the core system that checks for the class of its arguments
 not using the \lstinline!isKindOf:! method (which works correctly for
-subinstances), but by directly comparing the class pointer. We are
+instances of subclasses), but by directly comparing the class pointer. We are
 working on a better solution to instance-specific behavior that is
 completely transparent to these common uses of meta-programming.
 
 \paragraph{Constraints on Collections}
 
 The existing Babelsberg design does not support constraints on
-collections directly, proposing to use a specialized solver for
-collections instead\cite{felgentreff2014jot}. To model an entire
+collections directly; rather, it was proposed to use a specialized solver for
+collections \cite{felgentreff2014jot}. To model an entire
 Sudoku puzzle, we need to assert the constraint given in
 \autoref{lst:first-Sudoku-constraint} for each cell. With the existing
 Babelsberg design, this would either require a solver for collections
-that supports domains for numbers, or alternatively, an loop over the
+that supports domains for numbers, or alternatively, loop over the
 cells imperatively:
 
 \begin{lstlisting}[caption=Defining the domain of all Sudoku cells with a loop, label=lst:loop-Sudoku-constraint]
@@ -120,7 +133,8 @@ new elements will not have constraints on them. Additionally, if there
 is a method that hides the loop (e.g. \lstinline!allCellsDo:!), it
 might not always be clear for developers if a method can be used in a constraint.
 
-Babelsberg/Squeak contributes to more consistent and human-readable
+Babelsberg/Squeak contributes to the development of 
+more consistent and human-readable
 constraints by supporting the Collection \ac{api} directly in
 constraints without requiring a specialized solver for arrays. As a
 result, the domain constraint of a Sudoku puzzle can be expressed
@@ -145,7 +159,7 @@ modifications to the array. In addition, it overrides the
 \lstinline!copyFrom:to:! method, which is regularly used in Squeak to
 access sub-sequences of an array.
 
-In \ac{ccm}, any array that is visited in the dynamic extent of the
+In constraint construction mode, any array that is visited in the dynamic extent of the
 execution is transparently replaced by the Babelsberg/S
 subclass. Besides the overridden methods, this subclass is a
 completely transparent proxy. Each element in the array is wrapped in
@@ -162,6 +176,10 @@ cases. However, to find additional solutions with solvers without
 disjunctions we would need to introduce backtracking in the case of
 unsatisfiable constraints, which we omitted for now due to performance
 considerations.
+
+%% TODO: is 'performance considerations' right?  It seems like if you
+%% need backtracking, you need it, and have to pay the performance
+%% price.  Would it be better to say we haven't implemented it yet?
 
 \begin{table}
   \centering
@@ -189,6 +207,12 @@ for now. We have found that uses of \lstinline!select:!,
 can usually be replaced by the direct predicate methods. We might lift
 this restriction in the future if we encounter other legitimate uses
 of these methods.
+
+%% TODO: the above argument seems weak.  Sure, select etc can be
+%% replaced, but is it more convenient if we provide them?  Maybe just
+%% say it's left for future work?  Is it just because it's hard to
+%% support them?  Or is there a more principled reason why not to
+%% provide them?
 
 %%% Local Variables:
 %%% mode: latex

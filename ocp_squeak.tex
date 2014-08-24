@@ -23,11 +23,11 @@ the constraint with a default constraint solver, which is global
 inside the Squeak image, by sending \texttt{alwaysTrue}. As mentioned
 in \autoref{sec:introduction}, the constraint is defined by using
 object-oriented method definitions in Squeak rather than a
-\ac{dsl}. The keyword \texttt{sudoku} in
-\autoref{lst:first-Sudoku-constraint} is a variable of the interactive
-application and the method \texttt{between:and:} is a known method in
-Squeak, that just checks whether the given value is between the upper
-and lower bound arguments.
+\ac{dsl}. The variable \texttt{sudoku} in
+\autoref{lst:first-Sudoku-constraint} represents the grid of cells in
+the interactive application and the method \texttt{between:and:} is a
+predefined predicate on Squeak numbers that just checks whether the
+receiver's value is between the upper- and lower-bound arguments.
 
 \paragraph{Constraint Construction in Babelsberg/S}
 \label{sec:constr-constr}
@@ -41,9 +41,9 @@ constraint solver. We explain the solving process in more detail in
 \autoref{sec:maintain_constraints}. If solving succeeds, the method
 \texttt{alwaysSolveWith:} returns the newly created constraint
 object. This object can then be used for reflection
-(e.g., to inspect which variables participate in the constraint), as well as to
-dynamically disable and re-enable the constraint later. If solving
-fails, an exception is raised which must be handled by the
+(e.g., to inspect which variables participate in the constraint) as well as to
+dynamically disable and re-enable the constraint. If solving
+fails, an exception is raised, which must be handled by the
 programmer. In that case, the constraint is not added and the system
 remains unperturbed.
 
@@ -56,10 +56,11 @@ is used by the Squeak debugger. Babelsberg/S uses the instrumented
 interpreter to evaluate the constraint block. The
 \lstinline!alwaysTrue! method creates a new Process (a Smalltalk
 green-thread) that is interpreted stepwise using the interface of the
-ContextPart objects. Where interpretation in constraint construction
-mode deviates from normal Smalltalk semantics, we use ContextS
-\cite{contextShirschfeld2008introduction} to instrument methods whose
-behavior needs to change inside a constraint construction mode layer.
+\lstinline!ContextPart! objects. Where interpretation in constraint
+construction mode deviates from normal Smalltalk semantics, we use
+ContextS~\cite{contextShirschfeld2008introduction} to instrument
+methods whose behavior needs to change inside a constraint
+construction mode layer.
 
 \begin{figure}
   \centering
@@ -71,26 +72,34 @@ behavior needs to change inside a constraint construction mode layer.
 Consider the above constraint: the block
 \lstinline![(sudoku at: 1 at: 1) between: 1 and: 9]! is compiled into
 bytecode. A new Squeak process is created (but not scheduled) by
-sending the method lstinline!newProcess! to it. The process has a
+sending the method \lstinline!newProcess! to it. The process has a
 stack with exactly one frame (a \lstinline!ContextPart! object.) That
-frame's program counter set to 0, and it contains the bytecode for the
+frame's program counter is set to 0 and it contains the bytecode for the
 constraint block. The Babelsberg/S interpreter then steps through this
 frame by interpreting the bytecodes one by one, including doing method
 lookup and creating new frames as needed.
 
 The modified interpreter creates \texttt{ConstraintVariable} objects
 for instance variables that are accessed through accessor methods. All
-methods, including operator methods such as \textbf{+} and \textbf{-},
-are then called on these \texttt{ConstraintVariable} objects and
-construct constraint expressions instead of evaluating directly. This
-is equivalent to the Babelsberg implementations in Ruby and
-JavaScript.
+methods are then called on these \texttt{ConstraintVariable}
+objects. Operator methods such as \lstinline{+}, \lstinline{-}, or
+\lstinline!<=!  construct constraint expressions instead of evaluating
+directly. Other methods that the solver does not directly support are
+partially evaluated to break them down into the primitive
+operations. In the case of \lstinline!between:and:!, for example, the
+constraint constructed from partially evaluating the method would be
+equivalent to specifying \lstinline!n >= lower and: [n <= upper]!
+directly. By re-using existing methods, Babelsberg/S supports the
+object-oriented abstractions that already exist in the system. This is
+equivalent to the Babelsberg implementations in Ruby and
+JavaScript~\cite{felgentreff2014jot}.
 
 Additionally, the interpreter creates instance-specific method
-wrappers to intercept access to these variables going forward. These
-wrappers delegate read and write access to the corresponding
+wrappers to intercept access to these variables. The wrappers delegate
+read and write access to the corresponding
 \texttt{ConstraintVariable}, which calls the solver as needed to keep
-the constraints satisfied.
+the constraints satisfied and returns the value of the variable from
+the solver's solution.
 
 In contrast to JavaScript or Ruby, Squeak/Smalltalk does not allow
 instance-specific behavior directly. All methods and instance
@@ -104,11 +113,11 @@ object to the anonymous subclass. We then install our wrappers only on
 this instance-specific subclass.
 
 This solution to instance-specific behavior means that there is no
-runtime overhead when using objects that have no constraints on
-them. Constrained objects are easily discovered through Smalltalks
+run-time overhead when using objects that have no constraints on
+them. Constrained objects are easily discovered through Smalltalk's
 meta-programming interface, because their class has no name and only
 wraps the accessors encountered in the constraint. We encountered
-methods in the core system that checks for the class of its arguments
+methods in the core system that check for the class of its arguments
 not using the \lstinline!isKindOf:! method (which works correctly for
 instances of subclasses), but by directly comparing the class
 pointer. Although one might consider this as a bug in the method, we
@@ -118,13 +127,13 @@ completely transparent to these common uses of meta-programming.
 \paragraph{Constraints on Collections}
 
 The existing Babelsberg design does not support constraints on
-collections directly; rather, it was proposed to use a specialized solver for
-collections \cite{felgentreff2014jot}. To model an entire
+collections directly; rather, it was proposed to use a specialized
+solver for collections~\cite{felgentreff2014jot}. To model an entire
 Sudoku puzzle, we need to assert the constraint given in
 \autoref{lst:first-Sudoku-constraint} for each cell. With the existing
 Babelsberg design, this would either require a solver for collections
 that supports domains for numbers, or alternatively, loop over the
-cells imperatively:
+cells imperatively (\autoref{lst:loop-Sudoku-constraint}.)
 
 \begin{lstlisting}[caption=Defining the domain of all Sudoku cells with a loop, label=lst:loop-Sudoku-constraint]
 (1 to: sudoku size) do: [:index | 
@@ -137,13 +146,12 @@ new elements will not have constraints on them. Additionally, if there
 is a method that hides the loop (e.g. \lstinline!allCellsDo:!), it
 might not always be clear for developers if a method can be used in a constraint.
 
-Babelsberg/Squeak contributes to the development of 
-more consistent and human-readable
-constraints by supporting the Collection \ac{api} directly in
-constraints without requiring a specialized solver for arrays. As a
-result, the domain constraint of a Sudoku puzzle can be expressed
-through sending \texttt{allSatisfy:} to \texttt{sudoku}, as shown in
-\autoref{lst:collectionAPI-Sudoku-constraint}.
+Babelsberg/S contributes to the development of more consistent and
+human-readable constraints by supporting the collection \ac{api}
+directly in constraints without requiring a specialized solver for
+arrays. As a result, the domain constraint of a Sudoku puzzle can be
+expressed through sending \texttt{allSatisfy:} to \texttt{sudoku}
+(\autoref{lst:collectionAPI-Sudoku-constraint}.)
 
 \begin{lstlisting}[caption=Defining the domain of all Sudoku cells with the Collection \ac{api}, label=lst:collectionAPI-Sudoku-constraint]
 [sudoku allSatisfy: [:cell | cell between: 1 and: 9]] 
@@ -178,16 +186,16 @@ support disjunctions, Babelsberg/S forces the first element to satisfy
 the block. This prevents the system from finding solutions in many
 cases. To find additional solutions with solvers without disjunctions
 requires backtracking in the case of unsatisfiable constraints. This
-is not implemented, yet, but as left for future work.
+is not implemented yet, but is left for future work.
 
 \begin{table}
   \centering
   \begin{tabular}{r|l}
-    \lstinline!anySatisfy:! & $\exists x \in self : f(x)$ \\
-    \lstinline!noneSatisfy:! & $\forall x \in self : \neg f(x)$ \\
-    \lstinline!allSatisfy:! & $\forall x \in self : f(x)$ \\
+    \lstinline!anySatisfy:! & $\exists x \in \text{array} : f(x)$ \\
+    \lstinline!noneSatisfy:! & $\forall x \in array : \neg f(x)$ \\
+    \lstinline!allSatisfy:! & $\forall x \in array : f(x)$ \\
   \end{tabular}
-  \caption{}
+  \caption{Mapping from collection predicates to declarative representation}
   \label{tbl:mapping}
 \end{table}
 

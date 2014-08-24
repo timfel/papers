@@ -121,11 +121,9 @@ languages are as follows:
 \item Babelsberg/UID (Babelsberg with mutable records that live on the
   heap and so have an identity, can be aliased, etc., as well as
   primitive types).
-\item Babelsberg/Accessors (Babelsberg with mutable objects, classes,
-  methods, messages, and inheritance, but without the full constraint
-  construction model of actual object constraint languages)
-\item Babelsberg/Objects (adds support for full constraint
-  construction mode to Babelsberg/Accessors)
+\item Babelsberg/Objects (Babelsberg with mutable objects, classes,
+  methods, messages, inheritance, and object-oriented constraint
+  definitions)
 \end{itemize}
 
 In each case, we first provide an informal discussion and examples,
@@ -1594,6 +1592,22 @@ Similarly, we don't allow identity constraints in disjunctions or
 conjunctions with value constraints (and for simplicity, don't allow
 them in conjunctions or disjunctions at all).
 
+The solver can't spontaneously create new records if they are needed
+--- new records can only be created with an explicit assignment with a
+\verb|new| on the right hand side.  Consider:
+
+\begin{verbatim}
+a := {x:1};
+b := a;
+always a.x=1;
+always b.x=2;
+\end{verbatim}
+
+After \verb|b:=a|, {\tt a} and {\tt b} refer to the same record, but
+after the second {\tt always} constraint, the solver would need to
+spontaneously create a new record and point {\tt b} at it.  So this
+program fails.
+
 %% This example no longer needed?
 %% 
 %% One more issue concerns object identities in constraints. Although
@@ -2301,13 +2315,15 @@ structure to make clear which structure we end up with afterwards.
 \section{Babelsberg/Objects}
 \label{sec:babelsberg-objects}
 
-In this final language, we add support for full constraint
-construction mode to Babelsberg/Accessors.  This language thus includes
-all the essential features of actual object constraint languages such
-as Babelsberg/R, Babelsberg/JS, and Babelsberg/Squeak, including
-classes, inheritance, methods, messages, and constraints.  For
-simplicity, we remove field access entirely --- access to an objects
-variables is only possible through message sends.
+In this final language, we add support for mutable objects, classes,
+methods, messages, and inheritance, along with object-oriented
+constraint definitions (i.e., constraint definitions that can include
+method calls).  This language thus includes all the essential features
+of actual object constraint languages such as Babelsberg/R,
+Babelsberg/JS, and Babelsberg/Squeak, including classes, inheritance,
+methods, messages, and constraints.  For simplicity, we remove field
+access entirely --- access to an objects variables is only possible
+through message sends.
 
 We can thus now write constraints on the results of message sends,
 such as the following constraint on the x coordinate of the center of
@@ -2334,7 +2350,7 @@ semantics we use a solver language to represent the constraints that
 are sent to the constraint solvers.  We will be able to use the same
 language as for Babelsberg/UID (Section \ref{sec:babelsberg-uid}) ---
 as before, the solver needs to know about uid-records as well as
-primitive types and i-recoards; but it does not know about methods or
+primitive types and i-records; but it does not know about methods or
 inheritance.
 
 \ab{TODO: check the above discussion of the solver language}
@@ -2430,8 +2446,8 @@ restrictions on value classes will make it easier to use them with
 constraints.  A number of existing languages, for example Scala,
 support these as well.  In Babelsberg/Objects, instances of value
 classes can only hold references to primitive types or to other value
-classes, and are immutable.  (We need to provide values for all the
-fields at object creation time; after that the value class instance
+classes, and are immutable (that is, we need to provide values for all the
+fields at object creation time, and after that the value class instance
 cannot be modified.)  Finally, object identity is not significant for
 value class instances --- we define the identity test method, but it
 performs a test for equality rather than identity on its argument.
@@ -2446,10 +2462,10 @@ created using the \verb|new| message, e.g., \verb|Window.new(...)|.
 
 \ab{are primitive types value classes also?}
 
-\ab{TODO: include some references to papers on value classes}
+\ab{TODO: include some references to papers on value classes?}
 
 In a practical implementation of Babelsberg, ideally the host language
-will itself support value classes, and so we can use them directly.
+will itself support value classes, so that we can use them directly.
 If not, we can use ordinary classes, with appropriate conventions
 about object creation and modification.
 
@@ -2624,15 +2640,26 @@ Now suppose we call \verb|require_min_balance(a,100)| on some account
 statement, either at the top level or some other method, \emph{not}
 from a constraint expression.)  Thereafter the balance in
 \verb|myaccount| must be at least 100 (a persistent constraint).
-Implementing this requires that the semantics (and implementations)
-keep the local variables in such a method invocation as long as the
-constraints it creates are active.  Here is a somewhat artificial
-variant of the method to illustrate this:
+
+Note the consequences of call by value for such methods.  Consider:
+\begin{verbatim}
+a := BankAccount.new;
+m := 10;
+def require_min_balance(a,m);
+m := 100;
+\end{verbatim}
+Even though we reassigned \verb|m|, the minimum balance for the
+account stays at 10.
+
+Implementing such methods requires that the semantics (and
+implementations) keep the local variables in such a method invocation
+as long as the constraints it creates are active.  Here is a somewhat
+artificial variant of the method to illustrate this:
 \begin{verbatim}
 def require_min_balance_with_locals(acct,min)
-  m := min;
   b := acct.balance;
-  always b >= m;
+  always b = acct.balance;
+  always b >= min;
 end;
 \end{verbatim}
 
@@ -2946,7 +2973,7 @@ a[3] := 5;
 
 One can also write a method that can be used backwards (i.e., to find
 a value for an element of the array to make the constraint hold).  The
-constraint that results will be a very nested if expression (and might
+constraint that results will be a very nested \verb|if| expression (and might
 be better done eventually by supporting Prolog-style backtracking).
 
 \begin{verbatim}
@@ -3680,18 +3707,18 @@ always x=10;
 x := 5;
 \end{verbatim}
 
-However, there are some subtle issues in connection with this
-representation, which for the record are noted here.
+However, there are some subtle issues in connection with this representation.
 
-This still works as expected in Babelsberg/Records and with instances
-of value classes:
+The analogous program still fails, as one would want, in
+Babelsberg/Records or when using value classes, since records and
+instances of value classes are immutable.
 
 \begin{verbatim}
 x := {a:0};
 always x.a=10;
 x := {a:5};
 \end{verbatim}
-This also fails, since records in Babelsberg/Records are immutable.
+
 
 But once we get to Babelsberg/UID and Babelsberg/Objects with ordinary
 objects, the situation changes.  Consider the analogous program in
@@ -3785,12 +3812,13 @@ constraints on the parts or subparts.)
 
 Our model includes structural compatibility checks on constraints,
 which prevent the solver from potentially generating new kinds of
-records and other odd behaviors.  For completeness, we outline that
-rejected alternative in this subsection.
+records and other odd behaviors.  But since these ideas seem to keep
+resurfacing, we outline some of our rejected alternatives in this
+subsection, in case they end up being useful later.
 
 We first consider records in Babelsberg/Records (immutable records, no UIDs).
 
-If the solver will need to compare records with different fields, we
+If the solver will need to compare two records with different fields, we
 need to extend the comparators to handle them.  For LPB, there are at
 least two possibilities:
 \begin{enumerate}
@@ -3801,9 +3829,10 @@ least two possibilities:
   there is no reason to prefer one of these solutions over the other.
 
 \item An equality constraint between records is unfolded into multiple
-  constraints on the fields, each of which is satisfied or not.  (It
-  might be unsatisfied either because the value in the field was
-  wrong, or because the field doesn't even exist.)  In
+  constraints on the fields, each of which is satisfied or not.  (Such
+  a constraint might be unsatisfied either because the values in one
+  or more corresponding fields weren't equal, or were of different
+  types, or because the corresponding field didn't even exist.)  In
   the above example, for the first case we have \verb|p.x=q.x|
   (satisfied) and \verb|p.y=q.y| (unsatisfied).  For the second case
   we have \verb|p.x=q.x| (unsatisfied) and \verb|p.y=q.y|
@@ -3814,15 +3843,17 @@ least two possibilities:
 
 We also considered WSB for records.  The error for \verb|{x:5}={x:5}|
 or \verb|{x:5}={x:6}| is clear enough (0 and 1 respectively).  But
-what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}|?
-We need to determine an error for additional or missing fields, and
+what is the error for \verb|{x:5}={x:5,y:6}| or \verb|{x:5}={y:6}| or
+\verb|{x:5}={x:"squid"}|?  We need to determine an error for
+additional or missing fields, and for comparing different types and
 this error needs to be such that it can be meaningfully compared with
-the error for values of fields.  Is the error for
-\verb|{x:0}={x:1000000000}| less than for \verb|{x:0}={y:0}|?  We
+the error for values of fields that hold numeric types.  Is the error
+for \verb|{x:0}={x:1000000000}| less than for \verb|{x:0}={y:0}|?  We
 could come up with a definition, but it's not clear it's that useful.
 
-Another problem with having the solver handle records is that it may
-result in less predictability for programmers.  Consider:
+Another problem with having the solver handle records without
+filtering out weird cases with structural compatibility checks is that
+it may result in less predictability for programmers.  Consider:
 
 \begin{verbatim}
 p := {x:0}
@@ -3830,40 +3861,26 @@ q := {y:1}
 always p=q
 \end{verbatim}
 
-Here there are a number of plausible values for {\tt p} and {\tt q} ---
-namely \verb|{x:0}|, \verb|{y:1}|, and \verb|{x:0,y:1}| --- and unclear
-which is better.  The nondeterminism here is arguably worse than what
-arises with integers and floats and other values, since it affects the
-structure of the result rather than just its value.
+If this isn't rejected by a structural compatibility check, there
+there are a number of plausible values that the solver could find for
+{\tt p} and {\tt q} --- namely \verb|{x:0}|, \verb|{y:1}|, and
+\verb|{x:0,y:1}| --- and unclear which is better.  The nondeterminism
+here is arguably worse than what arises with integers and floats and
+other values, since it affects the structure of the result rather than
+just its value.
 
 Yet another complication is that we would want a minimality condition
-on records.  Consider:
+on records.  Suppose we let an \verb|always| constraint create a new
+record if need be:
 \begin{verbatim}
-p.x = 5;
+always p.x = 5;
 \end{verbatim}
 We want the solution to be \verb|p={x:5}|, but not e.g.
 \verb|p={x:5, y:1000}|.
 
 These issues, along the lack of clear use cases for having a solver
-that can solve for records, led us to reject the alternative outlined
-in this subsection.
-
-For Babelsberg/UID, an additional odd feature of not using structural
-compatibility checks is that the solver may need to spontaneously
-generate new records with their own UIDs\@.  Consider:
-
-\begin{verbatim}
-a := {x:1};
-b := a;
-always a.x=1;
-always b.x=2;
-\end{verbatim}
-
-At first, {\tt a} and {\tt b} refer to the same record, but after the
-second {\tt always} constraint, we need to create a new record and
-point {\tt b} to it.
-
-\ab{TODO: remove this example?  I think we covered it earlier???}
+untamed by structural compatibility checks, led us to reject the
+alternative outlined in this subsection.
 
 For Babelsberg/Objects, the analog of this behavior would be
 requiring that the constraint solver generate new classes on the fly;

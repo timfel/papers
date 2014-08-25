@@ -3119,7 +3119,7 @@ a conditional expression.  The entire syntax is given below.
 {\rm Statement} & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
   & & & $\mid$ if e then s else s $\mid$ while e do s \\
 {\rm Constraint} & C & ::= & e $\mid$ $\rho$ e \\
-{\rm Expression} & e & ::= & c $\mid$ $r$ $\mid$ a $\mid$ a? $\mid$ e $\oplus$ e
+{\rm Expression} & e & ::= & v $\mid$ a $\mid$ a? $\mid$ e $\oplus$ e
 $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I $\mid$ if e then e
 else e \\
 {\rm Identity} & I & ::= & a == a\\
@@ -3316,6 +3316,75 @@ method calls in expressions and thus in constraints syntactically,
 these do not type. Instead, our rules for creating constraints given
 below inline method invocations.
 
+\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & PrimitiveType $\mid$ \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}
+\end{tabular}
+\end{tt}
+
+\inferax{T-Constant}{
+  \tcH{E}{H}{c}{PrimitiveType}
+}
+
+\inferrule{T-Variable}{
+  \eval{E}{x}{v} \andalso \tcH{E}{H}{v}{T}
+}{
+  \tcH{E}{H}{x}{T}
+}
+
+\inferrule{T-ReadOnly}{
+  \tcH{E}{H}{x}{T}
+}{
+  \tcH{E}{H}{x?}{T}
+}
+
+\inferrule{T-Op}{
+  \tcH{E}{H}{e$_1$}{T} \andalso \tcH{E}{H}{e$_2$}{T}
+}{
+  \tcH{E}{H}{e$_1$ $\oplus$ e$_2$}{T}
+}
+
+\inferrule{T-Compare}{
+  \tcH{E}{H}{e$_1$}{T} \andalso \tcH{E}{H}{e$_2$}{T}
+}{
+  \tcH{E}{H}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Combine}{
+  \tcH{E}{H}{e$_1$}{PrimitiveType} \andalso \tcH{E}{H}{e$_2$}{PrimitiveType}
+}{
+  \tcH{E}{H}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Value}{
+  \tcH{E}{H}{e$_1$}{T$_1$} $\cdots$ \tcH{E}{H}{e$_n$}{T$_n$}
+}{
+  \tcH{E}{H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+\inferrule{T-Field}{
+  \tcH{E}{H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+  \andalso $1 \leq i \leq n$
+}{
+  \tcH{E}{H}{e.l$_i$}{T$_i$}
+}
+
+\inferrule{T-Ref}{
+  \tcH{E}{H}{o}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+  {\tt H}({\tt r})={\tt o}
+}{
+  \tcH{E}{H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+\inferrule{T-Constraint}{
+  \tcH{E}{H}{e}{T}
+}{
+  {\tcHC{E}{H}{e}}
+}
+
+\inferrule{T-Priority}{\tcH{E}{H}{e}{T}}{\tcHC{E}{H}{$\rho$ e}}
+
+
 \judgment{\solveH{E}{H}{C}}
 
 For simplicity of this semantics we assumed that the solver natively
@@ -3328,6 +3397,28 @@ passing constraints to the solver.
 \judgment{\stay{H}{C}}
 
 The rules for creating stay constraints are unchanged.
+
+
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
+
+\inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
+  {\tt E} \setminus \{({\tt x},{\tt v})\}$
+  \andalso \stay{E$_0$}{C$_0$} \andalso {\tt C} = {\tt C$_0$}
+  $\wedge$ {\tt weak x=v}}
+{\stay{E}{C}}
+
+\inferrule{StayHeap}{
+  ${\tt o} = $\{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\} \andalso
+  ${\tt H}({\tt r}) = {\tt o}$ \andalso  
+  ${\tt H}_0 = {\tt H} \setminus \{({\tt r},{\tt o})\}$ \andalso
+  \stay{H$_0$}{C$_0$}
+}{
+  \stay{H}{C$_0$ $\wedge$
+    H(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$
+    weak x$_{r0}$ = v$_0$ $\wedge$
+    $\ldots$ $\wedge$
+    weak x$_{rn}$ = v$_n$ }
+}
 
 \judgment{\hoist{L}{e}{e$'$}}
 \judgment{\hoistFail{L}{e}}
@@ -3382,7 +3473,7 @@ bound to the l-value {\tt L} would get stuck.''
 \inferrule{H-Value}{
   \hoist{a}{e$_1$}{e$'_1$} $\cdots$ \hoist{a}{e$_n$}{e$'_n$}
 }{
-  \hoist{a}{\{l$_1$: e$_1$,$\ldots$,l$_n$: e$_n$\}}{\{l$_1$: e$'_1$,$\ldots$,l$_n$: e$'_n$\}}
+  \hoist{a}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
 }
 
 \tf{Bug: no hoisting of nested methods and method arguments. needs to
@@ -3407,8 +3498,7 @@ otherwise turns into expression {\tt s$'$}''
 \inferax{I-Var}{\inline{E}{H}{x}{H}{x}}
 
 \inferax{I-Value}{
-  \inline{E}{H}{\{l$_1$: e$_1$,$\ldots$,l$_n$: e$_n$\}}
-  {H}{\{l$_1$: e$'_1$,$\ldots$,l$_n$: e$'_n$\}}
+  \inline{E}{H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
 }
 
 \inferrule{I-Field}{

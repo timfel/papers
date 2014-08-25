@@ -73,6 +73,12 @@
 \newcommand{\hoistFail}[2]{{\tt (#1,#2)} $\not\leadsto$}
 \newcommand{\resolve}[4]{{\tt #3;#4} $\models_{\tt #1}$ {\tt #2}}
 
+\newcommand{\E}{$\mathbb{E}$}
+\newcommand{\C}{$\mathbb{C}$}
+\newcommand{\I}{$\mathbb{I}$}
+\newcommand{\evalBigO}[5]{{\tt <#1|#2|\C|\I|#3>} $\Downarrow$ {\tt <#4|\C|\I|#5>}}
+\newcommand{\reinline}[4]{{\tt <#1,#2>} $\leadsto$ {\tt <#3,#4>}}
+
 \sloppy
 
 \begin{document}
@@ -3147,8 +3153,17 @@ $\mid$ \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} $\mid$ new \{l$_1$:e$_1$,$\ldots$,l$
 
 \subsubsection{Semantics}
 
+Since we have methods with local scopes now, we introduce a global \E
+that ranges over environments. The rules for execution still work on a
+local environment. Method lookup creates new environments and adds
+them to \E, and constraints are translated to make local variable
+lookup explicit in the solver. The solver now returns not a local
+environment, but a set of environments. To the solver, environments
+are just like maps. In addition, the constraint stores {\tt I} and
+{\tt C} are replaced with \I and \C, respectively. These now range
+over environment-constraint pairs.
 
-\judgment{\lookup{v}{l}{ b}}
+\judgment{\lookup{v}{l}{b}}
 
 ``Lookup of method {\tt l} in the object or value {\tt v} returns the
 formal parameter names {\tt f$_1$} through {\tt f$_n$} and the method
@@ -3157,7 +3172,7 @@ body {\tt b}''
 This judgment is opaque:  our semantics does not depend on how method
 lookup is performed.
 
-\judgment{\enter{E}{H}{C}{I}{v}{E$_m$}{H$'$}{C$'$}{I$'$}}
+\judgment{\enter{E}{H}{\C}{\I}{v}{E$_m$}{H$'$}{\C$'$}{\I$'$}}
 
 ``Invoking a method on {\tt v} with argument names {\tt f$_1$} through
 {\tt f$_n$} and arguments {\tt e$_1$} through {\tt e$_n$} constructs
@@ -3168,143 +3183,147 @@ for method calls (shown below).
 
 \infrule[Enter]{
   \mbox{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_1$}{C$_1$}{I$_1$}{v$_1$}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_1$}{\C$_1$}{\I$_1$}{v$_1$}
   $\cdots$
-  \evalBigC{E}{H$_{n-1}$}{C$_{n-1}$}{I$_{n-1}$}{e$_n$}{H$_n$}{C$_n$}{I$_n$}{v$_n$}}\\
+  \evalBigC{E}{H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
 \mbox{
-  {\tt E$_m$} = \{({\tt self}, {\tt v}),({\tt f$_1$}, {\tt v$_1$}),$\cdots$,({\tt f$_n$}, {\tt v$_n$})\}}
+  {\tt E$_m$} = \{({\tt self}, {\tt v}),({\tt f$_1$}, {\tt v$_1$}),$\cdots$,({\tt f$_n$}, {\tt v$_n$})\} \andalso
+  $\mathbb{E} := \mathbb{E} \bigcup {\tt E}_m$}
 }{\mbox{
-  \enter{E}{H}{C}{I}{v}{E$_m$}{H$_n$}{C$_n$}{I$_n$}
+  \enter{E}{H}{\C}{\I}{v}{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}
 }}
 
+Note that we use $:=$ here to mean that the global set of environments
+is updated.
 
-\judgment{\evalBig{E}{H}{e}{H}{v}}
+
+\judgment{\evalBigO{E}{H}{e}{H}{v}}
 
 ``Evaluating expression {\tt e} potentially updates the heap and
 constraint stores and
 produces the value {\tt v}.''
 
-\inferax{E-Const}{\evalBig{E}{H}{c}{H}{c}}
+\inferax{E-Const}{\evalBigO{E}{H}{c}{H}{c}}
 
-\inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalBig{E}{H}{x}{H}{v}}
+\inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalBigO{E}{H}{x}{H}{v}}
 
-\inferrule{E-Formal}{{\tt E}({\tt f}) = {\tt v}}{\evalBig{E}{H}{f}{H}{v}}
+\inferrule{E-Formal}{{\tt E}({\tt f}) = {\tt v}}{\evalBigO{E}{H}{f}{H}{v}}
 
 \inferrule{E-Field}{
-  \evalBigC{E}{H}{C}{I}{a}{H$'$}{C$'$}{I$'$}{r} \andalso
+  \evalBigC{E}{H}{\C}{\I}{a}{H$'$}{\C$'$}{\I$'$}{r} \andalso
   {\tt H$'$}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
   1 $\leq$ $i$ $\leq$ $n$
 }{
-  \evalBigC{E}{H}{C}{I}{a.l$_i$}{H$'$}{C$'$}{I$'$}{v$_i$}
+  \evalBigC{E}{H}{\C}{\I}{a.l$_i$}{H$'$}{\C$'$}{\I$'$}{v$_i$}
 }
 
 \inferrule{E-ValueField}{
-  \evalBigC{E}{H}{C}{I}{a}{H$'$}{C$'$}{I$'$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  \evalBigC{E}{H}{\C}{\I}{a}{H$'$}{\C$'$}{\I$'$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
   1 $\leq$ $i$ $\leq$ $n$
 }{
-  \evalBigC{E}{H}{C}{I}{a.l$_i$}{H$'$}{C$'$}{I$'$}{v$_i$}
+  \evalBigC{E}{H}{\C}{\I}{a.l$_i$}{H$'$}{\C$'$}{\I$'$}{v$_i$}
 }
 
 \inferrule{E-ReadOnly}{
-  \evalBigC{E}{H}{C}{I}{a}{H$'$}{C$'$}{I$'$}{v}
+  \evalBigC{E}{H}{\C}{\I}{a}{H$'$}{\C$'$}{\I$'$}{v}
 }{
-  \evalBigC{E}{H}{C}{I}{a?}{H$'$}{C$'$}{I$'$}{v}
+  \evalBigC{E}{H}{\C}{\I}{a?}{H$'$}{\C$'$}{\I$'$}{v}
 }
 
-\inferax{E-Ref}{\evalBig{E}{H}{r}{H}{r}}
+\inferax{E-Ref}{\evalBigO{E}{H}{r}{H}{r}}
 
 \inferrule{E-Op}{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_0$}{C$_0$}{I$_0$}{v$_1$} \andalso
-  \evalBigC{E}{H$_0$}{C$_0$}{I$_0$}{e$_2$}{H$'$}{C$'$}{I$'$}{v$_2$} \andalso
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBigC{E}{H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{H$'$}{\C$'$}{\I$'$}{v$_2$} \andalso
   {\tt v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = {\tt v}
 }{
-  \evalBigC{E}{H}{C}{I}{e$_1$ $\oplus$ e$_2$}{H$'$}{C$'$}{I$'$}{v}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{H$'$}{\C$'$}{\I$'$}{v}
 }
 
 \inferrule{E-Compare}{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_0$}{C$_0$}{I$_0$}{v$_1$} \andalso
-  \evalBigC{E}{H$_0$}{C$_0$}{I$_0$}{e$_2$}{H$'$}{C$'$}{I$'$}{v$_2$} \andalso
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBigC{E}{H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{H$'$}{\C$'$}{\I$'$}{v$_2$} \andalso
   {\tt v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = {\tt v}
 }{
-  \evalBigC{E}{H}{C}{I}{e$_1$ $\olessthan$ e$_2$}{H$'$}{C$'$}{I$'$}{v}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{H$'$}{\C$'$}{\I$'$}{v}
 }
 
 \inferrule{E-Combine}{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_0$}{C$_0$}{I$_0$}{v$_1$} \andalso
-  \evalBigC{E}{H$_0$}{C$_0$}{I$_0$}{e$_2$}{H$'$}{C$'$}{I$'$}{v$_2$} \andalso
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBigC{E}{H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{H$'$}{\C$'$}{\I$'$}{v$_2$} \andalso
   {\tt v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = {\tt v}
 }{
-  \evalBigC{E}{H}{C}{I}{e$_1$ $\ovee$ e$_2$}{H$'$}{C$'$}{I$'$}{v}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{H$'$}{\C$'$}{\I$'$}{v}
 }
 
 
 \infrule[E-IdentityTrue]{
   \mbox{%
-  \evalBigC{E}{H}{C}{I}{a$_1$}{H$_0$}{C$_0$}{I$_0$}{r} \andalso
-  \evalBigC{E}{H$_0$}{C$_0$}{I$_0$}{a$_2$}{H$'$}{C$'$}{I$'$}{r}}
+  \evalBigC{E}{H}{\C}{\I}{a$_1$}{H$_0$}{\C$_0$}{\I$_0$}{r} \andalso
+  \evalBigC{E}{H$_0$}{\C$_0$}{\I$_0$}{a$_2$}{H$'$}{\C$'$}{\I$'$}{r}}
 }{\mbox{%
-  \evalBigC{E}{H}{C}{I}{a$_1$ == a$_2$}{H$'$}{C$'$}{I$'$}{true}
+  \evalBigC{E}{H}{\C}{\I}{a$_1$ == a$_2$}{H$'$}{\C$'$}{\I$'$}{true}
 }}
 
 \infrule[E-IdentityFalse]{
   \mbox{%
-  \evalBigC{E}{H}{C}{I}{a$_1$}{H$_0$}{C$_0$}{I$_0$}{r$_1$} \andalso
-  \evalBigC{E}{H$_0$}{C$_0$}{I$_0$}{a$_2$}{H$'$}{C$'$}{I$'$}{r$_2$}
+  \evalBigC{E}{H}{\C}{\I}{a$_1$}{H$_0$}{\C$_0$}{\I$_0$}{r$_1$} \andalso
+  \evalBigC{E}{H$_0$}{\C$_0$}{\I$_0$}{a$_2$}{H$'$}{\C$'$}{\I$'$}{r$_2$}
 \andalso {\tt r$_1$} $\neq$ {\tt r$_2$}}
 }{\mbox{%
-  \evalBigC{E}{H}{C}{I}{a$_1$ == a$_2$}{H$'$}{C$'$}{I$'$}{false}
+  \evalBigC{E}{H}{\C}{\I}{a$_1$ == a$_2$}{H$'$}{\C$'$}{\I$'$}{false}
 }}
 
 \infrule[E-Call]{\mbox{
-  \evalBigC{E}{H}{C}{I}{a}{H$_0$}{C$_0$}{I$_0$}{v} \andalso
+  \evalBigC{E}{H}{\C}{\I}{a}{H$_0$}{\C$_0$}{\I$_0$}{v} \andalso
   \lookup{v}{l}{s; return e}}\\
 \mbox{
-  \enter{E}{H$_0$}{C$_0$}{I$_0$}{v}{E$_m$}{H$_n$}{C$_n$}{I$_n$}}\\
-\mbox{\stepH{E$_m$}{H$_n$}{C$_n$}{I$_n$}{s}{E$'$}{H$'$}{C$'$}{I$'$} \andalso
-  \evalBigC{E$'$}{H$'$}{C$'$}{I$'$}{e}{H$''$}{C$''$}{I$''$}{v$_r$}}
+  \enter{E}{H$_0$}{\C$_0$}{\I$_0$}{v}{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}}\\
+\mbox{\stepH{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}{s}{E$'$}{H$'$}{\C$'$}{\I$'$} \andalso
+  \evalBigC{E$'$}{H$'$}{\C$'$}{\I$'$}{e}{H$''$}{\C$''$}{\I$''$}{v$_r$}}
 }{\mbox{
-  \evalBigC{E}{H}{C}{I}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{C$''$}{I$''$}{v$_r$}
+  \evalBigC{E}{H}{\C}{\I}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{\C$''$}{\I$''$}{v$_r$}
 }}
 
 \infrule[E-CallSimple]{\mbox{
-  \evalBigC{E}{H}{C}{I}{a}{H$_0$}{C$_0$}{I$_0$}{v} \andalso
+  \evalBigC{E}{H}{\C}{\I}{a}{H$_0$}{\C$_0$}{\I$_0$}{v} \andalso
   \lookup{v}{l}{return e}}\\
 \mbox{
-  \enter{E}{H$_0$}{C$_0$}{I$_0$}{v}{E$_m$}{H$_n$}{C$_n$}{I$_n$}}\\
+  \enter{E}{H$_0$}{\C$_0$}{\I$_0$}{v}{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}}\\
 \mbox{
-  \evalBigC{E$_m$}{H$_0$}{C$_0$}{I$_0$}{e}{H$'$}{C$'$}{I$'$}{v$_r$}}
+  \evalBigC{E$_m$}{H$_0$}{\C$_0$}{\I$_0$}{e}{H$'$}{\C$'$}{\I$'$}{v$_r$}}
 }{\mbox{
-  \evalBigC{E}{H}{C}{I}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'$}{C$'$}{I$'$}{v$_r$}
+  \evalBigC{E}{H}{\C}{\I}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'$}{\C$'$}{\I$'$}{v$_r$}
 }}
 
 \infrule[E-New]{\mbox{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_1$}{C$_1$}{I$_1$}{v$_1$} $\cdots$ 
-  \evalBigC{E}{H$_{n-1}$}{C$_{n-1}$}{I$_{n-1}$}{e$_n$}{H$_n$}{C$_n$}{I$_n$}{v$_n$}}\\
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_1$}{\C$_1$}{\I$_1$}{v$_1$} $\cdots$ 
+  \evalBigC{E}{H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
 \mbox{
   {\tt H$'$} = ({\tt H$_n$} $\bigcup$ \{({\tt r}, {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\})}
 }{\mbox{
-  \evalBigC{E}{H}{C}{I}{new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H$'$}{C$_n$}{I$_n$}{r}
+  \evalBigC{E}{H}{\C}{\I}{new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H$'$}{\C$_n$}{\I$_n$}{r}
 }}
 
 \infrule[E-Value]{\mbox{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_1$}{C$_1$}{I$_1$}{v$_1$} $\cdots$ 
-  \evalBigC{E}{H$_{n-1}$}{C$_{n-1}$}{I$_{n-1}$}{e$_n$}{H$_n$}{C$_n$}{I$_n$}{v$_n$}}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_1$}{\C$_1$}{\I$_1$}{v$_1$} $\cdots$ 
+  \evalBigC{E}{H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}
 }{\mbox{
-  \evalBigC{E}{H}{C}{I}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H$_n$}{C$_n$}{I$_n$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+  \evalBigC{E}{H}{\C}{\I}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H$_n$}{\C$_n$}{\I$_n$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
 }}
 
 \infrule[E-CondTrue]{\mbox{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_1$}{C$_1$}{I$_1$}{true} \andalso
-  \evalBigC{E}{H$_1$}{C$_1$}{I$_1$}{e$_2$}{H$_2$}{C$_2$}{I$_2$}{v}}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_1$}{\C$_1$}{\I$_1$}{true} \andalso
+  \evalBigC{E}{H$_1$}{\C$_1$}{\I$_1$}{e$_2$}{H$_2$}{\C$_2$}{\I$_2$}{v}}
 }{\mbox{
-  \evalBigC{E}{H}{C}{I}{if e$_1$ then e$_2$ else e$_3$}{H$_2$}{C$_2$}{I$_2$}{v}
+  \evalBigC{E}{H}{\C}{\I}{if e$_1$ then e$_2$ else e$_3$}{H$_2$}{\C$_2$}{\I$_2$}{v}
 }}
 
 \infrule[E-CondFalse]{\mbox{
-  \evalBigC{E}{H}{C}{I}{e$_1$}{H$_1$}{C$_1$}{I$_1$}{false} \andalso
-  \evalBigC{E}{H$_1$}{C$_1$}{I$_1$}{e$_3$}{H$_3$}{C$_3$}{I$_3$}{v}}
+  \evalBigC{E}{H}{\C}{\I}{e$_1$}{H$_1$}{\C$_1$}{\I$_1$}{false} \andalso
+  \evalBigC{E}{H$_1$}{\C$_1$}{\I$_1$}{e$_3$}{H$_3$}{\C$_3$}{\I$_3$}{v}}
 }{\mbox{
-  \evalBigC{E}{H}{C}{I}{if e$_1$ then e$_3$ else e$_3$}{H$_3$}{C$_3$}{I$_3$}{v}
+  \evalBigC{E}{H}{\C}{\I}{if e$_1$ then e$_3$ else e$_3$}{H$_3$}{\C$_3$}{\I$_3$}{v}
 }}
 
 \judgment{\tcH{E}{H}{e}{T}}
@@ -3385,26 +3404,28 @@ below inline method invocations.
 \inferrule{T-Priority}{\tcH{E}{H}{e}{T}}{\tcHC{E}{H}{$\rho$ e}}
 
 
-\judgment{\solveH{E}{H}{C}}
+\judgment{\solveH{\E}{H}{C}}
 
 For simplicity of this semantics we assumed that the solver natively
 supports records and maps. We do not assume, however, that the solver
 understands methods, which can now be part of constraint
 expressions. This requires us to essentially inline methods before
-passing constraints to the solver.
+passing constraints to the solver. In contrast to the prior semantics,
+the solver now returns a set of environments, rather than just one.
 
+\judgment{\stay{\E}{C}}
 \judgment{\stay{E}{C}}
 \judgment{\stay{H}{C}}
 
-The rules for creating stay constraints are unchanged.
-
+The rules for creating stay constraints are adapted to work with
+multiple environments.
 
 \inferax{StayEmpty}{\stay{$\emptyset$}{true}}
 
 \inferrule{StayOne}{${\tt E}({\tt x}) = {\tt v}$ \andalso ${\tt E}_0 =
   {\tt E} \setminus \{({\tt x},{\tt v})\}$
   \andalso \stay{E$_0$}{C$_0$} \andalso {\tt C} = {\tt C$_0$}
-  $\wedge$ {\tt weak x=v}}
+  $\wedge$ {\tt weak E(x)=v}}
 {\stay{E}{C}}
 
 \inferrule{StayHeap}{
@@ -3418,6 +3439,14 @@ The rules for creating stay constraints are unchanged.
     weak x$_{r0}$ = v$_0$ $\wedge$
     $\ldots$ $\wedge$
     weak x$_{rn}$ = v$_n$ }
+}
+
+\inferrule{StayEnvironments}{
+  \E$_0$ = \E $\setminus$ \{{\tt E}\} \andalso
+  \stay{\E$_0$}{{\tt C}$_0$} \andalso
+  \stay{E}{C$_E$}
+}{
+  \stay{\E}{C$_0$ $\wedge$ C$_E$}
 }
 
 \judgment{\hoist{L}{e}{e$'$}}
@@ -3486,6 +3515,7 @@ doesn't work :(
 
 \judgment{\inline{E}{H}{e}{H$'$}{e$'$}}
 \judgment{\inlineS{E}{H}{s}{E$'$}{H$'$}{s$'$}}
+\judgment{\reinline{H}{\C}{H$'$}{C}}
 
 ``Inlining expression {\tt e} may update the heap and otherwise turns
 into expression {\tt e$'$}''
@@ -3493,9 +3523,12 @@ into expression {\tt e$'$}''
 ``Inlining statement {\tt s} may update the environment and heap and
 otherwise turns into expression {\tt s$'$}''
 
+``Re-inlining the constraint store \C updates the heap and returns a
+constraint {\tt C}''
+
 \inferax{I-Const}{\inline{E}{H}{c}{H}{c}}
 
-\inferax{I-Var}{\inline{E}{H}{x}{H}{x}}
+\inferax{I-Var}{\inline{E}{H}{x}{H}{E(x)}}
 
 \inferax{I-Value}{
   \inline{E}{H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
@@ -3541,12 +3574,12 @@ otherwise turns into expression {\tt s$'$}''
 
 \infrule[I-Call]{
   \mbox{
-    \evalBig{E}{H}{a}{H$'$}{v} \andalso
+    \evalBigO{E}{H}{a}{H$'$}{v} \andalso
     \lookup{v}{l}{s; return e}}\\
-  \mbox{\enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I}}\\
+  \mbox{\enter{E}{H$'$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I}}\\
   \mbox{
     \inlineS{E$_m$}{H$_n$}{s}{E$'$}{H$''$}{skip} \andalso
-    \evalBig{E$'$}{H$''$}{e}{H$'''$}{v$_r$}}
+    \evalBigO{E$'$}{H$''$}{e}{H$'''$}{v$_r$}}
 }{\mbox{
   \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{v$_r$}
 }}
@@ -3560,9 +3593,9 @@ when its dependencies change, it just won't work in the other direction.
 \infrule[I-MultiWayCall]{
   \mbox{
     \inline{E}{H}{a}{H$'$}{a$'$} \andalso
-    \evalBig{E}{H}{a$'$}{H$''$}{v} \andalso
+    \evalBigO{E}{H}{a$'$}{H$''$}{v} \andalso
     \lookup{v}{l}{return e}}\\
-  \mbox{\enter{E}{H$''$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I} \andalso
+  \mbox{\enter{E}{H$''$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I} \andalso
     \hoist{a$'$}{e}{e$'$}}
 }{\mbox{
   \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
@@ -3573,11 +3606,11 @@ into the parent context and pass it to the solver.
 
 \infrule[I-UnhoistableCall]{
   \mbox{
-    \evalBig{E}{H}{a}{H$'$}{v} \andalso
+    \evalBigO{E}{H}{a}{H$'$}{v} \andalso
     \lookup{v}{l}{return e}}\\
-  \mbox{\enter{E}{H$'$}{C}{I}{v}{E$_m$}{H$_n$}{C}{I} \andalso
+  \mbox{\enter{E}{H$'$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I} \andalso
     \hoistFail{a$'$}{e}}\\
-  \mbox{\evalBig{E$_m$}{H$_n$}{e}{H$''$}{v$_r$}}
+  \mbox{\evalBigO{E$_m$}{H$_n$}{e}{H$''$}{v$_r$}}
 }{\mbox{
   \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{v$_r$}
 }}
@@ -3598,7 +3631,7 @@ statements normally, except for assignments, which are only allowed to
 locals.
 
 \inferrule{I-AsgnTmp}{
-  \stepH{E}{H}{C}{I}{x := e}{E$'$}{H$'$}{C}{I}
+  \stepH{E}{H}{\C}{\I}{x := e}{E$'$}{H$'$}{\C}{\I}
 }{
   \inlineS{E}{H}{x := e}{E$'$}{H$'$}{skip}
 }
@@ -3634,14 +3667,14 @@ All rules essentially just execute the statements.
 }
 
 \inferrule{I-IfThen}{
-  \evalBig{E}{H}{e}{H$'$}{true} \andalso
+  \evalBigO{E}{H}{e}{H$'$}{true} \andalso
   \inlineS{E}{H$'$}{s$_1$}{E$'$}{H$''$}{skip}
 }{
   \inlineS{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$''$}{skip}
 }
 
 \inferrule{I-IfElse}{
-  \evalBig{E}{H}{e}{H$'$}{true} \andalso
+  \evalBigO{E}{H}{e}{H$'$}{true} \andalso
   \inlineS{E}{H$'$}{s$_2$}{E$'$}{H$''$}{skip}
 }{
   \inlineS{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$''$}{skip}
@@ -3652,7 +3685,7 @@ the if-statement for inlining. Similarly, the next two rules eagerly
 unroll loops.
 
 \inferrule{I-WhileDo}{
-  \evalBig{E}{H}{e}{H$'$}{true} \andalso
+  \evalBigO{E}{H}{e}{H$'$}{true} \andalso
   \inlineS{E}{H$'$}{s}{E$'$}{H$''$}{s$'$} \andalso
   \inlineS{E$'$}{H$''$}{while e do s}{E$''$}{H$'''$}{skip}
 }{
@@ -3660,65 +3693,83 @@ unroll loops.
 }
 
 \inferrule{I-WhileSkip}{
-  \evalBig{E}{H}{e}{H$'$}{false}
+  \evalBigO{E}{H}{e}{H$'$}{false}
 }{
   \inlineS{E}{H}{while e do s}{E}{H$'$}{skip}
 }
 
-\judgment{\stepH{E}{H}{C}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}
+\inferax{I-ReinlineEmpty}{\reinline{H}{$\emptyset$}{H}{true}}
+
+\inferrule{I-Reinline}{
+  \C$_0$ = \C $\setminus$ $\{({\tt E}, {\tt C})\}$ \andalso
+  \reinline{H}{\C$_0$}{H$'$}{C$_0$} \andalso
+  \inline{E}{H$'$}{C}{H$''$}{C$'$}
+}{
+  \reinline{H}{\C}{H$''$}{C$_0$ $\wedge$ C$'$}
+}
+
+\judgment{\stepH{E}{H}{\C}{\I}{s}{E$'$}{H$'$}{\C$'$}{\I$'$}}
 
 \tdm{In all of these rules, we have to re-translated the constraint
   and identity constraint stores before sending them to the solver.}
 
 \infrule[S-Asgn]{
   \mbox{
-    \evalBig{E}{H}{e}{H$'$}{v} \andalso     \tcHC{E}{H$'$}{L=v} \andalso}
+    \evalBigO{E}{H}{e}{H$'$}{v} \andalso     \tcHC{E}{H$'$}{L=v} \andalso}
 \\
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
     \stay{H$'$}{C$_{{H'}_s}$} \andalso
-    \solveH{E$'$}{H$''$}{(I $\wedge$ C$_{E_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ L=v)}}\\
+    \reinline{H$'$}{\I}{H$''$}{I} \andalso
+  }\\
+  \mbox{\solveH{E$'$}{H$'''$}{(I $\wedge$ C$_{E_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ L=v)}}\\
   \mbox{
     \stay{E$'$}{C$_{{E'}_s}$} \andalso
-    \stay{H$''$}{C$_{{H''}_s}$} \andalso
-    \tcHC{E$'$}{H$''$}{C} \andalso
-    \solveH{E$''$}{H$'''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H''}_s}$)}}
+    \stay{H$'''$}{C$_{{H'''}_s}$} \andalso
+    \reinline{H$'''$}{\C}{H$''''$}{C} \andalso
+    \tcHC{E$'$}{H$''''$}{C} \andalso
+    \solveH{E$''$}{H$'''''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'''}_s}$)}}
 }{\mbox{
-  \stepH{E}{H}{C}{I}{L := e}{E$''$}{H$'''$}{C}{I}
+  \stepH{E}{H}{\C}{\I}{L := e}{E$''$}{H$'''''$}{\C}{\I}
 }}
 
-\tdm{I don't understand why we restrict the evaluation of {\tt e} to
-  be side-effect-free in the first premise above.  Is this intended or a typo?}
-\tf{it was a typo, i've fixed it}
+\tf{The below rule does not re-type the inlined constraints. Do they
+  have to be? I don't think so, provided our inlining gets stuck
+  correctly to disallow side-effects on the heap that would change
+  types. Something we should ensure..}
 
 \infrule[S-Once]{
   \mbox{
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
-    \inline{E}{H$_0$}{e}{H}{e$'$} \andalso
+    \inline{E}{H}{e}{H$'$}{e$'$} \andalso
     {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
-    \tcHC{E}{H}{C$_0'$}
+    \tcHC{E}{H$'$}{C$_0'$} \andalso
+    \reinline{H$'$}{\C}{H$''$}{C}
   }\\
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
-    \stay{H}{C$_{H_s}$} \andalso
-    \solveH{E$'$}{H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
+    \stay{H$''$}{C$_{H_s}$} \andalso
+    \solveH{E$'$}{H$'''$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
 }
-{\mbox{\stepH{E}{H$_0$}{C}{I}{once C$_0$}{E$'$}{H$'$}{C}{I}}}
+{\mbox{\stepH{E}{H}{\C}{\I}{once C$_0$}{E$'$}{H$'''$}{\C}{\I}}}
 
 \infrule[S-Always]{
   \mbox{
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
-    \inline{E}{H$_0$}{e}{H}{e$'$} \andalso
+    \inline{E}{H}{e}{H$'$}{e$'$} \andalso
     {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
-    \tcHC{E}{H}{C$_0'$}
+    \tcHC{E}{H$'$}{C$_0'$} \andalso
+    \reinline{H$'$}{\C}{H$''$}{C}
   }\\
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
-    \stay{H}{C$_{H_s}$} \andalso
-    {\tt C}$'$ = ({\tt C} $\wedge$ {\tt C}$_0'$) \andalso
-    \solveH{E$'$}{H$'$}{$($C$'$ $\wedge$ {\tt C}$_{E_s}$ $\wedge$ {\tt C}$_{H_s}$$)$}}
+    \stay{H$''$}{C$_{H_s}$} \andalso
+    \C$'$ = \C $\bigcup$ $\{({\tt E}, {\tt C}_0)\}$ \andalso
+    \solveH{E$'$}{H$'''$}{$($C $\wedge$ {\tt C}$_{E_s}$ $\wedge$ {\tt C}$_{H_s}$ $\wedge$ C$_0'$$)$}}
 }
-{\mbox{\stepH{E}{H$_0$}{C}{I}{always C$_0$}{E$'$}{H$'$}{C$'$}{I}}}
+{\mbox{\stepH{E}{H}{\C}{\I}{always C$_0$}{E$'$}{H$'''$}{\C$'$}{\I}}}
+
+\tf{todo: re-inlining rules below}
 
 \infrule[S-OnceIdentity]{
   \mbox{

@@ -2900,11 +2900,11 @@ a[1] := 20;
 always 50 = a.sum;
 \end{verbatim}
 
-The simplest way to write an array \verb|sum| constraint that works
-properly both forward and backward is to write an ordinary method that
-sets up the appropriate network of addition constraints.  (It is
-defined here as a method on \verb|Array|, although it could be a
-standalone method instead.)
+We \emph{can} provide something analogous to an array \verb|sum|
+constraint that works both forward and backward by writing an ordinary
+method that sets up the appropriate network of addition constraints.
+It is defined here as a method on \verb|Array|, although it could be a
+standalone method instead.
 
 \begin{verbatim}
 def sum_equal(sum)
@@ -2927,15 +2927,25 @@ Now our example works:
 a := Array.new(2);
 a[0] := 10;
 a[1] := 20;
-array.sum_equal(50);
+a.sum_equal(50);
 \end{verbatim}
 
 If we set \verb|a[1]| to 5, \verb|a[0]| will become 45 to keep the
 constraints satisfied.
 
-This style of writing constraints on collections is not quite as nice
-as one would like.  It seems like we ought to be able to write
-something like this method:
+Note that in contrast to the earlier version, the constraints are not
+automatically re-applied if \verb|a| is reassigned; the programmer
+needs to call \verb|sum_equal| again.\footnote{At the cost of
+  complicating the language, we could address this issue by adding a
+  construct that automatically invokes \texttt{some\_method} whenever
+  needed to re-establish the constraint network.  To be used in this
+  way, \texttt{some\_method} could only assert constraints; it could
+  have no other side effects.  There'd also need to be machinery to
+  retract the old constraints before re-running \texttt{some\_method},
+  to avoid accumulating obsolete constraints.}
+
+It is tempting to write \verb|sum| as a method that returns the sum
+and that still can be used multi-directionally, perhaps:
 
 \begin{verbatim}
 def sum
@@ -2951,58 +2961,9 @@ end;
 \end{verbatim}
 
 Unfortunately, this don't meet the restriction that methods called
-from constraints consist only of a single return statement.  To meet
-the restriction, we could instead write the helper method using an if
-expression rather than an if statement:
-
-\begin{verbatim}
-def sum
-  return self.sum_from(0);
-end;
-
-def sum_from(start)
-  return if start >= self.length then 0
-      else self[start] + self.sum_from(start+1);
-end;
-\end{verbatim}
-
-This works, although it presents a considerably more complex set of
-constraints to the solver, which may be slow to solve (or even too
-hard), whereas the \verb|sum_equal| method that just sets up the
-network of constraints should be efficient.  On the other hand, an
-advantage of the latter version is that it can be automatically
-re-applied if the array is reassigned.  To illustrate with a rather
-artificially simplified example, this works:
-
-\begin{verbatim}
-a := Array.new(1);
-a[0] := 0;
-s := 0;
-always s = a.sum;
-a := Array.new(1);
-s := 100;
-\end{verbatim}
-After all the statements have been executed, we have \verb|a| as an
-array with 100 in the $0^{th}$ element, as expected.
-
-However, if we write the analogous code using \verb|sum_equal|:
-
-\begin{verbatim}
-a := Array.new(1);
-a[0] := 0;
-s := 0;
-sum_equal(a,s);
-a := Array.new(1);
-s := 100;
-\end{verbatim}
-
-This time, after all the statements have been executed, \verb|a| is
-uninitialized rather than having 100 in the $0^{th}$ element --- the
-constraint network constructed by \verb|sum_equal| applied to the
-array created previously, and these constraints are lost when \verb|a|
-is reassigned.  (Obviously, this isn't hard to fix --- we just need to
-call \verb|sum_equal| again --- but this is not quite in the
-constraint spirit.)
+from constraints consist only of a single return statement.  Worse, if
+we tried inlining it, the method would expand infinitely.  So for now
+\verb|sum_equal| seems like it is as good as we can do.
 
 A related example is a method for \verb|Array| that tests whether the
 argument is one of the elements of that array.
@@ -3027,21 +2988,10 @@ always c = a.contains(5);
 a[3] := 5;
 \end{verbatim}
 
-One can also write a method that can be used backwards (i.e., to find
-a value for an element of the array to make the constraint hold).  The
-constraint that results will be a very nested \verb|if| expression (and might
-be better done eventually by supporting Prolog-style backtracking).
-
-\begin{verbatim}
-def contains(x)
-  return contains_starting_at(x,start);
-end;
-
-def contains_starting_at(x,start)
-  return if start>=self.length then false 
-    else (if self[start]=x then true else contains_starting_at(x,start+1));
-end;
-\end{verbatim}
+The analogous method to \verb|sum_equal|, say \verb|must_contain|,
+unfortunately would not be very useful: since we don't have
+Prolog-style backtracking, it would probably just be satisfied in the
+reverse direction by setting the first element of the arrary.
 
 \subsection{Identity Constraint Examples}
 

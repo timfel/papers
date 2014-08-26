@@ -65,7 +65,8 @@
     #4},{\tt #5},{\tt x$_1$} $\cdots$ {\tt x$_n$},{\tt e$_1$} $\cdots$
   {\tt e$_n$}) = ({\tt #6},{\tt #7},{\tt #8},{\tt #9})}
 \newcommand{\inline}[5]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5>}}
-\newcommand{\inlineS}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5,#6>}}
+\newcommand{\inlineS}[9]{{\tt <#1|#2|#3|#4|$t$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
+\newcommand{\stepHO}[9]{{\tt <#1|#2|#3|#4|$m$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
 \newcommand{\evalBigC}[9]{{\tt <#1|#2|#3|#4|#5>} $\Downarrow$ {\tt <#6|#7|#8|#9>}}
 
@@ -3262,7 +3263,7 @@ produces the value {\tt v}.''
   \lookup{v}{l}{s; return e}}\\
 \mbox{
   \enter{E}{H$_0$}{\C$_0$}{\I$_0$}{v}{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}}\\
-\mbox{\stepH{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}{s}{E$'$}{H$'$}{\C$'$}{\I$'$} \andalso
+\mbox{\stepHO{E$_m$}{H$_n$}{\C$_n$}{\I$_n$}{s}{E$'$}{H$'$}{\C$'$}{\I$'$} \andalso
   \evalBigC{E$'$}{H$'$}{\C$'$}{\I$'$}{e}{H$''$}{\C$''$}{\I$''$}{v$_r$}}
 }{\mbox{
   \evalBigC{E}{H}{\C}{\I}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{\C$''$}{\I$''$}{v$_r$}
@@ -3465,14 +3466,18 @@ multiple environments.
   \stay{\E}{C$_0$ $\wedge$ C$_E$}
 }
 
+\tf{TODO: figure out if we want stays on all environments or just the
+  current one in the later rules}
+
 \judgment{\inline{E}{H}{e}{H$'$}{e$'$}}
-\judgment{\inlineS{E}{H}{s}{E$'$}{H$'$}{s$'$}}
 
 ``Inlining expression {\tt e} may update the heap and otherwise turns
 into expression {\tt e$'$}''
 
-``Inlining statement {\tt s} may update the environment and heap and
-otherwise turns into expression {\tt s$'$}''
+We use an inlining judgment to translate expressions into a
+representation suitable for the solver. In particular, we translate
+local variables into explicit lookups in the correct environment and
+provide a semantics for method calls inside constraints.
 
 \inferax{I-Const}{\inline{E}{H}{c}{H}{c}}
 
@@ -3532,7 +3537,7 @@ otherwise turns into expression {\tt s$'$}''
     \lookup{v}{l}{s; return e}}\\
   \mbox{\enter{E}{H$'$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I}}\\
   \mbox{
-    \inlineS{E$_m$}{H$_n$}{s}{E$'$}{H$''$}{skip} \andalso
+    \inlineS{E$_m$}{H$_n$}{\C}{\I}{s}{E$'$}{H$''$}{\C}{\I} \andalso
     \evalBigO{E$'$}{H$''$}{e}{H$'''$}{v$_r$}}
 }{\mbox{
   \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{v$_r$}
@@ -3556,90 +3561,18 @@ when its dependencies change, it just won't work in the other direction.
 }}
 
 For methods that only return an expression, we inline the expression
-and pass it to the solver.
+and pass it to the solver. Note that we do not use the inlined
+receiver accessor {\tt a$'$}. The inlining here acts as a dynamic
+check to ensure the receiver can be inlined. If, for example, the
+receiver is the result of a method call that adds constraints,
+inlining will get stuck.
 
-
-\tf{I'd also like a rule to allow assignments to fields of objects
-  that do not escape from the dynamic extent of the constraint, but
-  I'm not sure how to do that}
-% \inferrule{I-Asgn}{
-%   \stepH{E}{H}{C}{I}{a := e}{E$'$}{H$'$}{C}{I}
-% }{
-%   \inlineS{E}{H}{a := e}{E$'$}{H$'$}{skip}
-% }
-
-
-Now follow the rules for inlining statements. These just execute the
-statements normally, except for assignments, which are only allowed to
-locals.
-
-\inferrule{I-AsgnTmp}{
-  \stepH{E}{H}{\C}{\I}{x := e}{E$'$}{H$'$}{\C}{\I}
-}{
-  \inlineS{E}{H}{x := e}{E$'$}{H$'$}{skip}
-}
-
-The above rule just executes the assignment, but does not set up a
-required equality constraint between the LHS and RHS. We are also only
-allowing assignments to local variables right now, because other
-side-effects are disallowed without setting up some sort of constraint
-network. This, too, will be more flexible in the ``full''
-object-oriented language semantics. (In a practical language we found
-it sometimes useful to include a ``backwards compatibility mode''
-which does just that. We also do give no inlining rules for {\tt once}
-and {\tt always} statements, because these are not allowed to be
-nested. Again, a practical language might want to include support for
-nested constraints in a ``backwards compatibility mode.'')
-
-% Note also that if the assignment execution fails (for example due to
-% conflicting constraints), the inlining gets stuck dynamically.
-
-All rules essentially just execute the statements.
-
-\inferrule{I-SeqSkip}{
-  \inlineS{E}{H}{s}{E$'$}{H$'$}{skip}
-}{
-  \inlineS{E}{H}{skip;s}{E$'$}{H$'$}{skip}
-}
-
-\inferrule{I-SeqStep}{
-  \inlineS{E}{H}{s$_1$}{E$'$}{H$'$}{skip} \andalso
-  \inlineS{E$'$}{H$'$}{s$_1$}{E$''$}{H$''$}{skip} \andalso
-}{
-  \inlineS{E}{H}{s$_1$;s$_2$}{E$''$}{H$''$}{skip}
-}
-
-\inferrule{I-IfThen}{
-  \evalBigO{E}{H}{e}{H$'$}{true} \andalso
-  \inlineS{E}{H$'$}{s$_1$}{E$'$}{H$''$}{skip}
-}{
-  \inlineS{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$''$}{skip}
-}
-
-\inferrule{I-IfElse}{
-  \evalBigO{E}{H}{e}{H$'$}{true} \andalso
-  \inlineS{E}{H$'$}{s$_2$}{E$'$}{H$''$}{skip}
-}{
-  \inlineS{E}{H}{if e then s$_1$ else s$_2$}{E$'$}{H$''$}{skip}
-}
-
-The above two rules show that we are eagerly choosing one branch of
-the if-statement for inlining. Similarly, the next two rules eagerly
-unroll loops.
-
-\inferrule{I-WhileDo}{
-  \evalBigO{E}{H}{e}{H$'$}{true} \andalso
-  \inlineS{E}{H$'$}{s}{E$'$}{H$''$}{s$'$} \andalso
-  \inlineS{E$'$}{H$''$}{while e do s}{E$''$}{H$'''$}{skip}
-}{
-  \inlineS{E}{H}{while e do s}{E$''$}{H$'''$}{skip}
-}
-
-\inferrule{I-WhileSkip}{
-  \evalBigO{E}{H}{e}{H$'$}{false}
-}{
-  \inlineS{E}{H}{while e do s}{E}{H$'$}{skip}
-}
+When inlining through statements, the statements are just executed. In
+particular this means, that we are eagerly choosing branch of
+if-statements for inlining and eagerly unroll loops. By setting the
+constraint-construction flag to $\#t$ flag for statement evaluation
+during inlining, we get stuck if any non-trivial side-effects would
+occur.
 
 
 \judgment{\reinline{H}{\C}{H$'$}{C}}
@@ -3659,10 +3592,61 @@ constraint {\tt C}''
   \reinline{H}{\C}{H$''$}{C$_0$ $\wedge$ C$'$}
 }
 
-\judgment{\stepH{E}{H}{\C}{\I}{s}{E$'$}{H$'$}{\C$'$}{\I$'$}}
+
+\judgment{{\tt <E|H|\C|\I|$m$|s>} $\longrightarrow$ {\tt <E$'$|H$'$|\C$'$|\I$'$>}}
+
+
+The stepping rules are augmented with a constraint-construction mode
+flag $m$, which is either $t$ or $f$. During constraint
+construction, statement rules are disabled that would have non-trivial
+side-effects.
+
+\inferrule{S-SeqSkip}{
+  \stepHO{E}{H}{C}{I}{s$_2$}{E$'$}{H$'$}{C}{I}
+}{
+  \stepHO{E}{H}{C}{I}{skip;s$_2$}{E$'$}{H$'$}{C}{I}
+}
+
+\inferrule{S-SeqStep}{
+  \stepHO{E}{H}{C}{I}{s$_1$}{E$'$}{H$'$}{C$'$}{I$'$} \andalso
+  \stepHO{E$'$}{H$'$}{C$'$}{I$'$}{s$_2$}{E$''$}{H$''$}{C$''$}{I$''$}
+}{
+  \stepHO{E}{H}{C}{I}{s$_1$;s$_2$}{E$''$}{H$''$}{C$''$}{I$''$}
+}
+
+\inferrule{S-IfThen}{
+  \evalH{E}{H}{e}{true} \andalso
+  \stepHO{E}{H}{C}{I}{s$_1$}{E$'$}{H$'$}{C$'$}{I$'$}
+}{
+  \stepHO{E}{H}{C}{I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}%
+}
+
+\inferrule{S-IfElse}{
+  \evalH{E}{H}{e}{false} \andalso
+  \stepHO{E}{H}{C}{I}{s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}
+}{
+  \stepHO{E}{H}{C}{I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}%
+}
+
+\infrule[S-WhileDo]{
+  \mbox{
+    \evalH{E}{H}{e}{true} \andalso
+    \stepHO{E}{C}{H}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}\\
+  \mbox{
+    \stepHO{E$'$}{H$'$}{C$'$}{I$'$}{while e do s}{E$''$}{H$''$}{C$''$}{I$''$}}
+}{\mbox{
+  \stepHO{E}{H}{C}{I}{while e do s}{E$''$}{H$''$}{C$''$}{I$''$}
+}}
+
+\inferrule{S-WhileSkip}{
+  \evalH{E}{H}{e}{false}
+}{
+  \stepHO{E}{H}{C}{I}{while e do s}{E}{H}{C}{I}
+}
 
 \infrule[S-Asgn]{
   \mbox{
+    $m = f$ \andalso
     \evalBigC{E}{H}{\C}{\I}{e}{H$'$}{\C$'$}{\I$'$}{v} \andalso
     \tcHC{E}{H$'$}{L=v} \andalso}
 \\
@@ -3680,11 +3664,42 @@ constraint {\tt C}''
   \mbox{
     \solveH{E$''$}{H$'''''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'''}_s}$)}}
 }{\mbox{
-  \stepH{E}{H}{\C}{\I}{L := e}{E$''$}{H$'''''$}{\C}{\I}
+  \stepHO{E}{H}{\C}{\I}{L := e}{E$''$}{H$'''''$}{\C}{\I}
 }}
+
+Note that the above rule cannot be used if the constraint-construction
+mode flag is set. For inlining, we allow only assignments to temps. Note
+that we do not need to call the solver to validate such assignments,
+because the temporaries can only occur in a fresh method environment,
+and we disallow adding constraints during inlining.
+
+\inferrule{S-AsgnInline}{
+  $m = t$ \andalso
+  \evalBigO{E}{H}{e}{H$'$}{v} \andalso
+  {\tt E}$''$ = {\tt E$'$} $\bigcup$ $\{({\tt x}, {\tt v})\}$
+}{
+  \stepHO{E}{H}{\C}{\I}{x := e}{E$''$}{H$'$}{\C}{\I}
+}
+
+The above rule just executes the assignment, but does not set up a
+required equality constraint between the LHS and RHS. We are also only
+allowing assignments to local variables right now, because other
+side-effects are disallowed without setting up some sort of constraint
+network. This could be more flexible in a ``full'' object-oriented
+language semantics, for example, allowing assignment to object fields
+that do not escape the constraint expression. In a practical language
+we found it sometimes useful to include a ``backwards compatibility
+mode'' which does that and also sets up required equality constraints
+when assignment occurs.
+
+We also do allow the next rules using {\tt once} and {\tt always} in
+constraint-construction mode. Again, a practical language might want
+to include support for nested constraints in a ``backwards
+compatibility mode.'')
 
 \infrule[S-Once]{
   \mbox{
+    $m = f$ \andalso
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
     \inline{E}{H}{e}{H$'$}{e$'$} \andalso
     {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
@@ -3696,10 +3711,11 @@ constraint {\tt C}''
     \reinline{H$'$}{\C}{H$''$}{C} \andalso
     \solveH{E$'$}{H$'''$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
 }
-{\mbox{\stepH{E}{H}{\C}{\I}{once C$_0$}{E$'$}{H$'''$}{\C}{\I}}}
+{\mbox{\stepHO{E}{H}{\C}{\I}{once C$_0$}{E$'$}{H$'''$}{\C}{\I}}}
 
 \infrule[S-Always]{
   \mbox{
+    $m = f$ \andalso
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
     \inline{E}{H}{e}{H$'$}{e$'$} \andalso
     {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
@@ -3713,10 +3729,11 @@ constraint {\tt C}''
   \mbox{
     \C$'$ = \C $\;\bigcup$ $\{({\tt E}, {\tt C}_0)\}$}
 }
-{\mbox{\stepH{E}{H}{\C}{\I}{always C$_0$}{E$'$}{H$'''$}{\C$'$}{\I}}}
+{\mbox{\stepHO{E}{H}{\C}{\I}{always C$_0$}{E$'$}{H$'''$}{\C$'$}{\I}}}
 
 \infrule[S-OnceIdentity]{
   \mbox{
+    $m = f$ \andalso
     \evalBigO{E}{H$_0$}{a$_0$}{H$_0'$}{v$_0$} \andalso
     \evalBigO{E}{H$_0'$}{a$_0$}{H}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
@@ -3738,11 +3755,12 @@ constraint {\tt C}''
     \tcHC{E$'$}{H$'''$}{C} \andalso
     \solveH{E$''$}{H$''''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H''}_s}$)}}
 }{\mbox{
-    \stepH{E}{H$_0$}{\C}{\I}{once a$_0$ == a$_1$}{E$''$}{H$''''$}{\C}{\I}
+    \stepHO{E}{H$_0$}{\C}{\I}{once a$_0$ == a$_1$}{E$''$}{H$''''$}{\C}{\I}
 }}
 
 \infrule[S-AlwaysIdentity]{
   \mbox{
+    $m = f$ \andalso
     \evalBigO{E}{H$_0$}{a$_0$}{H$_0'$}{v$_0$} \andalso
     \evalBigO{E}{H$_0'$}{a$_1$}{H}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
@@ -3766,7 +3784,7 @@ constraint {\tt C}''
   \mbox{
     \I$'$ = \I $\;\bigcup$ $\{(${\tt E}$,\,${\tt a}$_0$ {\tt ==} {\tt a}$_1)\}$}
 }{\mbox{
-    \stepH{E}{H$_0$}{\C}{\I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{\C}{\I$'$}
+    \stepHO{E}{H$_0$}{\C}{\I}{always a$_0$ == a$_1$}{E$''$}{H$''$}{\C}{\I$'$}
 }}
 
 

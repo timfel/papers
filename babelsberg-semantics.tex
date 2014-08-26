@@ -69,8 +69,6 @@
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
 \newcommand{\evalBigC}[9]{{\tt <#1|#2|#3|#4|#5>} $\Downarrow$ {\tt <#6|#7|#8|#9>}}
 
-\newcommand{\hoist}[3]{{\tt (#1,#2)} $\leadsto$ {\tt #3}}
-\newcommand{\hoistFail}[2]{{\tt (#1,#2)} $\not\leadsto$}
 \newcommand{\resolve}[4]{{\tt #3;#4} $\models_{\tt #1}$ {\tt #2}}
 
 \newcommand{\E}{$\mathbb{E}$}
@@ -3191,6 +3189,7 @@ produces the value {\tt v}.''
 
 \inferrule{E-Var}{{\tt E}({\tt x}) = {\tt v}}{\evalBigO{E}{H}{x}{H}{v}}
 
+\tf{do we need a separate self rule?}
 \inferrule{E-Self}{{\tt E}({\tt self}) = {\tt v}}{\evalBigO{E}{H}{self}{H}{v}}
 
 \inferrule{E-Field}{
@@ -3466,70 +3465,6 @@ multiple environments.
   \stay{\E}{C$_0$ $\wedge$ C$_E$}
 }
 
-\judgment{\hoist{L}{e}{e$'$}}
-\judgment{\hoistFail{L}{e}}
-
-``Translating expression {\tt e} into the context where self is bound
-to the l-value {\tt L} transforms it into {\tt e$'$}.''
-
-``The translation of expression {\tt e} into the context where self is
-bound to the l-value {\tt L} would get stuck.''
-
-\tf{Bug: these are very similar to the inlining methods, just more
-  restrictive. Opportunity for refactoring.}
-
-
-\inferax{H-Const}{\hoist{a}{c}{c}}
-
-\inferax{H-Self}{\hoist{a}{self}{a}}
-
-\inferrule{H-Field}{
-  \hoist{a$_1$}{a$_2$}{a$_2'$}
-}{
-  \hoist{a$_1$}{a$_2$.l}{a$_2'$.l}
-}
-
-\inferrule{H-ReadOnly}{
-  \hoist{a$_1$}{a$_2$}{a$_2'$}
-}{
-  \hoist{a$_1$}{a$_2$?}{a$_2'$?}
-}
-
-\inferrule{H-Op}{
-  \hoist{a}{e$_1$}{e$_1'$} \andalso
-  \hoist{a}{e$_2$}{e$_2'$}
-}{
-  \hoist{a}{e$_1$ $\oplus$ e$_2$}{e$_1'$ $\oplus$ e$_2'$}
-}
-
-\inferrule{H-Compare}{
-  \hoist{a}{e$_1$}{e$_1'$} \andalso
-  \hoist{a}{e$_2$}{e$_2'$}
-}{
-  \hoist{a}{e$_1$ $\olessthan$ e$_2$}{e$_1'$ $\olessthan$ e$_2'$}
-}
-
-\inferrule{H-Combine}{
-  \hoist{a}{e$_1$}{e$_1'$} \andalso
-  \hoist{a}{e$_2$}{e$_2'$}
-}{
-  \hoist{a}{e$_1$ $\ovee$ e$_2$}{e$_1'$ $\ovee$ e$_2'$}
-}
-
-\inferrule{H-Value}{
-  \hoist{a}{e$_1$}{e$'_1$} $\cdots$ \hoist{a}{e$_n$}{e$'_n$}
-}{
-  \hoist{a}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
-}
-
-\tf{Bug: no hoisting of nested methods and method arguments. needs to
-  be fixed. Otherwise,
-  simple stuff like\\
-  \texttt{equals(o) \{ return self.eqPt(o) \}\\
-   eqPt(o) \{ return self.x == o.x \&\& self.y == o.y \}}\\
-doesn't work :(
-}
-
 \judgment{\inline{E}{H}{e}{H$'$}{e$'$}}
 \judgment{\inlineS{E}{H}{s}{E$'$}{H$'$}{s$'$}}
 
@@ -3615,24 +3550,13 @@ when its dependencies change, it just won't work in the other direction.
     \evalBigO{E}{H}{a$'$}{H$''$}{v} \andalso
     \lookup{v}{l}{return e}}\\
   \mbox{\enter{E}{H$''$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I} \andalso
-    \hoist{a$'$}{e}{e$'$}}
+    \inline{E$_m$}{H$_n$}{e}{H$'''$}{e$'$}}
 }{\mbox{
   \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
 }}
 
-For methods that only return an expression, we hoist the expression
-into the parent context and pass it to the solver.
-
-\infrule[I-UnhoistableCall]{
-  \mbox{
-    \evalBigO{E}{H}{a}{H$'$}{v} \andalso
-    \lookup{v}{l}{return e}}\\
-  \mbox{\enter{E}{H$'$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I} \andalso
-    \hoistFail{a$'$}{e}}\\
-  \mbox{\evalBigO{E$_m$}{H$_n$}{e}{H$''$}{v$_r$}}
-}{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$''$}{v$_r$}
-}}
+For methods that only return an expression, we inline the expression
+and pass it to the solver.
 
 
 \tf{I'd also like a rule to allow assignments to fields of objects

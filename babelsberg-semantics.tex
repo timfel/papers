@@ -1369,10 +1369,12 @@ In any case there still would be no notion of object identity.  Consider:
 After executing the three statements \verb|p| $\mapsto$ \verb|{x:100, y:0}|,
 but \verb|q| $\mapsto$ \verb|{x:0, y:0}|.
 
-Thus, given that adding mutable records would simply provide an
-additional syntactic convenience, and given that Babelsberg/Records is
-just a step toward objects in any case, we don't include this as a
-separate language.
+Mutable records would thus simply provide a syntactic convenience,
+rather than some new capability.  We would still want immutable
+records as well (which we will use to model instances of value classes
+in the formal semantics for Babelsberg/Objects), so this would also
+add clutter to the languages.  We therefore don't include Babelsberg
+with mutable records as a separate language.
 
 \section{Babelsberg/UID}
 \label{sec:babelsberg-uid}
@@ -1555,33 +1557,68 @@ the last assignment to \verb|q| would have failed the structural
 compatibility check, which would have expected it to be a record with
 \verb|x| and \verb|y| fields.
 
-Nondeterminism can arise with identity constraints, just as it did
-with value constraints in Babelsberg/PrimitiveTypes.  For example:
+Our earlier experience with Kaleidoscope suggests that constraints on
+object identity and types can be too powerful, in that they lead to
+non-obvious consequences, making programs potentially hard for the
+programmer to understand and also complicating the job of the language
+implementor.  In Babelsberg, we want to tame the power of constraints
+on object identity (as well as constraints on object structure, i.e.,
+type).  Toward this goal, we require that a new identity constraint be
+satisfied at the time it is created --- otherwise it's an error
+(modeled in the formal semantics by the rules getting stuck).  This
+restriction was obeyed in the above program.  Here is an example that
+violates it, and is hence not legal:
 \begin{verbatim}
 p := new {x:2};
 q := new {y:5}
 always q==p;
 \end{verbatim}
 
-Both \verb|p| and \verb|q| will point to the same record, but it might
-be either \verb|{x:2}| or \verb|{y:5}|.  (However, it will one of the
-records that was already created by the \verb|new| expressions --- the
-solver won't invent a new one.)
+Without the restriction, after the last statement \verb|p| and
+\verb|q| will definitely point to the same record, but it might be
+either \verb|{x:2}| or \verb|{y:5}|.  (In any case, \verb|p| and
+\verb|q| would still one of the records that was already created by
+the \verb|new| expressions --- the solver won't invent a new one ---
+but we want to tame the language further.)  
 
-If the programmer cared which record was selected, the directionality
-could be specified by using a read-only annotation:
+With the restriction, any changes to the types of variables must flow
+from an explicit assignment statement --- the effects can still ripple
+outwards via identity constraints --- but they are deterministic.  It
+is only updates to values that can be nondeterministic as the result
+of constraints.
+
+The programmer can further restrict what happens with an explicit
+identity constraint by adding a read-only annotation.  For example,
+this program is legal:
 \begin{verbatim}
 p := new {x:2};
-q := new {y:5}
+q := p;
 always q==p?;
+p := new {y:10};
 \end{verbatim}
 
-However, explicit priorities on identity constraints are not allowed.
-(There are only the implicit weak identity stay constraints on all
-variables.)  This restriction simplifies both the language, making it
-more understandable, and also the implementation, since now we can
-first determine the types and identities of all variables, and then
-solve for the values.
+But this one fails, due to the read-only annotation on \verb|p| in the
+identity constraint:
+
+\begin{verbatim}
+p := new {x:2};
+q := p;
+always q==p?;
+q := new {y:10};
+\end{verbatim}
+
+\ab{Do we even want to allow read-only annotations on variables in
+  identity constraints?  They seem potentially useful in a practical
+  language, as a machine-checkable restriction on how the identity
+  constraint is used.  But they aren't essential for the formal
+  semantics.}
+
+As another aspect of taming identity constraints, explicit priorities
+on identity constraints are not allowed.  (There are only the implicit
+weak identity stay constraints on all variables.)  This restriction
+simplifies both the language, making it more understandable, and also
+the implementation, since now we can first determine the types and
+identities of all variables, and then solve for the values.
 
 This program is thus illegal:
 \begin{verbatim}
@@ -3900,9 +3937,9 @@ x := 5;
 
 \verb|x| starts out as 0, then is 10 to satisfy the \verb|always|
 constraint, then gets set to 5, and then at the next time step, the
-\verb|always| constraint causes it to be set back to 10.  In a
-practical implementation, should we issue a warning in this case?
-This seems like a simple case to check for.
+\verb|always| constraint causes it to be set back to 10.  We may want
+to issue a warning in this case in a practical implementation.  (This
+seems like a simple case to check for.)
 
 \subsection{Issues with Using Once Constraints in the Semantics 
   for Assignments}
@@ -3955,21 +3992,6 @@ this might be computationally expensive, and would also cause
 difficulties when creating circular structures (see below).  So in the
 current design, we just evaluate the right-hand-side to a value, but
 don't do anything further about making it recursively read-only.
-
-In addition to issues with circular structures, another curious aspect
-of this arises if there is a soft constraint on the variable on the
-left hand side of the assignment, as described in Section
-\ref{sec:warnings-and-debugging}.  This arises no matter what we do
-about making the right-hand-side recursively read-only or not.
-
-\tf{TODO: Check the above. I'm not sure it's true anymore, because
-  such a constraint would be an identity constraint, and we don't
-  allow these to be soft anymore?}
-
-\ab{It's still true - it could be an ordinary constraint on values.
-  But this doesn't really have anything to do with circular structures,
-  and is covered in A.1 -- so I'm going to just delete this paragraph
-  and these comments (assuming you all agree).}
 
 \subsubsection{Circular Structures}
 \label{sec:circular-structures}

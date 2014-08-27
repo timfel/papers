@@ -146,10 +146,10 @@
       \ClassWarning{jot.cls}{No license specified.}%
     \else%
       \ifx\jot@license\jot@ccby%
-        \href{http://creativecommons.org/licenses/by/4.0/}{Attribution CC BY}%
+        \href{http://creativecommons.org/licenses/by/4.0/}{Attribution 4.0 International (CC BY 4.0)}%
       \else%
         \ifx\jot@license\jot@ccbynd%
-          \href{http://creativecommons.org/licenses/by-nd/4.0/}{Attribution-NoDerivs CC BY-ND}%
+          \href{http://creativecommons.org/licenses/by-nd/4.0/}{Attribution-NoDerivatives 4.0 International (CC BY-ND 4.0)}%
         \else%
           \ClassWarning{jot.cls}{Unknown license specified.}%
           Unknown license.%
@@ -496,9 +496,6 @@
         pdfauthor=\jot@runningauthor,
         pdftitle=\jot@runningtitle,
         pdfsubject=\jot@journalname,
-        % pdfkeywords=xxx,
-        % pdfcopyright={This document is licensed under a Creative Commons Attribution 3.0 license},
-        % pdflicenseurl={\jot@cclicenseurl}
     }%
     \date{}% should customize \maketitle
     \maketitle

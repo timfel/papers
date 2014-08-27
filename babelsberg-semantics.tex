@@ -64,7 +64,7 @@
 \newcommand{\enter}[9]{\textit{enter}({\tt #1},{\tt #2},{\tt #3},{\tt
     #4},{\tt #5},{\tt x$_1$} $\cdots$ {\tt x$_n$},{\tt e$_1$} $\cdots$
   {\tt e$_n$}) = ({\tt #6},{\tt #7},{\tt #8},{\tt #9})}
-\newcommand{\inline}[5]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5>}}
+\newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5,#6>}}
 \newcommand{\inlineS}[9]{{\tt <#1|#2|#3|#4|$t$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
 \newcommand{\stepHO}[9]{{\tt <#1|#2|#3|#4|$m$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
@@ -3459,30 +3459,33 @@ multiple environments.
 \tf{TODO: figure out if we want stays on all environments or just the
   current one in the later rules}
 
-\judgment{\inline{E}{H}{e}{H$'$}{e$'$}}
+\judgment{\inline{E}{H}{e}{H$'$}{e$_C$}{e$'$}}
 
 ``Inlining expression {\tt e} may update the heap and otherwise turns
-into expression {\tt e$'$}''
+into expression {\tt e$'$}. To connect variables across method calls,
+the constraint expression {\tt e$_C$} is returned.''
 
 We use an inlining judgment to translate expressions into a
 representation suitable for the solver. In particular, we translate
 local variables into explicit lookups in the correct environment and
-provide a semantics for method calls inside constraints.
+provide a semantics for method calls inside constraints. Arguments to
+method calls are constrained to be equal to the expression that
+generated them.
 
-\inferax{I-Const}{\inline{E}{H}{c}{H}{c}}
+\inferax{I-Const}{\inline{E}{H}{c}{H}{true}{c}}
 
-\inferax{I-Var}{\inline{E}{H}{x}{H}{E(x)}}
+\inferax{I-Var}{\inline{E}{H}{x}{H}{true}{E(x)}}
 
 \inferrule{I-Value}{
-  \inline{E}{H}{e$_1$}{H$_1$}{e$'_1$} $\cdots$ \inline{E}{H$_{n-1}$}{e$_n$}{H$_n$}{e$'_n$}
+  \inline{E}{H}{e$_1$}{H$_1$}{e$_{C_1}$}{e$'_1$} $\cdots$ \inline{E}{H$_{n-1}$}{e$_n$}{H$_n$}{e$_{C_n}$}{e$'_n$}
 }{
-  \inline{E}{H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
+  \inline{E}{H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{H}{e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
 }
 
 \inferrule{I-Field}{
-  \inline{E}{H}{a}{H$'$}{a$'$}
+  \inline{E}{H}{a}{H$'$}{e$_C$}{a$'$}
 }{
-  \inline{E}{H}{a.l}{H}{a$'$.l}
+  \inline{E}{H}{a.l}{H}{e$_C$}{a$'$.l}
 }
 
 % \inferrule{I-ReadOnly}{
@@ -3491,34 +3494,34 @@ provide a semantics for method calls inside constraints.
 %   \inline{E}{H}{a?}{H$'$}{a$'$?}
 % }
 
-\inferax{I-Ref}{\inline{E}{H}{r}{H}{r}}
+\inferax{I-Ref}{\inline{E}{H}{r}{H}{true}{r}}
 
 \inferrule{I-Op}{
-  \inline{E}{H}{e$_1$}{H$'$}{e$_a$} \andalso
-  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_b$}
+  \inline{E}{H}{e$_1$}{H$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_{C_b}$}{e$_b$}
 }{
-  \inline{E}{H}{e$_1$ $\oplus$ e$_2$}{H$''$}{e$_a$ $\oplus$ e$_b$}
+  \inline{E}{H}{e$_1$ $\oplus$ e$_2$}{H$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\oplus$ e$_b$}
 }
 
 \inferrule{I-Compare}{
-  \inline{E}{H}{e$_1$}{H$'$}{e$_a$} \andalso
-  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_b$}
+  \inline{E}{H}{e$_1$}{H$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_{C_b}$}{e$_b$}
 }{
-  \inline{E}{H}{e$_1$ $\olessthan$ e$_2$}{H$''$}{e$_a$ $\olessthan$ e$_b$}
+  \inline{E}{H}{e$_1$ $\olessthan$ e$_2$}{H$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\olessthan$ e$_b$}
 }
 
 \inferrule{I-Combine}{
-  \inline{E}{H}{e$_1$}{H$'$}{e$_a$} \andalso
-  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_b$}
+  \inline{E}{H}{e$_1$}{H$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_{C_b}$}{e$_b$}
 }{
-  \inline{E}{H}{e$_1$ $\ovee$ e$_2$}{H$''$}{e$_a$ $\ovee$ e$_b$}
+  \inline{E}{H}{e$_1$ $\ovee$ e$_2$}{H$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\ovee$ e$_b$}
 }
 
 \inferrule{I-Identity}{
-  \inline{E}{H}{e$_1$}{H$'$}{e$_a$} \andalso
-  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_b$}
+  \inline{E}{H}{e$_1$}{H$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{E}{H$'$}{e$_2$}{H$''$}{e$_{C_b}$}{e$_b$}
 }{
-  \inline{E}{H}{e$_1$ == e$_2$}{H$''$}{e$_a$ == e$_b$}
+  \inline{E}{H}{e$_1$ == e$_2$}{H$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ == e$_b$}
 }
 
 \infrule[I-Call]{
@@ -3530,7 +3533,7 @@ provide a semantics for method calls inside constraints.
     \inlineS{E$_m$}{H$_n$}{\C}{\I}{s}{E$'$}{H$''$}{\C}{\I} \andalso
     \evalBigO{E$'$}{H$''$}{e}{H$'''$}{v$_r$}}
 }{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{v$_r$}
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{true}{v$_r$}
 }}
 
 Methods that have any statements at all can only be used in a one-way
@@ -3541,26 +3544,22 @@ when its dependencies change, it just won't work in the other direction.
 
 \infrule[I-MultiWayCall]{
   \mbox{
-    \inline{E}{H}{a}{H$'$}{a$'$} \andalso
+    \inline{E}{H}{a}{H$'$}{e$_{C_0}$}{a$'$} \andalso
     \evalBigO{E}{H}{a$'$}{H$''$}{v} \andalso
     \lookup{v}{l}{return e}}\\
   \mbox{
     \enter{E}{H$''$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I}}\\
   \mbox{
-    \inline{E}{H$_n$}{e$_1$}{H$_1'$}{e$_1'$}
+    \inline{E}{H$_n$}{e$_1$}{H$_1'$}{e$_{C_1}$}{e$_1'$}
     $\cdots$
-    \inline{E}{H$_{n-1}'$}{e$_n$}{H$_n'$}{e$_n'$}}\\
+    \inline{E}{H$_{n-1}'$}{e$_n$}{H$_n'$}{e$_{C_n}$}{e$_n'$}}\\
   \mbox{
-    \inline{E$_m$}{H$_n'$}{e}{H$'''$}{e$'$} \andalso
-    {\tt C} = ({\tt E$_m$(x$_1$)=e$_1'$ $\wedge$ $\cdots$ $\wedge$ E$_m$(x$_n$)=e$_n'$})
+    \inline{E$_m$}{H$_n'$}{e}{H$'''$}{e$_{C_m}$}{e$'$} \andalso
+    {\tt e$_C$} = ({\tt E$_m$(x$_1$)=e$_1'$ $\wedge$ $\cdots$ $\wedge$ E$_m$(x$_n$)=e$_n'$})
   }
 }{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$'$}
+  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$_C$$\wedge$e$_{C_m}$$\wedge$e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{e$'$}
 }}
-
-\tf{hmm, and now we need to also put the equalities between the
-  parameter names and the expressions into the constraint store,
-  somehow ...}
 
 For methods that only return an expression, we inline the expression
 and pass it to the solver. Note that we do not use the inlined
@@ -3588,10 +3587,9 @@ constraint {\tt C}''
   \C$_0$ = \C $\;\setminus$ $\{({\tt E}, {\tt C})\}$ \andalso
   \reinline{H}{\C$_0$}{H$'$}{C$_0$} \andalso
   {\tt C} = $\rho$ {\tt e} \andalso
-  \inline{E}{H$'$}{e}{H$''$}{e$'$} \andalso
-  {\tt C$'$} = $\rho$ {\tt e$'$}
+  \inline{E}{H$'$}{e}{H$''$}{e$_{C_e}$}{e$'$}
 }{
-  \reinline{H}{\C}{H$''$}{C$_0$ $\wedge$ C$'$}
+  \reinline{H}{\C}{H$''$}{C$_0$ $\wedge$ $\rho$ {\tt e$'$} $\wedge$ $\rho$ e$_{C_e}$}
 }
 
 
@@ -3703,8 +3701,8 @@ compatibility mode.'')
   \mbox{
     $m = f$ \andalso
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
-    \inline{E}{H}{e}{H$'$}{e$'$} \andalso
-    {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
+    \inline{E}{H}{e}{H$'$}{e$_{C_e}$}{e$'$} \andalso
+    {\tt C$_0'$} = $\rho$ {\tt e$'$} $\wedge$ $\rho$ {\tt e$_{C_e}$} \andalso
     \tcHC{E}{H$'$}{C$_0'$} \andalso
   }\\
   \mbox{
@@ -3719,8 +3717,8 @@ compatibility mode.'')
   \mbox{
     $m = f$ \andalso
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
-    \inline{E}{H}{e}{H$'$}{e$'$} \andalso
-    {\tt C$_0'$} = $\rho$ {\tt e$'$} \andalso
+    \inline{E}{H}{e}{H$'$}{e$_{C_e}$}{e$'$} \andalso
+    {\tt C$_0'$} = $\rho$ {\tt e$'$} $\wedge$ $\rho$ {\tt e$_{C_e}$} \andalso
     \tcHC{E}{H$'$}{C$_0'$}
   }\\
   \mbox{
@@ -3740,21 +3738,23 @@ compatibility mode.'')
     \evalBigO{E}{H$_0'$}{a$_0$}{H}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
   \mbox{
-    \inline{E}{H$_0$}{a$_0$}{H$_0'$}{a$_0'$} \andalso
-    \inline{E}{H$_0'$}{a$_1$}{H}{a$_1'$}}\\
+    \inline{E}{H$_0$}{a$_0$}{H$_0'$}{e$_{C_0}$}{a$_0'$} \andalso
+    \inline{E}{H$_0'$}{a$_1$}{H}{e$_{C_1}$}{a$_1'$}}\\
   % \mbox{
   %   \tcH{E}{H}{a$_0'$}{new \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
   %   \tcH{E}{H}{a$_1'$}{new \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}\\
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
     \stay{H}{C$_{H_s}$} \andalso
-    \reinline{H}{\I}{H$'$}{I} \andalso
-    \solveH{E$'$}{H$''$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ a$_0'$=a$_1'$$)$}}\\
+    \reinline{H}{\I}{H$'$}{I}}\\
+  \mbox{
+    \solveH{E$'$}{H$''$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ a$_0'$=a$_1'$ $\wedge$ e$_{C_1}$ $\wedge$ e$_{C_2}$$)$}}\\
   \mbox{
     \stay{E$'$}{C$_{{E'}_s}$} \andalso
     \stay{H$''$}{C$_{{H''}_s}$} \andalso
     \reinline{H$''$}{\C}{H$'''$}{C} \andalso
-    \tcHC{E$'$}{H$'''$}{C} \andalso
+    \tcHC{E$'$}{H$'''$}{C}}\\
+  \mbox{
     \solveH{E$''$}{H$''''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H''}_s}$)}}
 }{\mbox{
     \stepHO{E}{H$_0$}{\C}{\I}{once a$_0$ == a$_1$}{E$''$}{H$''''$}{\C}{\I}
@@ -3767,21 +3767,23 @@ compatibility mode.'')
     \evalBigO{E}{H$_0'$}{a$_1$}{H}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
   \mbox{
-    \inline{E}{H$_0$}{a$_0$}{H$_0'$}{a$_0'$} \andalso
-    \inline{E}{H$_0'$}{a$_1$}{H}{a$_1'$}}\\
+    \inline{E}{H$_0$}{a$_0$}{H$_0'$}{e$_{C_0}$}{a$_0'$} \andalso
+    \inline{E}{H$_0'$}{a$_1$}{H}{e$_{C_1}$}{a$_1'$}}\\
   % \mbox{
   %   \tcH{E}{H}{a$_0'$}{new \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
   %   \tcH{E}{H}{a$_1'$}{new \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}\\
   \mbox{
     \stay{E}{C$_{E_s}$} \andalso
     \stay{H}{C$_{H_s}$} \andalso
-    \reinline{H}{\I}{H$'$}{I} \andalso
-    \solveH{E$'$}{H$''$}{$(${\tt I} $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ {\tt a}$_0'$={\tt a}$_1'$$)$}}\\
+    \reinline{H}{\I}{H$'$}{I}}\\
+  \mbox{
+    \solveH{E$'$}{H$''$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ a$_0'$=a$_1'$ $\wedge$ e$_{C_1}$ $\wedge$ e$_{C_2}$$)$}}\\
   \mbox{
     \stay{E$'$}{C$_{{E'}_s}$} \andalso
     \stay{H$''$}{C$_{{H''}_s}$} \andalso
     \reinline{H$''$}{\C}{H$'''$}{C} \andalso
-    \tcHC{E$'$}{H$'''$}{C} \andalso
+    \tcHC{E$'$}{H$'''$}{C}}\\
+  \mbox{
     \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H''}_s}$)}}\\
   \mbox{
     \I$'$ = \I $\;\bigcup$ $\{(${\tt E}$,\,${\tt a}$_0$ {\tt ==} {\tt a}$_1)\}$}

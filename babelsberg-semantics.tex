@@ -1461,27 +1461,32 @@ to a record.  (The only way to create a new record is with an explicit
 \verb|new| expression in the program, and this also defines all of the
 fields that it has and will ever have.)
 
-\ab{TODO: fix up the following description in light of our decisions
-  about the semantic rules}
-
-After executing the first statement, the above example desugars into
-the following constraints (where $r$ is a reference):
+After executing the right hand side of the first statement, the heap
+was updated with a new object and a reference $r$ to point to it. The
+assignment and stay constraints then desugar into:
 
 \begin{tabular}{rl}
 required & $p = r$ \\
-required & $r_x = 2$ \\
-required & $r_y = 5$ \\
+required & $H(r) = {x:x_r, y:y_r}$\\
+weak & $x_r = 2$\\
+weak & $y_r = 5$\\
 \end{tabular}
 
-The reference $r$ is a constant, but $r_x$ is a variable representing
-the \verb|x| field of the record that $r$ points to, and similarly for $r_y$.
+The reference $r$ is a constant. We assume the solver understands maps
+and records, so the second constraint forces the solver to keep the
+reference $r$ pointing to a record that has \emph{only} $x$ and $y$
+fields. We introduce variables for the values of these fields and add
+weak stays so these keep the values with which they were created.
+
 After the second statement we have the stay constraints on \verb|p|
-and its fields, and the required constraint resulting from the assignment:
+and its fields, and the required constraint resulting from the
+assignment:
 
 \begin{tabular}{rl}
 weak & $p = r$ \\
-weak & $r_x = 2$ \\
-weak & $r_y = 5$ \\
+required & $H(r) = {x:x_r, y:y_r}$\\
+weak & $x_r = 2$\\
+weak & $y_r = 5$\\
 required & $a = 5$
 \end{tabular}
 
@@ -1489,24 +1494,28 @@ After the third statement:
 
 \begin{tabular}{rl}
 weak & $p = r$ \\
-weak & $r_x = 2$ \\
-weak & $r_y = 5$ \\
+required & $H(r) = {x:x_r, y:y_r}$\\
+weak & $x_r = 2$\\
+weak & $y_r = 5$\\
 weak & $a = 5$ \\
-required & $r_x = 6$
+required & $p.x = 6$
 \end{tabular}
+
+\tf{The above doesn't seem right, but I think it's what the rules say
+  right now}
 
 And finally:
 
 \begin{tabular}{rl}
 weak & $p = r$ \\
-weak & $r_x = 6$ \\
-weak & $r_y = 5$ \\
+required & $H(r) = {x:x_r, y:y_r}$\\
+weak & $x_r = 6$\\
+weak & $y_r = 5$\\
 weak & $a = 5$ \\
-required & $r_x = 100$
+required & $p.x = 100$
 \end{tabular}
 
-After solving the final set of constraints and putting the record back
-together, we have the environment \linebreak 
+After solving the final set of constraints we have the environment \linebreak 
 \verb|p| $\mapsto$ \verb|r| $\wedge$
 \verb|a| $\mapsto$ \verb|5|, as well as the heap \verb|r| $\mapsto$
 \verb|{x:100, y:5}|.
@@ -1588,31 +1597,31 @@ of constraints.  One item for future work will be to formalize and
 prove this statement, which seems like a useful property for the
 language.
 
-The programmer can further restrict what happens with an explicit
-identity constraint by adding a read-only annotation.  For example,
-this program is legal:
-\begin{verbatim}
-p := new {x:2};
-q := p;
-always q==p?;
-p := new {y:10};
-\end{verbatim}
+% The programmer can further restrict what happens with an explicit
+% identity constraint by adding a read-only annotation.  For example,
+% this program is legal:
+% \begin{verbatim}
+% p := new {x:2};
+% q := p;
+% always q==p?;
+% p := new {y:10};
+% \end{verbatim}
 
-But this one fails, due to the read-only annotation on \verb|p| in the
-identity constraint:
+% But this one fails, due to the read-only annotation on \verb|p| in the
+% identity constraint:
 
-\begin{verbatim}
-p := new {x:2};
-q := p;
-always q==p?;
-q := new {y:10};
-\end{verbatim}
+% \begin{verbatim}
+% p := new {x:2};
+% q := p;
+% always q==p?;
+% q := new {y:10};
+% \end{verbatim}
 
-\ab{Do we even want to allow read-only annotations on variables in
-  identity constraints?  They seem potentially useful in a practical
-  language, as a machine-checkable restriction on how the identity
-  constraint is used.  But they aren't essential for the formal
-  semantics.}
+% \ab{Do we even want to allow read-only annotations on variables in
+%   identity constraints?  They seem potentially useful in a practical
+%   language, as a machine-checkable restriction on how the identity
+%   constraint is used.  But they aren't essential for the formal
+%   semantics.}
 
 As another aspect of taming identity constraints, explicit priorities
 on identity constraints are not allowed.  (There are only the implicit
@@ -2402,17 +2411,14 @@ argument \verb|b| to the object \verb|a|,'' with the meaning of
 \verb|+| in this expression (and in constraints such as \verb|a+b=c|)
 depending on the class of \verb|a|.
 
-As with the earlier Babelsbergs presented in this memo, in the
-semantics we use a solver language to represent the constraints that
-are sent to the constraint solvers.  We will be able to use the same
-language as for Babelsberg/UID (Section \ref{sec:babelsberg-uid}) ---
-as before, the solver needs to know about uid-records as well as
-primitive types and i-records; but it does not know about methods or
-inheritance.
-
-\ab{TODO: check the above discussion of the solver language}
-
-\ab{TODO: the following paragraph is obsolete - revise or just drop}
+In the earlier Babelsbergs presented in this memo, in the semantics we
+assume a solver language that is essentially the same as the program
+language. Constraints that are sent to the constraint solvers could
+thus be in the program language. This changes for objects. As before,
+the solver needs to know about uid-records as well as primitive types
+and i-records; but it does not know about methods or inheritance. So
+we add a translation in this semantics to inline method calls before
+passing constraints to the solver.
 
 To accomplish this, we start with a standard model for an
 object-oriented language with instances, classes, messages, methods,
@@ -2426,22 +2432,14 @@ For example, the classes \verb|Integer|, \verb|Float|, and
 language.  The \verb|+| method on \verb|Integer| would be mapped to
 the $+$ operation for \emph{Integer} in the solver language, and
 similarly for the \verb|+| method for \verb|Float|, the \verb|or|
-method for \verb|Boolean|, and so forth.\footnote{As in the previous
-  languages, we use different fonts to distinguish the source and
-  solver languages: {\tt Float} and {\tt x+y} for the class and an
-  expression respectively in the source language; \emph{Float} and
-  $x+y$ for the corresponding type and expression in the solver
-  language.  In this example we've used the same names for the classes
-  and types, and methods and operations, but this isn't required ---
-  for example the {\tt plus} method might be mapped to the $+$
-  operator.}  In general, there will be classes in the source language
-that don't map to a solver type; and even for a class that does have a
-corresponding solver type, that class can have additional methods that
-aren't mapped to operations in the solver language, for example a
-\verb|factorial| method for \verb|Integer|.  It is also possible to
-have types and operations in the solver language without equivalents
-in the source language (although expressions involving them could
-never be generated).
+method for \verb|Boolean|, and so forth. In general, there will be
+classes in the source language that don't map to a solver type; and
+even for a class that does have a corresponding solver type, that
+class can have additional methods that aren't mapped to operations in
+the solver language, for example a \verb|factorial| method for
+\verb|Integer|.  It is also possible to have types and operations in
+the solver language without equivalents in the source language
+(although expressions involving them could never be generated).
 
 As with the previous languages, in the semantics, after every
 statement execution the current set of constraints is solved and the

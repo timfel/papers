@@ -65,8 +65,8 @@
     #4},{\tt #5},{\tt x$_1$} $\cdots$ {\tt x$_n$},{\tt e$_1$} $\cdots$
   {\tt e$_n$}) = ({\tt #6},{\tt #7},{\tt #8},{\tt #9})}
 \newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#5,#6>}}
-\newcommand{\inlineS}[9]{{\tt <#1|#2|#3|#4|$t$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
-\newcommand{\stepHO}[9]{{\tt <#1|#2|#3|#4|$m$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
+\newcommand{\inlineS}[9]{{\tt <#1|#2|#3|#4|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
+\newcommand{\stepHO}[9]{{\tt <#1|#2|#3|#4|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
 \newcommand{\evalBigC}[9]{{\tt <#1|#2|#3|#4|#5>} $\Downarrow$ {\tt <#6|#7|#8|#9>}}
 
@@ -3607,22 +3607,14 @@ direction.
 
 When inlining through statements, the statements are just executed. In
 particular this means, that we are eagerly choosing branch of
-if-statements for inlining and eagerly unroll loops. By setting the
-constraint-construction flag to $\#t$ flag for statement evaluation
-during inlining, we get stuck if any non-trivial side-effects would
-occur. 
+if-statements for inlining and eagerly unroll loops. Additionally, the
+rule above, as well as the one below, ensures that methods being used
+in constraints have no side effects. This is accomplished by
+requiring the initial heap to remain unchanged.
 
-\tdm{I wonder: Since we require above that the statement evaluation
-  leave the heap and constraints unchanged, could we just use regular
-  statement evaluation and not have a $t$ mode?}
-
-
-The rule above, as well as the one below, ensures that methods being
-used in constraints have no side effects.  This is accomplished by
-requiring the initial heap to remain unchanged.  Similarly, methods
-used in constraints cannot declare nested constraints; this is
-accomplished by requiring the initial sets of ordinary and identity
-constraints to remain unchanged.
+Similarly, methods used in constraints cannot declare nested
+constraints; this is accomplished by requiring the initial sets of
+ordinary and identity constraints to remain unchanged.
 
 \infrule[I-MultiWayCall]{
   \mbox{
@@ -3686,15 +3678,16 @@ constraint {\tt C}''
 
 
 
-\judgment{{\tt <E|H|\C|\I|I>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
+\judgment{{\tt <E|H|\C|\I|I|C>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
 
 This is a helper judgment for use in evaluating assignment statements
 and identity constraints.  These statements are the only ones that can
 cause the types of variables to change.  We handle this in two phases:
-in a first phase, we propagate the new equality constraint through all existing
-identity constraints in order to update other variables and fields as
-needed.  In the second phase we solve all of the non-identity
-constraints.  
+in a first phase, we propagate the new equality constraint through all
+existing identity constraints in order to update other variables and
+fields as needed.  In the second phase we solve all of the
+non-identity constraints, plus any constraints {\tt C} created by
+inlining identity constraints.
 
 \infrule[TwoPhaseUpdate]{
   \mbox{
@@ -3709,19 +3702,16 @@ constraints.
     \reinline{H$'$}{\C}{H$'$}{C} \andalso
     \tcHC{E$'$}{H$'$}{C}}\\
   \mbox{
-    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_0$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
 }{\mbox{
-  {\tt <E|H|\C|\I|e$_1$ == e$_2$>} $\Longrightarrow$ {\tt <E$''$|H$''$>}
+  {\tt <E|H|\C|\I|e$_1$ == e$_2$|C$_0$>} $\Longrightarrow$ {\tt <E$''$|H$''$>}
 }}
 
 
-\judgment{{\tt <E|H|\C|\I|$m$|s>} $\longrightarrow$ {\tt <E$'$|H$'$|\C$'$|\I$'$>}}
+\judgment{\stepHO{E}{H}{\C}{\I}{s}{E$'$}{H$'$}{\C$'$}{\I$'$}}
 
-
-The stepping rules are augmented with a constraint-construction mode
-flag $m$, which is either $t$ or $f$. During constraint
-construction, statement rules are disabled that would have non-trivial
-side-effects.
+The stepping rules are refactored to work with the set of environments
+and the new constraint and identity-constraint stores.
 
 \inferrule{S-SeqSkip}{
   \stepHO{E}{H}{\C}{\I}{s$_2$}{E$'$}{H$'$}{\C$'$}{\I$'$}
@@ -3768,49 +3758,31 @@ side-effects.
 
 \infrule[S-Asgn]{
   \mbox{
-    $m = f$ \andalso
     \evalBigC{E}{H}{\C}{\I}{e}{H$'$}{\C$'$}{\I$'$}{v} \andalso
     \tcHC{E}{H$'$}{L=v} \andalso
     \inline{E}{H$'$}{L}{H$'$}{true}{e$'$}} \\
 \mbox{
-{\tt <E|H|\C|\I|e$'$==v>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
+{\tt <E|H|\C|\I|e$'$==v|true>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
 }{\mbox{
   \stepHO{E}{H}{\C}{\I}{L := e}{E$'$}{H$'$}{\C}{\I}
 }}
 
-Note that the above rule cannot be used if the constraint-construction
-mode flag is set. For inlining, we allow only assignments to temps. Note
-that we do not need to call the solver to validate such assignments,
-because the temporaries can only occur in a fresh method environment,
-and we disallow adding constraints during inlining.
-
-\inferrule{S-AsgnInline}{
-  $m = t$ \andalso
-  \evalBigO{E}{H}{e}{H$'$}{v} \andalso
-  {\tt E}$''$ = {\tt E$'$} $\bigcup$ $\{({\tt x}, {\tt v})\}$
-}{
-  \stepHO{E}{H}{\C}{\I}{x := e}{E$''$}{H$'$}{\C}{\I}
-}
-
-The above rule just executes the assignment, but does not set up a
-required equality constraint between the LHS and RHS. We are also only
-allowing assignments to local variables right now, because other
-side-effects are disallowed without setting up some sort of constraint
-network. This could be more flexible in a ``full'' object-oriented
-language semantics, for example, allowing assignment to object fields
-that do not escape the constraint expression. In a practical language
-we found it sometimes useful to include a ``backwards compatibility
-mode'' which does that and also sets up required equality constraints
-when assignment occurs.
+Note that the above rule can only be used in constraint-construction
+mode if ${\tt H} = {\tt H}'$. This effectively restricts assignments
+in constraints to work on values. Note also, that assignments in
+constraints are just executed, but do not set up a required equality
+constraint between the LHS and RHS. In a practical language we found
+it sometimes useful to include a ``backwards compatibility mode''
+which sets up required equality constraints when assignment occurs.
 
 We also do allow the next rules using {\tt once} and {\tt always} in
-constraint-construction mode. Again, a practical language might want
-to include support for nested constraints in a ``backwards
-compatibility mode.'')
+constraint-construction mode, because the inlining rules disallow
+updating the constraint store and heap. Again, a practical language
+might want to include support for nested constraints in a ``backwards
+compatibility mode.''
 
 \infrule[S-Once]{
   \mbox{
-    $m = f$ \andalso
     {\tt C$_0$} = $\rho$ {\tt e} \andalso
     \inline{E}{H}{e}{H$'$}{e$_{C_e}$}{e$'$} \andalso
     {\tt C$_0'$} = $\rho$ ({\tt e$'$} $\wedge$ {\tt e$_{C_e}$}) \andalso
@@ -3834,21 +3806,17 @@ compatibility mode.'')
 
 \infrule[S-OnceIdentity]{
   \mbox{
-    $m = f$ \andalso
     \evalBigO{E}{H}{e$_0$}{H}{v$_0$} \andalso
     \evalBigO{E}{H}{e$_1$}{H}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
   \mbox{
-    \inline{E}{H}{e$_0$}{H}{true}{e$_0'$} \andalso
-    \inline{E}{H}{e$_1$}{H}{true}{e$_1'$}}\\
+    \inline{E}{H}{e$_0$}{H}{e$_{C_0}$}{e$_0'$} \andalso
+    \inline{E}{H}{e$_1$}{H}{e$_{C_1}$}{e$_1'$}}\\
 \mbox{
-{\tt <E|H|\C|\I|e$_0'$==e$_1'$>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
+{\tt <E|H|\C|\I|e$_0'$==e$_1'$|e$_{C_0}$ $\wedge$ e$_{C_1}$>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
 }{\mbox{
     \stepHO{E}{H}{\C}{\I}{once e$_0$ == e$_1$}{E$'$}{H$'$}{\C}{\I}
 }}
-
-\tdm{TODO: What if the inlining of e$_0$ or e$_1$ produces constraints
-  other than {\tt true}?}
 
 \infrule[S-AlwaysIdentity]{
   \mbox{

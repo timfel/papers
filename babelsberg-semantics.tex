@@ -64,7 +64,7 @@
 \newcommand{\enter}[9]{\textit{enter}({\tt #1},{\tt #2},{\tt #3},{\tt
     #4},{\tt #5},{\tt x$_1$} $\cdots$ {\tt x$_n$},{\tt e$_1$} $\cdots$
   {\tt e$_n$}) = ({\tt #6},{\tt #7},{\tt #8},{\tt #9})}
-\newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#4,#5,#6>}}
+\newcommand{\inline}[6]{{\tt <#1,#2,#3>} $\leadsto$ {\tt <#5,#6>}}
 \newcommand{\inlineS}[9]{{\tt <#1|#2|#3|#4|$t$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
 \newcommand{\stepHO}[9]{{\tt <#1|#2|#3|#4|$m$|#5>} $\longrightarrow$ {\tt <#6|#7|#8|#9>}}
 \newcommand{\evalBig}[5]{{\tt <#1|#2|C|I|#3>} $\Downarrow$ {\tt <#4|C|I|#5>}}
@@ -76,7 +76,7 @@
 \newcommand{\C}{$\mathbb{C}$}
 \newcommand{\I}{$\mathbb{I}$}
 \newcommand{\evalBigO}[5]{{\tt <#1|#2|\C|\I|#3>} $\Downarrow$ {\tt <#4|\C|\I|#5>}}
-\newcommand{\reinline}[4]{{\tt <#1,#2>} $\leadsto$ {\tt <#3,#4>}}
+\newcommand{\reinline}[4]{{\tt <#1,#2>} $\leadsto$ {\tt #4}}
 
 \sloppy
 
@@ -3357,6 +3357,12 @@ produces the value {\tt v}.''
 \judgment{\tcH{E}{H}{s}{T}}
 \judgment{\tcHC{E}{H}{C}}
 
+\tdm{TODO: This judgment should take all environments rather than a
+  single one, since some constraints talk about multiple
+  environments.  It also needs to be able to typecheck expressions of
+  the form E(x) (which can be done by just looking up x in environment
+  E and typechecking the resulting value).}
+
 Method calls do not typecheck:  even though we allow 
 method calls in expressions and thus in constraints syntactically,
 our rules for creating constraints given below inline method
@@ -3501,8 +3507,8 @@ multiple environments.
 
 \tf{TODO: figure out if we want stays on all environments or just the
   current one in the later rules}
-\tdm{To be safe I think we should do stays on all environments.  Not
-  implemented yet!}
+\tdm{To be safe I think we should do stays on all environments.  I
+  attempted to do this in the rules below.}
 
 \tdm{TODO: Technically {\tt H(r)} is not a valid expression in our
   language, and neither is {\tt E(x)}, which is used in the inlining
@@ -3583,71 +3589,131 @@ generated them.
 
 \infrule[I-Call]{
   \mbox{
-    \evalBigO{E}{H}{a}{H$'$}{v} \andalso
+    \evalBigO{E}{H}{e}{H}{v} \andalso
     \lookup{v}{l}{s; return e}}\\
-  \mbox{\enter{E}{H$'$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I}}\\
+  \mbox{\enter{E}{H}{\C}{\I}{v}{E$_m$}{H}{\C}{\I}}\\
   \mbox{
-    \inlineS{E$_m$}{H$_n$}{\C}{\I}{s}{E$'$}{H$''$}{\C}{\I} \andalso
-    \evalBigO{E$'$}{H$''$}{e}{H$'''$}{v$_r$}}
+    \inlineS{E$_m$}{H}{\C}{\I}{s}{E$'$}{H}{\C}{\I} \andalso
+    \evalBigO{E$'$}{H}{e}{H}{v$_r$}}
 }{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{true}{v$_r$}
+  \inline{E}{H}{e.l(e$_1$,$\ldots$,e$_n$)}{H}{true}{v$_r$}
 }}
 
 Methods that have any statements at all can only be used in a one-way
 manner. This is ensured by evaluating the return expression and using
 only the value in the constraint. Because we are retranslating all
 constraints on each semantic step, this return value will get updated
-when its dependencies change, it just won't work in the other direction.
-
-\infrule[I-MultiWayCall]{
-  \mbox{
-    \inline{E}{H}{a}{H$'$}{e$_{C_0}$}{a$'$} \andalso
-    \evalBigO{E}{H}{a$'$}{H$''$}{v} \andalso
-    \lookup{v}{l}{return e}}\\
-  \mbox{
-    \enter{E}{H$''$}{\C}{\I}{v}{E$_m$}{H$_n$}{\C}{\I}}\\
-  \mbox{
-    \inline{E}{H$_n$}{e$_1$}{H$_1'$}{e$_{C_1}$}{e$_1'$}
-    $\cdots$
-    \inline{E}{H$_{n-1}'$}{e$_n$}{H$_n'$}{e$_{C_n}$}{e$_n'$}}\\
-  \mbox{
-    \inline{E$_m$}{H$_n'$}{e}{H$'''$}{e$_{C_m}$}{e$'$} \andalso
-    {\tt e$_C$} = ({\tt E$_m$(x$_1$)=e$_1'$ $\wedge$ $\cdots$ $\wedge$ E$_m$(x$_n$)=e$_n'$})
-  }
-}{\mbox{
-  \inline{E}{H}{a.l(e$_1$,$\ldots$,e$_n$)}{H$'''$}{e$_C$$\wedge$e$_{C_m}$$\wedge$e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{e$'$}
-}}
-
-For methods that only return an expression, we inline the expression
-and pass it to the solver. Note that we do not use the inlined
-receiver accessor {\tt a$'$}. The inlining here acts as a dynamic
-check to ensure the receiver can be inlined. If, for example, the
-receiver is the result of a method call that adds constraints,
-inlining will get stuck.
+when its dependencies change, it just won't work in the other
+direction.
 
 When inlining through statements, the statements are just executed. In
 particular this means, that we are eagerly choosing branch of
 if-statements for inlining and eagerly unroll loops. By setting the
 constraint-construction flag to $\#t$ flag for statement evaluation
 during inlining, we get stuck if any non-trivial side-effects would
-occur.
+occur. 
+
+\tdm{I wonder: Since we require above that the statement evaluation
+  leave the heap and constraints unchanged, could we just use regular
+  statement evaluation and not have a $t$ mode?}
+
+
+The rule above, as well as the one below, ensures that methods being
+used in constraints have no side effects.  This is accomplished by
+requiring the initial heap to remain unchanged.  Similarly, methods
+used in constraints cannot declare nested constraints; this is
+accomplished by requiring the initial sets of ordinary and identity
+constraints to remain unchanged.
+
+\infrule[I-MultiWayCall]{
+  \mbox{
+    \inline{E}{H}{e$_0$}{H}{e$_{C_0}$}{e$_0'$} \andalso
+    \evalBigO{E}{H}{e$_0$}{H}{v} \andalso
+    \lookup{v}{l}{return e}}\\
+  \mbox{
+    \enter{E}{H}{\C}{\I}{v}{E$_m$}{H}{\C}{\I}}\\
+  \mbox{
+    \inline{E}{H}{e$_1$}{H}{e$_{C_1}$}{e$_1'$}
+    $\cdots$
+    \inline{E}{H}{e$_n$}{H$_n'$}{e$_{C_n}$}{e$_n'$}}\\
+  \mbox{
+    \inline{E$_m$}{H}{e}{H}{e$_{C_m}$}{e$'$} \andalso
+    {\tt e$_C$} = ({\tt E$_m$(self)=e$_0'$ $\wedge$ E$_m$(x$_1$)=e$_1'$ $\wedge$ $\cdots$ $\wedge$ E$_m$(x$_n$)=e$_n'$})
+  }
+}{\mbox{
+  \inline{E}{H}{e$_0$.l(e$_1$,$\ldots$,e$_n$)}{H}{e$_C$$\wedge$e$_{C_m}$$\wedge$e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{e$'$}
+}}
+
+For methods that only return an expression, we inline the expression
+and pass it to the solver. % Note that we do not use the inlined
+% receiver accessor {\tt a$'$}. The inlining here acts as a dynamic
+% check to ensure the receiver can be inlined. If, for example, the
+% receiver is the result of a method call that adds constraints,
+% inlining will get stuck.
+
 
 
 \judgment{\reinline{H}{\C}{H$'$}{C}}
+\judgment{\reinline{H}{\I}{H$'$}{e}}
 
-``Re-inlining the constraint store \C~updates the heap and returns a
+``Re-inlining the constraint store \C~ returns a
 constraint {\tt C}''
+
+\tdm{TODO: Technically this judgment produces a conjunction of
+  constraints {\tt C}; not a single {\tt C}.}
 
 \inferax{I-ReinlineEmpty}{\reinline{H}{$\emptyset$}{H}{true}}
 
-\inferrule{I-Reinline}{
+\inferrule{I-ReinlineC}{
   \C$_0$ = \C $\;\setminus$ $\{({\tt E}, {\tt C})\}$ \andalso
-  \reinline{H}{\C$_0$}{H$'$}{C$_0$} \andalso
+  \reinline{H}{\C$_0$}{H}{C$_0$} \andalso
   {\tt C} = $\rho$ {\tt e} \andalso
-  \inline{E}{H$'$}{e}{H$''$}{e$_{C_e}$}{e$'$}
+  \inline{E}{H}{e}{H}{e$_{C_e}$}{e$'$}
 }{
-  \reinline{H}{\C}{H$''$}{C$_0$ $\wedge$ $\rho$ ({\tt e$'$} $\wedge$ e$_{C_e}$)}
+  \reinline{H}{\C}{H}{C$_0$ $\wedge$ $\rho$ ({\tt e$'$} $\wedge$ e$_{C_e}$)}
 }
+
+\inferrule{I-ReinlineI}{
+  \I$_0$ = \I $\;\setminus$ $\{({\tt E}, {\tt I})\}$ \andalso
+  {\tt I} =  {\tt e$_1$==e$_2$} \andalso
+  \reinline{H}{\I$_0$}{H}{e$_0$} \andalso
+  \inline{E}{H}{e$_1$}{H}{e$_{I_1}$}{e$_1'$} \andalso
+  \inline{E}{H}{e$_2$}{H}{e$_{I_2}$}{e$_2'$}
+}{
+  \reinline{H}{\I}{H}{e$_0$ $\wedge$ e$_1'$ $\wedge$ e$_{I_1}$
+  $\wedge$  e$_2'$ $\wedge$ e$_{I_2}$}
+}
+
+
+
+
+\judgment{{\tt <E|H|\C|\I|I>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
+
+This is a helper judgment for use in evaluating assignment statements
+and identity constraints.  These statements are the only ones that can
+cause the types of variables to change.  We handle this in two phases:
+in a first phase, we propagate the new equality constraint through all existing
+identity constraints in order to update other variables and fields as
+needed.  In the second phase we solve all of the non-identity
+constraints.  
+
+\infrule[TwoPhaseUpdate]{
+  \mbox{
+    \stay{\E}{C$_{E_s}$} \andalso
+    \stay{H}{C$_{{H}_s}$} \andalso
+    \reinline{H}{\I}{H}{e} \andalso
+  }\\
+  \mbox{\solveH{E$'$}{H$'$}{(e $\wedge$ C$_{E_s}$ $\wedge$ C$_{{H}_s}$ $\wedge$ e$_1$=e$_2$)}}\\
+  \mbox{
+    \stay{\E $\setminus$\{E\}$\cup$\{E$'$\}}{C$_{{E'}_s}$} \andalso
+    \stay{H$'$}{C$_{{H'}_s}$} \andalso
+    \reinline{H$'$}{\C}{H$'$}{C} \andalso
+    \tcHC{E$'$}{H$'$}{C}}\\
+  \mbox{
+    \solveH{E$''$}{H$''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
+}{\mbox{
+  {\tt <E|H|\C|\I|e$_1$ == e$_2$>} $\Longrightarrow$ {\tt <E$''$|H$''$>}
+}}
 
 
 \judgment{{\tt <E|H|\C|\I|$m$|s>} $\longrightarrow$ {\tt <E$'$|H$'$|\C$'$|\I$'$>}}
@@ -3659,69 +3725,58 @@ construction, statement rules are disabled that would have non-trivial
 side-effects.
 
 \inferrule{S-SeqSkip}{
-  \stepHO{E}{H}{C}{I}{s$_2$}{E$'$}{H$'$}{C}{I}
+  \stepHO{E}{H}{\C}{\I}{s$_2$}{E$'$}{H$'$}{\C$'$}{\I$'$}
 }{
-  \stepHO{E}{H}{C}{I}{skip;s$_2$}{E$'$}{H$'$}{C}{I}
+  \stepHO{E}{H}{\C}{\I}{skip;s$_2$}{E$'$}{H$'$}{\C$'$}{\I$'$}
 }
 
 \inferrule{S-SeqStep}{
-  \stepHO{E}{H}{C}{I}{s$_1$}{E$'$}{H$'$}{C$'$}{I$'$} \andalso
-  \stepHO{E$'$}{H$'$}{C$'$}{I$'$}{s$_2$}{E$''$}{H$''$}{C$''$}{I$''$}
+  \stepHO{E}{H}{\C}{\I}{s$_1$}{E$'$}{H$'$}{\C$'$}{\I$'$} \andalso
+  \stepHO{E$'$}{H$'$}{\C$'$}{\I$'$}{s$_2$}{E$''$}{H$''$}{\C$''$}{\I$''$}
 }{
-  \stepHO{E}{H}{C}{I}{s$_1$;s$_2$}{E$''$}{H$''$}{C$''$}{I$''$}
+  \stepHO{E}{H}{\C}{\I}{s$_1$;s$_2$}{E$''$}{H$''$}{\C$''$}{\I$''$}
 }
 
 \inferrule{S-IfThen}{
   \evalH{E}{H}{e}{true} \andalso
-  \stepHO{E}{H}{C}{I}{s$_1$}{E$'$}{H$'$}{C$'$}{I$'$}
+  \stepHO{E}{H}{\C}{\I}{s$_1$}{E$'$}{H$'$}{\C$'$}{\I$'$}
 }{
-  \stepHO{E}{H}{C}{I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}%
+  \stepHO{E}{H}{\C}{\I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{\C$'$}{\I$'$}%
 }
 
 \inferrule{S-IfElse}{
   \evalH{E}{H}{e}{false} \andalso
-  \stepHO{E}{H}{C}{I}{s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}
+  \stepHO{E}{H}{\C}{\I}{s$_2$}{E$'$}{H$'$}{\C$'$}{\I$'$}
 }{
-  \stepHO{E}{H}{C}{I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{C$'$}{I$'$}%
+  \stepHO{E}{H}{\C}{\I}{if e then s$_1$ else s$_2$}{E$'$}{H$'$}{\C$'$}{\I$'$}%
 }
 
 \infrule[S-WhileDo]{
   \mbox{
     \evalH{E}{H}{e}{true} \andalso
-    \stepHO{E}{C}{H}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}\\
+    \stepHO{E}{H}{\C}{\I}{s}{E$'$}{H$'$}{\C$'$}{\I$'$}}\\
   \mbox{
-    \stepHO{E$'$}{H$'$}{C$'$}{I$'$}{while e do s}{E$''$}{H$''$}{C$''$}{I$''$}}
+    \stepHO{E$'$}{H$'$}{\C$'$}{\I$'$}{while e do s}{E$''$}{H$''$}{\C$''$}{\I$''$}}
 }{\mbox{
-  \stepHO{E}{H}{C}{I}{while e do s}{E$''$}{H$''$}{C$''$}{I$''$}
+  \stepHO{E}{H}{\C}{\I}{while e do s}{E$''$}{H$''$}{\C$''$}{\I$''$}
 }}
 
 \inferrule{S-WhileSkip}{
   \evalH{E}{H}{e}{false}
 }{
-  \stepHO{E}{H}{C}{I}{while e do s}{E}{H}{C}{I}
+  \stepHO{E}{H}{\C}{\I}{while e do s}{E}{H}{\C}{\I}
 }
 
 \infrule[S-Asgn]{
   \mbox{
     $m = f$ \andalso
     \evalBigC{E}{H}{\C}{\I}{e}{H$'$}{\C$'$}{\I$'$}{v} \andalso
-    \tcHC{E}{H$'$}{L=v} \andalso}
-\\
-  \mbox{
-    \stay{E}{C$_{E_s}$} \andalso
-    \stay{H$'$}{C$_{{H'}_s}$} \andalso
-    \reinline{H$'$}{\I}{H$''$}{I} \andalso
-  }\\
-  \mbox{\solveH{E$'$}{H$'''$}{(I $\wedge$ C$_{E_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ L=v)}}\\
-  \mbox{
-    \stay{E$'$}{C$_{{E'}_s}$} \andalso
-    \stay{H$'''$}{C$_{{H'''}_s}$} \andalso
-    \reinline{H$'''$}{\C}{H$''''$}{C} \andalso
-    \tcHC{E$'$}{H$''''$}{C}}\\
-  \mbox{
-    \solveH{E$''$}{H$'''''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'''}_s}$)}}
+    \tcHC{E}{H$'$}{L=v} \andalso
+    \inline{E}{H$'$}{L}{H$'$}{true}{e$'$}} \\
+\mbox{
+{\tt <E|H|\C|\I|e$'$==v>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
 }{\mbox{
-  \stepHO{E}{H}{\C}{\I}{L := e}{E$''$}{H$'''''$}{\C}{\I}
+  \stepHO{E}{H}{\C}{\I}{L := e}{E$'$}{H$'$}{\C}{\I}
 }}
 
 Note that the above rule cannot be used if the constraint-construction
@@ -3763,7 +3818,7 @@ compatibility mode.'')
     \tcHC{E}{H$'$}{C$_0'$} \andalso
   }\\
   \mbox{
-    \stay{E}{C$_{E_s}$} \andalso
+    \stay{\E}{C$_{E_s}$} \andalso
     \stay{H$'$}{C$_{H_s}$} \andalso
     \reinline{H$'$}{\C}{H$''$}{C} \andalso
     \solveH{E$'$}{H$'''$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
@@ -3781,39 +3836,28 @@ compatibility mode.'')
 \infrule[S-OnceIdentity]{
   \mbox{
     $m = f$ \andalso
-    \evalBigO{E}{H$_0$}{a$_0$}{H$_0'$}{v$_0$} \andalso
-    \evalBigO{E}{H$_0'$}{a$_0$}{H}{v$_1$} \andalso
+    \evalBigO{E}{H}{e$_0$}{H}{v$_0$} \andalso
+    \evalBigO{E}{H}{e$_1$}{H}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
   \mbox{
-    \inline{E}{H$_0$}{a$_0$}{H$_0'$}{e$_{C_0}$}{a$_0'$} \andalso
-    \inline{E}{H$_0'$}{a$_1$}{H}{e$_{C_1}$}{a$_1'$}}\\
-  % \mbox{
-  %   \tcH{E}{H}{a$_0'$}{new \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
-  %   \tcH{E}{H}{a$_1'$}{new \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}\\
-  \mbox{
-    \stay{E}{C$_{E_s}$} \andalso
-    \stay{H}{C$_{H_s}$} \andalso
-    \reinline{H}{\I}{H$'$}{I}}\\
-  \mbox{
-    \solveH{E$'$}{H$''$}{$($I $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ a$_0'$=a$_1'$ $\wedge$ e$_{C_1}$ $\wedge$ e$_{C_2}$$)$}}\\
-  \mbox{
-    \stay{E$'$}{C$_{{E'}_s}$} \andalso
-    \stay{H$''$}{C$_{{H''}_s}$} \andalso
-    \reinline{H$''$}{\C}{H$'''$}{C} \andalso
-    \tcHC{E$'$}{H$'''$}{C}}\\
-  \mbox{
-    \solveH{E$''$}{H$''''$}{(C $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H''}_s}$)}}
+    \inline{E}{H}{e$_0$}{H}{true}{e$_0'$} \andalso
+    \inline{E}{H}{e$_1$}{H}{true}{e$_1'$}}\\
+\mbox{
+{\tt <E|H|\C|\I|e$_0'$==e$_1'$>} $\Longrightarrow$ {\tt <E$'$|H$'$>}}
 }{\mbox{
-    \stepHO{E}{H$_0$}{\C}{\I}{once a$_0$ == a$_1$}{E$''$}{H$''''$}{\C}{\I}
+    \stepHO{E}{H}{\C}{\I}{once e$_0$ == e$_1$}{E$'$}{H$'$}{\C}{\I}
 }}
+
+\tdm{TODO: What if the inlining of e$_0$ or e$_1$ produces constraints
+  other than {\tt true}?}
 
 \infrule[S-AlwaysIdentity]{
   \mbox{
-    \stepHO{E}{H}{\C}{\I}{once a$_0$ == a$_1$}{E$'$}{H$'$}{\C}{\I}}\\
+    \stepHO{E}{H}{\C}{\I}{once e$_0$ == e$_1$}{E$'$}{H$'$}{\C}{\I}}\\
   \mbox{
-    \I$'$ = \I $\;\bigcup$ $\{(${\tt E}$,\,${\tt a}$_0$ {\tt ==} {\tt a}$_1)\}$}
+    \I$'$ = \I $\;\bigcup$ $\{(${\tt E}$,\,${\tt e}$_0$ {\tt ==} {\tt e}$_1)\}$}
 }{\mbox{
-    \stepHO{E}{H}{\C}{\I}{always a$_0$ == a$_1$}{E$'$}{H$'$}{\C}{\I$'$}
+    \stepHO{E}{H}{\C}{\I}{always e$_0$ == e$_1$}{E$'$}{H$'$}{\C}{\I$'$}
 }}
 
 

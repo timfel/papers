@@ -85,10 +85,10 @@
 \title{Developing a Formal Semantics for Babelsberg: \\ 
   A Step-by-Step Approach}
 \author{Tim Felgentreff, Todd Millstein, and Alan Borning}
-\date{VPRI Technical Report TR-2014-002 \\ Draft of \today}
+\date{VPRI Technical Report TR-2014-002 \\ August 2014}
 
-% changed title to make it different from the title of the
-% hypothetical POPL submission
+% changed title to make it different from the title of a possible
+% later conference submission
 
 \maketitle
 
@@ -96,19 +96,22 @@
 
 Babelsberg \cite{felgentreff-babelsberg-tr} is a family of object
 constraint languages, with current instances being Babelsberg/R (a
-Ruby extension), and Babelsberg/JS \cite{felgentreff-ecoop-2014} (a
-Javascript extension). The
+Ruby extension), Babelsberg/JS \cite{felgentreff-ecoop-2014} (a
+Javascript extension), and Babelsberg/S (a Squeak extension). The
 Babelsberg design has evolved alongside with its
-implementations. However, because the implementations were driven in
-part by practical considerations about the expectations of programmers
-familiar with the underlying host language, this has led to a number
-of semantic choices that are muddled with implementation
-specifics. For example, there have been a number of confusing issues
-with respect to constraints and object identity, how to represent
-assignment in the solver, and the effects of the solver not finding a
-solution to a set of constraints. In an effort to understand these
-better and provide a complete design that instances of Babelsberg can
-implement, we give here a formal operational semantics for Babelsberg.
+implementations. However, both because the implementations were driven
+in part by practical considerations about the expectations of
+programmers familiar with the underlying host language, as well as
+because of the complexities of integrating objects, state, and
+constraints, this has led to a number of semantic choices that are
+muddled with implementation specifics. For example, there have been a
+number of confusing issues with respect to constraints and object
+identity, how to represent assignment, what are the appropriate
+restrictions on expressions that define constraints, and what should
+happen if the solver can't find a solution to a set of constraints.
+In an effort to understand these better and to provide a complete design
+that instances of Babelsberg can implement, we give here a formal
+operational semantics for Babelsberg.
 
 We've found it helpful to approach the problem incrementally, first
 devising a formal semantics for a very simple constraint imperative
@@ -119,8 +122,8 @@ languages are as follows:
 \begin{itemize}
 
 \item Babelsberg/PrimitiveTypes (the only datatypes are booleans plus
-  a set of primitive types, such as integers, reals, and strings). The
-  concrete typed variant we present is Babelsberg/Reals.
+  a set of primitive types, such as integers, reals, and strings).
+  The concrete typed variant we start with is Babelsberg/Reals.
 \item Babelsberg/Records (Babelsberg with immutable records, along
   with primitive types).
 \item Babelsberg/UID (Babelsberg with mutable records that live on the
@@ -132,10 +135,16 @@ languages are as follows:
 \end{itemize}
 
 In each case, we first provide an informal discussion and examples,
-and then the formal semantics.  This tech report is intended to
-accompany a paper to be submitted for conference publication, which
-will focus just on Babelsberg/Objects, perhaps with a brief
-introductory example using Babelsberg/Reals.
+and then the formal semantics.  The primary audience for this
+admittedly long tech report is first ourselves --- we have clarified
+many aspects of the language as a result of working out the formalism
+--- and second, other researchers who are interested in the details.
+Subsequently we plan to write a standard-length paper for a
+programming language conference that should be of more general
+interest, based on this material.  (This later paper will focus just
+on Babelsberg/Objects, perhaps with a brief introductory example using
+Babelsberg/Reals, and will also include proofs of some of the
+interesting properties of the language.)
 
 \section{Motivation}
 
@@ -167,12 +176,35 @@ practice).  The constraint imperative language Kaleidoscope
 the early versions, was arguably too complex in part because it was
 too powerful in interesting ways of just this kind, making it
 difficult to understand what the result of a program might be and also
-difficult to implement efficiently.  This also makes the design more
+difficult to implement efficiently.  Trying to follow this heuristic
+also makes the design more
 independent of the particular host language and solvers used in
 implementing it, because only a small set of basic operations have to
 be adapted.
 
-\ab{TODO - ALAN will add some major lessons learned here}
+Some significant clarifications and simplifications of Babelsberg that
+have come out of this work on formalizing the language are:
+
+\begin{itemize}
+\item A clearer understanding of the interaction between constraints
+  on identity, types, and values.
+\item The addition of structural compatibility checks to tame the
+  power of the solver with respect to changing object structure and
+  type to satisfy constraints.  (It now can't do this.)
+\item A set of restrictions on identity constraints that make it
+  easier to reason about object identity.  In particular, any change
+  to the identity of the object referred to by a variable flows
+  clearly from a single assignment statement, and is deterministic
+  (there are never multiple correct solutions to the identity
+  constraints).
+\item The addition of \emph{value classes}.  (Instances of value
+  classes are immutable objects for which object identity is not
+  significant.)  Value classes allow us to give a clear specification
+  of the requirements for expressions that define constraints (in
+  particular that they must be side effect free), while still allowing
+  useful programming idioms.
+
+\end{itemize}
 
 \section{Constraints}
 \label{sec:constraints}
@@ -599,10 +631,13 @@ These will apply to all of the Babelsberg languages.
   defines the constraint should return a boolean.  (This is checked
   dynamically.) 
 
-\item \label{item:side-effects} The constraint expression should
-  either be free of side effects, or if there are side effects, they
-  should be benign, for example, doing caching.  (In the formal
-  semantics, we simply disallow side effects.)
+\item \label{item:side-effects} The constraint expression should be
+  free of side effects.\footnote{In a practical implementation, the
+    programmer might be able to cautiously use benign side effects in
+    a constraint expression, for example, for caching or constructing
+    temporary objects that are garbage collected before they are
+    visible outside the constraint.  In the formal semantics, however,
+    we simply disallow side effects in constraint expressions.}
 
 \item \label{item:deterministic} The result of evaluating the block
   should be deterministic.  For example, an expression whose value
@@ -735,7 +770,7 @@ required & $x=$ \texttt{"Hello"}
 This has the solution $\texttt{x} \mapsto \texttt{"Hello"}$, 
 $\texttt{y} \mapsto \texttt{"HelloHello"}$.
 
-Nondeterminism can arise for types as well as values:
+Nondeterminism can arise for primitive types as well as values:
 
 \begin{verbatim}
 x := 3;
@@ -747,6 +782,8 @@ Here the solver is free to choose either an integer or a string for
 \verb|x|.  This is a bit strange, but arguably this nondeterminism
 isn't any worse than allowing the solver to select either 3 or 5 as
 the value for a variable.
+
+\ab{TODO: TIM or TODD - is the above example correct?}
 
 \subsection{Formalism}
 \label{sec:int-formalism}
@@ -1401,7 +1438,8 @@ records (as in Babelsberg/Records) to model instances of value classes
 (which are immutable objects for which object identity is not
 significant).  It should be clear from context when we use the word
 ``record'' what kind we mean; but when it's necessary to distinguish
-them, we'll use the terms ``i-record'' and ``uid-record.''
+them, we'll use the terms ``i-record'' and ``uid-record'' for
+immutable records and records with object identity respectively.
 
 Only uid-records live on the heap --- primitive types and i-records do
 not.  (It would be possible to store all data on the heap, but we
@@ -1555,7 +1593,8 @@ q := new {z:10};
 After the last statement both \verb|p| and \verb|q| point to the same
 \verb|{z:10}| record.  Note that we don't have structural
 compatibility checks for re-satisfying identity constraints, so that
-the assignment to \verb|q| that changes its structure ripples around
+the assignment to \verb|q| that changes its structure ripples through
+the identity constraint
 to change \verb|p| as well.  However, if the \verb|always| constraint
 had been a record equality constraint rather than an identity
 constraint, the last assignment to \verb|q| would have failed the
@@ -1568,8 +1607,8 @@ non-obvious consequences, making programs potentially hard for the
 programmer to understand and also complicating the job of the language
 implementor.  In Babelsberg, we want to tame the power of constraints
 on object identity, as well as constraints on object structure, i.e.,
-types.  As one part of trying to achieve this goal, in the formal
-semantics we require that variables be created in an assignment
+types.  As one part of trying to achieve this goal, 
+we require that variables be created in an assignment
 statement --- the above program would have been illegal if we didn't
 have the \verb|q:=p| statement but just tried to create \verb|q| with
 the \verb|always| constraint.  We also require that a new identity
@@ -2751,8 +2790,8 @@ element.
 \subsection{Additional Restrictions on Constraint Expressions}
 \label{sec:additional-constraint-restrictions}
 
-Methods can of course have side effects, but unless the side effects
-are benign, such methods can't be used in the expressions that define
+Methods can of course have side effects, but 
+such methods can't be used in the expressions that define
 constraints.  (This is one of the restrictions noted in Section
 \ref{sec:constraint-expression-requirements} on requirements for
 constraint expressions.)  This subsection describes some consequences
@@ -2793,12 +2832,13 @@ regarded as a side effect, so methods that can be invoked by
 constraint expressions can only create instances of value classes and
 not ordinary classes.
 
-Another restriction is that methods called from a constraint
-expression cannot themselves create other constraints, or call further
-methods that do so.  The following program is not allowed, and
-illustrates side effects resulting from adding constraints in methods
-called from other constraints.  Suppose we are using a least-squares
-solver that supports soft constraints.
+Creating a constraint is a kind of side effect, so another consequence
+of the prohibition on side effects in constraint expressions is that
+methods called from a constraint expression cannot themselves create
+other constraints, or call further methods that do so.  The following
+program is not allowed, and illustrates side effects resulting from
+adding constraints in methods called from other constraints.  Suppose
+we are using a least-squares solver that supports soft constraints.
 
 \begin{verbatim}
 def test(x)

@@ -770,7 +770,7 @@ required & $x=$ \texttt{"Hello"}
 This has the solution $\texttt{x} \mapsto \texttt{"Hello"}$, 
 $\texttt{y} \mapsto \texttt{"HelloHello"}$.
 
-Nondeterminism can arise for primitive types as well as values:
+Non-Determinism can arise for primitive types as well as values:
 
 \begin{verbatim}
 x := 3;
@@ -779,11 +779,14 @@ always weak x="hello";
 \end{verbatim}
 
 Here the solver is free to choose either an integer or a string for
-\verb|x|.  This is a bit strange, but arguably this nondeterminism
+\verb|x|.  This is a bit strange, but arguably this non-determinism
 isn't any worse than allowing the solver to select either 3 or 5 as
-the value for a variable.
-
-\ab{TODO: TIM or TODD - is the above example correct?}
+the value for a variable. In later languages we introduce a structural
+determinism that ensures that non-determinism cannot arise regarding
+the structure of the record referred to by a variable. This notion
+could be extended to avoid non-determinism in the primitive types. For
+simplicity in the semantics, however, we have chosen not to
+distinguish primitive types.
 
 \subsection{Formalism}
 \label{sec:int-formalism}
@@ -1244,7 +1247,7 @@ Expression evaluation is updated to support records.
 ``Constraint {\tt C} is well formed in the context of environment
 {\tt E}.''
 
-We use a notion of typechecking to prevent undesirable nondeterminism
+We use a notion of typechecking to prevent undesirable non-determinism
 in constraints.  Specifically, we would like for constraint solving to
 preserve the structure of the values of variables, changing only the
 underlying primitive data as part of a solution.  We formalize our
@@ -1634,7 +1637,7 @@ but we want to tame the language further.)
 With the restriction, any changes to the types of variables must flow
 from an explicit assignment statement --- the effects can still ripple
 outwards via identity constraints --- but they are deterministic.  It
-is only updates to values that can be nondeterministic as the result
+is only updates to values that can be non-deterministic as the result
 of constraints.  One item for future work will be to formalize and
 prove this statement, which seems like a useful property for the
 language.
@@ -2416,15 +2419,13 @@ constraint definitions (i.e., constraint definitions that can include
 method calls).  This language thus includes all the essential features
 of actual object constraint languages such as Babelsberg/R,
 Babelsberg/JS, and Babelsberg/Squeak, including classes, inheritance,
-methods, messages, and constraints.  For simplicity, we remove field
-access entirely --- access to an objects variables is only possible
-through message sends.
+methods, messages, and constraints.
 
 We can thus now write constraints on the results of message sends,
 such as the following constraint on the x coordinate of the center of
 a rectangle:
 \begin{verbatim}
-always r.center.x = 100;
+always r.center().x() = 100;
 \end{verbatim}
 
 % I-Compare r.center().x = 100
@@ -2630,9 +2631,13 @@ On the other hand, if \verb|m| can be used multi-directionally, so
 that for example we can find a value for \verb|b| given values for
 \verb|x|, \verb|a|, and \verb|c|, then in the semantics the \verb|m|
 method is inlined so that the resulting constraints can be turned over
-to the solver.
-
-\ab{TODO - TODD OR TIM: check the above and revise as necessary}
+to the solver. This done by creating an environment for method
+\verb|m| and inlining the returned expression with respect to that
+environment. The parameters in that environment are constrained to be
+equal to \verb|a| and \verb|b|. So if \verb|c| changes, the solver can
+update \verb|a| and \verb|b| to satisfy the constraints, if either the
+first or second parameter of \verb|m| were used in its return
+expression.
 
 \subsection{Examples}
 
@@ -2678,7 +2683,7 @@ center is a computed value rather than being stored as an instance
 variable.
 
 \begin{verbatim}
-always r.center = Point(10,20);
+always r.center() = Point(10,20);
 \end{verbatim}
 
 The \verb|center| method for \verb|Rectangle| is defined as follows:
@@ -2699,14 +2704,55 @@ The constraint is evaluated in the following way.  The code for
 Rectangle's \verb|center| method is found, and inlined to construct an
 equality constraint between the result of evaluating
 \verb|(self.upper_left + self.lower_right) / 2| and a new point with
-\verb|x=10|, \verb|y=20|.  This explodes into a network of simpler
-constraints that can then be handed to the solver:
+\verb|x=10|, \verb|y=20|. Constructing the center point from the first
+expression, as well as looking up and inlining the \verb|=| method on
+it, explodes into a network of simpler constraints that can then be
+handed to the solver:
 \begin{verbatim}
-(upper_left.x + lower_right.x) / 2 = 10
-(upper_left.y + lower_right.y) / 2 = 20
-\end{verbatim}
+// for the center method
+self1 = r
+self2 = self1.upper_left
+arg1 = self.upper_right
+argP1_1 = self2.x + arg1.x
+argP1_2 = self2.y + arg1.y
+self3 = {x: argP1_1, y: argP2_2}
+arg2 = 2
+argP2_1 = self3.x / arg2
+argP2_2 = self3.y / arg2
 
-\ab{TODO - TODD OR TIM: please check this}
+// for the static point
+argP3_1 = 10
+argP3_2 = 20
+
+// for the point equality
+self4 = {x: argP2_1, y: argP2_2}
+arg3 = {x: argP3_1, y: argP3_2}
+self4.x = arg3.x && self4.y = arg3.y
+\end{verbatim}
+% \begin{verbatim}
+%   self1 = r // enter center method
+%     self2 = self1.upper_left // enter + method
+%     arg1 = self.upper_right  // ...
+%       argP1_1 = self2.x + arg1.x // enter Point constructor
+%       argP1_2 = self2.y + arg1.y // ...
+%       ^ {x: argP1_1, y: argP2_2}
+%     self3 = {x: argP1_1, y: argP2_2} // enter / method
+%     arg2 = 2                         // ...
+%       argP2_1 = self3.x / arg2 // enter Point constructor
+%       argP2_2 = self3.y / arg2 // ...
+%       ^ {x: argP2_1, y: argP2_2}
+%     ^ {x: argP2_1, y: argP2_2}
+%   ^ {x: argP2_1, y: argP2_2}
+
+%   argP3_1 = 10 // enter Point constructor
+%   argP3_2 = 20 // ...
+%   ^ {x: argP3_1, y: argP3_2}
+
+%   self4 = {x: argP2_1, y: argP2_2} // enter = method
+%   arg3 = {x: argP3_1, y: argP3_2}  // ...
+%   ^ self4.x = arg3.x && self4.y = arg3.y
+% \end{verbatim}
+
 
 Here is another example of using a method in a constraint:
 
@@ -4094,7 +4140,7 @@ always p=q
 If this isn't rejected by a structural compatibility check, there
 there are a number of plausible values that the solver could find for
 {\tt p} and {\tt q} --- namely \verb|{x:0}|, \verb|{y:1}|, and
-\verb|{x:0,y:1}| --- and unclear which is better.  The nondeterminism
+\verb|{x:0,y:1}| --- and unclear which is better.  The non-determinism
 here is arguably worse than what arises with integers and floats and
 other values, since it affects the structure of the result rather than
 just its value.
@@ -4127,27 +4173,27 @@ language so that new kinds of constraints can be encoded and sent to
 the new solvers.  This doesn't seem to create any issues for the
 formal semantics, so we note this only in this appendix.
 
-One useful extension of this sort would be adding a solver and
-constructs in the solver language for finite domain constraints, as in
-the clpfd library for SWI Prolog.  Other possible solvers would be for
-strings, or for geometric constraints, either in 2 or 3 dimensions.
+One useful extension of this sort would be useful to include a solver
+for geometric constraints, either in 2 or 3 dimensions.
 
-Another extension --- already supported in Babelsberg/R and
-Babelsberg/JS --- is to support local propagation constraints, as
-solved for example by DeltaBlue.  Doing this requires adding a
+Some extensions that already exist in the practical languages are a
+solver (and constructs in the solver language) for finite domain
+constraints, as in the clpfd library for SWI Prolog.  Other additional
+solvers exists for strings and local propagation constraints, as
+solved for example by DeltaBlue.  Doing the latter required adding a
 construct for declaring local propagation constraints (including the
 propagation methods) in the source language, and also adding local
 propagation constraints to the solver language.
 
-\ab{TODO - TIM: is there anything that needs to be explained about how this
-  works?  See the following \ldots} 
-
 In Babelsberg/JS, when a DeltaBlue constraint is constructed, and an
 equality constraint is encountered with two variables of the same type
-on either side, when processing a constraint the interpreter
-doesn't descend further, but instead asserts the equality on those
+on either side, when processing a constraint the interpreter doesn't
+descend further, but instead asserts the equality on those
 variables. So, for example, for two points the constraint expression
-does not desugar into multiple constraints on the x and y variables.
+does not desugar into multiple constraints on the x and y
+variables. This works even if the programmer does not specify a
+propagation function, because DeltaBlue has a default propagation
+method for equality (and some other relations, such as scaling.)
 
 Finally, we may be able to have a solver language and solver to encode
 Prolog-like goals, which would support backtracking and Prolog-style

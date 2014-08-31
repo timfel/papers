@@ -1774,14 +1774,19 @@ translation to the constraint solver.
 {\rm Statement} & s & ::= & $\ldots$ $\mid$ a := e $\mid$ a := new o\\
 {\rm Identity} & I & ::= & a == a\\
 {\rm Accessor} & a & ::= & x $\mid$ a.l \\
-{\rm Expression} & e & ::= & $\ldots$ $\mid$ I $\mid$ R\\
+{\rm Expression} & e & ::= & $\ldots$ $\mid$ I $\mid$ D\\
 {\rm Record} & o & ::= & \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
-{\rm Dereference} & D & ::= H(r)\\
+{\rm Dereference} & D & ::= & H(r)\\
 {\rm Reference} & r & ::= & {\rm references to heap records} \\\\
 
 {\rm Value} & v & ::= & c $\mid$ r \\
 \end{tabular}
 \end{tt}
+
+In the syntax, we treat {\tt H} as a keyword.  Source programs will
+not use expressions of the form {\tt H(r)}, but they are introduced as
+part of constraints given to the solver, which we assume will treat
+{\tt H} as an uninterpreted function.
 
 \subsubsection{Semantics}
 
@@ -3482,7 +3487,8 @@ expressions and thus in constraints syntactically, our rules for
 creating constraints given below inline method invocations.  Identity
 constraints also do not typecheck: they are solved separately and
 should not appear in ordinary constraints (see the rules for statement
-evaluation below).
+evaluation below).  Finally, new (non-value) object construction does
+not typecheck, since constraints must be side-effect-free.
 
 Types distinguish between primitive values and objects, and for
 objects the type keeps track of their fields:
@@ -3532,8 +3538,8 @@ only global variable names type.
 % }
 
 \inferrule{T-Ref}{
-  \tcH{\E}{H}{o}{T} \andalso
-  {\tt H}({\tt r})={\tt o}
+  {\tt H}({\tt r})={\tt o} \andalso
+  \tcH{\E}{H}{o}{T} 
 }{
   \tcH{\E}{H}{r}{T}
 }
@@ -3562,7 +3568,7 @@ only global variable names type.
 %   \tcH{\E}{H}{new o}{T}
 % }
 
-\inferrule{T-Object}{
+\inferrule{T-ValueObject}{
   \tcH{\E}{H}{e$_1$}{T$_1$} $\cdots$ \tcH{\E}{H}{e$_n$}{T$_n$}
 }{
   \tcH{\E}{H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
@@ -3585,8 +3591,9 @@ only global variable names type.
 
 \judgment{\solveH{\E}{H}{C}}
 
-For simplicity of this semantics we assumed that the solver natively
-supports records and the Heap map used for references. We do not
+As before we assume that the solver natively
+supports records and uninterpreted functions (which we use to
+represent the heap).  We do not
 assume, however, that the solver understands methods, which can now be
 part of constraint expressions. This requires us to essentially inline
 methods before passing constraints to the solver.
@@ -3609,10 +3616,10 @@ multiple environments.
 }
 
 \inferrule{StayHeap}{
-  ${\tt o} = $\{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\} \andalso
   ${\tt H}({\tt r}) = {\tt o}$ \andalso  
   ${\tt H}_0 = {\tt H} \setminus \{({\tt r},{\tt o})\}$ \andalso
-  \stay{H$_0$}{C$_0$}
+  \stay{H$_0$}{C$_0$} \andalso
+  ${\tt o} = $\{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\}
 }{
   \stay{H}{C$_0$ $\wedge$
     H(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$
@@ -3701,7 +3708,7 @@ however, so the global environment can change as a result of inlining.
 
 \infrule[I-Call]{
   \mbox{
-    \evalBig{\E}{E}{H}{\C}{\I}{e}{\E$'$}{E}{H}{\C}{\I}{v} \andalso
+    \evalBig{\E}{E}{H}{\C}{\I}{e}{\E$'$}{H}{\C}{\I}{v} \andalso
     \lookup{v}{l}{s; return e}}\\
   \mbox{
     \enter{\E$'$}{E}{H}{\C}{\I}{v}{\E$''$}{E$_m$}{H}{\C}{\I}}\\
@@ -3814,7 +3821,7 @@ inlining identity constraints.
     \stay{\E$'$}{C$_{{E'}_s}$} \andalso
     \stay{H$'$}{C$_{{H'}_s}$} \andalso
     \reinline{\E$'$}{H$'$}{\C}{\E$_c$}{C} \andalso
-    \tcHC{E$'$}{H$'$}{C}}\\
+    \tcHC{\E$'$}{H$'$}{C}}\\
   \mbox{
     \solveH{\E$''$}{H$''$}{(C $\wedge$ C$_0$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
 }{\mbox{
@@ -3827,13 +3834,11 @@ inlining identity constraints.
 The stepping rules are refactored to work with the local environments
 and the new constraint and identity-constraint stores.
 
-\inferrule{S-SeqSkip}{
-  \stepHO{\E}{E}{H}{\C}{\I}{s$_2$}{\E$'$}{E$'$}{H$'$}{\C$'$}{\I$'$}
-}{
-  \stepHO{\E}{E}{H}{\C}{\I}{skip;s$_2$}{\E$'$}{E$'$}{H$'$}{\C$'$}{\I$'$}
+\inferax{S-Skip}{
+  \stepHO{\E}{E}{H}{\C}{\I}{skip}{\E}{E}{H}{\C}{\I}
 }
 
-\inferrule{S-SeqStep}{
+\inferrule{S-Seq}{
   \stepHO{\E}{E}{H}{\C}{\I}{s$_1$}{\E$'$}{E$'$}{H$'$}{\C$'$}{\I$'$} \andalso
   \stepHO{\E$'$}{E$'$}{H$'$}{\C$'$}{\I$'$}{s$_2$}{\E$''$}{E$''$}{H$''$}{\C$''$}{\I$''$}
 }{
@@ -3917,7 +3922,7 @@ constraint between the LHS and RHS. In a practical language we found
 it sometimes useful to include a ``backwards compatibility mode''
 which sets up required equality constraints when assignment occurs.
 
-We also do allow the next rules using {\tt once} and {\tt always} in
+We also do not allow the next rules using {\tt once} and {\tt always} in
 constraint-construction mode, because the inlining rules disallow
 updating the constraint store and heap. Again, a practical language
 might want to include support for nested constraints in a ``backwards
@@ -3949,7 +3954,7 @@ compatibility mode.''
 \infrule[S-OnceIdentity]{
   \mbox{
     \evalBig{\E}{E}{H}{\C}{\I}{e$_0$}{\E$_0$}{H}{\C}{\I}{v$_0$} \andalso
-    \evalBig{\E$'$}{E}{H}{\C}{\I}{e$_1$}{\E$_1$}{H}{\C}{\I}{v$_1$} \andalso
+    \evalBig{\E$_0$}{E}{H}{\C}{\I}{e$_1$}{\E$_1$}{H}{\C}{\I}{v$_1$} \andalso
     {\tt v$_0$} = {\tt v$_1$}}\\
   \mbox{
     \inline{\E$_1$}{E}{H}{e$_0$}{\E$_2$}{e$_{C_0}$}{e$_0'$} \andalso

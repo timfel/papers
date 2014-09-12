@@ -347,23 +347,13 @@ We can also annotate variables used in constraints as
 set of constraints with priorities, constraints should not be allowed
 to affect the choice of values for their read-only variables, i.e.,
 information can flow out of the read-only variables, but not into
-them.  There is a formal, declarative definition of read-only
-annotations in \cite{borning-lisp-symbolic-computation-1992}, which
-was in turn adapted from that in the ALPS flat committed-choice
-logic language \cite{maher-iclp-1987}.  A
-\emph{one-way constraint} can be represented by annotating all but one
-of the constrained variables as read-only.  One can also annotate an
-expression as read-only --- this is syntactic sugar for annotating
-each of its variables as read-only.
-
-% In all of the languages described in the sections that follow, the
-% constraint solver satisfies the constraints at each time step, but
-% does not itself need to know about time.  Instead, time is built into
-% the semantic rules; as far as the solver is concerned, time is handled
-% at each step by adding weak \emph{stay constraints} that variables keep their
-% old values.  In other words, the semantic rules handle time, while
-% the solver handles solving the constraints including both hard and
-% soft constraints.
+them.  Read-only annotations provide an important tool in a practical
+language for guiding the behavior of the constraint solver.  However,
+they don't present any particular issues for the formal semantics ---
+we would just pass them on to the constraint solver to handle.
+Therefore, for simplicity we've dropped the extra rules to handle them
+(since they were just copies of the rules for variables without the
+read-only annotation).
 
 \subsection{Conjunctions and Disjunctions of Constraints}
 
@@ -577,25 +567,13 @@ equality constraint as an \verb|always| constraint.
 
 An interesting aspect of this semantics, both as presented informally
 above and in the formalism that follows, is that we no longer model
-assignment as a constraint on variables at different times.  (In the
-refinment model, as presented in the first Babelsberg paper
-\cite{felgentreff-babelsberg-tr}, we described an assignment \texttt{x
-  := x+2} as a constraint $x_{t+1} = x_t?  + 2$.)  But now the
-constraint solver doesn't know anything about time.  Instead, we
-simply solve constraints in the current environment --- the effect of
-considering the value of \texttt{x} at different times is achieved by
-first evaluating the right hand side of an assignment in the old
-environment, and then asserting \verb|once| constraints that cause
-variable values to be updated as needed.% \footnote{These models are
-  % equivalent, so this is just a question of presentation.  In the
-  % refinement model, when we represent an assignment as a constraint
-  % among variables at time $t$ on the right hand side, and a variable
-  % at $t+1$ on the left hand side, we annotate all the variables on the
-  % right hand side as read-only, which yields the same result as first
-  % evaluating the right hand side in the old environment. \ab{TODO -
-  %   TODD: are they equivalent for Babelsberg/Objects as well?  I think
-  %   so but we should think about this carefully.  Or should we just
-  %   leave this as a hypothesis for now?}}
+assignment as a constraint on variables at different times, as was
+done in for example the first Babelsberg paper
+\cite{felgentreff-babelsberg-tr}.  See Appendix
+\ref{sec:perturbation-vs-refinement} for a discussion of these
+alternatives.  (This is relegated to the appendix since, while
+interesting, it is largely orthogonal to the task at hand of providing
+a formal semantics for Babelsberg).
 
 The program might also introduce simultaneous equations and
 inequalities.  For example:
@@ -642,56 +620,6 @@ required & $x = 20$
 
 Note that the required $x \leq 10$ constraint has persisted into this
 new set of constraints.  These constraints are unsatisfiable.
-
-This behavior is the same as that of the refinement model, in which
-the program would be equivalent to these constraints, which are also
-unsatisfiable, in this case due to the read-only annotations.
-
-\begin{eqnarray*}
-\mbox{required\ \ } x_0 & = & 5            \\
-\forall t>0 \mbox{\ required\ \ } x_t & \leq & 10  \\
-\mbox{weak\ \ } x_1 & = & x_0?             \\
-\mbox{weak\ \ } x_2 & = & x_1?             \\
-\mbox{required\ \ } x_2 & = & x_1? + 15
-\end{eqnarray*}
-
-The read-only annotations in the refinement model serve the same role
-as do the evaluation rules in our current model.  In the example, in
-our current semantics we model the final assignment \verb|x:=x+15| by
-first evaluating \verb|x+15| in the old environment, and then adding a
-required \verb|once| constraint that \verb|x| be equal to that value.
-In the refinement model, we model the final assignment as $x_2 = x_1?
-+ 15$, where the read-only annotation on $x_1$ in essence accomplishes
-the same thing, by preventing the solver from changing $x_1$ to
-satisfy this constraint even though the other constraint that gives it
-the value of 5 is only weak.  Similarly, stay constraints in the
-current semantics are modeled as weak constraints equating the
-variable with its current value; in the refinment model these are weak
-constraints relating the variables representing the current and
-previous versions, with the previous version annotated as read-only.
-
-\tdm{I don't understand why the above is unsatisfiable?  It seems that
-  there are solutions satisfying all the required constraints, for example:  $x_0 =
-  5; x_1 = -5; x_2 = 10$.  This doesn't satisfy the weak constraint on
-  $x_1$ but that's ok.  The difference with our model is that we
-  essentially turn that one into a required constraint by eagerly
-  solving it.}
-
-\ab{It's unsatisfiable because of the read-only annotations - these
-  prevent information from flowing back through the read-only
-  annotated variable, so that you can't change $x_1$ to satisfy the
-  required constraint on $x_2$.  The end result is the same as our
-  current model.  I added something about this (which I think is
-  interesting, but maybe it's really a diversion from our main theme??).}
-
-%% COMMENTED THIS OUT -- THIS IS TRUE ONLY FOR ONE VERSION OF THE
-%% PERTURBATION MODEL (AND KIND OF A WRONG-HEADED ONE AT THAT):
-%%
-%% However, it is \emph{different} from the behavior of the perturbation
-%% model, in which we
-%% would assign 20 to x on the last statement, and then bump it down to
-%% 10 to satisfy the {\tt always} constraint, rather than ending up with
-%% an unsatisfiable set of constraints.
 
 \subsection{Requirements for Constraint Expressions}
 \label{sec:constraint-expression-requirements} 
@@ -4079,10 +4007,13 @@ expression.
 
 \section{Appendix}
 
-This appendix contains descriptions of some alternatives that were
-considered but latter dropped (but that seem promising enough that we
-might come back to them some day), along with observations that are
-potentially of interest.
+This appendix contains some observations that are potentially of
+interest but that are mostly orthogonal to the task at hand of
+providing a formal semantics for Babelsberg, and also descriptions of
+some alternatives that were considered but latter dropped (but that
+seem promising enough that we might come back to them some
+day).\footnote{In other words, it's a holding pen for material we
+  probably should just have deleted but couldn't quite bear to.}
 
 \subsection{Warnings and Debugging}
 \label{sec:warnings-and-debugging}
@@ -4114,6 +4045,127 @@ As described previously, in the interests of predictability, the
 system will not create a new (standard) object to satisfy constraints.
 There should be an appropriate error message in such a case if the
 unsatisfied constraints are required, and a warning if they are soft.
+
+\subsection{The Perturbation Model vs.\ the Refinement Model}
+\label{sec:perturbation-vs-refinement}
+
+A key issue in integrating constraints with imperative programming is
+how to represent variables that change over time.  Earlier versions of
+Kaleidoscope
+\cite{freeman-benson-phd,freeman-benson-iccl-1992,freeman-benson-ecoop-1992}
+used a \emph{refinement model}, in which ordinary variables were
+represented as a stream of ``pellucid variables,'' each holding a
+value at a different time.  This was in turn adapted from Lucid
+\cite{ashcroft-cacm-1977}.  Later versions of Kaleidoscope
+\cite{lopez-ecoop-1994} used a \emph{perturbation model}, in which
+variables were represented conventionally.  Assignment perturbed the
+value of a variable, and then the constraints took over and adjusted
+the values of other variables so that they were re-satisfied if
+necessary.  The formal semantics described here uses a variation of
+the perturbation model, which we believe is cleaner.  (In particular,
+rather than just perturbing the value of a variable by changing it, we
+model assignment as a \verb|once| constraint between the variable and
+the value of the expression on the right hand side of an assignment
+statement.)
+
+The refinement model did provide additional capabilities --- for
+example syntax for referring to both the current and previous values
+of a variable --- but at a cost, both conceptually for the programmer
+and also for the language implementor.  At least for the common cases,
+we believe the refinement model and our current model provide the same
+answers.  
+
+The refinement model made essential use of read-only annotations on
+variables to prevent the present from affecting the past.  So before
+launching into an example, we digress to discuss read-only
+annotations.
+
+Intuitively, when choosing the best solutions to a set of constraints,
+constraints should not be allowed to affect the choice of values for
+their read-only variables, i.e., information can flow out of the
+read-only variables, but not into them.  There is a formal,
+declarative definition of read-only annotations in
+\cite{borning-lisp-symbolic-computation-1992}, which was in turn
+adapted from that in the ALPS flat committed-choice logic language
+\cite{maher-iclp-1987}.  A \emph{one-way constraint} can be
+represented by annotating all but one of the constrained variables as
+read-only.  One can also annotate an expression as read-only --- this
+is syntactic sugar for annotating each of its variables as read-only.
+
+Here's a simple example of the effect of a read-only annotation on a
+variable.  First consider these constraints:
+
+\begin{tabular}{rl}
+required & $x=y$ \\
+strong   & $x=3$ \\
+weak     & $y=4$
+\end{tabular}
+
+This has the solution $x \mapsto 3, y \mapsto 3$, since the strong
+constraint trumps the weak one.  
+
+But suppose we add a read-only annotation:
+
+\begin{tabular}{rl}
+required & $x=y?$ \\
+strong   & $x=3$ \\
+weak     & $y=4$
+\end{tabular}
+
+Because $y$ is read-only in the $x=y?$ constraint, the solver can't
+use that constraint in determining the value of $y$, and so the
+solution this time is $x \mapsto 4, y \mapsto 4$.
+
+Further, if we make the constraint $x=3$ be required:
+
+\begin{tabular}{rl}
+required & $x=y?$ \\
+required & $x=3$ \\
+weak     & $y=4$
+\end{tabular}
+
+the constraints now have no solution: on the one hand, any solution
+must satisfy the required $x=3$ constraint, but on the other, we still
+can't use $x=y?$ in determining a value for $y$.  (This is a so-called
+``blocked'' set of constraints
+\cite{borning-lisp-symbolic-computation-1992}.)
+
+With those prelimaries out of the way, consider again the example in
+Section~\ref{sec:babelsberg-primitivetypes} of unsatisfiable
+constraints arising from the following program:
+
+\begin{verbatim}
+x := 5;
+always x<=10;
+x := x+15
+\end{verbatim}
+
+This behavior we modeled with the rules for Babelsberg/PrimitiveTypes
+is the same as that of the refinement model, in which the program
+would be equivalent to these constraints:
+
+\begin{eqnarray*}
+\mbox{required\ \ } x_0 & = & 5            \\
+\forall t>0 \mbox{\ required\ \ } x_t & \leq & 10  \\
+\mbox{weak\ \ } x_1 & = & x_0?             \\
+\mbox{weak\ \ } x_2 & = & x_1?             \\
+\mbox{required\ \ } x_2 & = & x_1? + 15
+\end{eqnarray*}
+
+The read-only annotations in the refinement model serve the same role
+as do the evaluation rules in our current model.  In the example, in
+our current semantics we model the final assignment \verb|x:=x+15| by
+first evaluating \verb|x+15| in the old environment, and then adding a
+required \verb|once| constraint that \verb|x| be equal to that value.
+In the refinement model, we model the final assignment as $x_2 = x_1?
++ 15$, where the read-only annotation on $x_1$ accomplishes the same
+thing, by preventing the solver from changing $x_1$ to satisfy this
+constraint even though the other constraint that gives $x_1$ the value
+of 5 is only weak.  Similarly, stay constraints in the current
+semantics are modeled as weak constraints equating the variable with
+its current value; in the refinment model these are weak constraints
+relating the variables representing the current and previous versions,
+with the previous version annotated as read-only.
 
 \subsection{Issues with Using Once Constraints in the Semantics 
   for Assignments}

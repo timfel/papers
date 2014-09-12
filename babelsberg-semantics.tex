@@ -162,7 +162,7 @@ many aspects of the language as a result of working out the formalism
 --- and second, other researchers who are interested in the details.
 Subsequently we plan to write a standard-length paper for a
 programming language conference that should be of more general
-interest, based on this material.  (This later paper will focus just
+interest, based on this material.  (This subsequent paper will focus just
 on Babelsberg/Objects, perhaps with a brief introductory example using
 Babelsberg/Reals, and will also include proofs of some of the
 interesting properties of the language.)
@@ -258,20 +258,14 @@ among multiple answers, as available in for example constraint logic
 programming \cite{jaffar-popl-1987}, is left for future work ---
 see Appendix \ref{sec:adding-solvers}.)
 
-\tdm{I wonder if the discussion in the next part below should be removed or condensed:
-  it's irrelevant for our formal semantics so may be just be a
-  distraction for readers.  Maybe the first paragraph below is enough,
-  just so later examples are understandable?  But I'm also ok with it
-  if others like it.}
-
-\ab{I added a paragraph above about why we are including this
-  information.  I'm inclined to keep it since I think the examples
-  make it clearer what happens when you have soft constraints, and
-  because we don't have a sharp length requirement on this memo -- I'm
-  willing to drop them if you'd like though.}
-
 The way we trade off conflicting soft constraints is defined by a
-\emph{comparator}.  The two most relevant comparators are
+\emph{comparator}.  The solver encodes the comparator being used,
+making it irrelevant to the formal semantics --- however, in
+presenting the informal program examples we'll sometimes need to
+specify which is used, and for this reason we include a brief
+discussion of comparators.
+
+The two most relevant comparators are
 locally-predicate-better (LPB) and weighted-sum-better (WSB)\@.
 Locally-predicate-better only cares whether a constraint is satisfied
 or not, not how far off the value is from the desired one.  Any
@@ -1328,13 +1322,13 @@ The following two rules simply ensure that a constraint is well typed.
   {\tcC{E}{C$_1$ $\wedge$ C$_2$}}
 }
 
-
-\tdm{SHOW: Prove that constraint solving preserves typing, at least
-  for ``once'' and ``always'' constraints -- not for assignments,
-  since there we explicitly allow changing types (see below).  And
-  that assignment statements can only change the type of the variable
-  that was assigned.  This would be a nice way to validate our choice
-  of typing rules.}
+%% TODO LATER:
+%% \tdm{SHOW: Prove that constraint solving preserves typing, at least
+%%   for ``once'' and ``always'' constraints -- not for assignments,
+%%   since there we explicitly allow changing types (see below).  And
+%%   that assignment statements can only change the type of the variable
+%%   that was assigned.  This would be a nice way to validate our choice
+%%   of typing rules.}
 
 \judgment{\step{E}{C}{s}{E$'$}{C$'$}}
 
@@ -1643,11 +1637,13 @@ but we want to tame the language further.)
 
 With the restriction, any changes to the types of variables must flow
 from an explicit assignment statement --- the effects can still ripple
-outwards via identity constraints --- but they are deterministic.  It
-is only updates to values that can be non-deterministic as the result
-of constraints.  One item for future work will be to formalize and
-prove this statement, which seems like a useful property for the
-language.
+outwards via identity constraints --- but they are deterministic.  For
+the same reason, we disallow disjunctions of identity constraints
+(since otherwise there could be programs with multiple correct
+solutions to the identity constraints).  It is only updates to values
+that can be non-deterministic as the result of constraints.  One item
+for future work will be to formalize and prove this statement, which
+seems like a useful property for the language.
 
 % The programmer can further restrict what happens with an explicit
 % identity constraint by adding a read-only annotation.  For example,
@@ -1690,20 +1686,25 @@ always medium p.x = 0;
 always medium q.x = 5;
 always weak p==q; 
 \end{verbatim}
-Without the restriction, we would either need to interleave
-determining values and identities, or else leave a medium value
-constraint unsatisfied in preference to a weak identity constraint.
+
+Without the restriction, we would need to interleave determining
+values and identities.  For example, for the above program, to decide
+that we should leave the weak identity constraint unsatisfied, we'd
+need to first solve the value constraints and then decide that we
+can't satisfy the weak identity constraint.  Similarly, in support of
+the goal of separating out value and identity constraints, we don't
+allow identity constraints in disjunctions or conjunctions with value
+constraints.  (In fact, we don't allow conjunctions or disjunctions of
+identity constraints at all.  Conjunctions of identity constraints can
+be represented simply by stating multiple constraints.  Allowing
+disjunctions of identity constraints would mean that we wouldn't
+achieve our design goal of having the results of any changes to the
+types of variables be completely deterministic, as noted above.)
+
 \tdm{I don't understand this point relative to the above example:  I
   thought medium is stronger than weak, so why wouldn't the weak
   constraint simply be left unsatisfied?}
-\ab{We could leave the weak constraint unsatisfied, but to decide that
-  we should do this, we'd need to solve the value constraints and then
-  go and solve the identity constraint.  But since we aren't
-  interleaving them like this, we need to first solve the identity
-  constraints (even the weak ones).}
-Similarly, we don't allow identity constraints in disjunctions or
-conjunctions with value constraints (and for simplicity, don't allow
-them in conjunctions or disjunctions at all).
+\ab{TODO TODD - is this ok now?}
 
 The solver can't spontaneously create new records if they are needed
 --- new records can only be created with an explicit assignment with a
@@ -1942,9 +1943,10 @@ constraints.  As with the evaluation rules, expressions of the form
 This still represents the call to the solver. The solver now
 determines values on the heap and in the environment.
 
-\tf{SHOW: The solver won't invent references or change object
-  structures on the heap. Only fields and variables pointing to
-  references are allowed to change to point to other references.}
+%% TODO LATER:
+%% \tf{SHOW: The solver won't invent references or change object
+%%   structures on the heap. Only fields and variables pointing to
+%%   references are allowed to change to point to other references.}
 
 \judgment{\stay{E}{C}}
 \judgment{\stay{H}{C}}
@@ -2709,64 +2711,73 @@ suppose we have a constraint \verb|always c=x.m(a,b)|, and method
 forward direction, i.e., we can find a value for \verb|c| given values
 for \verb|x|, \verb|a|, and \verb|b| but not any other direction.  In
 that case, \verb|m| can be called in the usual way, passing \verb|a|
-and \verb|b| by value with pointer semantics.
+and \verb|b| by value with pointer semantics.  If the other
+constraints are such that the correct solution involves finding a
+value for \verb|b| given values for \verb|c|, \verb|x|, and \verb|a|,
+a practical system will halt with an error that the constraints are
+too hard for it to solve, due to a method called from the constraint
+that can't be inlined (or in the formal semantics, we get stuck).
+However, in contrast to all the previous examples of constraints that
+were too hard, the fact that they are too hard is a limitation of the
+transformations we use for methods called by constraints rather than a
+limitation of the solver.
 
-On the other hand, if \verb|m| can be used multi-directionally, so
-that for example we can find a value for \verb|b| given values for
-\verb|x|, \verb|a|, and \verb|c|, then in the semantics the \verb|m|
-method is inlined so that the resulting constraints can be turned over
-to the solver. (This done by creating an environment for method
-\verb|m| and inlining the returned expression with respect to that
-environment. The parameters in that environment are constrained to be
-equal to \verb|a| and \verb|b|, and \verb|self| is constrained to be
-equal to \verb|x|.  So if \verb|c| changes, the solver can update
-\verb|a| and \verb|b| to satisfy the constraints, if either the first
-or second parameter of \verb|m| were used in its return expression,
-and the solver cannot change \verb|self|, although it could change
-properties of self that contribute to the constraint.)
+On the other hand, if method \verb|m| can be used multi-directionally,
+so that for example we can find a value for \verb|b| given values for
+\verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
+inlined so that the resulting constraints can be turned over to the
+solver, and we can potentially solve for any of \verb|x|, \verb|a|,
+\verb|b|, or \verb|c|.  This done by creating an environment for
+method \verb|m| and inlining the returned expression with respect to
+that environment. The parameters in that environment are constrained
+to be equal to \verb|a| and \verb|b|, and \verb|self| is constrained
+to be equal to \verb|x|.
+
+\ab{TODO TIM AND TODD: please check the two paragraphs above, which
+  I changed}
 
 \subsection{Examples}
 
-First, let's revisit the initial example from Babelsberg/Reals, now as a
-Babelsberg/Objects program:
-\begin{verbatim}
-x := 3;
-x := 4;
-always x>=10;
-\end{verbatim}
+%% THIS EXAMPLE SEEMS TOO TRIVIAL TO INCLUDE ...
+%% First, let's revisit the initial example from Babelsberg/Reals, now as a
+%% Babelsberg/Objects program:
+%% \begin{verbatim}
+%% x := 3;
+%% x := 4;
+%% always x>=10;
+%% \end{verbatim}
 
-The behavior is quite similar.  After evaluating the first statement
-we hand the following constraint to the solver to trivially find a
-value for \texttt{x}:
+%% The behavior is quite similar.  After evaluating the first statement
+%% we hand the following constraint to the solver to trivially find a
+%% value for \texttt{x}:
 
-\begin{tabular}{rl}
-required & $x=3$
-\end{tabular}
+%% \begin{tabular}{rl}
+%% required & $x=3$
+%% \end{tabular}
 
-The solver finds a value for $x$, which is then used to update the
-environment to be $\texttt{x} \mapsto \texttt{3}$.  After the second
-statement we hand the following constraints to the solver:
+%% The solver finds a value for $x$, which is then used to update the
+%% environment to be $\texttt{x} \mapsto \texttt{3}$.  After the second
+%% statement we hand the following constraints to the solver:
 
-\begin{tabular}{rl}
-weak     & $x=3$ \\
-required & $x=4$
-\end{tabular}
+%% \begin{tabular}{rl}
+%% weak     & $x=3$ \\
+%% required & $x=4$
+%% \end{tabular}
 
-This has the solution $x=4$, resulting in a new environment
-$\texttt{x} \mapsto \texttt{4}$.  Executing the third statement adds
-the \texttt{always} constraint to the current constraint store.  We
-now hand this constraint and the stay constraint to the solver:
+%% This has the solution $x=4$, resulting in a new environment
+%% $\texttt{x} \mapsto \texttt{4}$.  Executing the third statement adds
+%% the \texttt{always} constraint to the current constraint store.  We
+%% now hand this constraint and the stay constraint to the solver:
 
-\begin{tabular}{rl}
-weak     & $x=4$ \\
-required & $x \geq 10$
-\end{tabular}
+%% \begin{tabular}{rl}
+%% weak     & $x=4$ \\
+%% required & $x \geq 10$
+%% \end{tabular}
 
-With a metric comparator this yields the solution $x=10$.
+%% With a metric comparator this yields the solution $x=10$.
 
-Next, here is a constraint on the center of a rectangle, where the
-center is a computed value rather than being stored as an instance
-variable.
+Here is a constraint on the center of a rectangle, where the center is
+a computed value rather than being stored as an instance variable.
 
 \begin{verbatim}
 always r.center() = Point(10,20);
@@ -2817,16 +2828,27 @@ self4.x = arg3.x && self4.y = arg3.y
 \end{verbatim}
 
 For each variable name in a scope a unique global variable name is
-created. The solver works only on the global names. During evaluation,
-each local name maps to a global name, which in turn maps to a
-value. Entering the center method creates a local environment in which
-\verb|self| is bound to \verb|r|. A global alias \verb|self1| is
-created and constrained to refer to the same reference. For methods
-that take arguments, global names for the argument names are created
-and constrained similarly. Thus, the solver never has to deal with
-different scopes or name clashes.
+created.  The solver works only on the global names. During
+evaluation, each local name maps to a global name, which in turn maps
+to a value.  Entering the center method creates a local environment in
+which \verb|self| is bound to \verb|r|.  A global alias \verb|self1|
+is created and constrained to refer to the same reference (which is to
+a rectangle).  Similarly, the global alias \verb|self2| is a point,
+namely the upper left corner of the rectangle.  This alias is then
+used when we explode the \verb|+| message to that point.  \verb|self3|
+is also a point, namely the new point that is returned by the point
+addition method.  Note that we are representing the instance of this
+value class in the above conjunction of exploded constraints and in
+the formal semantics as an i-record.  For methods that
+take arguments, global names for the argument names are created and
+constrained similarly.  For example, \verb|arg1| is the global name in
+this exploded constraint for the argument to the \verb|+| method for
+\verb|Point|. Thus, the solver never has to deal with different scopes
+or name clashes.
 
 \tf{TODO ALAN: Is this paragraph enough?}
+
+\ab{TODO TIM: I expanded it a little - is this ok?}
 
 
 % \begin{verbatim}
@@ -2853,20 +2875,38 @@ different scopes or name clashes.
 %   ^ self4.x = arg3.x && self4.y = arg3.y
 % \end{verbatim}
 
-Here is another example of using a method in a constraint:
+Here is another example of using a method in a constraint.  Suppose we
+add a \verb|double| method to \verb|Float|, and then use it in a
+constraint:
 
 \begin{verbatim}
-def double(x)
-  return x+x
+def double()
+  return 2*self;
 end;
 
-always 10=double(a)
+x := 0;
+y := 0;
+always y=x.double();
+y := 20;
 \end{verbatim}
 
-The system should satisfy the constraint by making \verb|a| be 5.  In
-this case, the argument was a primitive type, but we can also use it
-in a constraint \verb|always q=double(p)| for points \verb|p| and
-\verb|q|.
+After the program runs, \verb|y| will be 20 and \verb|x| will be 10.
+
+For this program, the constraint \verb|y=x.double()| explodes into the
+following much simpler network:
+
+\begin{verbatim}
+self1 = x
+y = 2*self1
+\end{verbatim}
+
+This conjunction of constraints works equally well for determining
+\verb|x| or determining \verb|y|, even though \verb|double| was
+actually a message to \verb|x|.
+
+\ab{TODO TIM - I thought it would be useful to change this example to
+  illustrate that changing self works just fine with the exploded
+  constraints.  Please check!}
 
 As noted above, methods called in the ordinary way can create new
 constraints, which then persist after the method returns.  Here is a
@@ -2882,7 +2922,7 @@ end;
 Now suppose we call \verb|require_min_balance(a,10)| on some account
 \verb|a|.  (This is just calling the method from an ordinary
 statement, either at the top level or some other method, \emph{not}
-from a constraint expression.)  Thereafter the balance in
+from a constraint expression.)  Thereafter the balance in the account
 \verb|a| must be at least 10 (a persistent constraint).
 
 Note the consequences of call by value for such methods.  Consider:
@@ -2972,7 +3012,7 @@ constraints.  (This is one of the restrictions noted in Section
 constraint expressions.)  This subsection describes some consequences
 of this restriction when we have objects, methods, and object
 identity.  There are also some additional restrictions on methods
-called from constraints that are used in other than the ``forward''
+called from constraints that are used in other than the forward
 direction, discussed below.
 
 Regarding side effects in methods, consider the \verb|pop| method for
@@ -3074,7 +3114,7 @@ priorities.
 Methods called by constraints can have assignment statements to local
 variables, but not to instance variables or globals (which would be
 side effects).  If there are assignments to local variables, the
-method can only be used in the forwards direction in constraints that
+method can only be used in the forward direction in constraints that
 call it (i.e., to compute the result given the inputs).
 
 The only way that statements in a method other than the final return
@@ -3118,8 +3158,12 @@ after the final assignment to \verb|a[0]|, \verb|s| becomes 120.
 
 However, the method doesn't work backwards --- for example, we can't
 constrain the sum of the array and expect the system to update one or
-more elements to satisfy the constraint.  So the constraint in the last line below will
-be unsatisfiable:
+more elements to satisfy the constraint.  So the constraint in the
+last line below will be too hard for the system to solve:
+
+\ab{TODO: TIM please check - I changed ``unsatisfiable'' to ``too hard
+  for the system to solve'', since actually it is satisfiable - the
+  system just can't find the solution.}
 
 \begin{verbatim}
 a := Array.new(2);
@@ -3668,10 +3712,11 @@ them. Inlining does not allow updates to the heap, so no new heap is
 returned. We do allow assignments to locals in inlined methods,
 however, so the global environment can change as a result of inlining.
 
-\tf{SHOW: Any updates to the global environments would not affect
-  existing variables. The rules only allow assigning to temps in
-  methods that are inlined, so any changes to the global environment
-  are not visible from any outside scope.}
+%% TODO LATER:
+%% \tf{SHOW: Any updates to the global environments would not affect
+%%   existing variables. The rules only allow assigning to temps in
+%%   methods that are inlined, so any changes to the global environment
+%%   are not visible from any outside scope.}
 
 \inferax{I-Const}{\inline{\E}{E}{\H}{c}{\E}{true}{c}}
 
@@ -4009,11 +4054,11 @@ expression.
 
 This appendix contains some observations that are potentially of
 interest but that are mostly orthogonal to the task at hand of
-providing a formal semantics for Babelsberg, and also descriptions of
-some alternatives that were considered but latter dropped (but that
-seem promising enough that we might come back to them some
-day).\footnote{In other words, it's a holding pen for material we
-  probably should just have deleted but couldn't quite bear to.}
+providing a formal semantics for Babelsberg; and also descriptions of
+some alternatives that were considered and later dropped, but that
+seem promising enough that we might come back to them some day.  (In
+other words, it's a holding pen for material we probably should just
+have deleted but couldn't quite bear to.)
 
 \subsection{Warnings and Debugging}
 \label{sec:warnings-and-debugging}

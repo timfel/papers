@@ -1701,6 +1701,42 @@ disjunctions of identity constraints would mean that we wouldn't
 achieve our design goal of having the results of any changes to the
 types of variables be completely deterministic, as noted above.)
 
+If we allow determining values and identities to be interleaved, so
+that the choice of a value can affect the choice of an object's
+identity, then object identity becomes non-deterministic, since for
+some sets of constraints the choice of value is non-deterministic.
+One of our design goals has been to tame the power of identity
+constraints so that the solution to identity constraints is always
+deterministic, arguing against such interleaving.  We also have been
+unable to identify compelling use cases for it.  Consider the
+following program:
+
+\begin{verbatim}
+a := 0;
+b := 0;
+c := 0;
+always a+b=c;
+w1 := Window.new(...);
+w2 := Window.new(...);
+w3 := w1;
+always (a<=0 && w1==w3) || (a>0 && w2==w3)
+c := 1;
+\end{verbatim}
+
+Up until the final assignment, we know what the result will be:
+\verb|a=b=c=0|, \verb|w1| and \verb|w3| are identical, and \verb|w2|
+is different from \verb|w1| and \verb|w3|.  After the final
+assignment, the constraints don't specify whether \verb|a| or \verb|b|
+or both will change to satisfy the \verb|a+b=c| constraint, and so we
+don't know whether \verb|w1| and \verb|w3| will be identical, or
+\verb|w2| and \verb|w3|.
+
+\ab{aargh!  This example sucks.  Can we find a better one?  I want
+  something that makes object identity be non-deterministic.  Or just
+  leave out the example and make a hand-wavy assertion that values can
+  affect identity and therefore it's nondeterministic?  That seems
+  even worse. }
+
 \tdm{I don't understand this point relative to the above example:  I
   thought medium is stronger than weak, so why wouldn't the weak
   constraint simply be left unsatisfied?}
@@ -1711,6 +1747,13 @@ types of variables be completely deterministic, as noted above.)
 There's an implicit assumption that this is hard or impossible, and
   hence that our choices are either to solve them one at a time or do
   some kind of interleaving.}
+
+\ab{OK, I'm having trouble justifying this.  So the real reason is
+  that I kept getting confused about how object identity interacts
+  with constraints, and our draconian rule now lets me not be
+  confused.  But it would be nice to have a more principled reason.  I
+  tried to address this in the added example but it doesn't entirely
+  work.}
 
 The solver can't spontaneously create new records if they are needed
 --- new records can only be created with an explicit assignment with a
@@ -4441,16 +4484,24 @@ ought to make precise what constitutes a benign side effect.
 
 In addition, if a method consists of more than just a single return
 statement, it can only be used in the forward direction in
-constraints.  If we are trying to add constraints to an existing
-language with a substantial class library, this restriction is
-potentially a nuisance.  The Babelsberg/Ruby implementation provides a
-``backwards compatibility mode'' that relaxes the restriction.  (It
-won't allow an arbitrary method to be successfully used in all modes
-in a constraint, but it increases the chances that it will work.)
-However, this mode is incompatible with the new semantics for
-Babelsberg described in this memo.  We describe it here for
-completeness; updating it to be compatible with the new semantics (or
-simply removing it) is left for future work.
+constraints.  This provides a straightforward way for both the
+programmer and the implementor to understand how this should be
+handled: if the method is used in the forward direction only, it can
+be called in the ordinary way; if it is potentially used
+multi-directionally, it is exploded.
+
+If we are trying to add constraints to an existing language with a
+substantial class library, this restriction does imply that many
+methods, even though they are side-effect-free, can only be used in
+the forward direction.  The Babelsberg/Ruby implementation provides a
+``backwards compatibility mode'' that relaxes the restriction in an
+attempt to make more of these existing methods be usable
+multi-directionally.  (It won't allow an arbitrary method to be
+successfully used in all modes in a constraint, but it increases the
+chances that it will work.)  However, this mode is incompatible with
+the new semantics for Babelsberg described in this memo.  We describe
+it here for completeness; updating it to be compatible with the new
+semantics (or simply removing it) is left for future work.
 
 The Babelsberg/Ruby implementation uses two interpreter modes:
 standard imperative execution mode and constraint construction mode.
@@ -4532,8 +4583,10 @@ Note though that the semantics of conditional statements are unchanged
 --- we still eagerly evaluate the test and select the appropriate
 branch (with no backtracking to the other branch).
 
-Methods with loops could be converted automatically to recursions.
-Here is a version of \verb|sum| that might be automatically generated in
+If we also had a way to explode methods on demand to support
+recursion, we might also be able to automatically convert methods with
+loops to recursions that could then be used multi-directionally.  Here
+is a version of \verb|sum| that might be automatically generated in
 this fashion:
 
 \begin{verbatim}
@@ -4569,13 +4622,15 @@ a plaintext message \verb|m| and a public key \verb|k|, we are unlikey
 to be able to run the method backwards to find the original message
 given the cyphertext.  Coming up with a good set of transformations, a
 specification of when they will work, and whether the result covers a
-useful set of cases, is still an open problem.  Certainly they work
-for methods consisting just of a sequence of assignment statements and
-a final return statement, but this seems like not that useful a class
-of methods to run backwards.
+useful set of cases, is an open problem.  Certainly they work for
+methods consisting just of a sequence of assignment statements and a
+final return statement, but this seems like not that useful a class of
+methods to run backwards.
 
-Finally, as a really straightforward example of when the tranformation
-fails, consider an absolute value method for integers:
+For the record, here are some more straightforward examples of when
+the tranformation fails.  
+
+Consider an absolute value method for integers:
 
 \begin{verbatim}
 def abs()
@@ -4602,6 +4657,39 @@ forwards direction; if we want one that also works backwards, we
 should write it as a disjunction that can be turned over to the
 solver (or add support for Prolog-style backtracking --- see the next
 section). 
+
+Another case that doesn't work arises when the method has a
+conditional, and the two branches return different types.  Even if
+these are both value classes, this still doesn't explode correctly
+using the current rules.  For example, suppose that in addition to
+standard points, we have a class \verb|ZeroPoint| representing a point
+with its x and y both 0 (which then avoids storing those fields).
+Also suppose that both kinds of points implement an \verb|optimize|
+method that returns a new object, which is the point represented in
+the optimal way.  For ordinary points, the method is:
+
+\begin{verbatim}
+def optimize()
+  if self.x=0 && self.y==0 then return ZeroPoint() else return self;
+end;
+\end{verbatim}
+
+For \verb|ZeroPoint|, \verb|optimize| just returns \verb|self|.  
+
+Now consider this code that uses the \verb|optimize| method:
+
+\begin{verbatim}
+p := Point(5,5);
+q := Point(5,5);
+always q = p.optimize();
+\end{verbatim}
+
+If we implement this by exploding the \verb|optimize| method, the
+existing transformations don't work since \verb|q| might be either a
+\verb|Point| or a \verb|ZeroPoint|.  We might be able to get it to
+work in this case, but the transformations become more complex and
+probably more fragile, and it's not clear that the complexity is worth
+the price.
 
 \subsection{Adding New Solvers and Extending the Solver Language}
 \label{sec:adding-solvers}

@@ -212,19 +212,20 @@ have come out of this work on formalizing the language are:
 \item The addition of structural compatibility checks to tame the
   power of the solver with respect to changing object structure and
   type to satisfy constraints.  (It now can't do this.)
-\item A set of restrictions on identity constraints that make it
-  easier to reason about object identity.  In particular, any change
-  to the identity of the object referred to by a variable flows
-  clearly from a single assignment statement, and is deterministic
-  (there are never multiple correct solutions to the identity
-  constraints).
 \item The addition of \emph{value classes}.  (Instances of value
   classes are immutable objects for which object identity is not
   significant.)  Value classes allow us to give a clear specification
   of the requirements for expressions that define constraints (in
   particular that they must be side effect free), while still supporting
   useful programming idioms.
-
+\item A set of restrictions on identity constraints that make it
+  easier to reason about object identity and type.  In particular, any
+  change to the identity of the object referred to by a variable flows
+  clearly from a single assignment statement, and is deterministic ---
+  there are never multiple correct solutions to the identity
+  constraints.  This also implies that any change to the type of a
+  variable must similarly flow from a single assignment statement and
+  be deterministic.
 \end{itemize}
 
 \section{Constraints}
@@ -369,6 +370,48 @@ multiple constraints to the solver, while disjunctions aren't allowed.
 However, as noted above, the solver is a black box as far as the rest
 of the formal semantics is concerned.
 
+\subsection{Taming Identity Constraints}
+\label{sec:taming-identity-constraints}
+
+We introduce object identity in the Babelsberg/UID language, and
+continue to use it in our final language Babelsberg/Objects.  A
+central issue in the design of a constraint object language is the
+interaction between constraints and object identity.  Our earlier
+experience with Kaleidoscope suggests that it is all too easy to make
+constraints on object identity and types be too powerful, so that they
+lead to non-obvious consequences.  This makes programs more difficult
+for the programmer to understand.  To tame the power of constraints on
+object identity and type, we set the following goals for this aspect
+of our design:
+
+\begin{enumerate}
+\item In those languages that include object identity, we want to
+  support explicit but straightforward identity constraints of the
+  form \verb|x==y| (i.e., that variables \verb|x| and \verb|y| refer
+  to the same object).
+\item\label{item:deterministic} The solution to the constraints should
+  be deterministic as far as object identity and type are concerned
+  --- there should never be multiple correct solutions in which a
+  given variable refers to objects with different identities in the
+  different solutions.
+\item Any change to the identities of the objects referred to by
+  variables should flow from an assignment statement --- the constraint
+  solver should not otherwise alter object identities.
+\item\label{item:solve-identity-then-values} To make Babelsberg
+  programs more understandable for the programmer, we want to be able
+  to reason about the constraints so that we can first solve all the
+  identity constraints (with a deterministic solution, in keeping with
+  Goal \ref{item:deterministic}), and then the value constraints.  A
+  design that meets this goal of course benefits the language
+  implementor as well.
+\end{enumerate}
+
+In our intermediate language Babelsberg/Records, in which we introduce
+structured data in the form of immutable records but not yet object
+identity, we want analogous properties to hold: the solution to the
+constraints should be deterministic as far as object structure is
+concerned, and any changes to object structure should flow from an
+assignment statement.
 
 %% This subsection commented out -- we don't need multiple comparators in
 %% the current version, since we solve for identity separately from value
@@ -628,13 +671,14 @@ These will apply to all of the Babelsberg languages.
   dynamically.) 
 
 \item \label{item:side-effects} The constraint expression should be
-  free of side effects.\footnote{\label{footnote:benign-side-effects}In 
-a practical implementation, the
-    programmer might be able to cautiously use benign side effects in
-    a constraint expression, for example, for caching or constructing
-    temporary objects that are garbage collected before they are
-    visible outside the constraint.  In the formal semantics, however,
-    we simply disallow side effects in constraint expressions.}
+  free of side
+  effects.\footnote{\label{footnote:benign-side-effects}In a practical
+    implementation, the programmer might be able to cautiously use
+    benign side effects in a constraint expression, for example, for
+    caching or constructing temporary objects that are garbage
+    collected before they are visible outside the constraint.  In the
+    formal semantics, however, we simply disallow side effects in
+    constraint expressions.}
 
 \item \label{item:deterministic} The result of evaluating the block
   should be deterministic.  For example, an expression whose value
@@ -774,15 +818,16 @@ always weak x="hello";
 \end{verbatim}
 
 Here the solver is free to choose either an integer or a string for
-\verb|x|.  This is a bit strange, but arguably this non-determinism
-isn't any worse than allowing the solver to select either 3 or 5 as
-the value for a variable. In later languages we introduce a structural
-determinism that ensures that non-determinism cannot arise regarding
-the structure of the record referred to by a variable. This notion
-could be extended to avoid non-determinism in the primitive types. For
-simplicity in the semantics, however, we have chosen not to
-distinguish primitive types, with the consequence that the above
-program is legal.
+\verb|x|.  This is strange, and also not really in keeping with the
+spirit of the goals for our languages with respect to constraints and
+object identity (Section~\ref{sec:taming-identity-constraints}).
+However, it is just an artifact of the semantic rules we are using for
+Babelsberg/PrimitiveTypes --- for simplicity, in these rules we don't
+distinguish among primitive types, with the consequence that the above
+program is legal.  When we get to our final goal (the
+Babelsberg/Objects language) the corresponding program will be
+disallowed due to the automatic boxing and unboxing of primitive types
+in the formal semantic rules.
 
 \subsection{Formalism}
 \label{sec:int-formalism}
@@ -1238,9 +1283,10 @@ Expression evaluation is updated to support records.
 {\tt E}.''
 
 We use a notion of typechecking to prevent undesirable non-determinism
-in constraints.  Specifically, we want constraint solving to
-preserve the structure of the values of variables, changing only the
-underlying primitive data as part of a solution.  We formalize our
+in constraints.  Specifically, we want constraint solving to preserve
+the structure of the values of variables, changing only the underlying
+primitive data as part of a solution, in support of the goals listed
+in Section \ref{sec:taming-identity-constraints}.  We formalize our
 notion of structure through a simple syntax of types:
 
 \begin{tt}
@@ -1491,8 +1537,8 @@ always p.x = 100;
 
 As with Babelsberg/Records, there is no static type checking ---
 checking is all done dynamically.  As before, our model includes
-structural compatibility checks on constraints, which tames the solver
-so that it doesn't do things such as invent new records or add fields
+structural compatibility checks on constraints, which tames the solver so
+that it doesn't do such things as inventing new records or adding fields
 to a record.  (The only way to create a new record is with an explicit
 \verb|new| expression in the program, and this also defines all of the
 fields that it has and will ever have.)
@@ -1607,21 +1653,17 @@ constraint, the last assignment to \verb|q| would have failed the
 structural compatibility check, which would have expected it to be a
 record with \verb|x| and \verb|y| fields.
 
-Our earlier experience with Kaleidoscope suggests that constraints on
-object identity and types can be too powerful, in that they lead to
-non-obvious consequences, making programs potentially hard for the
-programmer to understand and also complicating the job of the language
-implementor.  In Babelsberg, we want to tame the power of constraints
-on object identity, as well as constraints on object structure, i.e.,
-types.  As one part of trying to achieve this goal, 
-we require that variables be created in an assignment
-statement --- the above program would have been illegal if we didn't
-have the \verb|q:=p| statement but just tried to create \verb|q| with
-the \verb|always| constraint.  We also require that a new identity
-constraint be satisfied at the time it is created --- otherwise it's
-an error (modeled in the formal semantics by the rules getting stuck).
-This restriction was obeyed in the above program.  Here is an example
-that violates it, and is hence not legal:
+In Section \ref{sec:taming-identity-constraints} we listed a number of
+goals for our design to attempt to tame the power of identity
+constraints and the solver.  In support of this, we require that
+variables be created in an assignment statement --- the above program
+would have been illegal if we didn't have the \verb|q:=p| statement
+but just tried to create \verb|q| with the \verb|always| constraint.
+We also require that a new identity constraint be satisfied at the
+time it is created --- otherwise it's an error (modeled in the formal
+semantics by the rules getting stuck).  This restriction was obeyed in
+the above program.  Here is an example that violates it, and is hence
+not legal:
 \begin{verbatim}
 p := new {x:2};
 q := new {y:5}
@@ -1672,103 +1714,39 @@ seems like a useful property for the language.
 %   semantics.}
 
 As another aspect of taming identity constraints, explicit priorities
-on identity constraints are not allowed.  (There are only the implicit
-weak identity stay constraints on all variables.)  This restriction
-simplifies both the language, making it more understandable, and also
-the implementation, since now we can first determine the types and
-identities of all variables, and then solve for the values.
+on identity constraints are not allowed --- there are only the
+implicit weak identity stay constraints on all variables.  (We haven't
+found any compelling use cases for programmer-specified soft identity
+constraints, and omitting them simplifies reasoning about identity
+constraints for the programmer.)  Similarly, we disallow disjunctions
+of identity constraints, which would also introduce nondeterminism;
+and for simplicity, there are no explicit conjunctions of identity
+constraints, only the implicit conjunction resulting from writing
+several of them.
 
 This program is thus illegal:
+
 \begin{verbatim}
 p := new {x:0};
 q := new {x:5};
 always medium p.x = 0;
-always medium q.x = 5;
-always weak p==q; 
+always medium.x = 5;
+always weak p==q
 \end{verbatim}
 
-Without the restriction, we would need to interleave determining
-values and identities.  For example, for the above program, to decide
-that we should leave the weak identity constraint unsatisfied, we'd
-need to first solve the value constraints and then decide that we
-can't satisfy the weak identity constraint.  Similarly, in support of
-the goal of separating out value and identity constraints, we don't
-allow identity constraints in disjunctions or conjunctions with value
-constraints.  (In fact, we don't allow conjunctions or disjunctions of
-identity constraints at all.  Conjunctions of identity constraints can
-be represented simply by stating multiple constraints.  Allowing
-disjunctions of identity constraints would mean that we wouldn't
-achieve our design goal of having the results of any changes to the
-types of variables be completely deterministic, as noted above.)
-
-A related issue is that if we allowed determining values and
-identities to be interleaved, so that the choice of a value could
-affect the choice of an object's identity, then object identity would
-become non-deterministic, since for some sets of constraints the
-choice of value is non-deterministic.  One of our design goals has
-been to tame the power of identity constraints so that the solution to
-identity constraints is always deterministic, arguing against such
-interleaving.  We also have been unable to identify compelling use
-cases for it.
-
-As an example, consider the following program:
-
-\begin{verbatim}
-a := 0;
-b := 0;
-c := 0;
-always a+b=c;
-w1 := Window.new(...);
-w2 := Window.new(...);
-w3 := w1;
-always (a<=0 && w1==w3) || (a>0 && w2==w3)
-c := 1;
-\end{verbatim}
-
-Up until the final assignment, we know what the result will be:
-\verb|a=b=c=0|, \verb|w1| and \verb|w3| are identical, and \verb|w2|
-is different from \verb|w1| and \verb|w3|.  After the final
-assignment, the constraints don't specify whether \verb|a| or \verb|b|
-or both will change to satisfy the \verb|a+b=c| constraint, and so we
-don't know whether \verb|w1| and \verb|w3| will be identical, or
-\verb|w2| and \verb|w3|.
-
-This can also make the class of object that a variable refers to be
-nondeterministic.  In the example, if \verb|w1| and \verb|w2| had been
-different kinds of windows, only one of which understood a
-\verb|minimize| message, then we wouldn't know whether we could
-minimize \verb|w3| or not.
-
-\ab{aargh!  This example sucks.  Can we find a better one?  I want
-  something that makes object identity be non-deterministic.  Or just
-  leave out the example and make a hand-wavy assertion that values can
-  affect identity and therefore it's nondeterministic?  That seems
-  even worse. }
-
-\tdm{I don't understand this point relative to the above example:  I
-  thought medium is stronger than weak, so why wouldn't the weak
-  constraint simply be left unsatisfied?}
-\ab{TODO TODD - is this ok now?}
-\tdm{What's missing for me, I now realize, is some intuition about why
-  it's hard to solve identity and value constraints all at
-  once (until now we've been solving all constraints at once). 
-There's an implicit assumption that this is hard or impossible, and
-  hence that our choices are either to solve them one at a time or do
-  some kind of interleaving.}
-
-\ab{OK, I'm having trouble justifying this.  So the real reason is
-  that I kept getting confused about how object identity interacts
-  with constraints, and our draconian rule now lets me not be
-  confused.  But it would be nice to have a more principled reason.  I
-  tried to address this in the added example but it doesn't entirely
-  work.}
+Without the restriction, the programmer would need to interleave
+determining values and identities in reasoning about the program's
+behavior.  For example, for the above program, to decide that we
+should leave the weak identity constraint unsatisfied, we'd need to
+first solve the value constraints and then decide that we can't
+satisfy the weak identity constraint.
 
 The solver can't spontaneously create new records if they are needed
 --- new records can only be created with an explicit assignment with a
 \verb|new| on the right hand side.  Consider:
 
 \begin{verbatim}
-a := {x:1};
+a := new {x:1};
 b := a;
 always a.x=1;
 always b.x=2;
@@ -1779,32 +1757,19 @@ after the second {\tt always} constraint, the solver would need to
 spontaneously create a new record and point {\tt b} at it to satisfy
 the constraints.  So this program fails.
 
-%% This example no longer needed?
-%% 
-%% One more issue concerns object identities in constraints. Although
-%% identity constraints require the solver to change references, it
-%% should not be allowed to change references when there are no identity
-%% constraints. Consider this program:
-%% \begin{verbatim}
-%%  account1 := new {balance: 100};
-%%  customer1 := new {account: account1};
-%%  account2 := new {balance: 1000};
-%%  customer2 := new {account: account2};
-%%  always customer1.account.balance? > 100;
-%% \end{verbatim}
-%% This constraint should fail. We try to add a constraint that there
-%% should always be some amount of money left in the account of
-%% \texttt{customer1}, but the solver is not actually allowed to change
-%% the balance (because that would be cheating.) In this situation, even
-%% though the solver will be handling the identity constraints between
-%% the customers and their accounts, it should not be allowed to just
-%% point \texttt{customer1}'s account field to \texttt{account2} (because
-%% that would not be very social.) Thus, implicitly, all references that
-%% occur in constraints that are not identity constraints are read-only
-%% for the solver, i.e., the solver is not allowed to change references
-%% to satisfy constraints other than identity constraints. This is
-%% ensured by a set of axioms relating solver variables to references in
-%% constraints below.
+It also can't switch identities around to satisfy value constraints.
+Here is the same program, except that there happens to be a record
+with the required value for its \verb|x| field already lying around.
+But to no avail: this program fails as well, rather than silently
+changing \verb|b| to refer to the \verb|{x:2}| record.
+
+\begin{verbatim}
+a := new {x:1};
+b := a;
+c := new {x:2};
+always a.x=1;
+always b.x=2;
+\end{verbatim}
 
 \subsection{Formalism}
 
@@ -2617,7 +2582,10 @@ solver. For example, the classes \verb|Integer|, \verb|Float|, and
 \verb|Boolean| in the source language might be mapped to the primitive
 integers, floats, and booleans. The semantics includes an automatic
 boxing and unboxing between instances of these classes and their
-primitive equivalents. The \verb|+| method on \verb|Integer| would be
+primitive equivalents.  (This boxing and unboxing is part of the
+formal semantics, but would not necessarily be done in a practical
+implementation, where we would want primitive types to be represented
+efficiently.)  The \verb|+| method on \verb|Integer| would be
 mapped to the $+$ operation for a primitive integer, and similarly for
 the \verb|+| method for \verb|Float|, the \verb|or| method for
 \verb|Boolean|, and so forth. In general, there will be classes in the
@@ -2626,6 +2594,10 @@ have a corresponding primitive type, that class can have additional
 methods that aren't mapped to primitive operations. For example, a
 \verb|factorial| method for \verb|Integer| has no primitive equivalent
 and has to be translated for the solver.
+
+\ab{TODO: TODD and TIM - please check the above parenthetical claim
+about not necessarily boxing and unboxing in a practical
+implementation.  (I can't imagine that it's not correct, but \ldots)}
 
 As with the previous languages, in the semantics, after every
 statement execution the current set of constraints is solved and the
@@ -2791,60 +2763,7 @@ that environment. The parameters in that environment are constrained
 to be equal to \verb|a| and \verb|b|, and \verb|self| is constrained
 to be equal to \verb|x|.
 
-\ab{TODO TIM AND TODD: please check the two paragraphs above, which
-  I changed}
-\tdm{This all makes sense to me, and it is helpful to have the
-  concrete examples.  The one thing that is maybe missing is intuition
-  on why we give up and require things to be one way when there are
-  multiple statements in a method.  I'm unclear myself how to discuss
-  this.  The general issue is that making arbitrary imperative code
-  reversible is hard, I guess, so we choose a clear syntactic
-  rule to distinguish the two cases.}
-\ab{I tried to add information on the intuition for these restrictions
-  to \ref{sec:additional-constraint-restrictions} and to the appendix -
-  how does this look?}
-
-FIXME - remove above comments, make sure they 
-
 \subsection{Examples}
-
-%% THIS EXAMPLE SEEMS TOO TRIVIAL TO INCLUDE ...
-%% First, let's revisit the initial example from Babelsberg/Reals, now as a
-%% Babelsberg/Objects program:
-%% \begin{verbatim}
-%% x := 3;
-%% x := 4;
-%% always x>=10;
-%% \end{verbatim}
-
-%% The behavior is quite similar.  After evaluating the first statement
-%% we hand the following constraint to the solver to trivially find a
-%% value for \texttt{x}:
-
-%% \begin{tabular}{rl}
-%% required & $x=3$
-%% \end{tabular}
-
-%% The solver finds a value for $x$, which is then used to update the
-%% environment to be $\texttt{x} \mapsto \texttt{3}$.  After the second
-%% statement we hand the following constraints to the solver:
-
-%% \begin{tabular}{rl}
-%% weak     & $x=3$ \\
-%% required & $x=4$
-%% \end{tabular}
-
-%% This has the solution $x=4$, resulting in a new environment
-%% $\texttt{x} \mapsto \texttt{4}$.  Executing the third statement adds
-%% the \texttt{always} constraint to the current constraint store.  We
-%% now hand this constraint and the stay constraint to the solver:
-
-%% \begin{tabular}{rl}
-%% weak     & $x=4$ \\
-%% required & $x \geq 10$
-%% \end{tabular}
-
-%% With a metric comparator this yields the solution $x=10$.
 
 Here is a constraint on the center of a rectangle, where the center is
 a computed value rather than being stored as an instance variable.
@@ -2915,6 +2834,11 @@ constrained similarly.  For example, \verb|arg1| is the global name in
 this exploded constraint for the argument to the \verb|+| method for
 \verb|Point|. Thus, the solver never has to deal with different scopes
 or name clashes.
+
+This example illustrates why we need to solve for object identity
+before values --- if \verb|r| had been an instance of a class with a
+different implementation of the \verb|center| method, it would have
+been exploded in a different way.
 
 \tf{TODO ALAN: Is this paragraph enough?}
 
@@ -3190,17 +3114,18 @@ that statements in a method other than the final return aren't dead
 code is if they have side effects, so for practical purposes we can
 restate this restriction as follows: for a method to be used in other
 than just the forward direction in constraints that call it, the
-method must consist of a single \verb|return| statement.  (It is
-possible to relax this restriction a bit, so that other kinds of
-methods can be used in reverse in constraints, but the resulting
-restrictions are harder to express, and have an \emph{ad hoc} feel,
-likely making it harder for the programmer to keep track of them.  So
-in this memo we use a simple restriction that covers an important set
-of practical cases.  See Appendix
-\ref{sec:backwards-compatibility-mode} for a description of a backward
-compatibility mode for methods that accommodates some methods with
-multiple statements, which is currently implemented in
-Babelsberg/Ruby.)
+method must consist of a single \verb|return| statement.  
+
+It would be possible to relax this restriction somewhat, so that other
+kinds of methods could be used in reverse in constraints, but the
+resulting restrictions would be harder to express, and would have an
+\emph{ad hoc} feel, likely making it harder for the programmer to keep
+track of them.  So in the design presented here we use a simple,
+easily understood restriction that covers an important set of
+practical cases.  See Appendix~\ref{sec:backwards-compatibility-mode}
+for a description of a backward compatibility mode for methods that
+accommodates some methods with multiple statements, which is currently
+implemented in Babelsberg/Ruby.
 
 Here are some examples.
 
@@ -3312,8 +3237,8 @@ end;
 
 Unfortunately, this doesn't meet the restriction that methods called
 from constraints consist only of a single return statement.  Worse, if
-we tried inlining it, the method would expand infinitely.  So for now
-\verb|sum_equal| seems like it is as good as we can do.
+we tried inlining it, the method would expand infinitely.  So, at
+least for now, \verb|sum_equal| seems like it is as good as we can do.
 
 A related example is a method for \verb|Array| that tests whether the
 argument is one of the elements of that array.
@@ -3385,11 +3310,8 @@ same point, which has \verb|x=5,y=0|.  Trying to satisfy the final
 constraint on \verb|q.x| fails.  We could satisfy the constraints by
 first cloning \verb|q| from \verb|p| and then changing its \verb|x|,
 but we forbid creating new objects to satisfy constraints.  In the
-semantics, this results in getting stuck, just as would an
-unsatisfiable required constraint.  (In a practical implementation, we
-might want to raise different sorts of exceptions for these two cases, to
-indicate that forcing an object to be created to satisfy a constraint
-is not allowed.)
+semantics, this results in getting stuck due to an unsatisfiable
+required constraint.
 
 While cloning a mutable point seems innocuous, consider a similar example with
 windows on the user's display, which again results in an error.  (It
@@ -3425,9 +3347,8 @@ always p.x=5;
 always q.x=10;
 \end{verbatim}
 
-This is fine --- after the assignment \verb|q := p|, \verb|q| is a
-separate object from \verb|p|, and so there is no problem satisfying
-the final constraint.
+This is fine, and at the end of the program, \verb|p| and \verb|q|
+will refer to two different value class instances.
 
 There can be explicit identity constraints, as in Babelsberg/UID\@.
 Again as in Babelsberg/UID, identity constraints must be satisfied
@@ -4457,9 +4378,9 @@ If this isn't rejected by a structural compatibility check, there
 there are a number of plausible values that the solver could find for
 {\tt p} and {\tt q} --- namely \verb|{x:0}|, \verb|{y:1}|, and
 \verb|{x:0,y:1}| --- and unclear which is better.  The non-determinism
-here is arguably worse than what arises with integers and floats and
-other values, since it affects the structure of the result rather than
-just its value.
+affects the structure of the result rather than just its value, and
+would prevent achieving Goal \ref{item:deterministic} in our list in
+Section \ref{sec:taming-identity-constraints}.
 
 Yet another complication is that we would want a minimality condition
 on records.  Suppose we let an \verb|always| constraint create a new

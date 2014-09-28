@@ -79,10 +79,21 @@ Consider the above constraint: the block
 bytecode. A new Squeak process is created (but not scheduled) by
 sending the method \lstinline!newProcess! to it. The process has a
 stack with exactly one frame (a \lstinline!ContextPart! object.) That
-frame's program counter is set to 0 and it contains the bytecode for the
-constraint block. The Babelsberg/S interpreter then steps through this
-frame by interpreting the bytecodes one by one, including doing method
-lookup and creating new frames as needed.
+frame's program counter is set to 0 and it contains the bytecode for
+the constraint block. The Babelsberg/S interpreter then steps through
+this frame by interpreting the bytecodes one by one, including doing
+method lookup and creating new frames as needed. An important
+consequence of this is that a variable binding that is used as
+receiver in a constraint block cannot be allowed to change, because
+then the lookup, and thus the constructed constraint, might be
+invalid. Thus, for \autoref{lst:first-Sudoku-constraint}, the solver
+cannot simply find a collection that already satisfies the constraint
+and change the binding of the \lstinline!sudoku!  variable. Instead,
+it has to change the contents of the Sudoku to satisfy the
+constraint. This restriction does not apply to bindings that were
+created during constraint construction, such as return values of
+methods -- so the solver can (and will) change what the method
+\lstinline!at:at:! returns when sent to \lstinline!sudoku!.
 
 The modified interpreter creates \texttt{ConstraintVariable} objects
 for instance variables that are accessed through accessor methods. All
@@ -198,31 +209,52 @@ is not implemented yet, but is left for future work.
   \centering
   \begin{tabular}{r|l}
     \lstinline!anySatisfy:! & $\exists x \in \text{array} : f(x)$ \\
-    \lstinline!noneSatisfy:! & $\forall x \in array : \neg f(x)$ \\
-    \lstinline!allSatisfy:! & $\forall x \in array : f(x)$ \\
+    \lstinline!noneSatisfy:! & $\forall x \in \text{array} : \neg f(x)$ \\
+    \lstinline!allSatisfy:! & $\forall x \in \text{array} : f(x)$ \\
   \end{tabular}
   \caption{Mapping from collection predicates to declarative representation}
   \label{tbl:mapping}
 \end{table}
 
-Additional predicate methods such as \lstinline!allDifferent! are
-mapped to pair-wise inequalities. Reduction methods including
-\lstinline!sum! and \lstinline!count:!, which sum the elements or
-count the number of elements which satisfy a particular condition, are
-represented as linear expressions. The constraints created with these
-methods are reconstructed when the elements in the array change, but
-since the size of arrays is fixed, the length of the linear
-expressions is bounded.
+In general, any predicate method available on collections can be used
+in constraints. For example, additional predicate methods such as
+\lstinline!allDifferent! are mapped to pair-wise inequalities by
+simply interpreting their implementation in constraint construction
+mode. Predicate methods are useful to ensure properties on all
+elements of a collection, for example, that they all be between 1 and
+9 for a Sudoku.
 
-The use cases for methods that create new collections from existing
-ones are less clear in the general case, and we do not support them
-for now. We have found that uses of \lstinline!select:!,
-\lstinline!collect:!, and \lstinline!detect:! in predicate expressions
-can usually be replaced by the direct predicate methods. We might lift
-this restriction in the future if we find a significant number of uses
-of these methods in constraints that are much more expressive than
-their direct predicate counterparts. Until then, and for simplicity in
-the implementation, we do not allow these methods in constraints.
+Other methods that are useful in constraints reduce all elements of a
+collection and then express properties over those
+reductions. Reduction methods including \lstinline!sum! and
+\lstinline!count:!, which sum the elements or count the number of
+elements which satisfy a particular condition, are represented as
+linear expressions. The constraints created with these methods are
+reconstructed when the elements in the array change, but since the
+size of arrays is fixed, the length of the linear expressions is
+bounded. Such expressions are useful to state constraints on a
+collection as a whole, rather than on each of its elements. We have
+used this, for example, in our implementation of the
+Outside-Sum-Sudoku. Here, all elements in a collection must sum to the
+number outside the Sudoku. When one element changes, the others must
+change, too, to ensure the total sum does not.
+
+We have found few use-cases for the most general collection-methods
+\lstinline!do:!, \lstinline!collect:!, and \lstinline!select:! that
+could not be expressed using more specific methods. These methods
+create new collections from existing ones. What the developer means
+when using them and how to translate that meaning to the solver is
+less clear in the general case, and we do not support them for now. We
+have found that uses of \lstinline!select:!, \lstinline!collect:!, and
+\lstinline!detect:! in predicate expressions can usually be replaced
+by the direct predicate methods. We have found that the iteration
+method \lstinline!do:! is usually just used to express constraints on
+each element, and can usually be pulled outside of the constraint
+block. We might lift this restriction in the future if we find a
+significant number of uses of these methods in constraints that are
+much more expressive than their direct predicate counterparts. Until
+then, and for simplicity in the implementation, we do not allow these
+methods in constraints.
 
 %%% Local Variables:
 %%% mode: latex

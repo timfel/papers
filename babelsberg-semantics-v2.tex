@@ -175,7 +175,7 @@ interesting properties of the language.)
 
 Our formal semantics is intended to provide a complete semantics of
 Babelsberg that can be used to inform practical implementations of
-the language. It is meant to as simple as possible, while still 
+the language.  It is meant to be as simple as possible, while still 
 encompassing the
 major design decisions needed to guide language implementers. Because
 Babelsberg is a design to provide object-constraint programming in an
@@ -1143,7 +1143,7 @@ a := {y:10};
 \end{verbatim}
 
 However, in contrast to Babelsberg/PrimitiveTypes, the following
-program fails the structural compatibility check --- only an
+program fails the structural compatibility checks --- only an
 assignment can change the type of a variable.
 
 \begin{verbatim}
@@ -1151,7 +1151,7 @@ a := {x:1};
 once a = {y:10};
 \end{verbatim}
 
-This program fails as well:
+This program fails the structural compatibility checks as well:
 \begin{verbatim}
 a := {x:1};
 b := {x:1};
@@ -1180,7 +1180,7 @@ a := {y:10};
 always b=a;
 \end{verbatim}
 
-The following program also fails the structural compatibility check, since
+The following program also fails the structural compatibility checks, since
 the \verb|always| constraint expects \verb|p| to have a \verb|y| field
 but it doesn't:
 \begin{verbatim}
@@ -1196,7 +1196,7 @@ always p = 5;
 \end{verbatim}
 
 The following program passes the structural compatibility checks, but
-fails with an unsatisfiable constraint error, since we are requiring
+ends up with an unsatisfiable constraint error, since we are requiring
 that \verb|p.x| be both 100 and 2:
 \begin{verbatim}  
 p := {x:0, y:0};
@@ -1587,7 +1587,7 @@ weak & $p = r$ \\
 required & $H(r) = \{x:x_r, y:y_r\}$\\
 weak & $x_r = 2$\\
 weak & $y_r = 5$\\
-required & $a = 5$
+required & $a = 2$
 \end{tabular}
 
 After the third statement:
@@ -1597,7 +1597,7 @@ weak & $p = r$ \\
 required & $H(r) = \{x:x_r, y:y_r\}$\\
 weak & $x_r = 2$\\
 weak & $y_r = 5$\\
-weak & $a = 5$ \\
+weak & $a = 2$ \\
 required & $p.x = 6$
 \end{tabular}
 
@@ -1609,13 +1609,13 @@ weak & $p = r$ \\
 required & $H(r) = \{x:x_r, y:y_r\}$\\
 weak & $x_r = 6$\\
 weak & $y_r = 5$\\
-weak & $a = 5$ \\
+weak & $a = 2$ \\
 required & $p.x = 100$
 \end{tabular}
 
 After solving the final set of constraints we have the environment 
 \verb|p| $\mapsto$ \verb|r| $\wedge$
-\verb|a| $\mapsto$ \verb|5|, as well as the heap \linebreak \verb|r| $\mapsto$
+\verb|a| $\mapsto$ \verb|2|, as well as the heap \linebreak \verb|r| $\mapsto$
 \verb|{x:100, y:5}|.
 
 Here is an example that fails the structural compatibility checks.
@@ -1763,12 +1763,14 @@ always b.x=2;
 After \verb|b:=a|, {\tt a} and {\tt b} refer to the same record, but
 after the second {\tt always} constraint, the solver would need to
 spontaneously create a new record and point {\tt b} at it to satisfy
-the constraints.  So this program fails.
+the constraints.  So this program halts with an unsatisfiable
+constraint error.
 
 It also can't switch identities around to satisfy value constraints.
 Here is the same program, except that there happens to be a record
 with the required value for its \verb|x| field already lying around.
-But to no avail: this program fails as well, rather than silently
+But to no avail: this program halts with an unsatisfiable constraint
+error as well, rather than silently
 changing \verb|b| to refer to the \verb|{x:2}| record.
 
 \begin{verbatim}
@@ -2009,8 +2011,7 @@ the heap.
 }
 
 Note that the constraints involving {\tt H(r)} are {\em required},
-which ensures that a reference 
-reference keeps pointing at the same object it originally pointed at. 
+which ensures that a reference keeps pointing to the same object.
 
 \judgment{\stepH{E}{H}{C}{I}{s}{E$'$}{H$'$}{C$'$}{I$'$}}
 
@@ -2713,15 +2714,21 @@ method is found, it is an error.\footnote{This is analogous to the
   represented in our formal semantics since it is standard and doesn't
   introduce any issues for our focus on constraints.}
 Otherwise we evaluate the body of the method in a new environment, and
-return the result.  Arguments are passed by value (with pointer
-semantics), as in most standard object-oriented languages.  For
-instances of primitive types and value classes, the argument can also
-be copied (since we can't tell the difference between sharing and
-copying in this case).
+return the result.  Arguments are passed by setting up required
+identity constraints between the actual and formal parameters.  For
+methods that don't involve constraints, this is equivalent to call by
+value (with pointer semantics), as in most standard object-oriented
+languages.  Again in the absence of constraints, for an argument that
+is an instance of a primitive type or value class, it can also be
+copied (since we can't tell the difference between sharing and copying
+in this case).
 
-Methods called in the ordinary way can create new constraints, which
-then persist after the method returns.  There is an example in the
-next section to illustrate this.
+However, methods called in the ordinary way can create new
+constraints, which then persist after the method returns.  In this
+case it does matter that arguments are passed by setting up required
+identity constraints between the actual and formal parameters, rather
+than using call by value.  There is an example in the next section to
+illustrate this.
 
 Methods can also be invoked by constraint expressions.  There are a
 number of restrictions on methods to allow them to be used in this way
@@ -2735,8 +2742,10 @@ including a discussion of the rationale for this particular choice of
 restrictions.
 
 If the method can be used in a constraint but only in the forward
-direction, then it can still be called in the usual way, including
-passing any parameters by value with pointer semantics.  For example,
+direction, then it can still be called in the same way as with
+ordinary method invocations, including passing any parameters by
+setting up required identity constraints between the corresponding
+actual and formal parameters.  For example,
 suppose we have a constraint \verb|always c=x.m(a,b)|, and method
 \verb|m| has multiple statements so that it can only be used in the
 forward direction, i.e., we can find a value for \verb|c| given values
@@ -2915,7 +2924,7 @@ Note the consequences of call by value for such methods.  Consider:
 \begin{verbatim}
 a := BankAccount.new;
 m := 10;
-def require_min_balance(a,m);
+require_min_balance(a,m);
 m := 100;
 \end{verbatim}
 Even though we reassigned \verb|m|, the minimum balance for the
@@ -2925,7 +2934,7 @@ Of course, we are passing the account \verb|a| by value as well.
 
 \begin{verbatim}
 a := BankAccount.new;
-def require_min_balance(a,10);
+require_min_balance(a,10);
 a := BankAccount.new;
 \end{verbatim}
 
@@ -3294,8 +3303,8 @@ always q.x=10;
 \end{verbatim}
 
 After the third statement, both \verb|p| and \verb|q| refer to the
-same point, which has \verb|x=5,y=0|.  Trying to satisfy the final
-constraint on \verb|q.x| fails.  We could satisfy the constraints by
+same point, which has \verb|x=5,y=0|.  The final constraint on 
+\verb|q.x| is unsatisfiable.  We could satisfy the constraints by
 first cloning \verb|q| from \verb|p| and then changing its \verb|x|,
 but we forbid creating new objects to satisfy constraints.  In the
 semantics, this results in getting stuck due to an unsatisfiable
@@ -4267,8 +4276,8 @@ set of constraints that include a \verb|once| constraint that the
 left-hand-side equal that value.  This lets assignment interact
 correctly with other constraints in the constraint store, if any.  For
 example, as a consequence of this semantics, the following program
-will fail (i.e., get stuck in the formal semantics; or raise an
-exception in a practical implementation):
+will get stuck in the formal semantics, or raise an
+exception in a practical implementation:
 
 \begin{verbatim}
 x := 0;
@@ -4278,7 +4287,7 @@ x := 5;
 
 However, there are some subtle issues in connection with this representation.
 
-The analogous program still fails, as one would want, in
+The analogous program still gets stuck, as one would want, in
 Babelsberg/Records or when using value classes, since records and
 instances of value classes are immutable.
 
@@ -4599,7 +4608,7 @@ final return statement, but this seems like not that useful a class of
 methods to run backwards.
 
 For the record, here are some more straightforward examples of when
-the tranformation fails.  
+the tranformation doesn't work.
 
 Consider an absolute value method for integers:
 

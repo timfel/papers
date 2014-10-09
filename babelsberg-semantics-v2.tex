@@ -2798,48 +2798,64 @@ equality constraint between the result of evaluating
 \verb|(self.upper_left + self.lower_right) / 2| and a new point with
 \verb|x=10|, \verb|y=20|. Constructing the center point from the first
 expression, as well as looking up and inlining the \verb|=| method on
-it, explodes into a network of simpler constraints that can then be
-handed to the solver in one conjunction:
-\begin{verbatim}
-// for the center method
-self1 = r
-self2 = self1.upper_left
-arg1 = self1.lower_right
-argP1_1 = self2.x + arg1.x
-argP1_2 = self2.y + arg1.y
-self3 = {x: argP1_1, y: argP2_2}
-arg2 = 2
-argP2_1 = self3.x / arg2
-argP2_2 = self3.y / arg2
+it, explodes into a network of simpler constraints, all required, that
+can then be handed to the solver in one conjunction. Note how the
+local names are translated into a global solver environment by
+appending a digit to every duplicate name.
 
-// for the static point
-argP3_1 = 10
-argP3_2 = 20
+$\begin{array}{rr@{\;=\;}l}
+\multicolumn{3}{r}{//~\mathrm{stays~for~the~heap}} \\
+\mathrm{required} & H(r) & \{upper\_left: r_{ul},\,lower\_right: r_{lr}\}\\
+\mathrm{weak} & r_{ul} & \{x:0,\,y:0\}\\
+\mathrm{weak} & r_{lr} & \{x:5,\,y:5\} \\
 
-// for the point equality
-self4 = {x: argP2_1, y: argP2_2}
-arg3 = {x: argP3_1, y: argP3_2}
-self4.x = arg3.x && self4.y = arg3.y
-\end{verbatim}
+\multicolumn{3}{r}{//~\mathrm{the~center~method}} \\
+\mathrm{required} & self1 & r\\
 
-For each variable name in a scope a unique global variable name is
-created.  The solver works only on the global names. During
-evaluation, each local name maps to a global name, which in turn maps
-to a value.  Entering the center method creates a local environment in
-which \verb|self| is bound to \verb|r|\@.  A global alias \verb|self1|
-is created and constrained to refer to the same reference (which is to
-a rectangle).  Similarly, the global alias \verb|self2| is a point,
-namely the upper left corner of the rectangle.  This alias is then
-used when we explode the \verb|+| message to that point.  \verb|self3|
-is also a point, namely the new point that is returned by the point
-addition method.  Note that we are representing the instance of this
-value class in the above conjunction of exploded constraints and in
-the formal semantics as an i-record.  For methods that
-take arguments, global names for the argument names are created and
-constrained similarly.  For example, \verb|arg1| is the global name in
-this exploded constraint for the argument to the \verb|+| method for
-\verb|Point|. Thus, the solver never has to deal with different scopes
-or name clashes.
+\multicolumn{3}{r}{//~\mathrm{the~point~addition~called~from~the~center~method}} \\
+\mathrm{required} & self2 & H(self1).upper\_left\\
+\mathrm{required} & arg1 & H(self1).lower\_right\\
+
+\multicolumn{3}{r}{//~\mathrm{the~point~constructor~called~from~the~point~addition~method}} \\
+\mathrm{required} & x1 & H(self2).x\,+\,H(arg1).x\\
+\mathrm{required} & y1 & H(self2).y\,+\,H(arg1).y\\
+
+\multicolumn{3}{r}{//~\mathrm{point~division~by~scalar~called~from~center~method}} \\
+\mathrm{required} & self3 & \{x: x1,\,y: y2\}\\
+\mathrm{required} & arg2 & 2\\
+
+\multicolumn{3}{r}{//~\mathrm{point~constructor~called~from~point~division~method}} \\
+\mathrm{required} & x2 & H(self3).x\,/\,arg2\\
+\mathrm{required} & y2 & H(self3).y\,/\,arg2\\
+
+\multicolumn{3}{r}{\hspace{29em}\mathrm{//~point~constructor~for~the~static~point}} \\
+\mathrm{required} & x3 & 10\\
+\mathrm{required} & y3 & 20\\
+
+\multicolumn{3}{r}{//~\mathrm{and~for~the~point~equality}} \\
+\mathrm{required} & self4 & \{x: x2,\,y: y2\}\\
+\mathrm{required} & arg3 & \{x: x3,\,y: y3\}\\
+\mathrm{required} & H(self4).x & H(arg3).x \wedge H(self4).y = H(arg3).y\\
+\end{array}$
+
+As mentioned, for each variable name in a scope a unique global
+variable name is created.  The solver works only on the global
+names. During evaluation, each local name maps to a global name, which
+in turn maps to a value.  Entering the center method creates a local
+environment in which \verb|self| is bound to \verb|r|\@.  A global
+alias \verb|self1| is created and constrained to refer to the same
+reference (which is to a rectangle).  Similarly, the global alias
+\verb|self2| is a point, namely the upper left corner of the
+rectangle.  This alias is then used when we explode the \verb|+|
+message to that point.  \verb|self3| is also a point, namely the new
+point that is returned by the point addition method.  Note that we are
+representing the instance of this value class in the above conjunction
+of exploded constraints and in the formal semantics as an i-record.
+For methods that take arguments, global names for the argument names
+are created and constrained similarly.  For example, \verb|arg1| is
+the global name in this exploded constraint for the argument to the
+\verb|+| method for \verb|Point|. Thus, the solver never has to deal
+with different scopes or name clashes.
 
 This example illustrates why we need to solve for object identity and type
 before values --- if \verb|r| had been an instance of a class with a
@@ -2890,16 +2906,11 @@ After the program runs, \verb|y| will be 20 and \verb|x| will be 10.
 For this program, the constraint \verb|y=x.double()| explodes into the
 following network:
 
-\begin{verbatim}
-self1 = x
-y = 2*self1
-\end{verbatim}
-
-\ab{TODO: Tim - check wording of the sentence below}
-
-Note that the identity constraint between \verb|x| and \verb|self1|
-explodes into an equality constraint, since \verb|x| is an instance of
-a primitive type.
+$\begin{array}{rr@{\;=\;}l}
+\mathrm{required} & self1 & x\\
+\mathrm{required} & y & 2*self1
+\end{array}$
+ 
 This conjunction of constraints works equally well for determining
 \verb|x| or determining \verb|y|, even though \verb|double| is
 actually a message to \verb|x|.

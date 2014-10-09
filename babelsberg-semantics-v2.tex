@@ -2718,21 +2718,15 @@ method is found, it is an error.\footnote{This is analogous to the
   represented in our formal semantics since it is standard and doesn't
   introduce any issues for our focus on constraints.}
 Otherwise we evaluate the body of the method in a new environment, and
-return the result.  Arguments are passed by setting up required
-identity constraints between the actual and formal parameters.  For
-methods that don't involve constraints, this is equivalent to call by
-value (with pointer semantics), as in most standard object-oriented
-languages.  Again in the absence of constraints, for an argument that
-is an instance of a primitive type or value class, it can also be
-copied (since we can't tell the difference between sharing and copying
-in this case).
+return the result.  Arguments are passed by value (with pointer
+semantics), as in most standard object-oriented languages.  For
+instances of primitive types and value classes, the argument can also
+be copied (since we can't tell the difference between sharing and
+copying in this case).
 
-However, methods called in the ordinary way can create new
-constraints, which then persist after the method returns.  In this
-case it does matter that arguments are passed by setting up required
-identity constraints between the actual and formal parameters, rather
-than using call by value.  There is an example in the next section to
-illustrate this.
+Methods called in the ordinary way can create new constraints, which
+then persist after the method returns.  There is an example in the
+next section to illustrate this.
 
 Methods can also be invoked by constraint expressions.  There are a
 number of restrictions on methods to allow them to be used in this way
@@ -2746,10 +2740,8 @@ including a discussion of the rationale for this particular choice of
 restrictions.
 
 If the method can be used in a constraint but only in the forward
-direction, then it can still be called in the same way as with
-ordinary method invocations, including passing any parameters by
-setting up required identity constraints between the corresponding
-actual and formal parameters.  For example,
+direction, then it can still be called in the usual way, including
+passing any parameters by value with pointer semantics.  For example,
 suppose we have a constraint \verb|always c=x.m(a,b)|, and method
 \verb|m| has multiple statements so that it can only be used in the
 forward direction, i.e., we can find a value for \verb|c| given values
@@ -2774,8 +2766,8 @@ solver, and we can potentially solve for any of \verb|x|, \verb|a|,
 \verb|b|, or \verb|c|.  This done by creating an environment for
 method \verb|m| and inlining the returned expression with respect to
 that environment. The parameters in that environment are constrained
-to be equal to \verb|a| and \verb|b|, and \verb|self| is constrained
-to be equal to \verb|x|.
+to be identical to \verb|a| and \verb|b| respectively, and \verb|self|
+is constrained to be identical to \verb|x|.
 
 \subsection{Examples}
 
@@ -2788,7 +2780,7 @@ always r.center() = Point(10,20);
 
 The \verb|center| method for \verb|Rectangle| is defined as follows:
 \begin{verbatim}
-def center
+def center()
   return (self.upper_left + self.lower_right) / 2;
 end
 \end{verbatim}
@@ -2849,7 +2841,7 @@ this exploded constraint for the argument to the \verb|+| method for
 \verb|Point|. Thus, the solver never has to deal with different scopes
 or name clashes.
 
-This example illustrates why we need to solve for object identity
+This example illustrates why we need to solve for object identity and type
 before values --- if \verb|r| had been an instance of a class with a
 different implementation of the \verb|center| method, it would have
 been exploded in a different way.
@@ -2903,6 +2895,11 @@ self1 = x
 y = 2*self1
 \end{verbatim}
 
+\ab{TODO: Tim - check wording of the sentence below}
+
+Note that the identity constraint between \verb|x| and \verb|self1|
+explodes into an equality constraint, since \verb|x| is an instance of
+a primitive type.
 This conjunction of constraints works equally well for determining
 \verb|x| or determining \verb|y|, even though \verb|double| is
 actually a message to \verb|x|.
@@ -2922,12 +2919,14 @@ Now suppose we call \verb|require_min_balance(a,10)| on some account
 \verb|a|.  (This is just calling the method from an ordinary
 statement, either at the top level or some other method, \emph{not}
 from a constraint expression.)  Thereafter the balance in the account
-\verb|a| must be at least 10 (a persistent constraint). Note that we
-use a \verb|?| on the variable min. This defines a read-only
-constraint. Otherwise, the solver would be free to change either the
-account balance (visible to the outside), or the local variable inside
-the method. We do not include rules for read-only annotations in the
-semantics, but they would be straightforward to add.
+\verb|a| must be at least 10 (a persistent constraint).  We use a
+\verb|?| annotation on the variable \verb|min| to make it read-only
+with respect to this constraint --- otherwise the solver would be free
+to change either the account balance or the local variable \verb|min|.
+Section \ref{sec:constraints} includes a discussion of read-only
+annotations; as noted earlier, we do not include rules for read-only
+annotations in the semantics, but they would be straightforward to
+add.
 
 Note the consequences of our calling convention for such methods.
 Consider:
@@ -2939,11 +2938,7 @@ m := 100
 \end{verbatim}
 Even though we reassigned \verb|m|, the minimum balance for the
 account stays at 10, since we passed \verb|m| (a primitive type) by
-value.
-
-Of course, we are passing the account \verb|a| by value as well, but
-since it is a reference value, changing its \verb|balance| affects the
-heap.
+value.  Of course, we are passing the account \verb|a| by value as well:
 
 \begin{verbatim}
 a := BankAccount.new;
@@ -2966,19 +2961,17 @@ def has_min_balance(acct,min)
 end;
 
 a := BankAccount.new;
-m := 10
+m := 10;
 always has_min_balance(a,m?);
 m := 100;
 \end{verbatim}
 
 Programmers will need to be aware of the different semantics for these
 two cases, and select the appropriate variant when it makes a
-difference. Note that this method does not include a read-only
-annotation, the annotation is instead in the constraint
-expression. This works because using the method in a constraint sets
-up a required equality between the argument expression \verb|m?| and
-the formal parameter \verb|min|, which means that the solver is not
-allowed to change either to satisfy the constraint.
+difference. Note the placement of the read-only annotation on the
+variable \verb|m| in the \verb|always| constraint --- it would make no
+sense to place it on \verb|min| in the \verb|has_min_balance| method,
+since that is just a method, not itself a constraint.
 
 Implementing such methods requires that the semantics (and
 implementations) keep the local variables in such a method invocation
@@ -2989,7 +2982,7 @@ method to illustrate this:
 def require_min_balance_with_locals(acct,min)
   b := acct.balance;
   always b = acct.balance;
-  always b >= min;
+  always b >= min?;
 end;
 \end{verbatim}
 
@@ -3001,7 +2994,7 @@ case it isn't provided.
 \begin{verbatim}
 def init(initial_balance,min=0)
   self.balance := initial_balance;
-  always self.balance >= min;
+  always self.balance >= min?;
 end;
 \end{verbatim}
 
@@ -3133,7 +3126,7 @@ Methods called by constraints can assign to variables, but users
 should be careful with assignments that would be visible outside the
 method. A valid use-case for global assignment is caching, but it
 would produce unpredictable results if, for example, a global counter
-is incremented and returned on each call.
+were incremented and returned on each call.
 
 If there are assignments, the method can only be used in the forward
 direction in constraints that call it (i.e., to compute the result
@@ -3161,7 +3154,7 @@ Consider an iterative \verb|sum| method for
 the class \verb|Array|.
 
 \begin{verbatim}
-def sum
+def sum()
   ans := 0;
   i := 0;
   while i<self.length
@@ -3180,7 +3173,7 @@ a := Array.new(2);
 a[0] := 10;
 a[1] := 20;
 s := 30;
-always s = a.sum;
+always s = a.sum();
 a[0] := 100;
 \end{verbatim}
 
@@ -3196,26 +3189,31 @@ last line below will be too hard for the system to solve:
 a := Array.new(2);
 a[0] := 10;
 a[1] := 20;
-always 50 = a.sum;
+always 50 = a.sum();
 \end{verbatim}
 
 We \emph{can} provide something analogous to an array \verb|sum|
 constraint that works both forward and backward by writing an ordinary
 method that sets up the appropriate network of addition constraints.
-It is defined here as the \verb|sum_equal| method on \verb|Array|,
-although it could be a standalone method instead.
 
 \begin{verbatim}
-def sum_equal(sum)
-  helper(0,sum);
+def sum_equal(array,sum)
+  helper(array,0,sum);
 end;
+\end{verbatim}
 
-def helper(start,sum)
-  if start>=self.length then always sum=0;
+For this to work correctly, we need to make \verb|sum| be a mutable
+object --- we will use an instance of a class \verb|Cell| that has a
+\verb|value| method that can be used to read or constrain the cell's
+value.  
+
+\begin{verbatim}
+def helper(array,start,sum)
+  if start>=array.length() then always sum.value()=0;
     else 
-       partial := 0;  /* create a local variable */
-       helper(start+1,partial);
-       always sum=self[start]+partial;
+       partial := Cell.new(0);  /* create a local variable */
+       helper(array,start+1,partial);
+       always sum.value()=array[start]+partial.value();
   end if;
 end;  
 \end{verbatim}
@@ -3226,7 +3224,7 @@ Now our example works:
 a := Array.new(2);
 a[0] := 10;
 a[1] := 20;
-a.sum_equal(50);
+sum_equal(a,Cell.new(50));
 \end{verbatim}
 
 If we subsequently set \verb|a[1]| to 5, \verb|a[0]| will become 45 to
@@ -3243,11 +3241,26 @@ needs to call \verb|sum_equal| again.\footnote{At the cost of
   retract the old constraints before re-running \texttt{some\_method},
   to avoid accumulating obsolete constraints.}
 
+Using instances of \verb|Cell| is slightly annoying.  We can avoid
+this as far as the client of the \verb|sum_equal| method is concerned
+by making \verb|sum| be an instance variable of arrays, and setting up
+the necessary network of constraints in the array's \verb|initialize|
+method. (We're still using \verb|Cell| in the helper method, but not
+outside it.)
+
+\begin{verbatim}
+def initialize()
+  c := Cell.new(0);
+  always c.value()=self.sum();
+  helper(self,0,c);
+end;
+\end{verbatim}
+
 It is tempting to write \verb|sum| as a method that returns the sum
 and that still can be used multi-directionally, perhaps:
 
 \begin{verbatim}
-def sum
+def sum()
   return self.sum_from(0);
 end;
 
@@ -4597,7 +4610,7 @@ is a version of \verb|sum| that might be automatically generated in
 this fashion:
 
 \begin{verbatim}
-def sum
+def sum()
   helper(0,i,0,ans);
   return ans;
 end;

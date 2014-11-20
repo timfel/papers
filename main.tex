@@ -8,6 +8,7 @@
 \usepackage{makeidx}  % allows for indexgeneration
 \usepackage[pdftex]{graphicx} % PNGs
 \usepackage{stmaryrd}
+\usepackage{bcprules}
 \usepackage{amsmath, amssymb} % algebra
 \usepackage[english]{babel} % deutsch
 % \usepackage[ngerman]{babel} % deutsch
@@ -26,8 +27,8 @@
 \newcommand{\maybe}{{\bf\footnotesize{?}}\kern-1pt}
 
 \newcommand{\eval}[3]{{\tt #1} $\vdash$ {\tt #2} $\Downarrow$ {\tt #3}}
-\newcommand{\stay}[2]{stay({\tt #1}) $=$ {\tt #2}}
-\newcommand{\istay}[2]{i-stay({\tt #1}) $=$ {\tt #2}}
+\newcommand{\stay}[2]{stay({\tt #1})~$=$~{\tt #2}}
+\newcommand{\istay}[2]{i-stay({\tt #1})~$=$~{\tt #2}}
 \newcommand{\toSolver}[2]{{\tt E} $\vdash$ {\tt #1} $\leadsto$ $#2$}
 \newcommand{\fromSolver}[2]{$#1$ $\leadsto$ {\tt #2}}
 \newcommand{\csolve}[2]{$#1$ $\models$ $#2$}
@@ -56,13 +57,14 @@
 \newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
 \newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
 
-\newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
+\newcommand{\judgment}[1]{\begin{flushleft}\fbox{#1}\end{flushleft}}
 
 \newcommand{\receq}{\stackrel{{\tt r}}{{\tt =}}}
 
 \newcommand{\lookup}[3]{\textit{lookup}({\tt #1},{\tt #2}) = ({\tt x$_1$} $\cdots$ {\tt x$_n$},{\tt #3})}
 
 
+\newcommand{\combine}[4]{{\tt <#1,#2,#3>} $\leadsto$ {\tt #4}}
 \newcommand{\inline}[9]{{\tt <#1,#2,#3,#4,#5,#6>} $\leadsto$ {\tt <#7,#8,#9>}}
 
 
@@ -694,14 +696,18 @@ creation, modification, and not testing for object identity.
 \section{Semantics}
 \label{sec:semantics}
 
-For our semantics we use a simple language, Babelsberg/Objects, that
-includes primitive types (reals, booleans, and strings), mutable and
-immutable objects, classes, methods, messages, and inheritance, along
-with object-oriented constraint definitions (i.e., constraint
-definitions that can include method calls). This language thus
-includes all the essential features of the actual object constraint
-languages. Its semantic rules are mostly standard object-oriented,
-with the addition of rules to assert constraints.
+For our semantics we use a simple language, Babelsberg/UID, that
+includes primitive types (reals, booleans, and strings), as well as
+mutable objects that live on the heap and immutable objects that are
+in the environment. Its semantic rules are mostly standard imperative
+rules, with the addition of rules to assert and maintain
+constraints. The semantics for this language, although not
+object-oriented, illustrates all our important
+contributions. Extending it to include all the essential features of
+the actual object constraint languages such as support for classes,
+methods, messages, and inheritance, along with constraint definitions
+that can include method calls is straightforward. We include the
+extended language, Babelsberg/Objects, in an appendix.
 
 In addition to a normal imperative language, after every statement
 execution the current set of constraints is solved and the environment
@@ -721,26 +727,25 @@ generated and the heap and environment remain unchanged.
 
 The semantics treats the solver as a black box, but we assume it
 supports our primitive types, records, uninterpreted functions, as
-well as hard and soft constraints \cite{borning1992constraint}. The
-solver should find a single best solution --- if there are multiple
-solutions, the solver is free to pick any one of them. % Providing
-% answers rather than solutions, i.e., results such as
+well as hard and soft constraints \cite{borning1992constraint} and
+read-only variables. The solver should find a single best solution ---
+if there are multiple solutions, the solver is free to pick any one of
+them. % Providing answers rather than solutions, i.e., results such as
 % $10 \leq x \leq 20$ rather than a single value for $x$, and
 % backtracking among multiple answers, as available in for example
 % constraint logic programming \cite{jaffar-popl-1987}, is left for
 % future work.
-\vskip\baselineskip\noindent
-We use the following syntax for Babelsberg/Objects:
-\vskip0.5\baselineskip\noindent
+
+\vskip\baselineskip\noindent We use the following syntax for
+Babelsberg/UID: \vskip0.5\baselineskip\noindent
 \begin{tt}
 \begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
-  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+{\rm Statement} & s & ::= & skip $\mid$ L := e $\mid$ L := new o $\mid$ always C $\mid$ once C \\
+  & & &  $\mid$ s;s $\mid$ if e then s else s $\mid$ while e do s \\
 {\rm Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
 {\rm Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
-$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I $\mid$
-e.l(e$_1$,$\ldots$,e$_n$)\\
-  & & & $\mid$ o $\mid$ new o $\mid$ D\\
+$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
+  & & & $\mid$ o $\mid$ D\\
 {\rm Identity} & I & ::= & e == e\\
 {\rm Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
 {\rm L-Value} & L & ::= & x $\mid$ e.l \\
@@ -749,11 +754,10 @@ e.l(e$_1$,$\ldots$,e$_n$)\\
 {\rm Label} & l & ::= & {\rm record label names} \\
 {\rm Reference} & r & ::= & {\rm references to heap records} \\
 {\rm Dereference} & D & ::= & \H(e) \\\\
-{\rm Method Body} & b & ::= & s; return e $\mid$ return e \\
 
 {\rm Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\} \\
 \end{tabular}
-\end{tt}
+\end{tt}\vskip0.5\baselineskip
 
 Metavariable {\tt c} ranges over the {\tt nil} value, booleans, and
 primitive type constants. A finite set of arithmetic operators on
@@ -769,37 +773,436 @@ element {\em required}. The syntax requires the priority to be
 explicit, for simplicity we sometimes omit it in the rules and assume
 a {\em required} priority.
 
-In the syntax, we treat {\tt H} as a keyword.  Source programs will
-not use expressions of the form {\tt H(e)}, but they are introduced as
+In the syntax, we treat \H as a keyword.  Source programs will
+not use expressions of the form \H(e), but they are introduced as
 part of constraints given to the solver, which we assume will treat
-{\tt H} as an uninterpreted function.
+\H as an uninterpreted function.
 
-The rules for evaluation are mostly standard:\\
-...
+The semantics includes an environment \E~and a heap \H. The former is
+a function that maps variable names to values, while the latter is a
+function that maps mutable references to ``objects''. When convenient,
+we also treat both \E~and \H~as a set of pairs ({\tt \{(x,v),...\}}
+and {\tt \{(r,o),...\}}, respectively). The currently active value
+constraints are kept in the constraint store \C, identity constraints
+are kept in \I.
 
-A few rules specific to Babelsberg exist to assert constraints, and to
-assign to variables:\\
-...
+\judgment{\evalH{\E}{\H}{e}{v}}
 
-We distinguish value and identity constraints.  Note that each
-asserted constraint is added to a \emph{constraint store}, and first
-the identity constraints, then the value are satisfied simultaneously.
-\\
-...
+``Expression {\tt e} evaluates to value {\tt v} in the context of
+environment \E~and heap \H.''
+
+The rules for evaluation are mostly as expected in an imperative
+language. We do not give rules for expressions of the form {\tt
+  \H(e)}, because they are not meant to appear in source. For each
+operator {\tt o} in the language we assume the existence of a
+corresponding semantic function denoted
+$\llbracket {\tt o} \rrbracket$.
+
+\inferax{E-Const}{\evalH{\E}{\H}{c}{c}}
+
+\inferrule{E-Var}{{\tt \E}({\tt x}) = {\tt v}}{\evalH{\E}{\H}{x}{v}}
+
+\inferrule{E-Field}{
+  \evalH{\E}{\H}{L}{r} \andalso
+  {\tt \H}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ $i$ $\leq$ $n$
+}{
+  \evalH{\E}{\H}{L.l$_i$}{v$_i$}
+}
+
+\inferax{E-Ref}{\evalH{\E}{\H}{r}{r}}
+
+\infrule[E-Object]{\mbox{
+  \evalH{\E}{\H}{e$_1$}{v$_1$} $\cdots$ 
+  \evalH{\E}{\H}{e$_n$}{v$_n$}}\\
+}{\mbox{
+  \evalH{\E}{\H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+}}
+
+\inferrule{E-Op}{
+  \evalH{\E}{\H}{e$_1$}{v$_1$} \andalso
+  \evalH{\E}{\H}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalH{\E}{\H}{e$_1$ $\oplus$ e$_2$}{v}
+}
+
+\inferrule{E-Compare}{
+  \evalH{\E}{\H}{e$_1$}{v$_1$} \andalso
+  \evalH{\E}{\H}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalH{\E}{\H}{e$_1$ $\olessthan$ e$_2$}{v}
+}
+
+\inferrule{E-Combine}{
+  \evalH{\E}{\H}{e$_1$}{v$_1$} \andalso
+  \evalH{\E}{\H}{e$_2$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalH{\E}{\H}{e$_1$ $\ovee$ e$_2$}{v}
+}
+
+\infrule[E-IdentityTrue]{
+  \mbox{%
+    \evalH{\E}{\H}{a$_1$}{v} \andalso
+    \evalH{\E}{\H}{a$_2$}{v}}
+}{\mbox{%
+  \evalH{\E}{\H}{a$_1$ == a$_2$}{true}
+}}
+
+\infrule[E-IdentityFalse]{
+  \mbox{%
+    \evalH{\E}{\H}{a$_1$}{v$_1$} \andalso
+    \evalH{\E}{\H}{a$_2$}{v$_2$} \andalso {\tt v$_1$} $\neq$ {\tt v$_2$}}
+}{\mbox{%
+  \evalH{\E}{\H}{a$_1$ == a$_2$}{false}
+}}
+
+\judgment{\tcH{\E}{\H}{e}{T}}
+\judgment{\tcHC{\E}{\H}{C}}
+
+``Expression {\tt e} has type {\tt T} in the context of environment
+{\tt \E} and heap \H.''
+
+``Constraint {\tt C} is well formed in the context of environment
+{\tt \E} and heap \H.''
+
+We use a notion of typechecking to prevent undesirable non-determinism
+in constraints.  Specifically, we want constraint solving to preserve
+the structure of the values of variables, changing only the underlying
+primitive data as part of a solution, in support of the goals listed
+in \autoref{sec:object-structure}.  We formalize our notion of
+structure through a simple syntax of types:
+\vskip0.5\baselineskip\noindent\begin{tt}
+\begin{tabular}{lrrl}
+{\rm Type} & T & ::= & PrimitiveType $\mid$ \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}
+\end{tabular}
+\end{tt}
+\vskip0.5\baselineskip
+
+The typechecking rules are mostly standard. We check expressions
+dynamically just before constraint solving, so we typecheck in the
+context of a runtime environment. As with the evaluation rules,
+expressions of the form {\tt \H(e)} do not typecheck. Note that we do
+not include type rules for identities. This ensures that constraints
+involving them do not typecheck, so identity checks cannot occur in
+ordinary constraints.
+
+\inferax{T-Constant}{
+  \tcH{\E}{\H}{c}{PrimitiveType}
+}
+
+\inferrule{T-Ref}{
+  \tcH{\E}{\H}{o}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}} \andalso
+  {\tt \H}({\tt r})={\tt o}
+}{
+  \tcH{\E}{\H}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+\inferrule{T-Deref}{
+  \tcH{\E}{\H}{e}{T}
+}{
+  \tcH{\E}{\H}{\H(e)}{T}
+}
+
+\inferrule{T-Object}{
+  \tcH{\E}{\H}{e$_1$}{T$_1$} $\cdots$ \tcH{\E}{\H}{e$_n$}{T$_n$}
+}{
+  \tcH{\E}{\H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+\inferrule{T-Variable}{
+  \eval{\E}{x}{v} \andalso \tcH{\E}{\H}{v}{T}
+}{
+  \tcH{\E}{\H}{x}{T}
+}
+
+\inferrule{T-Field}{
+  \tcH{\E}{\H}{L}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+  \andalso $1 \leq i \leq n$
+}{
+  \tcH{\E}{\H}{L.l$_i$}{T$_i$}
+}
+
+\inferrule{T-Op}{
+  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso
+  \tcH{\E}{\H}{e$_2$}{PrimitiveType}
+}{
+  \tcH{\E}{\H}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Compare}{
+  \tcH{\E}{\H}{e$_1$}{T} \andalso
+  \tcH{\E}{\H}{e$_2$}{T}
+}{
+  \tcH{\E}{\H}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Combine}{
+  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso
+  \tcH{\E}{\H}{e$_2$}{PrimitiveType}
+}{
+  \tcH{\E}{\H}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Priority}{
+  \tcH{\E}{\H}{e}{T}
+}{
+  \tcHC{\E}{\H}{$\rho$ e}
+}
+
+\inferrule{T-Conjunction}{
+  \tcHC{\E}{\H}{C$_1$} \andalso
+  \tcHC{\E}{\H}{C$_2$}
+}{
+  \tcHC{\E}{\H}{C$_1$ $\wedge$ C$_2$}
+}
+
+\judgment{\solveH{\E}{\H}{C}}
+
+This judgment represents a call to the constraint solver, which we
+treat as a black box.  The proposition \mbox{\solveH{\E}{\H}{\C}}
+denotes that environment \E~and heap \H~are an \emph{optimal solution}
+to the constraint {\tt C}, according to the solver's semantics.
+
+\judgment{\stay{\E}{C}}
+\judgment{\stay{\H}{C}}
+\judgment{\istay{e}{C}}
+\judgment{\istay{\E}{C}}
+\judgment{\istay{\H}{C}}
 
 As in Kaleidoscope, the semantics ensure that each variable has an
-implicit stay constraint to keep it at its current value, if possible:\\
-...
+implicit stay constraint to keep it at its current value, if
+possible. To ensure that the solver cannot invent new fields on
+objects, we create required stays on the heap that assert the
+structure of the objects. The first two stay rules assert only weak
+stays on all variables. The \istay{\E}{C} and \istay{\H}{C} rules use
+the \istay{e}{C} rule to create weak stays on primitive values and
+immutable objects, but they create required stays for
+references. These latter rules are used when solving value
+constraints, and ensure that value constraints cannot affect object
+identities.
 
-To ensure that the solver cannot invent new fields on objects, we
-create required stays on the heap:\\
-...
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
 
-When we satisfy identity constraints, the solver has the power to
-change which heap references a variable points to. However, for
-satisfying value constraints, the solver cannot change any of the
-references.\\
-... (account example)
+\inferrule{StayOne}{
+  \E$({\tt x}) = {\tt v}$ \andalso
+  \E$_0 = $\E$ \setminus \{({\tt x},{\tt v})\}$ \andalso
+  \stay{\E$_0$}{C$_0$} \andalso
+  {\tt C}$ = ${\tt C}$_0$ $\wedge$ {\tt weak x=v}
+}{
+  \stay{\E}{C}
+}
+
+\infrule[StayHeap]{\mbox{
+  \H$({\tt r}) = {\tt o}$ \andalso  
+  \H$_0 = $\H$ \setminus \{({\tt r},{\tt o})\}$ \andalso
+  \stay{\H$_0$}{C$_0$}}\\
+\mbox{
+  ${\tt o} = $\{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\} \andalso
+  {\tt C} = {\tt weak x$_{r0}$ = v$_0$ $\wedge$ $\ldots$ $\wedge$ weak x$_{rn}$ = v$_n$}}
+}{\mbox{
+  \stay{\H}{C$_0$ $\wedge$
+    \H(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$ C}
+}}
+
+\inferax{IStayEmpty}{\istay{$\emptyset$}{true}}
+\inferax{IStayConst}{\istay{x=c}{weak x=c}}
+\inferax{IStayObject}{\istay{x=\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{weak x=\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
+\inferax{IStayRef}{\istay{x=r}{required x=r}}
+
+\inferrule{IStayOne}{
+  \E$({\tt x}) = {\tt v}$ \andalso
+  \E$_0 = $\E$ \setminus \{({\tt x},{\tt v})\}$ \andalso
+  \istay{\E$_0$}{C$_0$} \andalso
+  \istay{x=v}{C$_s$} \andalso
+  {\tt C}$ = ${\tt C}$_0$ $\wedge$ {\tt C}$_s$
+}{
+  \istay{\E}{C}
+}
+
+\infrule[IStayHeap]{
+  \mbox{
+    \H$({\tt r}) = {\tt o}$ \andalso  
+    \H$_0 = $\H$ \setminus \{({\tt r},{\tt o})\}$ \andalso
+    \istay{\H$_0$}{C$_0$} \andalso
+    ${\tt o} = $\{{\tt l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\}}\\
+  \mbox{
+    \istay{x$_{r0}$=v$_0$}{C$_{r0}$} $\cdots$ \istay{x$_{rn}$=v$_n$}{C$_{rn}$}}
+}{\mbox{
+  \istay{\H}{C$_0$ $\wedge$
+    \H(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$
+    C$_{r0}$ $\wedge$
+    $\ldots$ $\wedge$
+    C$_{rn}$ }
+}}
+
+\judgment{\combine{\E}{\H}{\C}{C}}
+\judgment{\combine{\E}{\H}{\I}{C}}
+
+We use a combination judgment to translate the constraint stores into
+a conjunction of constraints suitable for the solver. During this
+combination all expressions in constraints of the form {\tt L.l} where
+{\tt L} refers to a heap reference {\tt r} are converted into {\tt
+  \H(L.l)} (recursively, as required). We do not give rules, because
+they are straightforward. The full Babelsberg/Objects language
+includes a similar judgment that also inlines method calls, which is
+given in its entirety in the appendix.
+
+\judgment{\stepH{\E}{\H}{\C}{\I}{s}{\E$'$}{\H$'$}{\C$'$}{\I$'$}}
+
+``Execution starting from configuration {\tt <\E|\H|\C|\I|s>} ends in
+state {\tt <E$'$|\H$'$|C$'$|\I$'$>}.''
+
+A ``configuration'' defining the state of an execution includes a
+concrete context, represented by the environment and heap, a symbolic
+context, represented by the constraint and identity constraint stores,
+and a statement to be executed. The environment, heap, and statement
+are standard, while the constraint stores are not part of the state of
+a computation in most languages.  Intuitively, the environment comes
+from constraint solving during the evaluation of the immediately
+preceding statement, and the constraint records the \verb|always|
+constraints that have been declared so far during execution. Note that
+our execution implicitly gets stuck if the solver cannot produce a
+model. When updating a variable, we solve first for the identity
+constraints and then for the value constraints. This propagates any
+type changes through the identity constraints. We then type the value
+constraints against the environment returned by solving for the
+identities.
+
+\infrule[S-Asgn]{
+  \mbox{
+    \evalH{\E}{\H}{e}{v} \andalso
+    \stay{\E}{C$_{E_s}$} \andalso
+    \stay{\H}{C$_{H_s}$} \andalso
+    \combine{\E}{\H}{\I}{C$_I$}}\\
+  \mbox{
+    \solveH{\E$'$}{\H$'$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ L=v)}}\\
+  \mbox{
+    \istay{\E$'$}{C$_{{E'}_s}$} \andalso
+    \istay{\H$'$}{C$_{{H'}_s}$} \andalso
+    \combine{\E}{\H}{\C}{C$_C$} \andalso
+    \tcHC{\E$'$}{\H$'$}{C$_C$}} \\
+  \mbox{
+    \solveH{\E$''$}{\H$''$}{(C$_C$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ L=v)}}
+}{\mbox{
+  \stepH{\E}{\H}{\C}{\I}{L := e}{\E$''$}{\H$''$}{\C}{\I}
+}}
+
+Implicitly this rule gets stuck if either a) the identity constraints
+cannot be solved, b) the value constraints do not type if the
+identities are solved, or c) the value constraints cannot be solved. A
+practical implementation would add explicit exceptions for these cases
+that the programmer could handle.
+
+\infrule[S-AsgnNew]{
+  \mbox{
+    \evalH{\E}{\H}{e$_1$}{v$_n$} $\cdots$ \evalH{\E}{\H}{e$_n$}{v$_n$}} \\
+\mbox{
+    \H({\tt r})$\uparrow$ \andalso {\tt \H$_0$} = {\tt \H}
+    $\bigcup$ \{({\tt r}, {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\}} \\
+  \mbox{
+    \stay{\E}{C$_{E_s}$} \andalso
+    \stay{\H$_0$}{C$_{H_s}$} \andalso
+    \combine{\E}{\H}{\I}{C$_I$}}\\
+  \mbox{
+    \solveH{\E$'$}{\H$'$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ L=r)}}\\
+  \mbox{
+    \stay{\E$'$}{C$_{{E'}_s}$} \andalso
+    \stay{\H$'$}{C$_{{H'}_s}$} \andalso
+    \combine{\E}{\H}{\C}{C$_C$} \andalso
+    \tcHC{\E$'$}{\H$'$}{C$_C$}}\\
+  \mbox{
+    \solveH{\E$''$}{\H$''$}{(C$_C$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ L=r)}}
+}{\mbox{
+  \stepH{\E}{\H}{\C}{\I}{L := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$''$}{\H$''$}{\C}{\I}
+}}
+
+The above rule creates a new object on the heap, and assigns the fresh
+reference to {\tt L}.
+
+We distinguish value and identity constraints. Note that the rules for
+always and once match only constraints that do not include identity
+comparisons, because those would not type.  We require that an
+identity constraint already be satisfied when it is asserted. So the
+rules for identity constraints simply need to check if the expression
+is true.
+
+\inferrule{S-OnceIdentity}{
+  \evalH{\E}{\H}{L$_0$}{v} \andalso
+  \evalH{\E}{\H}{L$_1$}{v}
+}{
+  \stepH{\E}{\H}{\C}{\I}{once L$_0$ == L$_1$}{\E}{\H}{\C}{\I}
+}
+
+\inferrule{S-AlwaysIdentity}{
+  \stepH{\E}{\H}{\C}{\I}{once L$_0$ == L$_1$}{\E}{\H}{\C}{\I} \andalso
+  \I$'$ = \I $\;\bigcup$ $\{${\tt L}$_0$ {\tt ==} {\tt L}$_1)\}$
+}{
+  \stepH{\E}{\H}{\C}{\I}{always L$_0$ == L$_1$}{\E}{\H}{\C}{\I$'$}
+}
+
+\infrule[S-Once]{\mbox{
+    \tcHC{\E}{\H}{C$_0$} \andalso
+    \istay{\E}{C$_{E_s}$} \andalso
+    \istay{\H}{C$_{H_s}$} \andalso
+    \combine{\E}{\H}{\C}{C}}\\
+  \mbox{
+    \solveH{\E$'$}{\H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0$$)$}}
+}{\mbox{
+  \stepH{\E}{\H}{\C}{\I}{once C$_0$}{\E$'$}{\H$'$}{\C}{\I}
+}}
+
+\inferrule{S-Always}{
+  \stepH{\E}{\H}{\C}{\I}{once C$_0$}{\E$'$}{\H$'$}{\C}{\I} \andalso
+  \C$'$ = \C $\;\bigcup$ $\{{\tt C}_0\}$
+}{
+  \stepH{\E}{\H}{\C}{\I}{always C$_0$}{\E$'$}{\H$'$}{\C$'$}{\I}
+}
+
+The remaining rules are standard for imperative languages, only
+augmented with constraint stores, and are only given for completeness.
+
+\inferax{S-Skip}{
+  \stepH{\E}{\H}{\C}{\I}{skip}{\E}{\H}{\C}{\I}
+}
+
+\inferrule{S-Seq}{
+  \stepH{\E}{\H}{\C}{\I}{s$_1$}{\E$'$}{\H$'$}{\C$'$}{\I$'$} \andalso
+  \stepH{\E$'$}{\H$'$}{\C$'$}{\I$'$}{s$_2$}{\E$''$}{\H$''$}{\C$''$}{\I$''$}
+}{
+  \stepH{\E}{\H}{\C}{\I}{s$_1$;s$_2$}{\E$''$}{\H$''$}{\C$''$}{\I$''$}
+}
+
+\inferrule{S-IfThen}{
+  \evalH{\E}{\H}{e}{true} \andalso
+  \stepH{\E}{\H}{\C}{\I}{s$_1$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}
+}{
+  \stepH{\E}{\H}{\C}{\I}{if e then s$_1$ else s$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}%
+}
+
+\inferrule{S-IfElse}{
+  \evalH{\E}{\H}{e}{false} \andalso
+  \stepH{\E}{\H}{\C}{\I}{s$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}
+}{
+  \stepH{\E}{\H}{\C}{\I}{if e then s$_1$ else s$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}%
+}
+
+\infrule[S-WhileDo]{\mbox{
+    \evalH{\E}{\H}{e}{true} \andalso
+    \stepH{\E}{\C}{\H}{\I}{s}{\E$'$}{\H$'$}{\C$'$}{\I$'$}}\\
+  \mbox{
+    \stepH{\E$'$}{\H$'$}{\C$'$}{\I$'$}{while e do s}{\E$''$}{\H$''$}{\C$''$}{\I$''$}}
+}{\mbox{
+  \stepH{\E}{\H}{\C}{\I}{while e do s}{\E$''$}{\H$''$}{\C$''$}{\I$''$}
+}}
+
+\inferrule{S-WhileSkip}{
+  \evalH{\E}{\H}{e}{false}
+}{
+  \stepH{\E}{\H}{\C}{\I}{while e do s}{\E}{\H}{\C}{\I}
+}
 
 \section{Evaluation}
 \label{sec:evaluation}
@@ -1174,11 +1577,14 @@ declarative constructs to object-oriented programmers.
 \section{Conclusions and Future Work}
 \label{sec:conclusions}
 
-
 \bibliographystyle{splncs.bst}
 \bibliography{constraints}
 
-% \input{artifact}
+\clearpage
+\appendix
+
+\input{appendix}
+
 \end{document}
 
 %%% Local Variables: 

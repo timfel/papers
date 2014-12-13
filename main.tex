@@ -805,7 +805,7 @@ $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
   & & & $\mid$ o $\mid$ D\\
 {\rm Identity} & I & ::= & e == e\\
 {\rm Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
-{\rm L-Value} & L & ::= & x $\mid$ e.l \\
+{\rm L-Value} & L & ::= & x $\mid$ L.l \\
 {\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ {\rm base type constants}\\
 {\rm Variable} & x & ::= & {\rm variable names} \\
 {\rm Label} & l & ::= & {\rm record label names} \\
@@ -958,9 +958,9 @@ ordinary constraints.
 }
 
 \inferrule{T-Deref}{
-  \tcH{\E}{\H}{e}{T}
-}{
-  \tcH{\E}{\H}{\H(e)}{T}
+  \tcH{\E}{\H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+{
+  \tcH{\E}{\H}{\H(e)}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
 }
 
 \inferrule{T-Object}{
@@ -1066,7 +1066,19 @@ identities.
 
 \inferax{IStayEmpty}{\istay{$\emptyset$}{true}}
 \inferax{IStayConst}{\istay{x=c}{weak x=c}}
-\inferax{IStayObject}{\istay{x=\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{weak x=\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
+
+\infrule[IStayObject]{
+  \mbox{
+    \istay{x$_{x0}$=v$_0$}{C$_{x0}$} $\cdots$ \istay{x$_{xn}$=v$_n$}{C$_{xn}$}}
+}{\mbox{
+\istay{x=\{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$\}}{
+    {\tt required x=\{l$_0$:x$_{x0}$,$\ldots$,l$_n$:x$_{xn}$\}} $\wedge$
+    C$_{x0}$ $\wedge$
+    $\ldots$ $\wedge$
+    C$_{xn}$ }
+}
+}
+
 \inferax{IStayRef}{\istay{x=r}{required x=r}}
 
 \inferrule{IStayOne}{
@@ -1088,7 +1100,7 @@ identities.
     \istay{x$_{r0}$=v$_0$}{C$_{r0}$} $\cdots$ \istay{x$_{rn}$=v$_n$}{C$_{rn}$}}
 }{\mbox{
   \istay{\H}{C$_0$ $\wedge$
-    {\tt weak \H(r)=\{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\}} $\wedge$
+    {\tt required \H(r)=\{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\}} $\wedge$
     C$_{r0}$ $\wedge$
     $\ldots$ $\wedge$
     C$_{rn}$ }
@@ -1281,12 +1293,11 @@ things because of a once or always constraint''
 We want to show:
 \begin{theorem} (Structure Preservation)
  If \stepH{\E}{\H}{\C}{\I}{(once|always)
-   C}{\E$'$}{\H$'$}{\C$'$}{\I$'$}, then \\
+   C$_0$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}, then 
   % $dom(\E) = dom(\E')$\\
   % $\wedge dom(\H) = dom(\H')$\\
   $\forall x\in dom(\E): $\tcH{\E}{\H}{x}{T} $\Rightarrow$
-  \tcH{\E$'$}{\H$'$}{x}{T} and \\
-  $\forall r \in dom(\H): $\tcH{\E}{\H}{r}{T} $\Rightarrow$ \tcH{\E$'$}{\H$'$}{r}{T}
+  \tcH{\E$'$}{\H$'$}{x}{T}. 
 \end{theorem}
 
 \begin{proof}
@@ -1295,15 +1306,13 @@ Since the result environment and heap in \textsc{S-Always} are
 produced by recursively executing {\tt once C}, it suffices to
 consider
 the rule \textsc{S-Once}.  Therefore we have that
-    \tcHC{\E}{\H}{C} and
+    \tcHC{\E}{\H}{C$_0$} and
     \istay{\E}{C$_{E_s}$} and
     \istay{\H}{C$_{H_s}$} and
-   \tdm{FIXME}
-    \combine{\E}{\H}{\C}{C} and
-       \solveH{\E$'$}{\H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0$$)$}
+    \combine{\E}{\H}{\C\,$\wedge$\,C$_0$}{C$'$} and
+    \solveH{\E$'$}{\H$'$}{$($C$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s})$}.
 
- Let us denote {\tt $($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$
-    $\wedge$ C$_0)$} by {\tt C$'$}.  
+% Let {\tt C$_a$} be {\tt $($C$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s})$}.
 
 Consider some {\tt x} in $dom(\E)$ and suppose \E maps {\tt x} to some
 value {\tt v}.  If 
@@ -1314,22 +1323,50 @@ By \textsc{IStayOne} and
 stay constraint for {\tt x}, so any
 solution to {\tt C$'$} must contain a binding for {\tt x} in {\tt \E$'$}.  Suppose
 {\tt \E$'$} maps {\tt x} to some
-value {\tt v$'$}.   By \tdm{LEMMA}, \tcH{\E$'$}{\H$'$}{v$'$}{T$'$} and
+value {\tt v$'$}.   By \tdm{LEMMA}, \tcH{\E$'$}{\H$'$}{v$'$}{T$'$} for
+some {\tt T$'$} and
 hence by \textsc{T-Variable} we have that \tcH{\E$'$}{\H$'$}{x}{T$'$}.
 
-Similarly,  consider some {\tt r} in $dom(\H)$ and suppose \H maps {\tt r} to some
-object {\tt o}.  If 
-\tcH{\E}{\H}{r}{T},  then by \textsc{T-Ref} we have that
-\tcH{\E}{\H}{o}{T}.
+Therefore, we must prove that {\tt T} = {\tt T$'$}.   To do so we will
+prove something slightly different. \tdm{Should make this a lemma}.  Consider some
+l-value {\tt L} of the form {\tt x.l$_1$.$\cdots$.l$_n$} such that
+\tcH{\E}{\H}{L}{T$_L$} for some type {\tt T$_L$}.  Then:
+\begin{itemize}
+\item If {\tt T$_L$} = {\tt PrimitiveType}, then
+\tcH{\E$'$}{\H$'$}{L}{PrimitiveType}.  
+\item If {\tt T$_L$} = {\tt \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}, then
+\tcH{\E$'$}{\H$'$}{L}{\{l$_1$:T$_1'$,$\ldots$,l$_n$:T$_n'$\}} for some
+types {\tt T$_1'$} $\cdots$ {\tt T$_n'$}.
+\end{itemize}
+We proceed by induction on $n$.
 
-By \textsc{IStayHeap} we have that {\tt C$_{H_s}$} contains a 
-stay constraint for {\tt r}, so any
-solution to {\tt C$'$} must contain a binding for {\tt r} in {\tt \H$'$}.  Suppose
-{\tt \H$'$} maps {\tt r} to some
-object {\tt o$'$}.   By \tdm{LEMMA}, \tcH{\E$'$}{\H$'$}{o$'$}{T$'$} and
-hence by \textsc{T-Ref} we have that \tcH{\E$'$}{\H$'$}{r}{T$'$}.
+If $n=0$ then {\tt L} is simply {\tt x}.  First suppose that 
+{\tt T$_L$} = {\tt PrimitiveType}.  Then {\tt v} = {\tt c}
+for some
+constant {\tt c}, and {\tt C$_{E_s}$} contains a weak constraint {\tt
+  x=c}.  If {\tt v$'$} is a constant, then we are done.  Otherwise,
+{\tt v$'$} is either an object value or a reference.  But in that case
+there must be a required constraint in {\tt C$_0$} that forces the
+solver to choose a new value for {\tt x} and furthermore one that is
+allowed to be an object value or reference.  By the typing rules, since {\tt
+  x} has type {\tt PrimitiveType} it 
+can only appear in arithmetic, comparison, and combination
+expressions in {\tt C$_0$}.  If {\tt x} appears in an arithmetic
+expression then {\tt c} must be a numeric value and any solution will
+also make {\tt x} numeric.  If {\tt x} appears in a comparison
+expression then the associated comparison operator was appropriate for
+{\tt c} and the solution will also be a primitive value \tdm{by an
+  extra assumption about comparison operators}.  Finally, if {\tt x}
+appears in a combination constraint then {\tt x} is a boolean value
+and any solution will also make {\tt x} a boolean.
 
-\tdm{STILL WORKING ON THIS...}  
+Next suppose that {\tt T$_L$} = {\tt
+  \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}.  Then {\tt v} is either an
+object literal of the form {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+or a reference {\tt r} such that \H({\tt r}) is an object literal of
+that form.  
+
+\tdm{IN PROGRESS...}
 
 \end{proof}
   

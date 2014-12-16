@@ -350,9 +350,8 @@ problems. The main contributions are:
   paradigm. Of particular interest here is the way we explode
   constraints involving methods and how we restrict side-effects in
   constraint expressions.
-\item An executable version of our semantics that uses the Z3
-  \cite{de2008z3} constraint solver to verify a suite of example
-  programs that illustrate the problems we address.
+\item An executable version of our semantics to automatically verify a
+  suite of example programs that illustrate the problems we address.
 \item A framework to generate language test suites from our suite of
   example programs, so Babelsberg implementations can be tested for
   conformance to this semantics.
@@ -406,8 +405,8 @@ connect the UI and the underlying model.
 
 As a smaller example, suppose that we may want to express the
 requirement that a window in a graphical application stay centered on
-a particular point.  We will use Babelsberg/JS for the code (i.e.,
-Javascript syntax).  Babelsberg/JS provides the keyword label
+a particular point.  We will use Babelsberg/JS for the code (\ie
+\javascript syntax).  Babelsberg/JS provides the keyword label
 \verb!always:! to declare constraints on the return values of ordinary
 object-oriented expressions that then hold for the rest of the
 execution.  The constraint can then be defined as:
@@ -498,7 +497,7 @@ To address this problem, we restrict the power of the solver so it
 finds the expected solution in cases such as these.\footnote{The
   formulation of the first two restrictions is new in this work; the
   third has been present in Babelsberg since the original language
-  definition, inherited from the earlier Kaleidoscope language.}
+  definition, and was inherited from the Kaleidoscope design.}
 \begin{inparaenum}
 \item[First,] we separate constraints involving object identity from
   those involving only values, and solve those independently, so that
@@ -526,24 +525,27 @@ or a declarative context. This means that programmers have to consider
 both interfaces of an object, depending on what they want to
 express. Babelsberg unifies the behavior definition and allows the
 programmer to express constraints directly using imperative
-methods. However, not all methods work equally well in
-constraints. Consider the \verb!getCenter! method from
-\autoref{lst:window}. Because it is dynamically bound, a programmer
-cannot know its implementation when writing the constraint. The method
-may simply return a field, but it may also calculate the center from
-other fields on the object. If the latter, the method may cache that
-calculation for faster retrieval. Regardless, the programmer expects
-this constraint to adjust whatever parts of the window contribute to
-the result of \verb!getCenter! so the center is at $(150,150)$. If it
-does not, it is not clear to the programmer which of the operations --
-a check for cache invalidation, storing the result, or the calculation
-itself -- does not work as part of the constraint.
+methods. However, this creates a different set of problems, as not all
+methods work equally well in constraints. Consider the
+\verb!getCenter! method from \autoref{lst:window}. Because it is
+dynamically bound, a programmer cannot know its implementation when
+writing the constraint. The method may simply return a field, but it
+may also calculate the center from other fields on the object. If the
+latter, the method may also cache that calculation for faster
+retrieval. Regardless, the programmer expects the system to adjust
+whatever parts of the window contribute to the result of
+\verb!getCenter! so that the center stays at $(150,150)$. If the
+system fails to satisfy this constraint, it is not clear to the
+programmer which of the operations -- the check for cache
+invalidation, storing the result, or the calculation itself -- does
+not work as part of the constraint.
 
-Earlier work on Babelsberg enumerated a set of informal rules for
-when an expression could be used to define a constraint. However,
-their informality left some confusing edge cases around object
-identity and constraints, and around when methods called from a
-constraint expression could be used multi-directionally.
+Earlier work on Babelsberg enumerated a set of informal rules for when
+an expression could be used to define a constraint. However, their
+informality left some room for interpretation around confusing edge
+cases involving object identity and constraints, and around when
+methods called from a constraint expression could be used
+multi-directionally.
 
 In the work reported here, we have developed and formalized a
 simple-to-understand set of restrictions on the expressions that
@@ -551,12 +553,12 @@ define constraints, and when they can be used multi-directionally.
 \begin{inparaenum}
 \item[First,] if the method consists solely of a single return
   statement (for example, an expression that is a calculation on the
-  object's fields) it can work multi-directionally.  However, if it
-  has additional statements before returning, it can only be used in
-  the forward direction.
-\item[Second,] if the method has any side-effects, such as writing to
-  a non-local location or generating a random number, it cannot be
-  used in a constraint in any direction.
+  object's fields) it can work multi-directionally.
+\item[Second,] if a method has any statements before returning, it can
+  only be used in the forward direction.
+\item[Third,] if the method has any side-effects, such as writing to a
+  non-local location or generating a random number, it cannot be used
+  in a constraint in any direction.
 \end{inparaenum}
 \vskip\baselineskip
 
@@ -571,8 +573,9 @@ object-oriented host language, we omit aspects of a practical language
 that are intended to be inherited from the host language, such as
 class- and method-definitions, exception handling, or \textsc{IO}.
 
-Babelsberg, in the absence of constraints, should be a standard
-object-oriented language. This work focuses on how standard
+A guiding principle in our design has been to adhere to the original
+goal of Babelsberg that, in the absence of constraints, it should be a
+standard object-oriented language. This work focuses on how standard
 object-oriented constructs need to be modified to support the
 Babelsberg design. Where there is a choice, we aim to make the
 smallest possible changes while still accommodating constraints in a
@@ -593,7 +596,8 @@ express constraints.
 At the core of our design is the idea that the solver determines the
 entire heap and environment after each statement. However, for an
 imperative programmer it would be surprising if variables change more
-than they have to -- the solver should always pick a solution that is
+than they have to or if objects loose or gain fields or unnecessarily
+change their types -- the solver should always pick a solution that is
 close to the current state of the system.
 
 \subsubsection{Object Structure}
@@ -629,22 +633,23 @@ identity and types can lead to non-obvious consequences. As an
 example, consider the following program:
 
 \begin{lstlisting}[language=JavaScript,caption={Constraining two variables to be identical},label=lst:identity]
-var a = {credit: 10}, b = {funds: 100};
-always: { a === b }
-always: { a.funds >= 0 }
+var account1 = {credit: 10}, account2 = {debit: 100};
+always: { account1 === account2 }
+always: { account1.debit >= 0 }
 \end{lstlisting}
 
-This adds a constraint on line 2 that \verb!a! and \verb!b! be
-identical. However, it is not clear if \verb!a! and \verb!b! will
-afterwards refer to a credits account or a checkings account. If they
-are both credit accounts, the constraint on line 3 will not pass our
-structural compatibility checks. The choice of identity in one place
-would thus determine the validity of the second constraint. This makes
-programs more difficult for the programmer to understand.
+This adds a constraint on line 2 that \verb!account1! and
+\verb!account2! be identical. However, it is not clear if
+\verb!account1! and \verb!account2! will afterwards refer to an
+account with debit balance or an account with credit balance. If the
+latter, the constraint on line 3 will not pass our structural
+compatibility checks. The choice of identity in one place would thus
+determine the validity of the second constraint. This makes programs
+more difficult for the programmer to understand.
 
 To tame the power of constraints on object identity and type, we set
 the following goals for this aspect of our design:
-\begin{itemize}
+\begin{enumerate}[a)]
 \item Constraints on object identity must be declared explicitly using
   the host languages identity check method (\verb!===! in the case of
   \javascript). They cannot be hidden within a method.
@@ -658,17 +663,18 @@ the following goals for this aspect of our design:
   variables can only flow from an assignment statement --- the
   constraint solver must not be allowed to otherwise alter object
   identities.
-\item\label{item:solve-identity-then-values} To make Babelsberg
-  programs more understandable for the programmer, we want to reason
-  about identities in value constraints. We thus first solve all the
-  identity constraints (with a deterministic solution, in keeping with
-  goal \ref{item:deterministic}), and then the value constraints. In
-  the second step, identities are fixed, and thus method lookup
-  follows ordinary object-oriented semantics. This requires all
-  identity constraints to be declared separately from value
-  constraints. We disallow non-required identity constraints, to avoid
-  having to backtrack when solving value constraints.
-\end{itemize}
+\item To make Babelsberg programs more understandable for the
+  programmer, we want to reason about identities in value
+  constraints. We thus first solve all the identity constraints (with
+  a deterministic solution, in keeping with goal
+  \ref{item:deterministic}), and then the value constraints. In the
+  second step, identities are fixed, and thus method lookup follows
+  ordinary object-oriented semantics. This requires all identity
+  constraints to be declared separately from value constraints. We
+  disallow non-required identity constraints, to avoid having to
+  backtrack when solving value constraints (or otherwise
+  non-deterministically failing).
+\end{enumerate}
 
 \subsubsection{Stay Constraints}
 \label{sec:stay-constraints}
@@ -677,7 +683,6 @@ As in Kaleidoscope, Babelsberg adds an implicit weak stay constraint
 to each variable to keep it at its current value, if possible. This
 satisfies the desire that the solver should not change a variable, if
 no constraint on it is violated.
-
 
 \subsection{Rules for Constraint Expressions}
 \label{sec:rules-constr-expr}
@@ -692,11 +697,11 @@ method bodies.
 The rules to translate expressions into constraints evolved alongside
 the existing implementations, driven in part by practical
 considerations about the expectations of programmers familiar with the
-underlying host language. In prior work, the rules for constraint
-expressions in Babelsberg were defined as:
-\begin{inparaenum}[a)]
-\item if there are assignments, variables assigned to must be used in
-  \textsc{SSA} form,
+underlying host language. The rules for constraint expressions in
+Babelsberg were originally defined as:
+\begin{inparaenum}[1)]
+\item\label{item:ssa} if there are assignments, variables assigned to
+  must be used in \textsc{SSA} form,
 \item the constraint expression should either be free of side effects,
   or if there are side effects, they should be benign, and
 \item repeatedly evaluating the constraint expression should return
@@ -704,42 +709,44 @@ expressions in Babelsberg were defined as:
   would not qualify.
 \end{inparaenum}
 In practice, it was not clear which constructs follow these rules, or
-what constitutes ``benign'' side-effects.
+what constitutes ``benign'' side-effects in a particular language. The
+implementations also vary slightly in their wording of the rules and
+rule \ref{item:ssa} in particular was omitted for Babelsberg/JS.
 
 \subsubsection{One-Way and Multi-Way Constraints}
 \label{sec:transl-multi-way}
 
-For simplicity, methods that contain more than a return statement can
-only be used in the forward direction. This includes methods with
-multiple assignments, which removes the first older rule that
-variables assigned to in constraints must be used in \textsc{SSA}
-form. Such methods can still be called in the usual way, including
-passing any parameters by value with pointer semantics. For example,
-suppose we have a constraint \verb|always c=x.m(a,b)|, and method
-\verb|m| has multiple statements so that it can only be used in the
-forward direction, i.e., we can find a value for \verb|c| given values
-for \verb|x|, \verb|a|, and \verb|b| but not any other direction.  In
-that case, \verb|m| can be called in the usual way, passing \verb|a|
-and \verb|b| by value with pointer semantics.  If the other
-constraints are such that the correct solution involves finding a
-value for \verb|b| given values for \verb|c|, \verb|x|, and \verb|a|,
-the implementation should halt with an error that the constraints are
-too hard for it to solve, due to a method called from the constraint
-that can't be inlined (or in the formal semantics, we get stuck). Note
-that in contrast to examples of constraints that are too hard for the
-\emph{solver}, the fact that these constraints are too hard is a
-limitation of our \emph{transformation} rule.
+We propose a rule that, for simplicity, methods that contain more than
+a return statement can only be used in the forward direction. This
+includes methods with multiple assignments, which removes the first
+older rule that variables assigned to in constraints must be used in
+\textsc{SSA} form. Such methods can still be called in the usual way,
+including passing any parameters by value with pointer semantics. For
+example, suppose we have a constraint \verb|always c=x.m(a,b)|, and
+method \verb|m| has multiple statements so that it can only be used in
+the forward direction, \ie we can find a value for \verb|c| given
+values for \verb|x|, \verb|a|, and \verb|b| but not any other
+direction.  In that case, \verb|m| can be called in the usual way,
+passing \verb|a| and \verb|b| by value with pointer semantics.  If the
+other constraints are such that the correct solution involves finding
+a value for \verb|b| given values for \verb|c|, \verb|x|, and
+\verb|a|, the implementation should halt with an error that the
+constraints are too hard for it to solve, due to a method called from
+the constraint that can't be inlined (or in the formal semantics, we
+get stuck). Note that in contrast to examples of constraints that are
+too hard for the \emph{solver}, the fact that these constraints are
+too hard is a limitation of our \emph{transformation} rule.
 
-On the other hand, if method \verb|m| can be used multi-directionally,
-so that for example we can find a value for \verb|b| given values for
-\verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
-inlined so that the resulting constraints can be turned over to the
-solver, and we can potentially solve for any of \verb|x|, \verb|a|,
-\verb|b|, or \verb|c|.  This done by creating an environment for
-method \verb|m| and inlining the returned expression with respect to
-that environment. The parameters in that environment are constrained
-to be identical to \verb|a| and \verb|b| respectively, and \verb|self|
-is constrained to be identical to \verb|x|.
+If method \verb|m| contains only a return statement, it can be used
+multi-directionally so that for example we can find a value for
+\verb|b| given values for \verb|x|, \verb|a|, and \verb|c|. In our
+semantics the method is inlined so that the resulting constraints can
+be turned over to the solver, and we can potentially solve for any of
+\verb|x|, \verb|a|, \verb|b|, or \verb|c|.  This done by creating an
+environment for method \verb|m| and inlining the returned expression
+with respect to that environment. The parameters in that environment
+are constrained to be identical to \verb|a| and \verb|b| respectively,
+and \verb|self| is constrained to be identical to \verb|x|.
 
 \subsubsection{No Side-Effects in Constraints}
 \label{sec:no-side-effects}
@@ -748,10 +755,10 @@ Our rules prevent the programmer from asserting constraints that have
 non-benign side-effects. We define non-benign as such side-effects
 that change the value of existing variables that are visible after the
 constraint expression returns (rather than just creating new temporary
-variables), the creation of new ordinary objects the heap (because
-these could be discerned by identity in languages that allow
-reflection on the heap), as well as system calls (for example to a
-random number generator or the clock).
+variables), the creation of new objects where identity and equality
+are not the same (because these could be discerned by identity in
+languages that allow reflection on the heap), as well as system calls
+(for example to a random number generator or the clock).
 
 The only kinds of objects that can be safely created in constraints
 are instances of \emph{value classes} that are immutable after
@@ -786,13 +793,12 @@ straightforward.
 In addition to a normal imperative language, after every statement
 execution the current set of constraints is solved and the environment
 and heap are updated from the solution.  The current set of
-constraints is determined as follows.  If the statement is an
+constraints is determined as follows: If the statement is an
 assignment, we evaluate the right hand side and then set up a
 constraint that the resulting value and the left hand side be
 identical. Otherwise the statement is simply executed. In addition to
 any constraint resulting from an assignment statement, each constraint
-in the constraint store is added to the set of constraints as well,
-and the resulting set of constraints is given to the solver.  If the
+in the current set of constraints is given to the solver.  If the
 solver finds a solution, the environment and heap are replaced by the
 model the solver found; but if the constraints have no solution, or if
 they are too hard for the solver, the execution implicitly gets
@@ -804,7 +810,7 @@ supports our primitive types, records, uninterpreted functions, as
 well as hard and soft constraints \cite{borning1992constraint} and
 read-only variables. The solver should find a single best solution ---
 if there are multiple solutions, the solver is free to pick any one of
-them. % Providing answers rather than solutions, i.e., results such as
+them. % Providing answers rather than solutions, \ie results such as
 % $10 \leq x \leq 20$ rather than a single value for $x$, and
 % backtracking among multiple answers, as available in for example
 % constraint logic programming \cite{jaffar-popl-1987}, is left for
@@ -847,18 +853,18 @@ element {\em required}. The syntax requires the priority to be
 explicit, for simplicity we sometimes omit it in the rules and assume
 a {\em required} priority.
 
-In the syntax, we treat \H as a keyword.  Source programs will
-not use expressions of the form \H(e), but they are introduced as
-part of constraints given to the solver, which we assume will treat
-\H as an uninterpreted function.
+In the syntax, we treat \H as a keyword used for dereferencing.
+Source programs will not use expressions of the form \texttt{\H(e)},
+but they are introduced as part of constraints given to the solver,
+which we assume will treat \H as an uninterpreted function.
 
-The semantics includes an environment \E~and a heap \H. The former is
+The semantics includes an environment \E and a heap \H. The former is
 a function that maps variable names to values, while the latter is a
 function that maps mutable references to ``objects''. When convenient,
-we also treat both \E~and \H~as a set of pairs ({\tt \{(x,v),...\}}
+we also treat both \E and \H as a set of pairs ({\tt \{(x,v),...\}}
 and {\tt \{(r,o),...\}}, respectively). The currently active value
 constraints are kept as a compound constraint \C, identity constraints
-are kept in \I.
+are kept as a compound constraint referred to as \I.
 
 \judgment{\evalH{\E}{\H}{e}{v}}
 
@@ -1035,6 +1041,8 @@ ordinary constraints.
 
 \judgment{\solveH{\E}{\H}{C}}
 
+% ``Environment \E and \H represent a solution to constraint {\tt C}''
+
 This judgment represents a call to the constraint solver, which we
 treat as a black box.  The proposition \mbox{\solveH{\E}{\H}{\C}}
 denotes that environment \E~and heap \H~are an \emph{optimal solution}
@@ -1045,6 +1053,18 @@ to the constraint {\tt C}, according to the solver's semantics.
 \judgment{\istay{e}{C}}
 \judgment{\istay{\E}{C}}
 \judgment{\istay{\H}{C}}
+
+% ``{\tt C} is a conjunction of weak stay constraints on the variables in \E''
+
+% ``{\tt C} is a conjunction of weak stay constraints on the objects in \H''
+
+% ``{\tt C} is a stay constraint for expression {\tt e}''
+
+% ``{\tt C} is a conjunction of weak stays on primitive values and
+% required stays on references in \E''
+
+% ``{\tt C} is a conjunction of weak stays on primitive fields and
+% required stays on reference fields on the objects in \H''
 
 As in Kaleidoscope, the semantics ensure that each variable has an
 implicit stay constraint to keep it at its current value, if
@@ -1132,8 +1152,8 @@ expressions in parts of constraint of the form {\tt L.l} where {\tt L}
 refers to a heap reference {\tt r} are converted into {\tt \H(L).l}
 (recursively, as required). We do not give rules, because they are
 straightforward. The full Babelsberg/Objects language includes a
-similar judgment that also inlines method calls, which is given in its
-entirety in the appendix.
+similar judgment that also inlines method calls, given in its
+entirety in a companion technical report.
 
 \judgment{\stepH{\E}{\H}{\C}{\I}{s}{\E$'$}{\H$'$}{\C$'$}{\I$'$}}
 
@@ -1541,21 +1561,29 @@ implementations of Babelsberg. This may provide an avenue for future
 development of Babelsberg --- as the semantics evolve, test cases for
 the existing implementations can be generated and the implementations
 adapted to pass the generated tests. To generate the tests, we use the
-executable semantics to execute our examples, and generate
+executable semantics to execute our examples, translate the syntax
+into the syntax of the target language using a simple mapping provided
+for each language, and use a test scaffold (also specific to each
+language) to embed the examples and execute them in each
+implementation.
 
 All of the existing implementations must be adapted to pass the tests,
 because all deviate from our proposed semantics in one way or
 another. We have modified the \javascript implementation, as it is the
-most advanced\footnote{We have also tested, but not adapted, two of
-  the other implementations. Both Babelsberg/R and Babelsberg/S pass
-  26 tests. A proof-of-concept Python implementation exists, but was
-  not run.}. After modification, of the 42 test cases that work in the
-\rml semantics, 39 produce the expected results. The remaining three
-all specifically test properties of value classes in
+most advanced. After modification, of the 42 test cases that work in
+the \rml semantics, 39 produce the expected results. The remaining
+three all specifically test properties of value classes in
 constraints. Since \javascript does not support value classes (and we
-do not emulate them in some way) these 3 tests fail, in one case
-producing no result when there is a solution, and the other two
-producing a solution when solving should fail.
+do not emulate them in some way in the scaffolding code) these 3 tests
+fail, in one case producing no result when there is a solution, and
+the other two producing a solution when solving should fail. We have
+also tested, but not adapted, the Ruby and Squeak
+implementations. Both Babelsberg/R and Babelsberg/S pass 26 out of 42
+tests. In addition to the value class failures, these implementations
+also fail some tests concerning object identity, have insufficient
+support for explicit identity constraints, and support only an older
+version of Z3 that does not include soft constraints. A
+proof-of-concept Python implementation exists, but was not tested.
 
 % Z3 types all expressions. To allow values to change their type, we
 % declare variable with a union type \verb!Value! in Z3, and define
@@ -1623,11 +1651,12 @@ producing a solution when solving should fail.
 % test 15 uses irecord == which we do not have
 % tests 32,32b test for something that shouldn't work b/c of irecords, but it works with heap objects
 
-We modified the existing implementation of object constraint
-programming in \javascript, Babelsberg/JS, to follow the semantics
-presented here. This required changes to both to the constraint
-construction and to the solving process, as well as some changes to
-existing programs that break with the new semantics.
+Modifying Babelsberg/JS to follow the semantics presented here
+required changes to both to the translation from imperative
+expressions to constraints (called \emph{constraint construction} in
+Babelsberg/JS) and to the way in which the solvers are
+called. Additionally, we had to changed some of the existing example
+programs that break with the new semantics.
 
 \subsubsection{Modifications to the Implementation}
 \label{sec:modif-impl}
@@ -1640,7 +1669,7 @@ creating new objects --- as described in \ref{sec:no-side-effects}, we
 allow these since \javascript does not include value classes, and
 assume that, when new objects are created in constraints, our
 conventions on object creation, modification, and not testing for
-identity are followed. As an optimization, Babelsberg/JS already omits
+identity are followed. As an optimization, Babelsberg/JS omits
 re-translating expressions if no dependent variables changed. We have
 left this optimization in place.
 
@@ -1663,24 +1692,28 @@ value constraints in the formalism is thus implemented simply by
 ensuring that the DeltaBlue solver for identity constraints is always
 run before any other solvers. Note in particular that this still
 allows the developer to use other instances of the DeltaBlue solver
-for value constraints, but as all other solvers for value constraints,
-will be called after all the identities are fixed.
+for value constraints, but, just as all other solvers, it will be
+called after all the identities are determined.
 
 \subsubsection{Modifications to Existing Programs}
 \label{sec:exist-appl}
 Our changes break a number of existing programs in Babelsberg/JS.
 These programs are mostly written in the LivelyKernel
 \cite{lively-kernel-2008} \javascript environment and publicly
-available from the Babelsberg/JS repository.
+available from the Babelsberg/JS repository and as part of a published
+artifact \cite{FelgentreffECOOP14}. For our adaption, we used the
+versions from the repository.
 
 \paragraph{Argument Checking.}
 \label{sec:argument-checking}
 One issue we encountered frequently is that many methods have, besides
-a return statement, a statement that checks the argument types or
-structure. As per our semantics, such methods do not work
-multi-directionally, because we do not want to allow the solver to
-change the types and structure of arguments. As an example, consider
-the frequently used method to add two points:
+a return statement, a statement that checks the number, types, or
+structure of arguments. As per our semantics, such methods do not work
+multi-directionally. In fact, allowing them to be truly
+multi-directional would allow the solver to change the number, types,
+or structure of arguments, which is the kind of surprising behavior we
+want to avoid. As an example, consider the frequently used method to
+add two points in LivelyKernel:
 \begin{lstlisting}[language=JavaScript,caption={The {\tt lively.Point.addPt} method},label=lst:addPt]
 function addPt(p) {
     if (arguments.length != 1) throw ('addPt() only takes 1 parameter.');
@@ -1691,9 +1724,8 @@ A practical solution to this issue that stays close to the semantics,
 but increases the compatibility with existing applications, is to
 allow ``hoisting'' of statements that simply do argument checking
 outside of the constraint. This is unclean, because the resulting
-constraints are not truly multi-directional -- the solver cannot
-change, for example, the types or number of arguments. In practice, we
-do not think such behavior would be expected.
+constraints are not truly multi-directional -- but in practice, we
+think it exhibits the expected behavior.
 
 \paragraph{Branching.}
 \label{sec:branching}
@@ -1763,6 +1795,14 @@ possible. However, performance does suffer in the cases where we
 removed edit constraints. A future goal for this semantics is thus to
 include support for edit constraints that can be implemented in a
 performant manner.
+
+Overall, we think these changes, although they represent additional
+work for the programmer, make the code clearer, and the interactions
+between the object-oriented part and the constraints more
+comprehensible. A future goal will be to see which of these
+workarounds can be removed while maintaining a clean and
+comprehensible set of rules for the interaction of the object-oriented
+core and constraints.
 
 \section{Application to Related Work}
 \label{sec:related-work}
@@ -1903,7 +1943,7 @@ semantics.
 
 % LocalWords:  Babelsberg JS Author1 Author2 Author3  ocp vm Luminance ThingLab
 % LocalWords:  screenshots colorchooser luminance wheatstone Kirchhoff's et al
-% LocalWords:  colorchanger Felgentreff runtime api infeasible Javascript Z3 de
+% LocalWords:  colorchanger Felgentreff runtime api infeasible Z3 de
 % LocalWords:  incr resolv futurework checkable booleans dsl LivelyKernel facto
 % LocalWords:  KScript superset boolean 's accessors bytecodes lookup Smalltalk
 % LocalWords:  accessor getter CLSimplexSolver ConstrainedVariable getCelsius

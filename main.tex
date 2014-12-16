@@ -164,6 +164,9 @@
     {visible?}{visible?}{1},%
     showstringspaces=false,%
     columns=flexible,%
+    frame=tb,%
+    rulecolor=\color{lightgray},
+    % xleftmargin=\parindent,%
 }
 \lstnewenvironment{code}[1][]%
 {\vskip0em\noindent
@@ -324,14 +327,14 @@ integrated fashion, within an object-oriented framework that respects
 standard object-oriented features such as messages, encapsulation, and
 inheritance. However, experience with Babelsberg has shown that
 interactions between the object-oriented core and constraints can be
-difficult to understand and it is easy to formulate constraints that
-allow the system to come up with surprising solutions, or that
-produce no solutions at all, because they need to be formulated
-differently for the translation from imperative code to constraints to
-work.
+difficult to understand --- it is easy to formulate constraints that
+allow the system to come up with surprising solutions, but also to
+write constraints that produce no solutions at all, because they would
+need to be formulated differently for the translation from imperative
+code to constraints to work as intended.
 
-In this paper we formalize restrictions on the solver and the
-translation from methods to constraints that help programmers
+In this paper we formalize restrictions on the solver and rules for
+the translation from methods to constraints that help programmers
 understand how constraints in Babelsberg will work, and what the
 properties of the solutions will be. Our restrictions make the solving
 process more deterministic, offer guidance how to express valid
@@ -362,16 +365,15 @@ The rest of this paper is structured as follows:
 \autoref{sec:problems} presents problematic example programs in
 Babelsberg that exhibit the kind of surprising behavior that we
 address in this work. \autoref{sec:informal-solution} gives an
-informal overview of our rules for the solver and
-translation. \autoref{sec:semantics} presents the semantics for a
-simple object constraint language, Babelsberg/Objects, which
-implements those rules. \autoref{sec:evaluation} presents our
-semantics in an executable form, and compares its results to the
-existing Babelsberg/JS implementation, which we adapted to follow our
-rules. This section also presents how existing Babelsberg/JS programs
-needed to be adapted to work with our
-rules. \autoref{sec:related-work} gives an overview of related work,
-and \autoref{sec:conclusions} concludes.
+informal overview of our solver and translation
+rules. \autoref{sec:semantics} presents the semantics for a small
+language, Babelsberg/UID, which implements those
+rules. \autoref{sec:evaluation} presents our executable semantics and
+corresponding test suite, our experiences adapting the existing
+Babelsberg/JS implementation, and how existing Babelsberg/JS programs
+needed to change to work with our changed
+semantics. \autoref{sec:related-work} gives an overview of related
+work, and \autoref{sec:conclusions} concludes.
 
 \section{Surprising Behavior in Babelsberg Programs}
 \label{sec:problems}
@@ -388,7 +390,7 @@ can be employed.  The electrical circuit editor and simulator
 appropriate solver to capture the relevant laws of physics such as
 Ohm's Law and Kirchhoff's Current Laws and to solve the resulting sets
 of simultaneous linear equations, and imperative constructs to support
-actions such as making new resistor, battery and meter instances, and
+actions such as making new resistor, battery, and meter instances, and
 placing and connecting them.  The logic puzzle applications
 \cite{GraberREBLS2014} --- for Sudoku, cryptarithmetic, Pentominoes,
 and Star Battle --- use a different class of constraints and solver,
@@ -402,13 +404,13 @@ the mobile application illustrates the use of identity constraints
 (constraints that two variables refer to the same identical object) to
 connect the UI and the underlying model.
 
-As an example constraint, suppose that we may want to express the
+As a smaller example, suppose that we may want to express the
 requirement that a window in a graphical application stay centered on
 a particular point.  We will use Babelsberg/JS for the code (i.e.,
 Javascript syntax).  Babelsberg/JS provides the keyword label
 \verb!always:! to declare constraints on the return values of ordinary
-methods that then hold for the rest of the execution.  The constraint
-can then be defined as:
+object-oriented expressions that then hold for the rest of the
+execution.  The constraint can then be defined as:
 \begin{lstlisting}[language=JavaScript,caption={Constraining a window to be centered on a point},label=lst:window]
 var window = new Window(0,0,100,100);
 always: { window.getCenter().equalsPoint(Point(150,150)) }
@@ -456,29 +458,30 @@ unsatisfied.
 
 Experience with Babelsberg has shown that their design requires
 programmers to consider the solving process as well as the
-implementation of the framework to use constraints effectively. First,
-the programmer has to be careful to express constraints in a manner so
-that a constraint solver will find the desired solution. Second, the
-programmer has to consider how the framework translates constraints to
-the solver in order to understand how a particular constraint
-expression is passed to the solver.
+implementation of the framework to use constraints effectively; even
+the small examples above contain the potential for surprising
+solutions. Programmers have to be careful to express constraints in a
+manner so that the solver will find the desired solution. To
+understand what kind of solutions are available to the solver,
+programmers additionally have to consider how the framework translates
+constraints and how they are passed to the solver.
 
 \subsection{The Desired Solution is Not The Only One}
 \label{sec:find-desir-solut}
 It is easy to formulate a problem that is too hard for any one solver,
 and it is easy to specify a problem that allows the solver to find
-undesired solutions. To mitigate the first problem, prior work
-\cite{FelgentreffECOOP14} proposed a design for cooperating constraint
-solvers. To address the second problem, we propose to restrict the
-solvers to favor solutions that are less surprising for imperative
-programmers.
+undesired solutions. To mitigate the first problem, Babelsberg/JS
+implements a design for cooperating constraint solvers
+\cite{FelgentreffECOOP14}. To address the second problem, we propose
+to restrict the solvers to favor solutions that are less surprising
+for imperative programmers.
 
 In \autoref{lst:account}, we intuitively expect the solver to reason
-about the balance of the newly created Account. However, there are
-other valid solutions:
+about the balance of the newly created \verb!Account! object. However,
+there are other valid solutions:
 \begin{inparaenum}
-\item[first,] the solver might change \verb!acc! to point to another
-  object that has the right balance.
+\item[first,] the solver might change the variable \verb!acc! to point
+  to another object that has the right balance.
 \item[Second,] the solver may correct the balance, but also add or remove
   fields from the account that are not relevant to the constraint.
 \item[Third,] even if the initial balance was already higher than
@@ -495,7 +498,7 @@ To address this problem, we restrict the power of the solver so it
 finds the expected solution in cases such as these.\footnote{The
   formulation of the first two restrictions is new in this work; the
   third has been present in Babelsberg since the original language
-  definition.}
+  definition, inherited from the earlier Kaleidoscope language.}
 \begin{inparaenum}
 \item[First,] we separate constraints involving object identity from
   those involving only values, and solve those independently, so that
@@ -534,9 +537,9 @@ this constraint to adjust whatever parts of the window contribute to
 the result of \verb!getCenter! so the center is at $(150,150)$. If it
 does not, it is not clear to the programmer which of the operations --
 a check for cache invalidation, storing the result, or the calculation
-itself -- does not work in a constraint.
+itself -- does not work as part of the constraint.
 
-Earlier work on Babelsberg, enumerated a set of informal rules for
+Earlier work on Babelsberg enumerated a set of informal rules for
 when an expression could be used to define a constraint. However,
 their informality left some confusing edge cases around object
 identity and constraints, and around when methods called from a

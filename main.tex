@@ -334,8 +334,9 @@ code to constraints to work as intended.
 
 In this paper we formalize restrictions on the solver and rules for
 the translation from methods to constraints that help programmers
-understand how constraints in Babelsberg will work, and what the
-properties of the solutions will be. Our restrictions make the solving
+understand how constraints in Babelsberg will work and what the
+properties of the solutions will be, as well as providing guidance to
+language implementors. Our restrictions make the solving
 process more deterministic, offer guidance how to express valid
 constraints, and thus give enough freedom to express many interesting
 problems. The main contributions are:
@@ -360,9 +361,11 @@ problems. The main contributions are:
 \end{itemize}
 
 The rest of this paper is structured as follows:
-\autoref{sec:problems} presents problematic example programs in
-Babelsberg that exhibit the kind of surprising behavior that we
-address in this work. \autoref{sec:informal-solution} gives an
+\autoref{sec:example-programs} presents example programs in
+Babelsberg, both ones that illustrate the expressiveness that comes from
+integrating support for object-oriented programming with constraints,
+and also ones that exhibit the kind of surprising behavior that we
+address in this work.  \autoref{sec:informal-solution} gives an
 informal overview of our solver and translation
 rules. \autoref{sec:semantics} presents the semantics for a small
 language, Babelsberg/UID, which implements those
@@ -373,10 +376,10 @@ needed to change to work with our changed
 semantics. \autoref{sec:related-work} gives an overview of related
 work, and \autoref{sec:conclusions} concludes.
 
-\section{Surprising Behavior in Babelsberg Programs}
-\label{sec:problems}
+\section{Example Programs}
+\label{sec:example-programs}
 
-Example programs included with the various Babelsberg implementations
+Example programs written in one or more of the Babelsberg implementations
 include a graphical application for building and simulating electrical
 circuits, a GUI for a color picker, interactive games, programs to
 solve logic puzzles, and simple mobile applications on a smart phone.
@@ -423,7 +426,9 @@ is just an accessor or a calculated property. Babelsberg traces into
 the method and creates the correct relations between the actual parts
 of the window and the point.
 
-As another example, consider a bank account application in which we
+Next, as an example to illustrate some of the kinds of surprising
+behavior that can arise when integrating constraints with an object
+oriented language, consider a bank account application in which we
 want to prevent changes that would make the account balance drop below
 a certain threshold. Additionally, we want to track the current
 interest the account produces, but not allow it to rise above 1000.
@@ -440,8 +445,9 @@ always: { curInterest <= 1000 }
 \end{lstlisting}
 
 Here, the solver will ensure the property \verb!balance! remains
-larger than \verb!minBalance! after line 2. The question-mark
-after \verb!minBalance! prevents the solver from changing it
+larger than \verb!minBalance! after line 2. The read-only annotation
+on \verb!minBalance! (indicated by the question mark)
+prevents the solver from changing it
 to satisfy the constraint. Thus, any change to the account that
 would drop the result of \verb!balance! below
 \verb!minBalance! is rejected by the system. Conversely, the
@@ -464,19 +470,27 @@ understand what kind of solutions are available to the solver,
 programmers additionally have to consider how the framework translates
 constraints and how they are passed to the solver.
 
-\subsection{The Desired Solution is Not The Only One}
+\subsection{Weeding Out Unintuitive Solutions}
 \label{sec:find-desir-solut}
-It is easy to formulate a problem that is too hard for any one solver,
-and it is easy to specify a problem that allows the solver to find
-undesired solutions. To mitigate the first problem, Babelsberg/JS
-implements a design for cooperating constraint solvers
-\cite{FelgentreffECOOP14}. To address the second problem, we propose
-to restrict the solvers to favor solutions that are less surprising
-for imperative programmers.
 
-In \autoref{lst:account}, we intuitively expect the solver to reason
-about the balance of the newly created \verb!Account! object. However,
-there are other valid solutions:
+\ab{commented out the part about problems that are too hard for one
+  solver and cooperating solvers, since that seems orthogonal to the
+  issues here}
+%% It is easy to formulate a problem that is too hard for any one solver,
+%% and it is easy to specify a problem that allows the solver to find
+%% undesired solutions. To mitigate the first problem, Babelsberg/JS
+%% implements a design for cooperating constraint solvers
+%% \cite{FelgentreffECOOP14}. To address the second problem, we propose
+%% to restrict the solvers to favor solutions that are less surprising
+%% for imperative programmers.
+
+We sometimes discovered that Babelsberg would find an unintuitive
+solution that the human programmer didn't even consider, and which was
+not a desired one.  To help address this, in this work we define a set
+of restrictions on the language to rule out a significant number of
+such solutions.  For example, in \autoref{lst:account}, we intuitively
+expect the solver to reason about the balance of the newly created
+\verb!Account! object. However, there are other valid solutions:
 \begin{inparaenum}
 \item[first,] the solver might change the variable \verb!acc! to point
   to another object that has the right balance.
@@ -515,7 +529,7 @@ finds the expected solution in cases such as these.\footnote{The
 % to implement efficiently. A heuristic for the present work is that
 % when there is a choice, we favor simplicity over power.
 
-\subsection{It is Easy to Write Invalid Constraints}
+\subsection{Clear Rules for Writing Valid Constraints}
 The second issue is that the programmer needs to be aware of some
 restrictions on how objects can be used in constraints. Kaleidoscope
 and Turtle distinguish imperative and declarative behavior definitions
@@ -527,7 +541,8 @@ programmer to express constraints directly using imperative
 methods. However, this creates a different set of problems, as not all
 methods work equally well in constraints. Consider the
 \verb!getCenter! method from \autoref{lst:window}. Because it is
-dynamically bound, a programmer cannot know its implementation when
+dynamically bound, in general a programmer will 
+not know its implementation when
 writing the constraint. The method may simply return a field, but it
 may also calculate the center from other fields on the object. If the
 latter, the method may also cache that calculation for faster
@@ -539,12 +554,11 @@ programmer which of the operations -- the check for cache
 invalidation, storing the result, or the calculation itself -- does
 not work as part of the constraint.
 
-Earlier work on Babelsberg enumerated a set of informal rules for when
-an expression could be used to define a constraint. However, their
-informality left some room for interpretation around confusing edge
-cases involving object identity and constraints, and around when
-methods called from a constraint expression could be used
-multi-directionally.
+In earlier work, we enumerated a set of informal rules for when an
+expression could be used to define a constraint. However, there were
+some confusing edge cases involving object identity and constraints,
+and regarding when methods called from a constraint expression could
+be used multi-directionally.
 
 In the work reported here, we have developed and formalized a
 simple-to-understand set of restrictions on the expressions that
@@ -564,13 +578,12 @@ define constraints, and when they can be used multi-directionally.
 \section{Solution Overview}
 \label{sec:informal-solution}
 
-A goal of this work was to clarify design decisions of Babelsberg to
-guide language users and implementers. It is not meant to be a
-complete description of an object constraint language. Because
-Babelsberg is a design to provide object constraint programming in an
-object-oriented host language, we omit aspects of a practical language
-that are intended to be inherited from the host language, such as
-class- and method-definitions, exception handling, or \textsc{IO}.
+A goal of this work is to clarify design decisions of Babelsberg to
+guide language users and implementers.  However, it is not intended to
+be a complete description of a practical object constraint language,
+and we omit aspects of the language that are inherited from the host
+language, such as class and method definitions, exception handling, or
+\textsc{IO}.
 
 A guiding principle in our design has been to adhere to the original
 goal of Babelsberg that, in the absence of constraints, it should be a
@@ -610,9 +623,9 @@ object and asserting the constraint. Should the solver invent a
 balance field and constrain it?
 
 To tame the power of the solver so that it does not (for example)
-invent new fields for objects, we propose all constraints undergo a
-\emph{structural compatibility checks}.  These are dynamically
-asserted before sending the constraints involving objects to the
+invent new fields for objects, we add
+\emph{structural compatibility checks} that are dynamically
+checked before sending the constraints involving objects to the
 solver. They ensure, for example, that field accesses occur only on
 objects (and not primitive values), and that those objects have the
 necessary fields. These assertions, unlike constraints, are only
@@ -624,12 +637,19 @@ constraints have all the required fields.
 \label{sec:determ-object-ident}
 
 A central issue in the design of an object constraint language is the
-interaction between constraints and object identity. Identity
-constraints have proven useful to express properties on circular
-structures \cite{lopez-ecoop-1994}, but experience in particular with
-Kaleidoscope suggests that allowing powerful constraints on object
-identity and types can lead to non-obvious consequences. As an
-example, consider the following program:
+interaction between constraints and object identity.  Object identity
+plays an essential role when using an OO language to model aspects of
+the real world --- it is not simply a technique to gain implementation
+efficiencies --- and so, in a language that integrates constraints
+with object-oriented features, we need to resolve the tensions between
+these fundamental features \cite{lopez-ecoop-1994}.  Additionally,
+making explicit identity constraints available to the programmer
+allows for useful capabilities such as specifying two variables refer
+to the same identical object, or describing circular structures.
+However, experience with Kaleidoscope in particular suggests that
+allowing powerful constraints on object identity and types can lead to
+non-obvious consequences. As an example, consider the following
+program:
 
 \begin{lstlisting}[language=JavaScript,caption={Constraining two variables to be identical},label=lst:identity]
 var account1 = {credit: 10}, account2 = {debit: 100};
@@ -675,6 +695,18 @@ the following goals for this aspect of our design:
   non-deterministically failing).
 \end{enumerate}
 
+To preview the results of our rules, the program in
+\autoref{lst:identity} would then be illegal, since the identity
+constraint \verb|account1 === account2| isn't satisfied at the time it
+is asserted.  (If the programmer uses an assignment to first make both
+\verb|account1| and \verb|account2| refer to the debit account, the
+program always succeeds; if the programmer makes them refer to the
+credit account, it always halts with a structural compatibility check
+error; but in either case it becomes straightforward to reason about.)
+
+\ab{not sure if we should have the above explanation -- but otherwise
+  it seems like the program in \autoref{lst:identity} is just peculiar}
+
 \subsubsection{Stay Constraints}
 \label{sec:stay-constraints}
 
@@ -686,18 +718,22 @@ no constraint on it is violated.
 \subsection{Rules for Constraint Expressions}
 \label{sec:rules-constr-expr}
 
-In Babelsberg, constraints are ordinary imperative expressions that
-evaluate to a boolean --- the constraint being that they evaluate to
-true. In our semantics, we have rules to translate imperative
-expressions into constraints. Our translation process traces through
+In Babelsberg, constraints are ordinary expressions in the host
+language that evaluate to a boolean --- the constraint being that they
+evaluate to true.  In our semantics, we have rules to translate these
+expressions into constraints.  Our translation process traces through
 methods and effectively unrolls loops, prunes branches, and inlines
 method bodies.
 
-The rules to translate expressions into constraints evolved alongside
+%% WAS: ordinary imperative expressions - removed the word imperative
+%% since they are side-effect-free and ``imperative'' seems confusing
+%% in that context
+
+In prior work, the restrictions on constraint expressions, and
+the rules to translate expressions into constraints, evolved alongside
 the existing implementations, driven in part by practical
 considerations about the expectations of programmers familiar with the
-underlying host language. The rules for constraint expressions in
-Babelsberg were originally defined as:
+underlying host language. These rules were originally defined as:
 \begin{inparaenum}[1)]
 \item\label{item:ssa} if there are assignments, variables assigned to
   must be used in \textsc{SSA} form,
@@ -711,6 +747,14 @@ In practice, it was not clear which constructs follow these rules, or
 what constitutes ``benign'' side-effects in a particular language. The
 implementations also vary slightly in their wording of the rules and
 rule \ref{item:ssa} in particular was omitted for Babelsberg/JS.
+
+In the work reported here, we provide a clear and straightforward set
+of restrictions on constraint expressions, which also makes them
+amenable to use in proofs.  These restrictions are stronger than the
+earlier versions.  They do allow us to express a wide range of useful
+programs, but we suspect we can do better, and a direction for future
+work (\autoref{sec:conclusions}) is to relax some of them while still
+retaining clarity and precision.
 
 \subsubsection{One-Way and Multi-Way Constraints}
 \label{sec:transl-multi-way}
@@ -759,16 +803,21 @@ are not the same (because these could be discerned by identity in
 languages that allow reflection on the heap), as well as system calls
 (for example to a random number generator or the clock).
 
-The only kinds of objects that can be safely created in constraints
-are instances of \emph{value classes} that are immutable after
-creation and for which object identity is not significant, that is, it
-is a test for field equality. An example for this is the \verb!Point!
-constructor used in \autoref{lst:window}. However, value classes are
-more than simple records, since they support methods and
-inheritance. A number of existing languages have proposals to support
-forms of value classes, such as
-Java\footnote{\url{http://openjdk.java.net/jeps/169}} and
+A particularly thorny issue pertained to creating new objects in
+constraint expressions.  As noted in the above paragraph, this is
+problematic when the identity of the newly created object could be
+significant; yet we found numerous useful examples that involved
+creating simple objects such as points and rectangles in constraint
+expressions.  To resolve this issue, we add the concept of \emph{value
+  classes} to Babelsberg.  Instances of these classes are immutable
+after creation, and object identity is not significant for them.  An
+example of a value class is the \verb!Point! constructor used in
+\autoref{lst:window}.  However, value classes are more than simple
+records, since they support methods and inheritance.  A number of
+existing languages have proposals to support forms of value classes,
+such as Java\footnote{\url{http://openjdk.java.net/jeps/169}} and
 Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}.
+
 For practical implementations where the host language does not support
 value classes, we can allow the creation of instances of ordinary
 classes, and assume developers follow conventions about object
@@ -787,7 +836,8 @@ all our important contributions. Extending it to include all the
 essential features of the actual object constraint languages such as
 support for classes, methods, messages, and inheritance, along with
 constraint definitions that can include method calls is
-straightforward.
+straightforward, and is presented in the companion technical report
+\cite{felgentreff:2014:semantics}.
 
 In addition to a normal imperative language, after every statement
 execution the current set of constraints is solved and the environment
@@ -1504,11 +1554,11 @@ clarified the desired behavior of the language, and as discussed in
 the introduction, in response have adapted the existing Babelsberg/JS
 implementation to conform to it.
 
-Beyond that, we offer to forms of evaluation.  First, we have
+Beyond that, we offer two forms of evaluation.  First, we have
 implemented our natural semantics in \rml \cite{pettersson1994rml},
 yielding an executable semantics.  We then evaluated a set of test
-programs in this executable semantics, using Z3 \cite{de2008z3} as the
-solver to provide heap and environment updates. As an extension to
+programs in this executable semantics, using the Z3 solver \cite{de2008z3}
+to provide heap and environment updates. As an extension to
 that, we provide a translation from the test programs in the
 executable semantics to a \javascript test suite. We have adapted the
 \javascript implementation of Babelsberg and show that the practical
@@ -1522,15 +1572,19 @@ language. We demonstrate that we many of the programs still work or
 work with minimal adjustments. Those programs that do not work anymore
 work because they use constructs we now decided to disallow.
 
+\ab{can we say any more about the changes that were needed?  Did they
+  seem reasonable?  Did they improve the clarity of the program,
+  detract from it, \ldots?}
+
 \subsection*{An Executable Semantics}
 \label{sec:an-exec-semant}
 
 \rml is a programming language to generate executables from natural
 language specifications. It provides \emph{relations} as basic
-building blocks for the semantics and translates these to C. It was
-possible to implement our semantics exactly in \rml. As the semantics
+building blocks for the semantics and translates these to C\@. It was
+possible to implement our semantics exactly in \rml.  As the semantics
 does not model the solving process, we have added a translation from
-our constraint syntax to Z3 \cite{de2008z3}, which solves the
+our constraint syntax to Z3, which solves the
 constraints and generates a model of the new heap and
 environment. Because our semantics requires on soft constraints, we
 use an experimental version of Z3 that supports them
@@ -1542,7 +1596,7 @@ Z3 with a union type \verb!Value!, and define the operation,
 comparison, and combination functions on that union type. \verb!Value!
 variables have a real, boolean, reference, and value class
 component. The latter is encoded as a Z3 array that maps \emph{labels}
-to reals. Labels and reference are declared as finite domain types
+to reals. Labels and references are declared as finite domain types
 that range over the existing references and record labels
 respectively.
 
@@ -1553,6 +1607,8 @@ given in this paper). Of those 45 programs, 3 use constraints on
 strings, which are not supported in the version of Z3 we used. The
 remaining 42 all run and produce the expected results at each step of
 the execution.
+
+\ab{is it 46 programs or 45 programs?}
 
 As an extension to the \rml implementation, we add a module to
 transform the example code into test cases for the various
@@ -1654,7 +1710,7 @@ Modifying Babelsberg/JS to follow the semantics presented here
 required changes to both to the translation from imperative
 expressions to constraints (called \emph{constraint construction} in
 Babelsberg/JS) and to the way in which the solvers are
-called. Additionally, we had to changed some of the existing example
+called. Additionally, we had to update some of the existing example
 programs that break with the new semantics.
 
 \subsubsection{Modifications to the Implementation}
@@ -1685,14 +1741,14 @@ DeltaBlue local propagation solver \cite{freeman1989deltablue} to
 propagate identity changes as they occur, and call any solvers for
 value constraints after that. Babelsberg/JS, through its
 implementation of a cooperating solvers architecture
-\cite{borning2012architectures,FelgentreffECOOP14}, already supports
+\cite{FelgentreffECOOP14,borning2012architectures}, already supports
 solving in multiple phases. The two-phase solving of identity and
 value constraints in the formalism is thus implemented simply by
 ensuring that the DeltaBlue solver for identity constraints is always
 run before any other solvers. Note in particular that this still
 allows the developer to use other instances of the DeltaBlue solver
-for value constraints, but, just as all other solvers, it will be
-called after all the identities are determined.
+for value constraints, but, just as with all solvers for value constraints, 
+it will be called after all the object identities are determined.
 
 \subsubsection{Modifications to Existing Programs}
 \label{sec:exist-appl}
@@ -1705,7 +1761,8 @@ versions from the repository.
 
 \paragraph{Argument Checking.}
 \label{sec:argument-checking}
-One issue we encountered frequently is that many methods have, besides
+One issue we encountered frequently is that many existing JavaScript
+methods have, besides
 a return statement, a statement that checks the number, types, or
 structure of arguments. As per our semantics, such methods do not work
 multi-directionally. In fact, allowing them to be truly
@@ -1795,6 +1852,10 @@ removed edit constraints. A future goal for this semantics is thus to
 include support for edit constraints that can be implemented in a
 performant manner.
 
+\ab{Should we include a discussion of edit constraints at all?  I
+  don't think they introduce any particular issues for the formal
+  semantics -- they are just important for efficiency.}
+
 Overall, we think these changes, although they represent additional
 work for the programmer, make the code clearer, and the interactions
 between the object-oriented part and the constraints more
@@ -1806,7 +1867,7 @@ core and constraints.
 \section{Application to Related Work}
 \label{sec:related-work}
 
-There is a large number of related systems that integrate constraints
+There are a large number of related systems that integrate constraints
 with imperative languages, ranging from \acp{dsl}, to constraint
 satisfaction libraries, and to syntactic and semantic integration
 similar to Babelsberg. How these systems choose to balance the power
@@ -1815,8 +1876,11 @@ process differs greatly, as does their balance between how freely
 programmers can express new constraints versus how aware they need to
 be the fact that they are writing declarative code.
 
-Kaleidoscope \cite{freeman1990kaleidoscope} was the first \ac{cip}
-language to name some of the issues when integrating declarative
+\ab{don't understand the last phrase ``writing declarative code''}
+
+Kaleidoscope \cite{freeman1990kaleidoscope} was an early \ac{cip}
+language, and as such had to address many of the issues that arise
+when integrating declarative
 constraints with an imperative system that includes mutable state.
 Kaleidoscope uses soft constraints to ensure that, in the absence of
 other constraints, the solver does not change the values of existing
@@ -1835,10 +1899,12 @@ languages between object equality and identity. However, the
 Kaleidoscope system still allowed the solver to determine the identity
 of method arguments when solving value constraints, and it used
 multi-method dispatch to decide which methods to call in a constraint.
-Both combined, while they gave the system much power, made it
+In combination, while this gave the system much power, it also made it
 sometimes hard in practice to understand which solution the system
 might come up with. Babelsberg does not use multi-method dispatch,
-removing one dimension of freedom from the solver. Furthermore, with
+removing one dimension of freedom from the solver (as well as
+conforming to a more standard semantics for an object-oriented 
+language).  Furthermore, with
 our semantics, the solver cannot change the identity or structure of
 arguments for value constraints, because identities are fixed and
 structure is typechecked before value constraints are interpreted. We
@@ -1858,25 +1924,27 @@ types, so stay constraints are not relevant for it.)  Also analogous
 to Kaleidoscope, both languages separate constraint functions from
 ordinary functions. In Kaplan, only such specifically annotated
 functions can be used in constraints. Turtle does allow ordinary
-methods and variables to be used in constraints, however --- their
+methods and variables to be used in constraints; however, their
 values are treated as constants, making all ordinary methods work only
 in the forward direction. We believe the simple rules for method
-inlining in our semantics could be used applied to these systems as
-well to allow some ordinary object-oriented methods to be used in
-constraints.
+inlining in our semantics could be used with these systems as
+well to allow a restricted set of ordinary object-oriented methods 
+to be used in constraints.
 
 BackTalk \cite{pachet1995} and
 \textsc{Squander} \cite{Squander} explicitly allow the constraint solver
-to determine object structure, or even to create new objects that
+to determine object structure, and even to create new objects that
 satisfy a set of constraints. While these systems have many
 differences, they are more similar to each other than to
 Babelsberg. Both use object-oriented methods in constraints merely as
-tests for the backtracking algorithm that tries different objects and
-object structures as assignments for the involved variables. Thus, it
-is in the nature of the system to allow what we prohibit. It is not a
+tests for the backtracking algorithm as it tries different objects and
+object structures as assignments for the constrained variables. Thus, it
+is a basic property of these systems
+to allow actions that we prohibit in Babelsberg.  However, this
+does not represent such a
 problem in those systems, because the transition from declarative
 variables to ordinary variables is explicit, so the programmer can
-check for surprising results then.
+check for surprising results at that time.
 
 Finally, $\alpha$Rby\cite{alloyRuby2014} is a language that embeds the
 Alloy specification language \cite{DBLP:journals/tosem/Jackson02} in

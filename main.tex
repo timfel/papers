@@ -66,7 +66,7 @@
 \newcommand{\lookup}[3]{\textit{lookup}({\tt #1},{\tt #2}) = ({\tt x$_1$} $\cdots$ {\tt x$_n$},{\tt #3})}
 
 
-\newcommand{\combine}[4]{{\tt <#1,#2,#3>} $\leadsto$ {\tt #4}}
+\newcommand{\combine}[4]{{\tt #1;#2} $\vdash$ {\tt #3} $\leadsto$ {\tt #4}}
 \newcommand{\inline}[9]{{\tt <#1,#2,#3,#4,#5,#6>} $\leadsto$ {\tt <#7,#8,#9>}}
 
 
@@ -820,13 +820,14 @@ value classes, we can allow the creation of instances of ordinary
 classes, and assume developers follow conventions about object
 creation, modification, and not testing for object identity.
 
-\section{Semantics}
+\section{Formalism}
 \label{sec:semantics}
 
 For our semantics we use a simple language, Babelsberg/UID, that
 includes primitive types (reals, booleans, and strings), as well as
-mutable objects that live on the heap and immutable objects in the
-environment. Its semantic rules are mostly standard imperative rules,
+mutable objects that live on the heap and immutable objects on the
+stack. 
+Its semantic rules are mostly standard imperative rules,
 with the addition of rules to assert and maintain constraints. The
 semantics for this language, although not object-oriented, illustrates
 all our important contributions. Extending it to include all the
@@ -862,6 +863,8 @@ them. % Providing answers rather than solutions, \ie results such as
 % constraint logic programming \cite{jaffar-popl-1987}, is left for
 % future work.
 
+\subsection{Syntax}
+
 \vskip\baselineskip\noindent We use the following syntax for
 Babelsberg/UID: \vskip0.5\baselineskip\noindent
 \begin{tt}
@@ -872,7 +875,7 @@ Babelsberg/UID: \vskip0.5\baselineskip\noindent
 {\rm Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
 $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
   & & & $\mid$ o $\mid$ D\\
-{\rm Identity} & I & ::= & e == e\\
+{\rm Identity} & I & ::= & L == L\\
 {\rm Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
 {\rm L-Value} & L & ::= & x $\mid$ L.l \\
 {\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ {\rm base type constants}\\
@@ -892,11 +895,12 @@ of {\em predicate} operators, and $\ovee$ ranges over logical
 operators for combining boolean expressions. $\olessthan$ includes at
 least an equality operator {\tt =} for each primitive type, and
 $\ovee$ includes at least conjunction {\tt $\wedge$}. The operator
-{\tt ==} tests for identity -- for primitive values this is the same
+{\tt ==} tests for identity -- for primitive values and immutable
+objects this is the same
 as {\tt =}. The symbol $\rho$ ranges over constraint {\em priorities}
 and is assumed to include a bottom element {\em weak} and a top
 element {\em required}. The syntax requires the priority to be
-explicit, for simplicity we sometimes omit it in the rules and assume
+explicit; for simplicity we sometimes omit it in the rules and assume
 a {\em required} priority.
 
 In the syntax, we treat \H as a keyword used for dereferencing.
@@ -904,12 +908,14 @@ Source programs will not use expressions of the form \texttt{\H(e)},
 but they are introduced as part of constraints given to the solver,
 which we assume will treat \H as an uninterpreted function.
 
+\subsection{Operational Semantics}
+
 The semantics includes an environment \E and a heap \H. The former is
 a function that maps variable names to values, while the latter is a
 function that maps mutable references to ``objects''. When convenient,
 we also treat both \E and \H as a set of pairs ({\tt \{(x,v),...\}}
 and {\tt \{(r,o),...\}}, respectively). The currently active value
-constraints are kept as a compound constraint \C, identity constraints
+constraints are kept as a compound constraint \C; identity constraints
 are kept as a compound constraint referred to as \I.
 
 \judgment{\evalH{\E}{\H}{e}{v}}
@@ -920,9 +926,9 @@ environment \E~and heap \H.''
 The rules for evaluation are mostly as expected in an imperative
 language. We do not give rules for expressions of the form {\tt
   \H(e)}, because they are not meant to appear in source. For each
-operator {\tt o} in the language we assume the existence of a
+operator {\tt op} in the language we assume the existence of a
 corresponding semantic function denoted
-$\llbracket {\tt o} \rrbracket$.
+$\llbracket {\tt op} \rrbracket$.
 
 \inferax{E-Const}{\evalH{\E}{\H}{c}{c}}
 
@@ -971,18 +977,18 @@ $\llbracket {\tt o} \rrbracket$.
 
 \infrule[E-IdentityTrue]{
   \mbox{%
-    \evalH{\E}{\H}{a$_1$}{v} \andalso
-    \evalH{\E}{\H}{a$_2$}{v}}
+    \evalH{\E}{\H}{L$_1$}{v} \andalso
+    \evalH{\E}{\H}{L$_2$}{v}}
 }{\mbox{%
-  \evalH{\E}{\H}{a$_1$ == a$_2$}{true}
+  \evalH{\E}{\H}{L$_1$ == L$_2$}{true}
 }}
 
 \infrule[E-IdentityFalse]{
   \mbox{%
-    \evalH{\E}{\H}{a$_1$}{v$_1$} \andalso
-    \evalH{\E}{\H}{a$_2$}{v$_2$} \andalso {\tt v$_1$} $\neq$ {\tt v$_2$}}
+    \evalH{\E}{\H}{L$_1$}{v$_1$} \andalso
+    \evalH{\E}{\H}{L$_2$}{v$_2$} \andalso {\tt v$_1$} $\neq$ {\tt v$_2$}}
 }{\mbox{%
-  \evalH{\E}{\H}{a$_1$ == a$_2$}{false}
+  \evalH{\E}{\H}{L$_1$ == L$_2$}{false}
 }}
 
 \judgment{\tcH{\E}{\H}{e}{T}}
@@ -1112,17 +1118,23 @@ to the constraint {\tt C}, according to the solver's semantics.
 % ``{\tt C} is a conjunction of weak stays on primitive fields and
 % required stays on reference fields on the objects in \H''
 
-As in Kaleidoscope, the semantics ensure that each variable has an
-implicit stay constraint to keep it at its current value, if
+As in Kaleidoscope, the semantics ensure that each variable has a
+ stay constraint to keep it at its current value, if
 possible. To ensure that the solver cannot invent new fields on
 objects, we create required stays on the heap that assert the
 structure of the objects. The first two stay rules assert only weak
 stays on all variables. The \istay{\E}{C} and \istay{\H}{C} rules use
-the \istay{e}{C} rule to create weak stays on primitive values and
-immutable objects, but they create required stays for
-references. These latter rules are used when solving value
+the \istay{e}{C} rule to create weak stays on primitive values, 
+but they create required stays for
+references as well as for the structure of objects. 
+These latter rules are used when solving value
 constraints, and ensure that value constraints cannot affect object
-identities.
+identities and structures.
+
+To properly account for the heap in the constraint solver, we employ
+an uninterpreted function {\tt \H} that maps references to objects
+(i.e., records).  The rules below employ this function in order to
+define stay constraints for references.
 
 \inferax{StayEmpty}{\stay{$\emptyset$}{true}}
 
@@ -1189,10 +1201,11 @@ identities.
 \judgment{\combine{\E}{\H}{C}{C$'$}}
 \judgment{\combine{\E}{\H}{I}{C$'$}}
 
-We use a combination judgment to translate a constraint into a
-constraint suitable for the solver. During this combination all
-expressions in parts of constraint of the form {\tt L.l} where {\tt L}
-refers to a heap reference {\tt r} are converted into {\tt \H(L).l}
+We use these judgments to translate a constraint into a
+constraint suitable for the solver. Specifically, each occurrence of
+an expression of the form
+{\tt L.l}, where {\tt L}
+refers to a heap reference {\tt r}, is translated  into {\tt \H(L).l}
 (recursively, as required). We do not give rules, because they are
 straightforward. The full Babelsberg/Objects language includes a
 similar judgment that also inlines method calls, given in its
@@ -1208,16 +1221,31 @@ concrete context, represented by the environment and heap, a symbolic
 context, represented by the constraint and identity constraint stores,
 and a statement to be executed. The environment, heap, and statement
 are standard, while the constraint stores are not part of the state of
-a computation in most languages.  Intuitively, the environment comes
+a computation in most languages.  Intuitively, the environment and
+heap come
 from constraint solving during the evaluation of the immediately
 preceding statement, and the constraint records the \verb|always|
 constraints that have been declared so far during execution. Note that
 our execution implicitly gets stuck if the solver cannot produce a
-model. When updating a variable, we solve first for the identity
-constraints and then for the value constraints. This propagates any
-type changes through the identity constraints. We then type the value
-constraints against the environment returned by solving for the
-identities.
+model. 
+
+The first two rules below describe the semantics of assignments.  We
+employ a two-phase process.  First the identity constraints are solved
+in the context of the new assignment.  This phase propagates the
+effect of the assignment through the identities, potentially changing
+the structures of objects as well as the relationships among objects
+ in the environment and heap.  
+In the second phase, the value constraints
+are typechecked against the new environment and heap resulting from
+the first phase.  If they are well typed, then we proceed to solve
+them.  This phase can change the values of primitives but will not
+modify the structure of any object.
+
+Implicitly these rules get stuck if either a) the identity constraints
+cannot be solved, b) the value constraints do not typecheck, 
+or c) the value constraints cannot be solved. A
+practical implementation would add explicit exceptions for these cases
+that the programmer could handle.
 
 \infrule[S-Asgn]{
   \mbox{
@@ -1239,11 +1267,6 @@ identities.
   \stepH{\E}{\H}{\C}{\I}{L := e}{\E$''$}{\H$''$}{\C}{\I}
 }}
 
-Implicitly this rule gets stuck if either a) the identity constraints
-cannot be solved, b) the value constraints do not type if the
-identities are solved, or c) the value constraints cannot be solved. A
-practical implementation would add explicit exceptions for these cases
-that the programmer could handle.
 
 \infrule[S-AsgnNew]{
   \mbox{
@@ -1268,15 +1291,10 @@ that the programmer could handle.
   \stepH{\E}{\H}{\C}{\I}{L := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$''$}{\H$''$}{\C}{\I}
 }}
 
-The above rule creates a new object on the heap, and assigns the fresh
-reference to {\tt L}.
-
-We distinguish value and identity constraints. Note that the rules for
-always and once match only constraints that do not include identity
-comparisons, because those would not type.  We require that an
-identity constraint already be satisfied when it is asserted. So the
-rules for identity constraints simply need to check if the expression
-is true.
+The next two rules describe the semantics of identity constraints.  
+The rules require than 
+identity constraint already be satisfied when it is asserted; hence
+the environment and heap are unchanged.
 
 \inferrule{S-OnceIdentity}{
   \evalH{\E}{\H}{L$_0$}{v} \andalso
@@ -1291,6 +1309,12 @@ is true.
 }{
   \stepH{\E}{\H}{\C}{\I}{always L$_0$ == L$_1$}{\E}{\H}{\C}{\I$'$}
 }
+
+The following two rules describe the semantics of value constraints.
+Recall that these constraints cannot contain identity constraints in them
+(because identity constraints do not typecheck).  As we show later,
+solving value constraints cannot change the structure of any objects
+on the environment and heap.
 
 \infrule[S-Once]{\mbox{
     \tcHC{\E}{\H}{C$_0$} \andalso
@@ -1362,235 +1386,36 @@ augmented with constraint stores, and are only given for completeness.
 % inlining judgment that translates method calls within constraints
 % according to the rules given in \autoref{sec:transl-multi-way}.
 
-\subsection*{Proofs}
-\label{sec:proofs}
+\subsection{Properties}
 
-``Changes to the structure/type of a variable/heap location always
-flow a single assignment statement. The solver will never invent new
-structure / fields or change the types of things because of a once or
-always constraint''
+Here we state two key theorems about our formalism.  The proofs for
+these theorems can be found in our companion technical report.  The
+first theorem formalizes the idea that any solution to a value
+constraint preserves the structures of the objects on the
+environment and heap:
 
 \begin{theorem} (Structure Preservation)
  If \stepH{\E}{\H}{\C}{\I}{(once|always)
    C$_0$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}, then 
   % $dom(\E) = dom(\E')$\\
   % $\wedge dom(\H) = dom(\H')$\\
-  $\forall x\in dom(\E): $\tcH{\E}{\H}{x}{T} $\Rightarrow$
+  $\forall {\tt x}\in dom(\E):$ \tcH{\E}{\H}{x}{T} $\Rightarrow$
   \tcH{\E$'$}{\H$'$}{x}{T}. 
 \end{theorem}
 
-\begin{proof}
+The second theorem formalizes the idea that all solutions to an
+assignment will produce structurally equivalent environments and heaps:
 
-Since the result environment and heap in \textsc{S-Always} are
-produced by recursively executing {\tt once C}, it suffices to
-consider
-the rule \textsc{S-Once}.  Therefore we have that
-    \tcHC{\E}{\H}{C$_0$} and
-    \istay{\E}{C$_{E_s}$} and
-    \istay{\H}{C$_{H_s}$} and
-    \combine{\E}{\H}{\C\,$\wedge$\,C$_0$}{C$'$} and
-    \solveH{\E$'$}{\H$'$}{$($C$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s})$}.
-
-% Let {\tt C$_a$} be {\tt $($C$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s})$}.
-
-Consider some {\tt x} in $dom(\E)$ and suppose \E maps {\tt x} to some
-value {\tt v}.  If 
-\tcH{\E}{\H}{x}{T},  then by \textsc{T-Variable} we have that
-\tcH{\E}{\H}{v}{T}.
-By \textsc{IStayOne} and
-\textsc{IStayConst} we have that {\tt C$_{E_s}$} contains a 
-stay constraint for {\tt x}, so any
-solution to {\tt C$'$} must contain a binding for {\tt x} in {\tt \E$'$}.  Suppose
-{\tt \E$'$} maps {\tt x} to some
-value {\tt v$'$}.   By \tdm{LEMMA}, \tcH{\E$'$}{\H$'$}{v$'$}{T$'$} for
-some {\tt T$'$} and
-hence by \textsc{T-Variable} we have that \tcH{\E$'$}{\H$'$}{x}{T$'$}.
-
-Therefore, we must prove that {\tt T} = {\tt T$'$}.   To do so we will
-prove something slightly different. \tdm{Should make this a lemma}.  Consider some
-l-value {\tt L} of the form {\tt x.l$_1$.$\cdots$.l$_n$} such that
-\tcH{\E}{\H}{L}{T$_L$} for some type {\tt T$_L$}.  Then:
-\begin{itemize}
-\item If {\tt T$_L$} = {\tt PrimitiveType}, then
-\tcH{\E$'$}{\H$'$}{L}{PrimitiveType}.  
-\item If {\tt T$_L$} = {\tt \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}, then
-\tcH{\E$'$}{\H$'$}{L}{\{l$_1$:T$_1'$,$\ldots$,l$_n$:T$_n'$\}} for some
-types {\tt T$_1'$} $\cdots$ {\tt T$_n'$}.
-\end{itemize}
-We proceed by induction on $n$.
-
-If $n=0$ then {\tt L} is simply {\tt x}.  First suppose that 
-{\tt T$_L$} = {\tt PrimitiveType}.  Then {\tt v} = {\tt c}
-for some
-constant {\tt c}, and {\tt C$_{E_s}$} contains a weak constraint {\tt
-  x=c}.  If {\tt v$'$} is a constant, then we are done.  Otherwise,
-{\tt v$'$} is either an object value or a reference.  But in that case
-there must be a required constraint in {\tt C$_0$} that forces the
-solver to choose a new value for {\tt x} and furthermore one that is
-allowed to be an object value or reference.  By the typing rules, since {\tt
-  x} has type {\tt PrimitiveType} it 
-can only appear in arithmetic, comparison, and combination
-expressions in {\tt C$_0$}.  If {\tt x} appears in an arithmetic
-expression then {\tt c} must be a numeric value and any solution will
-also make {\tt x} numeric.  If {\tt x} appears in a comparison
-expression then the associated comparison operator was appropriate for
-{\tt c} and the solution will also be a primitive value \tdm{by an
-  extra assumption about comparison operators}.  Finally, if {\tt x}
-appears in a combination constraint then {\tt x} is a boolean value
-and any solution will also make {\tt x} a boolean.
-
-Next suppose that {\tt T$_L$} = {\tt
-  \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}.  Then {\tt v} is either an
-object literal of the form {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
-or a reference {\tt r} such that \H({\tt r}) is an object literal of
-that form.  
-
-\tdm{IN PROGRESS...}
-
-\end{proof}
-  
-First, we consider which judgments can update the heap. We find that
-\solveH{\E}{\H}{C} creates an updated environment and heap, and that
-\textsc{S-AsgnNew} also updates the heap. \solveH{\E}{\H}{C} judgment
-is used in three rules: \textsc{S-Asgn}, \textsc{S-AsgnNew}, and
-\textsc{S-Once}. To first show that changes always flow from an
-assignment statement, we must show that \textsc{S-Once} cannot change
-the structure of any variable.
-
-We consider \textsc{S-Once}. The solver is opaque, but require it to
-be sound and further to find an optimal solution to our
-constraints. We observe that the constraints passed to the solver
-contain \istay{\E}{C} and \istay{\H}{C}.
-
-The rules for \istay{\E}{C} and \istay{\H}{C} use the rules
-\textsc{IStayConst}, \textsc{IStayObject}, and \textsc{IStayRef}. The
-last creates required constraints on references, meaning that the
-solver is not allowed to change variables that refer to the heap. The
-\istay{\H}{C} rule adds a weak constraint for each heap location to be
-equal to an object of the exact same structure. Thus, the solver
-cannot change variables that point to the heap, and it should not
-change the structure of objects on the heap in the absence of other
-constraints. In addition, there are weak equality constraints on
-primitive values and value objects, so the solver should, in the
-absence of other constraints, find the optimal solution that these
-also keep their structure.
-
-We need to consider changes to primitive values, value objects, and
-heap objects. If the solver were to disregard any of the weak
-constraints, there must be a stronger constraint that causes it to do
-so. The once rule passes, besides the stay constraints, the
-conjunction of a new constraint and all existing constraints to the
-solver. These could cause the solver to ignore some of the weak
-constraints on primitive values and value objects. To prevent these
-from changing the structure, we typecheck this conjunction constraint.
-
-The typechecking rules ensure that all constraints in the conjunction
-must typecheck. Each constraint typechecks when its expression
-typechecks. All operations on expressions typecheck if all their
-constituent expressions typecheck.
-
-For the basic expressions, values type directly. Dereferences type to
-the same as the expression that is dereferenced. Any variable is
-evaluated in the current environment and types to whatever its current
-value is.
-
-A field access typechecks only if the field already exists in the
-object being accessed. Thus, it is impossible to express a constraint
-that refers to a field on a primitive value, or that refers to a
-non-existing field on an object. It is thus impossible to ask the
-solver to add a field to an object, be it a value object or a heap
-object.
-
-This leaves the question if the solver might remove fields from
-objects. We require an optimal solution from our solver. If the weak
-equality constraints on objects cannot be satisfied (because another
-constraint requires one of the fields to change), what is the optimal
-solution? We assume that the solver must find the optimal solution
-that keeps all other fields at their current value, and only changes
-the fields that need to change, thus keeping the total structure
-intact.  \tf{Please check: is this a valid assumption?}
-
-Thus, changes to structure of variables cannot flow from a
-\textsc{S-Once} constraint definition, and can consequently only be
-caused from an assignment.
-
-\vskip\baselineskip
-``Changes to the structure of a variable are always deterministic with
-and they always flow from an assignment statement.''
 \begin{theorem} (Structural Determinism)
   If
-  \tcH{\E}{\H}{e$_1$}{T$_e$} and
-  \tcH{\E}{\H}{e$_2$}{T$_e$} and
-  \stepH{\E}{\H}{\C}{\I}{L := e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$} and
-  \stepH{\E}{\H}{\C}{\I}{L := e$_2$}{\E$_2$}{\H$_2$}{\C$_2$}{\I$_2$},
+  \stepH{\E}{\H}{\C}{\I}{L := e}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$} and
+  \stepH{\E}{\H}{\C}{\I}{L := e}{\E$_2$}{\H$_2$}{\C$_2$}{\I$_2$},
   then
   % $dom(\E) = dom(\E')$\\
   % $\wedge dom(\H) = dom(\H')$\\
-  $\forall x\in dom(\E_1): $\tcH{\E$_1$}{\H$_1$}{x}{T} $\Rightarrow$
+  $\forall {\tt x}\in dom(\E_1):$ \tcH{\E$_1$}{\H$_1$}{x}{T} $\Rightarrow$
   \tcH{\E$_2$}{\H$_2$}{x}{T}.
 \end{theorem}
-
-\begin{proof}
-  \tf{Todd Todo}
-\end{proof}
-
-\tf{Informal reasoning} Provided our weak stays work, asking the
-solver to execute a {\tt skip} does not make any changes to the heap
-or environment, so trivially all things stay the same.
-
-We first consider \textsc{S-Asgn}. We first evaluate the RHS using
-\evalH{\E}{\H}{e}{v}. This does not make any changes to \E or \H. We
-then generate all the weak stays on \E and \H, add to that the current
-set of identity constraints (that are already satisfied) and then add
-a constraint of the form {\tt L=v}. If {\tt L} is an {\tt x} that is
-not previously defined, the additional constraint does not conflict
-with any stays or older identity constraints, so
-$\E' = \E \cup \{(x,v)\}$ and $\H' = \H$, it follows that all types
-stay the same.
-
-If {\tt L} is not a new {\tt x}, but some existing value, we may have
-\tcH{\E}{\H}{x}{T$_x$} and \tcH{\E}{\H}{v}{T$_v$} and
-${\tt T}_x = {\tt T}_v$, and then types also stay the same on the new
-environment and heap.
-
-Finally, we may have that we assign a new type to an existing x. In
-that case, if there are no identity constraints on x, we will only
-violate the weak stay on x and drop it. All other values stay the same
-and only x is updated with the new type.
-
-If there are identity constraints involving x, the weak stay on x is
-violated, and the identity constraints must be re-satisfied. Due to
-our restrictions on identity constraints, they all have the form {\tt
-  L$_1$ == L$_2$}. Thus, when we add our assignment constraint, it
-will be on one side, so the only way to resatisfy the identity
-constraint is to update the other side, recursively as needed for any
-further connected identity constraints. Due to the restriction on the
-form of identity constraints, when we assign to only one variable the
-identities will always form a directed graph (and we can ignore
-cycles), so any assignment can only cause one particular flow of
-changes through the variables. Thus, if we assign a value of the same
-structural type to the same variable, the structural type of all
-variables connected through identity constraints will always change in
-the same way.
-
-Now we have new environments from solving for the identity
-constraints. The solving for value constraints cannot touch the
-structure, because identities have required stays on them when solving
-for value constraints (same as theorem 1).
-
-We also consider \textsc{S-AsgnNew}. The rule is mostly the same,
-except that we create a new heap without using the solver. It should
-be trivially clear that this is deterministic.
-
-\vskip\baselineskip
-``After a constraint C is solved and the state updated, C will
-evaluate to true in the current state, regardless of whether C
-includes inlined methods or was passed to the solver verbatim.''
-\begin{theorem} (Method Inlining Consistency)
-\end{theorem}
-\tf{Todo: Move to tech report. In UID this is only assuming the solver
-  works, but in Objects this needs to show that our inlining rules
-  work}
 
 \section{Evaluation}
 \label{sec:evaluation}

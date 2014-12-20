@@ -208,6 +208,7 @@
 \newacronym{vm}{\textsc{vm}}{Virtual Machine}
 \newacronym{dom}{\textsc{dom}}{Document Object Model}
 \newacronym{ocp}{\textsc{ocp}}{Object-Constraint Programming}
+\newacronym{ssa}{\textsc{SSA}}{static-single-assignment}
 \newacronym{smt}{\textsc{smt}}{Satisfiability Modulo Theory}
 
 \newcommand\slightspacewide{\kern1em}
@@ -588,25 +589,25 @@ A goal of this work is to clarify design decisions of Babelsberg to
 guide language users and implementers.  However, it is not intended to
 be a complete description of a practical object-constraint language,
 and we omit aspects of the language that are inherited from the host
-language and that aren't core to the interaction between constraints
+language and that are not core to the interaction between constraints
 and object-oriented programming, such as class and method definitions,
 exception handling, and \textsc{IO}.
 
 A guiding principle in our design has been to adhere to the original
-goal of Babelsberg: in the absence of constraints, it should be a
-standard object-oriented language. This work focuses on how standard
+goal of Babelsberg: in the absence of constraints, it should behave like a
+regular object-oriented language. This work focuses on how
 object-oriented constructs need to be modified to support the
 Babelsberg design. Where there is a choice, we aim to make the
 smallest possible changes while still accommodating constraints in a
 clean and powerful way. Beyond this, we favor simplicity of the rules
-over support for interesting features that are however rarely used in
+over support for interesting features that are rarely used in
 practice.
 
 This section consists of two parts: the first presents how we restrict
 the power of the solver to be deterministic with regards to objects'
 identities and structure. The second part presents how we restrict the
 translation from object-oriented methods to constraints to avoid
-corner-cases and give simple rules for programmers to follow when they
+edge cases and give simple rules for programmers to follow when they
 express constraints.
 
 \subsection{Restricting the Solver}
@@ -615,19 +616,18 @@ express constraints.
 At the core of our design is the idea that the solver determines the
 entire heap and environment after each statement. However, for an
 imperative programmer it would be surprising if variables change more
-than they have to, or if objects lose or gain fields or unnecessarily
+than they have to, or if objects unnecessarily lose or gain fields or
 change their types -- the solver should always pick a solution that is
 ``close'' to the current state of the system.
 
 \subsubsection{Object Structure}
 \label{sec:object-structure}
 
-\autoref{lst:account} includes a constraint on a
-field. However, in the absence of other restrictions, nothing
-prevents the solver from adding or removing unrelated fields of the
-object. Consider setting the \verb!acc! variable to an empty
-object and asserting the constraint. Should the solver invent a
-balance field and constrain it?
+\autoref{lst:account} includes a constraint on a field. However, in
+the absence of other restrictions, nothing prevents the solver from
+finding a solution that adds or removes fields of the object. Consider
+setting the \verb!acc! variable to an empty object and asserting the
+constraint. Should the solver invent a balance field and constrain it?
 
 To tame the power of the solver so that it does not (for example)
 invent new fields for objects, we add
@@ -638,7 +638,7 @@ objects (and not primitive values), and that those objects have the
 necessary fields. These assertions, unlike constraints, are only
 checked --- if one is violated it is an error and the constraint
 solving fails. The programmer must ensure that objects used in
-constraints have all the required fields.
+constraints have all the referenced fields.
 
 \subsubsection{Object Identity}
 \label{sec:determ-object-ident}
@@ -686,14 +686,14 @@ the following goals for this aspect of our design:
   identity constraint is already satisfied, before asserting it.
 \item Any change to the identities of the objects referred to by
   variables can only flow from an assignment statement --- the
-  constraint solver may otherwise not alter object identities.
-\item To make Babelsberg programs more understandable for the
-  programmer, we want to reason about identities in value
+  constraint solver may not otherwise alter object identities.
+\item To make Babelsberg programs more understandable for
+  programmers, we want to reason about identities in value
   constraints. We thus first solve all the identity constraints (with
   a deterministic solution, in keeping with goal
   \ref{item:deterministic}), and then the value constraints. In the
   second step, identities are fixed, and thus method lookup follows
-  ordinary object-oriented semantics. This requires all identity
+  regular object-oriented semantics. This requires all identity
   constraints to be declared separately from value constraints. We
   disallow non-required identity constraints, to avoid having to
   backtrack when solving value constraints (or otherwise
@@ -702,7 +702,7 @@ the following goals for this aspect of our design:
 
 To preview the results of our rules, the program in
 \autoref{lst:identity} would then be illegal, since the identity
-constraint \verb|account1 === account2| isn't satisfied at the time it
+constraint \verb|account1 === account2| is not satisfied at the time it
 is asserted. If the programmer uses an assignment to first make both
 \verb|account1| and \verb|account2| refer to the debit account, the
 program succeeds; if the programmer makes them refer to the credit
@@ -721,7 +721,7 @@ no constraint on it is violated.
 \subsection{Rules for Constraint Expressions}
 \label{sec:rules-constr-expr}
 
-In Babelsberg, constraints are ordinary expressions in the host
+In Babelsberg, constraints are regular expressions in the host
 language that evaluate to a boolean --- the constraint being that they
 evaluate to true.  In our semantics, we have rules to translate these
 expressions into constraints.  Our translation process traces through
@@ -739,15 +739,15 @@ considerations about the expectations of programmers familiar with the
 underlying host language. These rules were originally defined as:
 \begin{inparaenum}[1)]
 \item\label{item:ssa} if there are assignments, variables assigned to
-  must be used in \textsc{SSA} form,
+  must be used in \ac{ssa} form,
 \item the constraint expression should either be free of side effects,
   or if there are side effects, they should be benign, and
 \item repeatedly evaluating the constraint expression should return
-  the same thing, so a method that returns the current system time
+  the same result, so a method that returns the current system time
   would not qualify.
 \end{inparaenum}
 In practice, it was not clear which constructs follow these rules, or
-what constitutes ``benign'' side effects in a particular language. The
+what constitutes ``benign'' side effects. The
 implementations also vary slightly in their wording of the rules, and
 rule \ref{item:ssa} in particular was omitted for Babelsberg/JS.
 
@@ -762,38 +762,38 @@ retaining clarity and precision.
 \subsubsection{One-Way and Multi-Way Constraints}
 \label{sec:transl-multi-way}
 
-We impose a simple rule that methods that contain more than
-a return statement can only be used in the forward direction. This
-includes methods with multiple assignments, which removes the first
-older rule that variables assigned to in constraints must be used in
-\textsc{SSA} form. Such methods can still be called in the usual way,
-including passing any parameters by value with pointer semantics. For
-example, suppose we have a constraint \verb|always c=x.m(a,b)|, and
-method \verb|m| has multiple statements so that it can only be used in
-the forward direction, \ie we can find a value for \verb|c| given
-values for \verb|x|, \verb|a|, and \verb|b| but not any other
-direction.  In that case, \verb|m| can be called in the usual way,
-passing \verb|a| and \verb|b| by value with pointer semantics.  If the
-other constraints are such that the correct solution involves finding
-a value for \verb|b| given values for \verb|c|, \verb|x|, and
-\verb|a|, the implementation should halt with an error that the
-constraints are too hard for it to solve, due to a method called from
-the constraint that can't be inlined (or in the formal semantics, we
-get stuck). Note that in contrast to examples of constraints that are
-too hard for the \emph{solver}, the fact that these constraints are
-too hard is a limitation of our \emph{transformation} rule.
+We impose a simple rule that methods that contain more than a return
+statement can only be used in the forward direction. This includes
+methods with multiple assignments, which removes the first rule that
+variables assigned to in constraints must be used in \ac{ssa}
+form. Such methods can still be called in the usual way, including
+passing parameters (by value for primitives on the stack, by reference
+for heap objects). For example, suppose we have a constraint
+\verb|always c=x.m(a,b)|, and method \verb|m| has multiple statements
+so that it can only be used in the forward direction, \ie we can find
+a value for \verb|c| given values for \verb|x|, \verb|a|, and \verb|b|
+but not any other direction.  In that case, \verb|m| can be called in
+the usual way, but if the other constraints are such that the correct
+solution involves finding a value for \verb|b| given values for
+\verb|c|, \verb|x|, and \verb|a|, the implementation should indicate
+an error that the constraints are too hard for it to solve because the
+method could not be inlined. Note that in contrast to examples of
+constraints that are too hard for the \emph{solver}, the fact that
+these constraints are too hard is a limitation of our
+\emph{transformation} rule.
 
 \begin{sloppypar}
 If method \verb|m| contains only a return statement, it can be used
-multi-directionally so that for example we can find a value for
+multi-directionally so that, for example, we can find a value for
 \verb|b| given values for \verb|x|, \verb|a|, and \verb|c|. In our
 semantics, the method is inlined so that the resulting constraints can
-be turned over to the solver, so that we can potentially solve for any of
-\verb|x|, \verb|a|, \verb|b|, or \verb|c|.  This done by creating an
-environment for method \verb|m| and inlining the returned expression
+be turned over to the solver that can then solve for 
+\verb|x|, \verb|a|, \verb|b|, and/or \verb|c|.  This is done by creating an
+environment for the activation of method \verb|m| and inlining the returned expression
 with respect to that environment. The parameters in that environment
 are constrained to be identical to \verb|a| and \verb|b| respectively,
-and \verb|self| is constrained to be identical to \verb|x|.
+and \verb|self| is constrained to be identical to \verb|x|. All constraints
+created through this transformation are then passed to the solver together.
 \end{sloppypar}
 
 \subsubsection{No Side Effects in Constraints}
@@ -809,7 +809,7 @@ languages that allow reflection on the heap), or system calls other
 than ones that return a constant value
 (for example calls to a random number generator or the clock).
 
-A particularly thorny issue pertained to creating new objects in
+A particularly tricky issue relates to creating new objects in
 constraint expressions.  This is
 problematic when the identity of the newly created object could be
 significant (see above); yet we found numerous useful examples that involved

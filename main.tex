@@ -470,16 +470,6 @@ to rise above 1000, the system can leave the second constraint
 unsatisfied.
 \end{sloppypar}
 
-Experience with Babelsberg has shown that its design requires
-programmers to consider the solving process as well as the
-implementation of the framework to use constraints effectively; even
-the small examples above contain the potential for surprising
-solutions. Programmers have to be careful to express constraints in a
-manner so that the solver will find the desired solution. To
-understand what kind of solutions are available to the solver,
-programmers also have to consider how the framework translates
-constraints and how they are passed to the solver.
-
 \subsection{Weeding Out Unintuitive Solutions}
 \label{sec:find-desir-solut}
 
@@ -494,14 +484,19 @@ constraints and how they are passed to the solver.
 %% to restrict the solvers to favor solutions that are less surprising
 %% for imperative programmers.
 
-We discovered that Babelsberg would sometimes find an unintuitive
-solution that the human programmer did not even consider, and which was
-not a desired one.  To help address this, we define a set
-of restrictions on the language to rule out a significant number of
-such solutions.  For example, in \autoref{lst:account}, we intuitively
-expect the solver to reason about the balance of the newly created
-\verb!Account! object. However, in the absence of additional restrictions
-there are other valid solutions.
+We discovered that Babelsberg would sometimes find unintuitive
+solutions that the human programmer did not even consider. Its design
+requires programmers to consider the solving as well as the
+translation process of the framework to use constraints effectively;
+even the small examples above contain the potential for surprising
+solutions.
+
+To help address this, we define a set of restrictions on the language
+to rule out a significant number of such solutions.  For example, in
+\autoref{lst:account}, we intuitively expect the solver to reason
+about the balance of the newly created \verb!Account! object. However,
+in the absence of additional restrictions there are other valid
+solutions.
 \begin{inparaenum}
 \item[First,] the solver might change the variable \verb!acc! to point
   to another object that has the right balance.
@@ -524,8 +519,9 @@ finds the expected solution in cases such as these.
 \item[First,] we separate constraints involving object identity from
   those involving only values, and solve those independently, so that
   a solution that changes the identity of \verb!acc! would not be valid.
-\item[Second,] we use structural type-checking to ensure the solver
-  cannot add or remove fields from objects.
+\item[Second,] we use a non-standard form of structural type-checking
+  at run-time to ensure the solver cannot add or remove fields from
+  objects.
 \item[Third,] we implicitly add a low priority ``stay'' constraint to
   each variable, so that its value only changes if required
   by some higher-priority constraint.\footnote{The formulation of the
@@ -551,26 +547,34 @@ both interfaces of an object, depending on what they want to
 express. Babelsberg unifies the behavior definition and allows the
 programmer to express constraints directly using imperative
 methods. However, this creates a different set of problems, as not all
-methods work equally well in constraints. Consider the
-\verb!getCenter! method from \autoref{lst:window}. Because it is
-dynamically bound, in general a programmer will 
-not know its actual implementation when
-writing the constraint. The method may simply return a field, but it
-may also calculate the center from other fields on the object. If the
-latter, the method may also cache that calculation for faster
+methods work equally well in constraints.
+
+Consider the \verb!getCenter! method from
+\autoref{lst:window}. Because it is dynamically bound, in general a
+programmer will not know its actual implementation when writing the
+constraint. The method may simply return a field, but it may also
+calculate the center from other fields on the object. If the latter,
+the method may also cache that calculation for faster
 retrieval. Regardless, the programmer expects the system to adjust
 appropriate parts of the window that contribute to the result of
 \verb!getCenter! so that the center stays at $(150,150)$. If the
-system fails to satisfy this constraint, it might not be clear to the
+system fails to satisfy the constraint, it may not be clear to the
 programmer which of the operations --- the check for cache
 invalidation, storing the result, or the calculation itself --- does
-not work as part of the constraint.
+not work as part of the constraint. In such cases the system may
+generate a run-time exception to help the programmer better understand
+the problem. However, this does not always work reliably (especially
+in situations involving side-effects), and the system may continue
+running based on an incorrect solution.
 
-Earlier work on Babelsberg enumerated a set of informal rules for when an
-expression could be used to define a constraint. However, there were
-some confusing edge cases involving object identity and constraints,
-and regarding when methods called from a constraint expression could
-be used multi-directionally.
+Earlier work on Babelsberg enumerated a set of informal rules for when
+an expression could be used to define a constraint. However, there
+were some confusing edge cases involving object identity and
+constraints, and regarding when methods called from a constraint
+expression could be used multi-directionally, \ie to determine all
+variables involved in a constraint, versus when system can only
+determine one variable given all others
+(\cf{\autoref{sec:transl-multi-way}}).
 
 In the work reported here, we have developed and formalized a
 simple-to-understand set of restrictions on the expressions that
@@ -671,11 +675,11 @@ always: { account1.debit >= 0 }
 This adds a constraint on line 2 that \verb!account1! and
 \verb!account2! be identical. However, it is not clear if
 \verb!account1! and \verb!account2! will afterwards refer to an
-account with debit balance or an account with credit balance. If the
-latter, the constraint on line 3 will not pass our structural
-compatibility checks. The choice of identity in one place would thus
-determine the validity of the second constraint. This makes programs
-more difficult for the programmer to understand.
+account with debit balance or an account with credit balance (or both,
+or none). If the latter, the constraint on line 3 will not pass our
+structural compatibility checks. The choice of identity in one place
+would thus determine the validity of the second constraint. This makes
+programs more difficult for the programmer to understand.
 
 To tame the power of constraints on object identity and type, we set
 the following goals for this aspect of our design:
@@ -693,16 +697,16 @@ the following goals for this aspect of our design:
   variables can only flow from an assignment statement --- the
   constraint solver may not otherwise alter object identities.
 \item To make Babelsberg programs more understandable for
-  programmers, we want to reason about identities in value
-  constraints. We thus first solve all the identity constraints (with
+  programmers, the identities of objects in value
+  constraints should be clear. We thus first solve all the identity constraints (with
   a deterministic solution, in keeping with goal
   \ref{item:deterministic}), and then the value constraints. In the
   second step, identities are fixed, and thus method lookup follows
   regular object-oriented semantics. This requires all identity
-  constraints to be declared separately from value constraints. We
-  disallow non-required identity constraints, to avoid having to
-  backtrack when solving value constraints (or otherwise
-  non-deterministically failing).
+  constraints to be declared separately from value constraints.%  We
+  % disallow non-required identity constraints, to avoid having to
+  % backtrack when solving value constraints (or otherwise
+  % non-deterministically failing).
 \end{enumerate}
 
 To preview the results of our rules, the program in
@@ -782,7 +786,7 @@ the usual way, but if the other constraints are such that the correct
 solution involves finding a value for \verb|b| given values for
 \verb|c|, \verb|x|, and \verb|a|, the implementation should indicate
 an error that the constraints are too hard for it to solve because the
-method could not be inlined. Note that in contrast to examples of
+method could not be translated. Note that in contrast to examples of
 constraints that are too hard for the \emph{solver}, the fact that
 these constraints are too hard is a limitation of our
 \emph{transformation} rule.
@@ -879,7 +883,7 @@ is given to the solver.  If the
 solver finds a solution, the environment and heap are replaced by the
 model the solver found; but if the constraints have no solution, or if
 they are too hard for the solver, the execution implicitly gets
-stuck. In the practical languages, a runtime exception would be
+stuck. In the practical languages, a run-time exception would be
 generated in that case and the heap and environment would remain unchanged.
 
 The semantics treats the solver as a black box, but we assume it
@@ -1052,7 +1056,7 @@ structure through a simple syntax of types:
 
 The typechecking rules are mostly standard. We check expressions
 dynamically just before constraint solving, so we typecheck in the
-context of a runtime environment. Note that we do not include type
+context of a run-time environment. Note that we do not include type
 rules for identities. This ensures that constraints involving them do
 not typecheck, so identity checks cannot occur in ordinary
 constraints.
@@ -1154,7 +1158,7 @@ to the constraint {\tt C}, according to the solver's semantics.
 % ``{\tt C} is a conjunction of weak stays on primitive fields and
 % required stays on reference fields on the objects in \H''
 
-As in Kaleidoscope, the semantics ensure that each variable has a
+The semantics ensure that each variable has a
 weak stay constraint to keep it at its current value, if
 possible. To ensure that the solver cannot invent new fields on
 objects, we create required stays on the heap that assert the

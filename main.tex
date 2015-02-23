@@ -1,0 +1,474 @@
+\documentclass[english,trtype=singlearticle]{hpitr}
+
+\usepackage{textcomp}
+\usepackage{xcolor}				% Allow for color (annotations)
+\usepackage{stmaryrd}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{xspace}
+
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\tableautorefname{Table}
+\def\figureautorefname{Figure}
+
+\def\tdm#1{\textcolor{blue}{\textsf{TDM: #1}}}
+\def\ab#1{\textcolor{red}{\textsf{AB: #1}}}
+\def\tf#1{\textcolor{purple}{\textsf{TF: #1}}}
+
+
+\usepackage[acronym]{glossaries}
+\newcommand{\ac}[1]{\gls*{#1}}
+\newcommand{\acp}[1]{\glspl*{#1}}
+\newcommand{\Acp}[1]{\Gls*{#1}}
+\newacronym{csp}{\textsc{csp}}{Constraint Satisfaction Problem}
+\newacronym{cip}{\textsc{cip}}{Constraint Imperative Programming}
+\newacronym{api}{\textsc{api}}{application programming interface}
+\newacronym{dsl}{\textsc{dsl}}{domain specific language}
+\newacronym{vm}{\textsc{vm}}{Virtual Machine}
+\newacronym{dom}{\textsc{dom}}{Document Object Model}
+\newacronym{ocp}{\textsc{ocp}}{Object-Constraint Programming}
+\newacronym{ssa}{\textsc{SSA}}{static-single-assignment}
+\newacronym{smt}{\textsc{smt}}{Satisfiability Modulo Theory}
+\newacronym{rml}{\textsc{RML}}{the Relational Meta-Language}
+
+
+\usepackage{listings}
+\lstdefinelanguage{JavaScript}{
+  keywords={typeof, new, true, false, catch, function, return, null, catch, switch, var, if, in, while, do, else, case, break},
+  keywordstyle=\bfseries,
+  ndkeywords={class, export, boolean, throw, implements, import, this},
+  ndkeywordstyle=\color{darkgray}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{purple}\ttfamily,
+  stringstyle=\ttfamily,
+  morestring=[b]',
+  morestring=[b]"
+}
+
+\lstdefinelanguage{rml}{
+  keywords={relation, rule, axiom},
+  keywordstyle=\bfseries,
+  ndkeywords={with, module},
+  ndkeywordstyle=\color{darkgray}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=false,
+  comment=[l]{//},
+  morecomment=[s]{(*}{*)},
+  commentstyle=\color{purple}\ttfamily,
+  stringstyle=\ttfamily,
+  morestring=[b]',
+  morestring=[b]"
+}
+
+\lstset{%
+    language=JavaScript,%
+    basicstyle=\small,%\ttfamily,
+    frame=none,%
+    numbers=left,
+    numbersep=5pt,
+    numberstyle=\tiny\color{gray},
+    emph={always, once, constructor, ro},%
+    emphstyle=\bfseries,%
+    % breaklines=true,
+    breakatwhitespace=false,%
+    literate={<<}{\tiny{$\ll$}~}{1}%
+    {.?}{\bfseries\emph{.?}}{1}%
+    % {===}{\slightspace{}===\slightspace{}}{1}%
+    % {==}{=\slightspace{}=}{1}%
+    {visible?}{visible?}{1},%
+    showstringspaces=false,%
+    columns=flexible,%
+    frame=tb,%
+    rulecolor=\color{lightgray},
+    % xleftmargin=\parindent,%
+}
+\usepackage{needspace}
+\newcounter{examples}
+\lstnewenvironment{example}[1][]%
+{\stepcounter{examples}%
+  \needspace{2\baselineskip}
+  \vspace{2\topsep}%
+  \marginpar{\raggedleft\textit{Test \arabic{examples}}}%
+  \vspace{-2\topsep}%
+  \lstset{%
+    basicstyle=\ttfamily,%
+    frame=l,%
+    #1}}{}
+
+\usepackage{etoolbox}
+\makeatletter
+\preto{\@verbatim}{\topsep=0pt \partopsep=0pt}
+\makeatother
+
+\begin{document}
+\reversemarginpar
+
+\title{Babelsberg/RML: An Executable Semantics and Language Testing Framework}
+\author{Tim Felgentreff}
+\date{\today}
+\maketitle
+
+\section{Introduction}
+
+Our aim in developing a formal semantics for Babelsberg has been
+primarily a practical one, including clarifying the desired behavior
+of the language, providing a guide for language implementors, and
+proving useful language properties that then can be relied on by
+programmers.
+
+One piece of evidence of success is that we have in fact clarified the
+desired behavior of the language, and as discussed in the
+introduction, in response have adapted the existing Babelsberg/JS
+implementation to conform to it.
+
+Beyond that, we offer two forms of evaluation.  First, we have
+implemented our natural semantics in RML \cite{pettersson1994rml},
+yielding an executable semantics.  We then evaluated a set of test
+programs in this executable semantics, using the Z3 solver
+\cite{de2008z3} to provide heap and environment updates. As an
+extension to that, we provide a translation framework to generate test
+suites for the implementations in JavaScript, Ruby, and Smalltalk
+from our test programs. We have adapted the JavaScript implementation
+of Babelsberg and show that the practical implementation and semantics
+produce the same results for most of the tests, except those that test
+features of value classes, which we do not emulate in JavaScript.
+
+As a second form of evaluation, we have adapted the currently existing
+suite of example programs for Babelsberg/JS to the revised
+language. We demonstrate that nearly all of the programs continue to
+work without modification, or work with minimal adjustments.  (These
+adjustments are described below.)  Those programs that do not work
+anymore stopped doing so because they use constructs we explicitly
+decided to disallow.
+
+\subsection*{An Executable Semantics}
+\label{sec:an-exec-semant}
+
+RML is a programming language to generate executables from natural
+language specifications. It provides \emph{relations} as basic
+building blocks for the semantics and translates these to C\@. It was
+possible to implement our semantics exactly in RML.  As the semantics
+does not model the solving process, we have added a translation from
+our constraint syntax to Z3, which solves the
+constraints and generates a model of the new heap and
+environment. Because our semantics relies on soft constraints, we
+use an experimental version of Z3 that supports them
+\cite{bjornernuz}.
+
+Z3 types expressions and does not allow variables to change their
+type.  Our structural typing rules, however, do allow variables to change
+their type, for example, from a real to an integer or a string. In the
+implementation we thus have to reconcile Z3 typing with our
+structural typing rules. To do so, we declare variables in Z3 as a
+union type \verb!Value! that has real, boolean, reference, and value
+class components. The last is encoded as a Z3 array that maps
+\emph{labels} to reals. Labels and references are declared as finite
+domain types that range over the existing references and record labels
+respectively. We define the operation, comparison, and combination
+functions on that union type.
+
+In the companion technical report, we provide 47 test programs that
+illustrate various concerns of the semantics. Of those 47 programs,
+three use constraints on strings, which are not supported in the
+version of Z3 we used (a string theory exists for an old version of
+Z3, but does not work in recent versions \cite{zheng2013z3}). The
+remaining 44 all run and produce the expected results at each step of
+the execution.
+
+As an extension to the RML implementation, we add a module to
+transform the example code into test cases for the various
+implementations of Babelsberg. This may provide an avenue for future
+development of Babelsberg --- as the semantics evolve, test cases for
+the existing implementations can be generated and the implementations
+adapted to pass the generated tests. To generate the tests, we run our
+examples through the generated RML executable, translate them into
+the syntax of the target language using a simple mapping provided for
+each language, and wrap them in a test scaffold (also specific to each
+language) to execute them in each implementation.
+
+All of the existing implementations of Babelsberg must be adapted to
+pass the tests, because all deviate from our proposed semantics in one
+way or another. We have modified the JavaScript implementation, as it
+is the most advanced. After modification, of the 44 test cases that
+work in the RML semantics, 41 produce the expected results. The
+remaining three all specifically test properties of value classes in
+constraints. Since JavaScript does not support value classes (and we
+do not emulate them in some way in the scaffolding code) these three tests
+fail, in one case producing no result when there is a solution, and
+the other two producing a solution when solving should fail. We have
+also tested, but not adapted, the Ruby and Squeak
+implementations. Both Babelsberg/R and Babelsberg/S pass 28 out of 44
+tests. In addition to the value class failures, these implementations
+also fail some tests concerning object identity, have insufficient
+support for explicit identity constraints, and support only an older
+version of Z3 that does not include soft constraints. A
+proof-of-concept Python implementation exists, but was not tested.
+
+Z3 types all expressions. To allow values to change their type, we
+declare variable with a union type \verb!Value! in Z3, and define
+the operation-, comparison, and combination functions on that union
+type. A \verb!Value! has a real, boolean, reference, and value
+class component. The latter is encoded as a Z3 array that maps
+\emph{labels} to reals. Labels and reference are declared as finite
+domain types that range over the existing references and record labels
+respectively. Note that we only support value classes with real fields
+here. The reason is that Z3 does not support recursive structures
+through arrays. This is not a problem in practice, as we can
+explicitly define datatypes for more nested records up to a finite
+depth $K$ as required --- for simplicity, we give here only a
+definition for $K = 1$:
+\begin{lstlisting}
+(declare-datatypes () ((Value (Record (rec (Array Label Real)))
+                              (Real (real Real))
+                              (Bool (bool Bool))
+                              (Reference (ref Reference)))))
+\end{lstlisting}
+
+Objects, analogous to value classes, are represented as Z3 arrays that
+map labels to values. Because arrays in Z3 are total functions, and
+the labels form one global finite set, we declare a special
+\verb!invalid!  reference as the default value for all object
+fields. Fields that only have the invalid reference are then ignored
+when reading the model from the solver.
+\begin{lstlisting}
+(declare-const emptyObject (Array Label (Value)))
+(assert (= emptyObject ((as const (Array Label (Value)))
+                        (Reference invalid))))
+\end{lstlisting}
+
+For soft constraints, we use the optimization solver in a development
+version of Z3, which adds the ability to assert preferential,
+non-required assertions. Weak constraints thus are translated to such
+non-required assertions. For example, the following stay constraint is
+translated as shown:
+\begin{lstlisting}
+# weak x0 = 4.0
+(declare-const x0 (Value))
+(assert-soft (bool (equal x0 (Real 4.0))) :weight 1)
+\end{lstlisting}
+
+The solution for the global environment is naturally the mapping of
+the variables to values that Z3 produces. For the heap, we declare a
+function that maps references to objects. We also declare that the
+heap function map the invalid reference to the object that contains
+only invalid references.
+\begin{lstlisting}
+(declare-fun H ((Value)) (Array Label (Value)))
+(assert (= (H (Reference invalid)) emptyObject))
+\end{lstlisting}
+
+Our executable semantics allows us to run the examples given in
+\tf{the memo?}, except for those that use strings, because Z3 does not
+support those.
+
+\subsection*{Applying the Semantics to Babelsberg/JS}
+\label{sec:apply-semant-babelsb}
+
+% Notes on specs in Babelsberg/JS:
+% 39/45 tests pass.
+% tests 9,10,11 do not work because they include strings
+% test 15 uses irecord == which we do not have
+% tests 32,32b test for something that shouldn't work b/c of irecords, but it works with heap objects
+
+Adapting Babelsberg/JS to follow the semantics presented here
+required changes to both to the translation from imperative
+expressions to constraints (called \emph{constraint construction} in
+Babelsberg/JS) and to the way in which the solvers are
+called. Additionally, we had to update some of the existing example
+programs that break with the new semantics.
+
+\subsubsection{Modifications to the Implementation}
+\label{sec:modif-impl}
+First, we modified the code that translates JavaScript expressions
+into constraints to not inline methods that have more than a simple
+return expression. Methods that have any other statements in them are
+executed and their result returned, so they can only be used in the
+forward direction. We did not modify the translation to prohibit
+creating new objects --- as described in \autoref{sec:no-side-effects}, we
+allow these since JavaScript does not include value classes, and
+assume that, when new objects are created in constraints, our
+conventions on object creation, modification, and not testing for
+identity are followed. As an optimization, Babelsberg/JS omits
+re-translating expressions if no dependent variables changed. We have
+left this optimization in place.
+
+The second change adds support for our restricted form of identity
+constraints. Before, users of Babelsberg/JS could use identity checks
+as part of ordinary constraints, as long as they used an appropriate
+solver. We now disallow this, and add a restricted form of identity
+constraints. In the executable semantics, identity constraints can be
+solved using Z3 by reasoning over the finite domain of available
+references and updating the environment. However, in JavaScript we
+cannot reflect on the heap or use first-class references, so identity
+constraints cannot be solved in the same way. Instead, we use the
+DeltaBlue local propagation solver \cite{freeman1989deltablue} to
+propagate identity changes as they occur, and call any solvers for
+value constraints after that. Babelsberg/JS, through its
+implementation of a cooperating solvers architecture, already supports
+solving in multiple phases. The two-phase solving of identity and
+value constraints in the formalism is thus implemented simply by
+ensuring that the DeltaBlue solver for identity constraints is always
+run before any other solvers. Note in particular that this still
+allows the developer to use other instances of the DeltaBlue solver
+for value constraints, but, just as with all solvers for value
+constraints, they will be called after all the object identities are
+determined.
+
+\subsubsection{Modifications to Existing Programs}
+\label{sec:exist-appl}
+Our changes break a number of existing programs in Babelsberg/JS\@.
+These programs are written for the LivelyKernel
+\cite{lively-kernel-2008} JavaScript environment and use many methods
+from its library.\footnote{These examples are part of a published
+  artifact \cite{FelgentreffECOOP14}, and are also available from the
+  Babelsberg/JS repository at
+  \url{https://github.com/babelsberg/babelsberg-js}. For our adaption,
+  we used the versions from the repository.}
+
+\paragraph{Argument Checking }
+\label{sec:argument-checking}
+One issue we encountered is that many LivelyKernel methods have,
+besides a return statement, some statements that check the number,
+types, or structure of arguments. As per our semantics, such methods
+do not work multi-directionally. In fact, allowing them to be truly
+multi-directional would allow the solver to change the number, types,
+or structure of arguments, which is the kind of surprising behavior we
+want to avoid. As an example, consider the frequently used method to
+add two points in LivelyKernel:
+\begin{lstlisting}[language=JavaScript,caption={The \lstinline{lively.Point.addPt} method},label=lst:addPt]
+function addPt(p) {
+    if (arguments.length != 1) throw ('addPt() only takes 1 parameter.');
+    return new lively.Point(this.x + p.x, this.y + p.y);
+}
+\end{lstlisting}
+A future improvement to our design that may increase compatibility
+with existing applications may allow such statements that simply do
+argument checking, without adding them to the constraint. For now,
+although it is not semantically clean, the practical implementation
+allows such tests on arguments. The resulting constraints are not
+truly multi-directional, but in practice we think they exhibit the
+expected behavior.
+
+\paragraph{Branching }
+\label{sec:branching}
+We encountered a similar issue with methods that return one of two
+expressions, depending on a test. Our semantics does not allow
+branching in constraints. Such a method encountered frequently is
+\verb!getPosition!:
+\begin{lstlisting}[language=JavaScript,caption={The \lstinline{lively.morphic.Morph.getPosition} method},label=lst:getPosition]
+function getPosition() {
+    if (!this.hasFixedPosition() || !this.world()) {
+        return this.morphicGetter('Position');
+    } else {
+        return this.world().getScrollOffset().
+                addPt(this.morphicGetter('Position'));
+    }
+}
+\end{lstlisting}
+Moving the test outside of the method and adding the constraint only
+for the branch that is chosen fixes the issue for cases where the
+branch condition does not change. In the tested programs this was
+always the case. For this particular method, all Morphs we encountered
+that are used in constraints execute the first branch.
+
+\paragraph{Benign Side Effects }
+\label{sec:benign-side-effects}
+Lazy initialization and caching are used in the constraints in some of the
+example applications. Prior work has explicitly allowed such
+benign side effects \cite{FelgentreffJOT14,FelgentreffECOOP14},
+but our formal semantics disallows them.  (We believe that this is an
+appropriate simplification to the formal semantics, preferring to
+leave this issue to clear but less formal guidance to programmers and
+language implementors.)  For example, the LivelyKernel method
+\verb|Morph.getBounds| is used (often indirectly) in many of the
+examples.  The code below was adapted to focus on the caching --- the
+method also uses branches and local variables, which are also
+disallowed now:
+\begin{lstlisting}[language=JavaScript,caption={Shortened \lstinline{lively.morphic.Morph.getBounds} method},label=lst:getBounds]
+function getBounds() {
+    if (this.cachedBounds && !this.hasFixedPosition())
+        return this.cachedBounds;
+    // ... other code paths guarded with branches
+    return this.cachedBounds = this.innerBounds();
+}
+\end{lstlisting}
+A workaround that we use here is to call
+\verb|innerBounds| directly, and circumvent the caching. For Morphs
+for which all child Morphs are contained within the bounds of their
+parent, this returns the same result.
+
+Another example method directly uses lazy initialization in example code:
+\begin{lstlisting}[language=JavaScript,caption={A temperature getter that initializes from a Web service},label=lst:getCelsius]
+function getCelsius() {
+    if (!this.updater)
+        this.updater = setInterval(this.updateCelsiusFromWeb.bind(this), 1000);
+    return this.Celsius;
+}
+\end{lstlisting}
+A workaround here is to move initializers into separate methods and
+run them before using the field in a constraint.
+
+\paragraph{Local Variables }
+\label{sec:local-variables}
+Some methods we encountered declared local variables to split up
+calculations or name constants. For such methods, manual inlining of
+the split up calculation into the return expression was required. The
+original Babelsberg design explicitly allows such methods, as long as
+the variables are used in \ac{ssa} fashion
+\cite{FelgentreffJOT14}.
+
+\pagebreak
+\begin{lstlisting}[language=JavaScript,caption={A split-up calculation},label=lst:airPressure]
+function pressure() {
+   var gasConstantDryAir = 287.058, // J/(kg*K)
+       density = 1.293, // kg/m^3
+       entropyPerVol = gasConstantDryAir * density; // J/K/m^3
+   return entropyPerVol * this.K / 1000;
+}
+\end{lstlisting}
+
+\paragraph{Edit Constraints }
+\label{sec:edit-constraints}
+Edit constraints \cite{freeman1989deltablue}
+support the efficient updating of a solution to the current
+constraints as a set of input values changes, for example, as a point
+in a diagram is dragged with the mouse.  Edit constraints are
+supported in the JavaScript and Ruby implementations of Babelsberg,
+but are not yet accounted for in our formal semantics.  Adding them to
+the semantics should be straightforward.
+
+Finally, our semantics does not include support for edit constraints
+\cite{freeman1989deltablue,freeman1990incremental}, so existing
+programs which use them do not currently work. Although incremental
+solving through edit constraints provides performance benefits for
+interactive applications, many of the interactive example programs in
+Babelsberg/JS seem not to use them, or only use them in such a limited
+fashion that refactoring to ordinary constraints was easily
+possible. However, performance does suffer in the cases where we
+removed edit constraints. A future goal for this semantics is thus to
+include support for edit constraints that can be implemented in a
+performant manner.
+
+Overall, we think these changes, although they represent additional
+work for the programmer, improve the clarity of the code and make 
+the interactions
+between the object-oriented part and the constraints more
+comprehensible. A future goal will be to see which of these
+workarounds can be removed, while still maintaining a clean and
+comprehensible set of rules for the interaction of the object-oriented
+core and constraints.
+
+% \bibliographystyle{splncs.bst}
+\bibliography{constraints}
+
+\end{document}
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:

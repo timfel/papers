@@ -6,6 +6,7 @@
 \usepackage{amssymb}
 \usepackage{hyperref}
 \usepackage{xspace}
+\usepackage{bcprules}
 
 \def\sectionautorefname{Section}
 \def\subsectionautorefname{Section}
@@ -36,7 +37,9 @@
 
 \usepackage{listings}
 \lstdefinelanguage{JavaScript}{
-  keywords={typeof, new, true, false, catch, function, return, null, catch, switch, var, if, in, while, do, else, case, break},
+  keywords={typeof, new, true, false, catch, function, return, null,
+    catch, switch, var, if, in, while, do, else, case, break, always,
+    once, constructor, ro},
   keywordstyle=\bfseries,
   ndkeywords={class, export, boolean, throw, implements, import, this},
   ndkeywordstyle=\color{darkgray}\bfseries,
@@ -51,7 +54,7 @@
 }
 
 \lstdefinelanguage{rml}{
-  keywords={relation, rule, axiom},
+  keywords={relation, rule, axiom, datatype, type, module, end, list},
   keywordstyle=\bfseries,
   ndkeywords={with, module},
   ndkeywordstyle=\color{darkgray}\bfseries,
@@ -72,7 +75,6 @@
     numbers=left,
     numbersep=5pt,
     numberstyle=\tiny\color{gray},
-    emph={always, once, constructor, ro},%
     emphstyle=\bfseries,%
     % breaklines=true,
     breakatwhitespace=false,%
@@ -118,16 +120,16 @@
 Babelsberg is a family of object-constraint languages. Recently, we
 have developed a formal semantics to clarify some issues in those
 languages, in particular pertaining to object identity, types, object
-structure, and allowed methods in constraints. Our aim in developing a
-formal semantics for Babelsberg has been primarily a practical one,
-including providing a guide for language implementors and proving
-useful language properties that then can be relied on by programmers.
-One piece of evidence of success is that we have in fact clarified the
+structure, and allowed methods in constraints
+\cite{felgentreff2014semantics}. Our aim in developing a formal
+semantics for Babelsberg has been primarily a practical one, including
+providing a guide for language implementors and proving useful
+language properties that then can be relied on by programmers.  One
+piece of evidence of success is that we have in fact clarified the
 desired behavior of the language and have adapted the existing
 implementation in JavaScript, Babelsberg/JS, to conform to it. As we
 evolved our semantics, we developed a set of 47 test programs that
 demonstrate different issues we address.
-
 
 We report on our findings in creating an executable semantics in
 RML\cite{pettersson1994rml}. Concretely that means: 
@@ -150,7 +152,7 @@ RML\cite{pettersson1994rml}. Concretely that means:
   disallow.
 \end{itemize}
 
-\section{An Executable Semantics}
+\section{A Solver for an Executable Semantics}
 \label{sec:an-exec-semant}
 
 RML is a programming language to generate executables from natural
@@ -158,11 +160,163 @@ language specifications. It provides \emph{relations} as basic
 building blocks for the semantics and translates these to C\@. It was
 possible to implement our semantics exactly in RML.  As the semantics
 does not model the solving process, we have added a translation from
-our constraint syntax to Z3, which solves the
-constraints and generates a model of the new heap and
-environment. Because our semantics relies on soft constraints, we
-use an experimental version of Z3 that supports them
-\cite{bjornernuz}.
+our constraint syntax to Z3, which solves the constraints and
+generates a model of the new heap and environment. Because our
+semantics relies on soft constraints, we use an experimental version
+of Z3 that supports them \cite{bjornernuz}. Our code is publicly
+available on GitHub at
+\url{https://github.com/babelsberg/babelsberg-rml}.
+
+\subsection{Syntax and Semantic Rules}
+\label{sec:syntax}
+The abstract syntax of our language can be mapped almost
+directly. Most of the work is done using a hand-written Yacc grammar
+whose productions call the appropriate RML token generators. These are
+generated from the \emph{abstract syntax definition} given in the RML
+semantics. The syntax we have given in our semantics for
+Babelsberg/Objects is:
+
+\vskip\baselineskip
+\begin{tabular}{l>{\ttfamily}r>{\ttfamily}r>{\ttfamily}l}
+Statement & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C \\
+  & & &  $\mid$ s;s $\mid$ if e then s else s $\mid$ while e do s \\
+{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
+{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
+$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
+  & & & $\mid$ o $\mid$ new o $\mid$ D\\
+  & & & $\mid$ e.l(e$_1$,$\ldots$,e$_n$)\\
+{Identity} & I & ::= & L == L\\
+{Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
+{L-Value} & L & ::= & x $\mid$ L.l \\
+{Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ \textrm{base type constants}\\
+{Variable} & x & ::= & \textrm{variable names} \\
+{Label} & l & ::= & \textrm{record label names} \\
+{Reference} & r & ::= & \textrm{references to heap records} \\
+{Dereference} & D & ::= & \H(e) \\
+{Method Body} & b & ::= & s; return e $\mid$ return e \\~\\
+{Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\} \\
+\end{tabular}
+\vskip\baselineskip
+
+This translates to the following abstract RML syntax
+\begin{lstlisting}[language=rml,basicstyle=\footnotesize\ttfamily]
+module babelsberg:
+(* Abstract syntax for the BabelsbergP language *)
+  datatype Program = PROGRAM of Statement
+
+  datatype Statement = SKIP
+		     | ASSIGN of LValue * Exp
+		     | ALWAYS of Constraint
+		     | ONCE of Constraint
+		     | SEQ of Statement * Statement
+		     | IF of Exp * Statement * Statement
+		     | WHILE of Exp * Statement
+  datatype Constraint = CONSTRAINT of Rho * Exp
+		      | COMPOUNDCONSTRAINT of Constraint * Constraint
+  datatype Exp = VALUE of Value
+	       | LVALUE of LValue
+	       | OP of Exp * Op * Exp
+	       | COMPARE of Exp * Comp * Exp
+	       | COMBINE of Exp * Comb * Exp
+	       | IDENTITY of Exp * Exp
+	       | IRECORD of ObjectLiteral
+	       | UIDRECORD of ObjectLiteral
+	       | DEREF of Dereference
+	       | CALL of Exp * Label * Exp list
+  (* Identity folded into Exp *)
+  type ObjectLiteral = (Label * Exp) list
+  datatype LValue = VARIABLE of Variable | FIELD of Exp * Label
+		  | ASSIGNDEREF of Dereference (* just for the parsing *)
+  datatype Constant = TRUE | FALSE | NIL | REAL of real | STRING of string
+  type Variable = string
+  type Label = string
+  type Reference = int
+  type Dereference = Exp
+  datatype MethodBody = METHOD of Statement * Exp | SIMPLE of Exp
+
+  datatype Value = K of Constant | O of ObjectLiteral | R of Reference
+
+(* Helper types *)
+  datatype Rho = WEAK | MEDIUM | REQUIRED
+  datatype Op =  ADD | SUB | MUL | DIV
+  datatype Comp = LESSTHAN | LEQUAL | EQUAL | NEQUAL | GEQUAL | GREATERTHAN
+  datatype Comb = AND | OR
+
+(* Type syntax *)
+  datatype Type = PRIMITIVE | TRECORD of (Label * Type) list
+
+(* Bindings and environments *)
+  type Env         = (Variable * Value) list
+  type Scope       = (Variable * Variable) list
+  type Heap        = (Reference * ObjectLiteral) list
+  type Cstore      = (Scope * Constraint) list
+  type Istore      = (Scope * Constraint) list
+
+  relation evalprogram: Program => ()
+  relation eval: (Env, Scope, Heap, Cstore, Istore, Exp) => \
+         (Env, Heap, Cstore, Istore, Value)
+  relation alert: (string list, Exp list, string list) => ()
+end
+\end{lstlisting}
+
+As you can see, RML adds a root production \lstinline|Program| (line
+3) eand a number of productions to resolve to the set of operations
+and constraint strengths (lines 38--41). Notably, things like the
+Environment and Heap, that are not part of the formal syntax, but that
+we refer to in the rules are also part of the abstract RML syntax
+(lines 47--51). Finally, we declare (but do not define) the main rules
+for evaluation (lines 53--55) and an \lstinline|alert| relation to
+print debugging statements. Relations map an input tuple to an output
+tuple, and use rules to pattern match which operation to perform. We
+define these relations here so that RML generates their declarations
+into a C header, which we can thus use to evaluate the parsed program
+form Yacc, eval single expressions, and print debugging information
+from C.
+
+Similarily, the semantics rules map directly to rules in RML. We will
+give just one example:
+
+\infrule[E-Field]{\mbox{
+  \texttt{<\upshape{E}|E|\upshape{H}|\upshape{C}|\upshape{I}|e>} $\Downarrow$ 
+  \texttt{<\upshape{E}'|\upshape{H}'|\upshape{C}'|\upshape{I}'|r>}}\\
+\mbox{
+  \texttt{\upshape{H}}(\texttt{r}) = \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ $i$ $\leq$ $n$
+}}{\mbox{
+  \texttt{<\upshape{E}|E|\upshape{H}|\upshape{C}|\upshape{I}|e.l$_i$>} $\Downarrow$ 
+  \texttt{<\upshape{E}'|\upshape{H}'|\upshape{C}'|\upshape{I}'|r>}
+}}
+
+In RML syntax, this becomes:
+\begin{lstlisting}[language=rml,basicstyle=\footnotesize\ttfamily]
+rule	eval(E,S,H,C,I,e) => (E',H',C',I',R(r)) &
+	alert(["E-Field(", l, ")\n"], [], []) &
+	Util.lookupHeap(H, r) => fvalues &
+	Util.lookupRecord(fvalues, l) => v
+	----------------------------------
+	eval(E,S,H,C,I, LVALUE(FIELD(e, l))) => (E',H',C',I',v)
+\end{lstlisting}
+
+Line 1 represents the recursive call to evaluate the left-hand side of
+the field access. The result is then matched against the intended
+result, which is a reference. The type is annotated in RML as
+\lstinline|R|. It matches a box of type \lstinline|R|, and binds its
+contents to the variable \lstinline|r|. When the first rule succeeds,
+we inserted a debug print. This always succeeds, so RML proceeds to
+lookup \lstinline|r| on the heap. We use a utility function for this
+that simply searches the set of reference--object pairs on the
+heap. When found, the object is bound to the variable
+\lstinline|fvalues|. Finally, we lookup the intented label on this
+object. This looks slightly different from the semantic rule, because
+in practice we allow any string as a label, and do not assign a total
+order. If the lookup succeeds, the rule succeeds, and the evaluation
+finishes and returns the updated environment, heap, constraint and
+identity-constraint stores, and the value of the field.
+
+\subsection{Mapping to the Solver}
+\label{sec:mapping-solver}
+
+
 
 Z3 types expressions and does not allow variables to change their
 type.  Our structural typing rules, however, do allow variables to change
@@ -176,13 +330,13 @@ domain types that range over the existing references and record labels
 respectively. We define the operation, comparison, and combination
 functions on that union type.
 
-In the companion technical report, we provide 47 test programs that
-illustrate various concerns of the semantics. Of those 47 programs,
-three use constraints on strings, which are not supported in the
-version of Z3 we used (a string theory exists for an old version of
-Z3, but does not work in recent versions \cite{zheng2013z3}). The
-remaining 44 all run and produce the expected results at each step of
-the execution.
+In the technical report of our formalization, we provide 47 test
+programs that illustrate various concerns of the semantics. Of those
+47 programs, three use constraints on strings, which are not supported
+in the version of Z3 we used (a string theory exists for an old
+version of Z3, but does not work in recent versions
+\cite{zheng2013z3}). The remaining 44 all run and produce the expected
+results at each step of the execution.
 
 As an extension to the RML implementation, we add a module to
 transform the example code into test cases for the various
@@ -214,18 +368,23 @@ version of Z3 that does not include soft constraints. A
 proof-of-concept Python implementation exists, but was not tested.
 
 Z3 types all expressions. To allow values to change their type, we
-declare variable with a union type \verb!Value! in Z3, and define
-the operation-, comparison, and combination functions on that union
-type. A \verb!Value! has a real, boolean, reference, and value
-class component. The latter is encoded as a Z3 array that maps
-\emph{labels} to reals. Labels and reference are declared as finite
-domain types that range over the existing references and record labels
-respectively. Note that we only support value classes with real fields
-here. The reason is that Z3 does not support recursive structures
-through arrays. This is not a problem in practice, as we can
-explicitly define datatypes for more nested records up to a finite
-depth $K$ as required --- for simplicity, we give here only a
-definition for $K = 1$:
+declare variable with a union type \verb!Value! in Z3, and define the
+operation-, comparison, and combination functions on that union
+type. A \verb!Value! has a real, boolean, reference, and value class
+component\footnote{Unfortunately, at the time of this writing the
+  optimizing strategy for Z3 produces different results, depending on
+  the ordering of the alternatives in the union type. For a variable
+  that only has a soft constraint that would make it an array, Z3 will
+  sometimes (depending on the order of the union) make it a real. We
+  work around this by trying with another ordering.}. The latter is
+encoded as a Z3 array that maps \emph{labels} to reals. Labels and
+reference are declared as finite domain types that range over the
+existing references and record labels respectively. Note that we only
+support value classes with real fields here. The reason is that Z3
+does not support recursive structures through arrays. This is not a
+problem in practice, as we can explicitly define datatypes for more
+nested records up to a finite depth $K$ as required --- for
+simplicity, we give here only a definition for $K = 1$:
 \begin{lstlisting}
 (declare-datatypes () ((Value (Record (rec (Array Label Real)))
                               (Real (real Real))

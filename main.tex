@@ -167,7 +167,7 @@ of Z3 that supports them \cite{bjornernuz}. Our code is publicly
 available on GitHub at
 \url{https://github.com/babelsberg/babelsberg-rml}.
 
-\subsection{Syntax and Semantic Rules}
+\subsection*{RML Syntax}
 \label{sec:syntax}
 The abstract syntax of our language can be mapped almost
 directly. Most of the work is done using a hand-written Yacc grammar
@@ -273,17 +273,18 @@ into a C header, which we can thus use to evaluate the parsed program
 form Yacc, eval single expressions, and print debugging information
 from C.
 
+\subsection*{RML Semantics}
 Similarily, the semantics rules map directly to rules in RML. We will
 give just one example:
 
 \infrule[E-Field]{\mbox{
-  \texttt{<\upshape{E}|E|\upshape{H}|\upshape{C}|\upshape{I}|e>} $\Downarrow$ 
+  \texttt{<\upshape{E}|S|\upshape{H}|\upshape{C}|\upshape{I}|e>} $\Downarrow$ 
   \texttt{<\upshape{E}'|\upshape{H}'|\upshape{C}'|\upshape{I}'|r>}}\\
 \mbox{
   \texttt{\upshape{H}}(\texttt{r}) = \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
   1 $\leq$ $i$ $\leq$ $n$
 }}{\mbox{
-  \texttt{<\upshape{E}|E|\upshape{H}|\upshape{C}|\upshape{I}|e.l$_i$>} $\Downarrow$ 
+  \texttt{<\upshape{E}|S|\upshape{H}|\upshape{C}|\upshape{I}|e.l$_i$>} $\Downarrow$ 
   \texttt{<\upshape{E}'|\upshape{H}'|\upshape{C}'|\upshape{I}'|r>}
 }}
 
@@ -293,7 +294,7 @@ rule	eval(E,S,H,C,I,e) => (E',H',C',I',R(r)) &
 	alert(["E-Field(", l, ")\n"], [], []) &
 	Util.lookupHeap(H, r) => fvalues &
 	Util.lookupRecord(fvalues, l) => v
-	----------------------------------
+	-------------------------------------------------------
 	eval(E,S,H,C,I, LVALUE(FIELD(e, l))) => (E',H',C',I',v)
 \end{lstlisting}
 
@@ -316,7 +317,54 @@ identity-constraint stores, and the value of the field.
 \subsection{Mapping to the Solver}
 \label{sec:mapping-solver}
 
+Given the above implementation of the syntax, and the implementation
+of the remaining semantic rules, RML is able to generate a binary that
+parses and begins to execute example programs in
+Babelsberg/Objects. So suppose we have a program
+\lstinline|x := 1 + 2|, RML will evaluate the right-hand side of this
+expression and then continue to execute the assignment
+rule. Assignment will execute to create a set of constraints and then
+hand those to the solver --- for which we give no rule, only this judgment:
 
+\texttt{\upshape{E};\upshape{H}} $\models$ \texttt{\upshape{C}}
+
+Our implementation has to implement this judgment which involves:
+\begin{enumerate}
+\item Convert the constraints in our syntax into a form that can be
+  understood by a solver
+\item Run the solver and retrieve its result
+\item Parse the result and generate new environment and heap to return
+  to the executable, and continue evaluating the rule
+\end{enumerate}
+
+We have chosen Z3 as our solver, which can parse SMT2, an open format
+for constraint system definition. Converting our constraints into that
+format is straightforward --- for each form possible in constraints,
+we create a rule that converts the form into a string. For this, we
+use the relations \lstinline|printZ3C| and \lstinline|printZ3E|. For
+example, to print a required constraint:
+
+\begin{lstlisting}[language=rml,basicstyle=\footnotesize\ttfamily]
+rule   printZ3E(e) => es &
+       string_append_list(["\n(assert (bool ", es, "))"]) => cs
+       --------------
+       printZ3C(babelsberg.CONSTRAINT(babelsberg.REQUIRED, e)) => cs
+(* ... *)
+rule   printZ3E(e1) => e1s &
+       printZ3E(e2) => e2s &
+       string_append_list(["(equal ", e1s, " ", e2s, ")"]) => es'
+       ------------------------------------------------------
+       printZ3E(babelsberg.IDENTITY(e1, e2)) => es'
+\end{lstlisting}
+
+The rule on lines 1--4 matches a required constraint, and prints it as
+a Z3 expression using, for example, the rule in lines 6--10.
+
+Define variables
+
+Label domain
+
+Reference domain
 
 Z3 types expressions and does not allow variables to change their
 type.  Our structural typing rules, however, do allow variables to change

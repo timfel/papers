@@ -1,5 +1,6 @@
 \documentclass[english,trtype=singlearticle]{hpitr}
 
+\usepackage{enumerate}
 \usepackage{textcomp}
 \usepackage{xcolor}				% Allow for color (annotations)
 \usepackage{stmaryrd}
@@ -69,8 +70,8 @@
 }
 
 \lstset{%
-    language=JavaScript,%
-    basicstyle=\small,%\ttfamily,
+    language=rml,
+    basicstyle=\footnotesize\ttfamily,%
     frame=none,%
     numbers=left,
     numbersep=5pt,
@@ -85,7 +86,7 @@
     {visible?}{visible?}{1},%
     showstringspaces=false,%
     columns=flexible,%
-    frame=tb,%
+    frame=b,%
     rulecolor=\color{lightgray},
     % xleftmargin=\parindent,%
 }
@@ -131,8 +132,12 @@ implementation in JavaScript, Babelsberg/JS, to conform to it. As we
 evolved our semantics, we developed a set of 47 test programs that
 demonstrate different issues we address.
 
-We report on our findings in creating an executable semantics in
-RML\cite{pettersson1994rml}. Concretely that means: 
+This report is written as supplementary material to the paper on the
+formal semantics, and should be considered an in-depth look at the
+implementation of the executable semantics, rather than a document
+that stands on its own. We report on our findings in creating an
+executable semantics in RML\cite{pettersson1994rml}. Concretely that
+means:
 \begin{itemize}
 \item We provide a mapping from the solver language in our semantics
   into a concrete solver language. While in our semantics we treat the
@@ -167,7 +172,21 @@ of Z3 that supports them \cite{bjornernuz}. Our code is publicly
 available on GitHub at
 \url{https://github.com/babelsberg/babelsberg-rml}.
 
-\subsection*{RML Syntax}
+To develop the executable semantics for Babelsberg/Objects involves
+three steps.
+\begin{enumerate}[a)]
+\item We must create an abstract syntax definition for RML and a
+  parser to generate the abstract syntax tree in that definition.
+\item We must implement all the judgments and their rules in the
+  formal semantics as RML \emph{relations} and corresponding
+  \emph{rules}.
+\item The judgment in the formal semantics that represents a call to
+  the solver does not have a rule --- the formal semantics treat the
+  solver as a black box. We must provide a concrete solver and
+  implementation to call it to make an executable semantics.
+\end{enumerate}
+
+\subsection{RML Syntax}
 \label{sec:syntax}
 The abstract syntax of our language can be mapped almost
 directly. Most of the work is done using a hand-written Yacc grammar
@@ -199,7 +218,7 @@ $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
 \vskip\baselineskip
 
 This translates to the following abstract RML syntax
-\begin{lstlisting}[language=rml,basicstyle=\footnotesize\ttfamily]
+\begin{lstlisting}
 module babelsberg:
 (* Abstract syntax for the BabelsbergP language *)
   datatype Program = PROGRAM of Statement
@@ -273,7 +292,7 @@ into a C header, which we can thus use to evaluate the parsed program
 form Yacc, eval single expressions, and print debugging information
 from C.
 
-\subsection*{RML Semantics}
+\subsection{RML Semantics}
 Similarily, the semantics rules map directly to rules in RML. We will
 give just one example:
 
@@ -289,7 +308,7 @@ give just one example:
 }}
 
 In RML syntax, this becomes:
-\begin{lstlisting}[language=rml,basicstyle=\footnotesize\ttfamily]
+\begin{lstlisting}
 rule	eval(E,S,H,C,I,e) => (E',H',C',I',R(r)) &
 	alert(["E-Field(", l, ")\n"], [], []) &
 	Util.lookupHeap(H, r) => fvalues &
@@ -314,7 +333,7 @@ order. If the lookup succeeds, the rule succeeds, and the evaluation
 finishes and returns the updated environment, heap, constraint and
 identity-constraint stores, and the value of the field.
 
-\subsection{Mapping to the Solver}
+\subsection{The Solver Judgment}
 \label{sec:mapping-solver}
 
 Given the above implementation of the syntax, and the implementation
@@ -337,14 +356,149 @@ Our implementation has to implement this judgment which involves:
   to the executable, and continue evaluating the rule
 \end{enumerate}
 
+\subsubsection{Converting Constraint Syntax}
+\label{sec:conv-constr-synt}
 We have chosen Z3 as our solver, which can parse SMT2, an open format
-for constraint system definition. Converting our constraints into that
-format is straightforward --- for each form possible in constraints,
-we create a rule that converts the form into a string. For this, we
-use the relations \lstinline|printZ3C| and \lstinline|printZ3E|. For
-example, to print a required constraint:
+for constraint system definition. In SMT2, we have to declare each
+type that we will use (including exhaustively listing the values for
+finite types), declare each variable and its type that will appear in
+a constraint, and then declare the constraints.
 
-\begin{lstlisting}[language=rml,basicstyle=\footnotesize\ttfamily]
+\paragraph{Declaring Types and Variables}
+\label{sec:declaring-types}
+
+Z3 type checks all expressions and does not allow variables to change
+their type.  Our structural typing rules, however, do allow variables
+to change their type, for example, from a real to an integer or a
+string. In the implementation we thus have to reconcile Z3 typing with
+our structural typing rules. To do so, we declare variables in Z3 as a
+union type \verb!Value! that has real, boolean, reference, and value
+class components\footnote{Unfortunately, at the time of this writing
+  the optimizing strategy for Z3 produces different results, depending
+  on the ordering of the alternatives in the union type. For a
+  variable that only has a soft constraint that would make it an
+  array, Z3 will sometimes (depending on the order of the union) make
+  it a real. We work around this by trying with another
+  ordering.}. The latter is encoded as a Z3 array that maps
+\emph{labels} to reals. Labels and reference are declared as finite
+domain types that range over the existing references and record labels
+respectively. Note that we only support value classes with real fields
+here. The reason is that Z3 does not support recursive structures
+through arrays. This is not a problem in practice, as we can
+explicitly define datatypes for more nested records up to a finite
+depth $K$ as required --- for simplicity, we give here only a
+definition for $K = 1$:
+\begin{lstlisting}
+(declare-datatypes () ((Value (Record (rec (Array Label Real)))
+                              (Real (real Real))
+                              (Bool (bool Bool))
+                              (Reference (ref Reference)))))
+\end{lstlisting}
+
+Objects, analogous to value classes, are represented as Z3 arrays that
+map labels to values. Because arrays in Z3 are total functions, and
+the labels form one global finite set, we declare a special
+\verb!invalid!  reference as the default value for all object
+fields. Fields that only have the invalid reference are then ignored
+when reading the model from the solver:
+\begin{lstlisting}
+; A default record has 'invalid' for all fields
+(declare-const iRec (Array Label (Value)))
+(assert (= iRec ((as const (Array Label (Value))) (Reference invalid))))
+\end{lstlisting}
+
+We must furthermore declare the global heapand evnironment. The global
+environment is naturally the mapping of the variables to values that
+Z3 produces. The heap we declare as a mapping from references to
+records. Again, because mappings in Z3 have to be complete, we must
+assert that any invalid value is mapped to an invalid record:
+\begin{lstlisting}
+; Records are (Array Label (Value))
+(declare-fun H ((Value)) (Array Label (Value)))
+(assert (and (= (H (Reference invalid)) iRec) (= (H (Reference nil)) iRec)))
+\end{lstlisting}
+
+Finally, we must declare the finite domain types \lstinline|Reference|
+and \lstinline|Label|. To determine their domains, we again provide
+rules that match all possible expressions, and construct a list of the
+necessary definitions for those rules that matter. The relations to
+construct the list of strings are defined like this:
+\begin{lstlisting}
+relation pRefDomE: babelsberg.Exp => string list
+relation pLabDomE: babelsberg.Exp => string list
+\end{lstlisting}
+
+Most rules for these two relations simply recurse and add nothing to
+the list. The only rules that adds a string for references is the one
+that processes a direct reference (remember that constraints as passed
+to the solver will only have references as part of objects or as part
+of equations in identity constraints):
+\begin{lstlisting}
+rule   int_string(r) => rs &
+       string_append(" ref", rs) => rs'
+       -----------------------------
+       pRefDomE(babelsberg.VALUE(babelsberg.R(r))) => [rs']
+\end{lstlisting}
+Here, the integer-type reference \lstinline|X| is transformed into a
+unique string \lstinline|refX| and added to the list. The important
+rules for labels are the ones that include field access, value
+objects, and heap objects:
+\begin{lstlisting}
+rule   printLabContents(ary) => str
+       ----------------------------
+       pLabDomE(babelsberg.VALUE(babelsberg.O(ary))) => str
+
+rule   printLabContents(ary) => str
+       ----------------------------
+       pLabDomE(babelsberg.IRECORD(ary)) => str
+
+rule   pLabDomE(e) => es &
+       string_append(" ", l) => ls &
+       list_union(es, [ls]) => es'
+       -------------------------------------------------------
+       pLabDomE(babelsberg.LVALUE(babelsberg.FIELD(e, l))) => es'
+(* ... *)
+relation printLabContents: babelsberg.ObjectLiteral => string list =
+  axiom printLabContents([]) => []
+
+  rule pLabDomE(e) => es &
+       printLabContents(rest) => rests &
+       string_append(" ", l) => ls &
+       list_union(es, [ls]) => fl &
+       list_union(fl, rests) => str
+       ----------------------------------------------------------
+       printLabContents((l, e) :: rest) => str
+end
+\end{lstlisting}
+The rules use a helper relation \lstinline|printLabContents| to
+extract all labels from a record and add them to a list.
+
+The final declarations for labels and references look like this:
+\begin{lstlisting}
+(declare-datatypes () ((Label undef label1 label2)))
+(declare-datatypes () ((Reference invalid nil ref1 ref2)))
+\end{lstlisting}
+
+Once we have all these, we can declare all variables that appear in
+constraints. Again, we use a relation that recurses and constructs a
+set of variable declarations from the given constraints. The only rule
+that is (besides recursion) non-empty is:
+\begin{lstlisting}
+rule   printFieldVar(x) => xs &
+       string_append_list(["(declare-const ", xs, " (Value))\n"]) => str
+       -----------------------------------------------------------------
+       pDefsE(babelsberg.LVALUE(babelsberg.VARIABLE(x))) => [str]
+\end{lstlisting}
+
+\paragraph{Declaring Constraints}
+\label{sec:decl-constr}
+Converting our constraints into SMT2 is straightforward --- for
+each form possible in constraints, we create a rule that converts the
+form into a string. For this, we use the relations
+\lstinline|printZ3C| and \lstinline|printZ3E|. For example, to print a
+required constraint:
+
+\begin{lstlisting}
 rule   printZ3E(e) => es &
        string_append_list(["\n(assert (bool ", es, "))"]) => cs
        --------------
@@ -358,99 +512,11 @@ rule   printZ3E(e1) => e1s &
 \end{lstlisting}
 
 The rule on lines 1--4 matches a required constraint, and prints it as
-a Z3 expression using, for example, the rule in lines 6--10.
-
-Define variables
-
-Label domain
-
-Reference domain
-
-Z3 types expressions and does not allow variables to change their
-type.  Our structural typing rules, however, do allow variables to change
-their type, for example, from a real to an integer or a string. In the
-implementation we thus have to reconcile Z3 typing with our
-structural typing rules. To do so, we declare variables in Z3 as a
-union type \verb!Value! that has real, boolean, reference, and value
-class components. The last is encoded as a Z3 array that maps
-\emph{labels} to reals. Labels and references are declared as finite
-domain types that range over the existing references and record labels
-respectively. We define the operation, comparison, and combination
-functions on that union type.
-
-In the technical report of our formalization, we provide 47 test
-programs that illustrate various concerns of the semantics. Of those
-47 programs, three use constraints on strings, which are not supported
-in the version of Z3 we used (a string theory exists for an old
-version of Z3, but does not work in recent versions
-\cite{zheng2013z3}). The remaining 44 all run and produce the expected
-results at each step of the execution.
-
-As an extension to the RML implementation, we add a module to
-transform the example code into test cases for the various
-implementations of Babelsberg. This may provide an avenue for future
-development of Babelsberg --- as the semantics evolve, test cases for
-the existing implementations can be generated and the implementations
-adapted to pass the generated tests. To generate the tests, we run our
-examples through the generated RML executable, translate them into
-the syntax of the target language using a simple mapping provided for
-each language, and wrap them in a test scaffold (also specific to each
-language) to execute them in each implementation.
-
-All of the existing implementations of Babelsberg must be adapted to
-pass the tests, because all deviate from our proposed semantics in one
-way or another. We have modified the JavaScript implementation, as it
-is the most advanced. After modification, of the 44 test cases that
-work in the RML semantics, 41 produce the expected results. The
-remaining three all specifically test properties of value classes in
-constraints. Since JavaScript does not support value classes (and we
-do not emulate them in some way in the scaffolding code) these three tests
-fail, in one case producing no result when there is a solution, and
-the other two producing a solution when solving should fail. We have
-also tested, but not adapted, the Ruby and Squeak
-implementations. Both Babelsberg/R and Babelsberg/S pass 28 out of 44
-tests. In addition to the value class failures, these implementations
-also fail some tests concerning object identity, have insufficient
-support for explicit identity constraints, and support only an older
-version of Z3 that does not include soft constraints. A
-proof-of-concept Python implementation exists, but was not tested.
-
-Z3 types all expressions. To allow values to change their type, we
-declare variable with a union type \verb!Value! in Z3, and define the
-operation-, comparison, and combination functions on that union
-type. A \verb!Value! has a real, boolean, reference, and value class
-component\footnote{Unfortunately, at the time of this writing the
-  optimizing strategy for Z3 produces different results, depending on
-  the ordering of the alternatives in the union type. For a variable
-  that only has a soft constraint that would make it an array, Z3 will
-  sometimes (depending on the order of the union) make it a real. We
-  work around this by trying with another ordering.}. The latter is
-encoded as a Z3 array that maps \emph{labels} to reals. Labels and
-reference are declared as finite domain types that range over the
-existing references and record labels respectively. Note that we only
-support value classes with real fields here. The reason is that Z3
-does not support recursive structures through arrays. This is not a
-problem in practice, as we can explicitly define datatypes for more
-nested records up to a finite depth $K$ as required --- for
-simplicity, we give here only a definition for $K = 1$:
-\begin{lstlisting}
-(declare-datatypes () ((Value (Record (rec (Array Label Real)))
-                              (Real (real Real))
-                              (Bool (bool Bool))
-                              (Reference (ref Reference)))))
-\end{lstlisting}
-
-Objects, analogous to value classes, are represented as Z3 arrays that
-map labels to values. Because arrays in Z3 are total functions, and
-the labels form one global finite set, we declare a special
-\verb!invalid!  reference as the default value for all object
-fields. Fields that only have the invalid reference are then ignored
-when reading the model from the solver.
-\begin{lstlisting}
-(declare-const emptyObject (Array Label (Value)))
-(assert (= emptyObject ((as const (Array Label (Value)))
-                        (Reference invalid))))
-\end{lstlisting}
+a Z3 expression using, for example, the rule in lines 6--10. Similar
+to the prior rules that create variable and domain declarations, these
+rules simply traverse the compound constraints generated by the
+inlining judgments, each rule generating a part of the final SMT2
+constraint expression for Z3.
 
 For soft constraints, we use the optimization solver in a development
 version of Z3, which adds the ability to assert preferential,
@@ -463,19 +529,54 @@ translated as shown:
 (assert-soft (bool (equal x0 (Real 4.0))) :weight 1)
 \end{lstlisting}
 
-The solution for the global environment is naturally the mapping of
-the variables to values that Z3 produces. For the heap, we declare a
-function that maps references to objects. We also declare that the
-heap function map the invalid reference to the object that contains
-only invalid references.
-\begin{lstlisting}
-(declare-fun H ((Value)) (Array Label (Value)))
-(assert (= (H (Reference invalid)) emptyObject))
-\end{lstlisting}
+\subsubsection{Running the Solver}
+\label{sec:running-solver}
 
-Our executable semantics allows us to run the examples given in
-\tf{the memo?}, except for those that use strings, because Z3 does not
-support those.
+RML generates C code from the semantic definitions. This makes it easy
+to drive it from Yacc, but also allows us to add ``primitive''
+operations to RML itself. In our case, this primitive operation is the
+call to the solver. After the transformation is complete, we pass the
+entire SMT2 string that was generated to the \lstinline|solve|
+relation, which is implemented in C\@. This relation simply writes the
+SMT2 string to a file and prints it to the terminal. It then waits
+until it receives a solution in the assignments syntax. This is useful
+both to review the generated constraints, as well as check the
+solution that Z3 comes up with against what we expected. The rule does
+not itself call Z3, so the solution can be supplied by the user for
+testing. The solution is then parsed again using the Yacc grammar as a
+set of assignments which are converted in RML into a new environment
+and heap. Thus, a solution is itself simply a set of assignments to
+variables which is run (without again calling the solver).
+
+\subsubsection{Parsing the Solver Output}
+\label{sec:pars-solv-outp}
+
+In the technical report of our formalization, we provide 47 test
+programs that illustrate various concerns of the semantics. Of those
+47 programs, three use constraints on strings, which are not supported
+in the version of Z3 we used (a string theory exists for an old
+version of Z3, but does not work in recent versions
+\cite{zheng2013z3}). The remaining 44 all run and produce the expected
+results at each step of the execution. To run those tests
+automatically, the third required step is a translation from the
+output of Z3 to the Babelsberg/Objects assignments syntax. For this,
+we use a hand-written Ruby script that transforms the Z3 output into
+the correct syntax. Since the assignments are always simple value
+assignments (assigning an object to a heap location, or a reference to
+a variable), regular expressions suffice for this task.
+
+As an extension to the RML implementation, we add a module to
+transform the example code into test cases for the various
+implementations of Babelsberg. This may provide an avenue for future
+development of Babelsberg --- as the semantics evolve, test cases for
+the existing implementations can be generated and the implementations
+adapted to pass the generated tests. To generate the tests, we run our
+examples through the generated RML executable, translate them into
+the syntax of the target language using a simple mapping provided for
+each language, and wrap them in a test scaffold (also specific to each
+language) to execute them in each implementation.
+
+\section{Generating a Language Test Suite from the Semantics}
 
 \section{Applying the Semantics to Babelsberg/JS}
 \label{sec:apply-semant-babelsb}
@@ -485,6 +586,24 @@ support those.
 % tests 9,10,11 do not work because they include strings
 % test 15 uses irecord == which we do not have
 % tests 32,32b test for something that shouldn't work b/c of irecords, but it works with heap objects
+
+All of the existing implementations of Babelsberg must be adapted to
+pass the tests, because all deviate from our proposed semantics in one
+way or another. We have modified the JavaScript implementation, as it
+is the most advanced. After modification, of the 44 test cases that
+work in the RML semantics, 41 produce the expected results. The
+remaining three all specifically test properties of value classes in
+constraints. Since JavaScript does not support value classes (and we
+do not emulate them in some way in the scaffolding code) these three
+tests fail, in one case producing no result when there is a solution,
+and the other two producing a solution when solving should fail. We
+have also tested, but not adapted, the Ruby and Squeak
+implementations. Both Babelsberg/R and Babelsberg/S pass 28 out of 44
+tests. In addition to the value class failures, these implementations
+also fail some tests concerning object identity, have insufficient
+support for explicit identity constraints, and support only an older
+version of Z3 that does not include soft constraints. A
+proof-of-concept Python implementation exists, but was not tested.
 
 Adapting Babelsberg/JS to follow the semantics presented here
 required changes to both to the translation from imperative
@@ -500,13 +619,12 @@ into constraints to not inline methods that have more than a simple
 return expression. Methods that have any other statements in them are
 executed and their result returned, so they can only be used in the
 forward direction. We did not modify the translation to prohibit
-creating new objects --- as described in \autoref{sec:no-side-effects}, we
-allow these since JavaScript does not include value classes, and
-assume that, when new objects are created in constraints, our
-conventions on object creation, modification, and not testing for
-identity are followed. As an optimization, Babelsberg/JS omits
-re-translating expressions if no dependent variables changed. We have
-left this optimization in place.
+creating new objects --- we allow these since JavaScript does not
+include value classes, and assume that, when new objects are created
+in constraints, our conventions on object creation, modification, and
+not testing for identity are followed. As an optimization,
+Babelsberg/JS omits re-translating expressions if no dependent
+variables changed. We have left this optimization in place.
 
 The second change adds support for our restricted form of identity
 constraints. Before, users of Babelsberg/JS could use identity checks
@@ -633,7 +751,6 @@ original Babelsberg design explicitly allows such methods, as long as
 the variables are used in \ac{ssa} fashion
 \cite{FelgentreffJOT14}.
 
-\pagebreak
 \begin{lstlisting}[language=JavaScript,caption={A split-up calculation},label=lst:airPressure]
 function pressure() {
    var gasConstantDryAir = 287.058, // J/(kg*K)

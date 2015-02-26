@@ -585,6 +585,150 @@ was created following the principles of the formalization. In either
 case, language specifics and optimization will add complexity and make
 the conformance to the semantics harder to judge.
 
+Many languages, such as Ruby\footnote{\url{http://rspec.info/},
+  retrieved Feb 25, 2015},
+Perl\footnote{\url{http://perl6.org/specification/}, retrieved Feb 25,
+  2015}, or
+Java\footnote{\url{http://openjdk.java.net/groups/conformance/},
+  retrieved Feb 25, 2015} provide an extensive test suite to check
+concrete implementations for conformance to a (sometimes informal)
+specification. Babelsberg, however, is not a language design, but a
+design for a family of languages (of which Babelsberg/Objects may be
+seen as one). Thus, to provide test suites for concrete
+implementations, we need a way to transform the tests we have into the
+host language of the concrete implementation.
+
+Our basic test suite is written in the language of
+Babelsberg/Objects. The tests evolved alongside the semantics, and we
+adapt and extend the suite when adding new features to the
+design. Given our executable semantics, we can immediately check if a
+change works as intended. To get the same kind of quick feedback in
+the actual implementations, our executable semantics repository
+includes a framework to generate language-specific test suites. A new
+language implementer only needs to provide two files: a scaffolding
+file that sets up the language specific testing environment and
+includes a special placeholder which can be replaced by the framework
+with the concrete test case code.
+
+The important things every implementation's scaffold needs are:
+\begin{itemize}
+\item An implementation of the methods used in the semantics test
+  cases available for calling from the tests, in particular for
+  testing field equality.
+\item A mechanism to create records with variable numbers of fields.
+\item Any setup code the solvers used in the language require.
+\item The macro \lstinline|INSERTHERE| at the beginning of the line on
+  which to insert the generated test case code.
+\end{itemize}
+
+For example, the scaffolding of the test cases for Babelsberg/JS looks
+like this:
+\begin{lstlisting}[language=JavaScript]
+TestCase.subclass('babelsberg.testsuite.SemanticsTests', {
+    fieldEquals: function(o1, o2) {
+        if (!o1) return false;
+        if (!o2) return false;
+        for (var key in o1) {
+            if (key[0] !== "$" && key[0] !== "_") {
+                if (typeof(o1[key]) == "object") {
+                    this.fieldEquals(o2[key], o1[key]);
+                } else {
+                    if (o1[key] !== o2[key]) return false;
+                }
+            }
+        }
+        for (var key in o2) {
+            if (typeof(o2[key]) == "object") {
+                this.fieldEquals(o2[key], o1[key]);
+            } else {
+                if (o1[key] !== o2[key]) return false;
+            }
+        }
+        return true;
+    },
+    addPt: function(self, other) {
+        return this.Point(null, self.x + other.x, self.y + other.y);
+    },
+    divPtScalar: function(self, scale) {
+        return this.Point(null, self.x / scale, self.y / scale);
+    },
+    ptEq: function(self, other) {
+        return self.x == other.x && self.y == other.y
+    },
+/* ... */
+INSERTHERE
+
+});
+\end{lstlisting}
+
+The second file a developer has to provide is an RML specification
+that can transform the source of a test program into the syntax of the
+target language. This is highly language dependent, but
+straightforward. Each evaluation rule in the basic semantics --- for
+the entire program, for statements, expressions, objects, and the
+operations on them --- needs a rule that translates this operation
+into the right syntax. How the developer names these relations is not
+important. The framework does expect the developer to include two
+things, however: the original Babelsberg/Objects semantics, as well as
+an assertions wrapper. These are used to run the program in the source
+transformation process and create the appropriate assertions each time
+the solver is called. The two entry point relations the framework
+expects are \lstinline|printprogram| and \lstinline|printassert|. For
+Babelsberg/JS, these declarations look as follows:
+
+\begin{lstlisting}
+module javascript:
+  with "../objects/babelsberg.rml"
+  with "assertions.rml"
+
+  relation printprogram: babelsberg.Program => ()
+  relation printassert: babelsberg.Program => ()
+end
+\end{lstlisting}
+
+The first relation is called to start executing and transforming the
+program. The second assertion is called with the output from the
+solver transformed into assignments --- the language implementer must
+take care that these are transformed into the appropriate
+assertions. The implementation for JavaScript is:
+
+\begin{lstlisting}
+relation printassert: babelsberg.Program => () =
+  rule	print "    this.assert(" &
+	printE(babelsberg.LVALUE(l)) & print " === " & printE(e) &
+	print ");\n"
+	----------------------------------------
+	printassert(babelsberg.PROGRAM(
+                        babelsberg.ASSIGN(l,babelsberg.DEREF(e))))
+
+  rule	print "    this.assert(this.fieldEquals(" &
+	printE(babelsberg.LVALUE(l)) & print ", " &
+        printE(babelsberg.IRECORD(fieldexps)) &
+	print "));\n"
+	----------------------------------------
+	printassert(babelsberg.PROGRAM(
+                        babelsberg.ASSIGN(l,babelsberg.IRECORD(fieldexps))))
+
+  rule	print "    this.assert(" &
+	printE(babelsberg.LVALUE(l)) & print " == " & printE(e) &
+	print ");\n"
+	----------------------------------------
+	printassert(babelsberg.PROGRAM(babelsberg.ASSIGN(l,e)))
+end
+\end{lstlisting}
+
+As you can see, the assertion printing only has to deal with very few
+cases. Furthermore, note that we simply \lstinline|print| the
+transformed code (rather than collecting it in a string). The
+framework takes care to redirect the standard output of the
+transformation executable and insert it into the scaffold.
+
+Since the transformation consists of RML rules itself, it is itself an
+executable semantics, with the added side-effect of translating the
+executed program. Since the executable semantics for
+Babelsberg/Objects and the translation process for each language are
+thus tied together, the test suites for the concrete languages can be
+updated whenever the semantics change or a test is added.
 
 
 \section{Applying the Semantics to Babelsberg/JS}
@@ -621,41 +765,94 @@ Babelsberg/JS) and to the way in which the solvers are
 called. Additionally, we had to update some of the existing example
 programs that break with the new semantics.
 
+\lstset{language=JavaScript}
+
 \subsubsection{Modifications to the Implementation}
 \label{sec:modif-impl}
+
+\paragraph{Restrictions on Methods In Constraints}
+\label{sec:restr-meth-constr}
 First, we modified the code that translates JavaScript expressions
 into constraints to not inline methods that have more than a simple
-return expression. Methods that have any other statements in them are
-executed and their result returned, so they can only be used in the
-forward direction. We did not modify the translation to prohibit
-creating new objects --- we allow these since JavaScript does not
-include value classes, and assume that, when new objects are created
-in constraints, our conventions on object creation, modification, and
-not testing for identity are followed. As an optimization,
-Babelsberg/JS omits re-translating expressions if no dependent
-variables changed. We have left this optimization in place.
+return expression. Babelsberg/JS uses a source transformation to
+translate \emph{BabelsbergScript} into JavaScript. The only syntactic
+addition is the syntax for declaring constraints:
+\begin{lstlisting}
+always: { pt.x == pt.y }
+\end{lstlisting}
 
+The above code snippet is valid JavaScript: it declares a label
+\lstinline|always| and a block of code. Our source transformation
+picks out all blocks attached to an \lstinline|always| label, and
+translates it into this:
+\begin{lstlisting}
+bbb.always(
+  {
+    solver: bbb.defaultSolver,
+    ctx: {pt: pt}
+  },
+  function() {
+      return pt.x == pt.y;
+  }
+);
+\end{lstlisting}
+
+The \lstinline|bbb.always| takes the passed function and interprets it
+in a custom interpreter mode to create the constraint system. In doing
+so, it inlines any methods and operations in them. To follow the
+semantics, we simply check when inlining if the method body includes
+anything else besides a return statement. Methods that do are executed
+and their result returned, so they can only be used in the forward
+direction.
+
+Babelsberg/JS does not prohibit creating new objects in constraints
+--- we allow these since JavaScript does not include value classes,
+and assume that, when new objects are created in constraints, our
+conventions on object creation, modification, and not testing for
+identity are followed.
+
+In the semantics, constraints a inlined whenever we need to solve. As
+an optimization, Babelsberg/JS omits re-translating expressions if no
+dependent variables or methods used therein have changed. We left this
+optimization in place, expecting that the test suite would show
+failures if this is not a legal interpretation of the semantics.
+
+\paragraph{Separating Identity from Value Constraints}
 The second change adds support for our restricted form of identity
 constraints. Before, users of Babelsberg/JS could use identity checks
 as part of ordinary constraints, as long as they used an appropriate
-solver. We now disallow this, and add a restricted form of identity
-constraints. In the executable semantics, identity constraints can be
-solved using Z3 by reasoning over the finite domain of available
-references and updating the environment. However, in JavaScript we
-cannot reflect on the heap or use first-class references, so identity
-constraints cannot be solved in the same way. Instead, we use the
-DeltaBlue local propagation solver \cite{freeman1989deltablue} to
-propagate identity changes as they occur, and call any solvers for
-value constraints after that. Babelsberg/JS, through its
-implementation of a cooperating solvers architecture, already supports
-solving in multiple phases. The two-phase solving of identity and
+solver. We now disallow the identity equality operation as part of
+constraints, and add the restricted form of identity constraints
+presented in our semantics. In the executable semantics, identity
+constraints can be solved using Z3 by reasoning over the finite domain
+of available references and updating the environment. However, in
+JavaScript we cannot reflect on the heap or use first-class
+references, so identity constraints cannot be solved in the same
+way. Instead, we use the DeltaBlue local propagation solver
+\cite{freeman1989deltablue} to propagate identity changes as they
+occur, and call any solvers for value constraints after
+that.
+
+In the semantics, identity and value constraints are solved
+separately. If we were to hand them to the solver all at once, we
+cannot control if identity changes occur to satisfy value constraints.
+Babelsberg/JS, through its implementation of a cooperating solvers
+architecture, already supports solving in multiple phases. The
+implementation follows the design by Borning
+et.al. \cite{borning2012architectures}, which assigns constraints to
+different \emph{regions}. These regions are ordered and solved one
+after another, with variables in earlier regions appearing as
+read-only in later regions. In Babelsberg/JS, regions correspond to
+solvers, and are simply ordered by an adjustable \emph{priority} on
+the solver instance itself. The two-phase solving of identity and
 value constraints in the formalism is thus implemented simply by
 ensuring that the DeltaBlue solver for identity constraints is always
-run before any other solvers. Note in particular that this still
-allows the developer to use other instances of the DeltaBlue solver
-for value constraints, but, just as with all solvers for value
-constraints, they will be called after all the object identities are
-determined.
+run before any other solvers. We do this by using a framework-private
+DeltaBlue instance with the highest possible priority. Note in
+particular that this still allows the developer to use other instances
+of the DeltaBlue solver for value constraints, but, just as with all
+solvers for value constraints, they will be called after all the
+object identities are determined.
 
 \subsubsection{Modifications to Existing Programs}
 \label{sec:exist-appl}

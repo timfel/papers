@@ -425,10 +425,12 @@ connect the UI and the underlying model.
 As a sample constraint, suppose that we want to express the
 requirement that a window in a graphical application stay centered on
 a particular point.  We will use Babelsberg/JS for the code (\ie
-\javascript syntax).  Babelsberg/JS provides the keyword label
-\verb!always:! to declare constraints on the return values of ordinary
-object-oriented expressions that then hold for the rest of the
-execution.  The constraint can then be defined as:
+\javascript syntax).  Babelsberg/JS provides the keyword labels
+\verb!always! and \verb!once! to declare constraints on the return
+values of ordinary object-oriented expressions and solve them
+immediately. An \verb!always!  constraint then holds for the rest of
+the execution, whereas a \verb!once! constraint is redacted after
+being solved one time. The constraint can then be defined as:
 \begin{lstlisting}[language=JavaScript,caption={Constraining a window to be centered on a point},label=lst:window]
 var window = new Window(0,0,100,100);
 always: { window.getCenter().equalsPoint(Point(150,150)) }
@@ -583,7 +585,7 @@ were some confusing edge cases involving object identity and
 constraints, and regarding when methods called from a constraint
 expression could be used multi-directionally, \ie to determine all
 variables involved in a constraint, versus when system can only
-determine one variable given all others
+determine one variable given all others in a data-flow manner
 (\cf{\autoref{sec:transl-multi-way}}).
 
 In the work reported here, we have developed and formalized a
@@ -679,6 +681,7 @@ the following program:
 \begin{lstlisting}[language=JavaScript,caption={Constraining two variables to be identical},label=lst:identity]
 var account1 = {credit: 10}, account2 = {debit: 100};
 always: { account1 === account2 }
+account1.withdraw(1);
 always: { account1.debit >= 0 }
 \end{lstlisting}
 
@@ -686,10 +689,17 @@ This adds a constraint on line 2 that \verb!account1! and
 \verb!account2! be identical. However, it is not clear if
 \verb!account1! and \verb!account2! will afterwards refer to an
 account with debit balance or an account with credit balance (or both,
-or none). If the latter, the constraint on line 3 will not pass our
-structural compatibility checks. The choice of identity in one place
-would thus determine the validity of the second constraint. This makes
-programs more difficult for the programmer to understand.
+or none). It is thus not clear which account we withdraw from in line
+3 (or even if this variable still refers to an account object --- the
+solver might let both variables might refer to \lstinline|null|). If
+both now refer to a debit account, the constraint on line 4 will not
+pass our structural compatibility checks. If we allow the solver to
+change the identities again to make the second constraint valid, we
+may withdraw from the credit account first and then assert that the
+debit account be above 0. The choice of identity in one place would
+thus determine the meaning of the second constraint and introduce
+non-determinism and thus make the programs more difficult to
+understand.
 
 To tame the power of constraints on object identity and type, we set
 the following goals for this aspect of our design:
@@ -782,12 +792,14 @@ retaining clarity and precision.
 \label{sec:transl-multi-way}
 
 We impose a simple rule that methods that contain more than a return
-statement can only be used in the forward direction. This includes
-methods with multiple assignments, which removes the first rule that
-variables assigned to in constraints must be used in \ac{ssa}
-form. Such methods can still be called in the usual way, including
-passing parameters by value (with pointer semantics
-for heap objects). For example, suppose we have a constraint
+statement can only be used in the forward direction, which means that
+the result from the method can be used to determine a variable, but
+the variable cannot change any variables that participate in creating
+said result. This includes methods with multiple assignments, which
+removes the first rule that variables assigned to in constraints must
+be used in \ac{ssa} form. Such methods can still be called in the
+usual way, including passing parameters by value (with pointer
+semantics for heap objects). For example, suppose we have a constraint
 \verb|always c=x.m(a,b)|, and method \verb|m| has multiple statements
 so that it can only be used in the forward direction, \ie we can find
 a value for \verb|c| given values for \verb|x|, \verb|a|, and \verb|b|
@@ -958,9 +970,9 @@ function.
 
 The semantics includes an environment \E and a heap \H. The former is
 a function that maps variable names to values, while the latter is a
-function that maps mutable references to ``objects''. When convenient,
-we also treat \E and \H as sets of pairs ({\tt \{(x,v),...\}}
-and {\tt \{(r,o),...\}}, respectively). The currently active value
+function that maps mutable references to objects. When convenient, we
+also treat \E and \H as sets of pairs ({\tt \{(x,v),...\}} and {\tt
+  \{(r,o),...\}}, respectively). The currently active value
 constraints are kept as a compound constraint \C; identity constraints
 are kept as a compound constraint referred to as \I.
 
@@ -1151,7 +1163,9 @@ constraints.
 This judgment represents a call to the constraint solver, which we
 treat as a black box.  The proposition \mbox{\solveH{\E}{\H}{\C}}
 denotes that environment \E~and heap \H~are an \emph{optimal solution}
-to the constraint {\tt C}, according to the solver's semantics.
+to the constraint {\tt C}, according to the solver's semantics. Since
+we treat the solver as a black box, the function is not relevant for
+our semantics.
 
 \judgment{\stay{\E}{C}}
 \judgment{\stay{\H}{C}}
@@ -1321,6 +1335,13 @@ that the programmer could handle.
   \stepH{\E}{\H}{\C}{\I}{L := e}{\E$''$}{\H$''$}{\C}{\I}
 }}
 
+In the next rule, we take \mbox{\H({\tt r})$\uparrow$} to mean that
+there is no binding for {\tt r} on the heap. \mbox{{\tt L} $\neq$ {\tt
+    x} $\Rightarrow$ \tcH{\E}{\H}{L}{T}} means that, if the left-hand
+side of the assignment is not simply a local variable, but a field
+access, than the field name must already exist in the record being
+accessed. We use our typing rule to ensure this by asserting that the
+field already has a type {\tt T}.
 
 \infrule[S-AsgnNew]{
   \mbox{
@@ -1347,10 +1368,9 @@ that the programmer could handle.
   \stepH{\E}{\H}{\C}{\I}{L := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$''$}{\H$''$}{\C}{\I}
 }}
 
-The next two rules describe the semantics of identity constraints.  
-The rules require that an
-identity constraint already be satisfied when it is asserted; hence
-the environment and heap are unchanged.
+The next two rules describe the semantics of identity constraints.
+The rules require that an identity constraint is already satisfied
+when it is asserted; hence the environment and heap are unchanged.
 
 \inferrule{S-OnceIdentity}{
   \evalH{\E}{\H}{L$_0$}{v} \andalso
@@ -1368,7 +1388,7 @@ the environment and heap are unchanged.
 
 The following two rules describe the semantics of value constraints.
 Recall that these constraints cannot contain identity constraints in them
-(because identity constraints do not typecheck).  As we show later,
+(because identity constraints do not typecheck).  As stated in the properties we prove (\autoref{sec:props}),
 solving value constraints cannot change the structure of any objects
 on the environment and heap.
 
@@ -1443,7 +1463,7 @@ augmented with constraint stores, and are only given for completeness.
 % according to the rules given in \autoref{sec:transl-multi-way}.
 
 \subsection{Key Properties}
-
+\label{sec:props}
 Here we state two key theorems about our formalism.  The proofs for
 these theorems can be found in the companion technical report.  The
 first theorem formalizes the idea that any solution to a value
@@ -1545,7 +1565,9 @@ three use constraints on strings, which are not supported in the
 version of Z3 we used (a string theory exists for an old version of
 Z3, but does not work in recent versions \cite{zheng2013z3}). The
 remaining 44 all run and produce the expected results at each step of
-the execution.
+the execution\footnote{The entire executable semantics and the test
+  programs are available at:
+  \url{https://github.com/babelsberg/babelsberg-rml}}.
 
 As an extension to the \rml implementation, we add a module to
 transform the example code into test cases for the various
@@ -1642,12 +1664,12 @@ proof-of-concept Python implementation exists, but was not tested.
 % test 15 uses irecord == which we do not have
 % tests 32,32b test for something that shouldn't work b/c of irecords, but it works with heap objects
 
-Adapting Babelsberg/JS to follow the semantics presented here
-required changes to both to the translation from imperative
-expressions to constraints (called \emph{constraint construction} in
-Babelsberg/JS) and to the way in which the solvers are
-called. Additionally, we had to update some of the existing example
-programs that break with the new semantics.
+Adapting Babelsberg/JS to follow the semantics presented here required
+changes to both the translation from imperative expressions to
+constraints (called \emph{constraint construction} in Babelsberg/JS)
+and the way in which the solvers are called. Additionally, we had to
+update some of the existing example programs that break with the new
+semantics.
 
 \subsubsection{Modifications to the Implementation}
 \label{sec:modif-impl}
@@ -1697,7 +1719,15 @@ from its library.\footnote{These examples are part of a published
   artifact \cite{FelgentreffECOOP14}, and are also available from the
   Babelsberg/JS repository at
   \url{https://github.com/babelsberg/babelsberg-js}. For our adaption,
-  we used the versions from the repository.}
+  we used the versions from the repository.} These programs
+demonstrate various aspects of constraint use in Babelsberg/JS, and
+include a simulation for a radial engine, a simple temperature
+converter, a simulator for electrical circuits, a generator for color
+schemes, and a layouting example. These are all constructed using the
+LivelyKernel's direct manipulation Morphic interface, so they have
+very little code, with about 100 lines per example, with between
+\sfrac{1}{4} and \sfrac{1}{2} of those being in constraint
+definitions.
 
 \paragraph{Argument Checking }
 \label{sec:argument-checking}
@@ -1888,24 +1918,24 @@ believe the same solution could be applied to the Kaleidoscope design.
 
 Turtle \cite{grabmuller2004turtle} is a more recent \ac{cip} language
 developed from scratch, while Kaplan \cite{koksal2012constraints}
-provides constraints in Scala. Both separate
-the declaration of \mbox{\emph{constrainable}} variables from ordinary variables
-to make it clearer what may happen when a variable is used.  Neither
-addresses issues of object identity, however.  Like Kaleidoscope, the
-Turtle system provides constraint priorities; Kaplan does not. Because
+provides constraints in Scala. Both separate the declaration of
+\mbox{\emph{constrainable}} variables from ordinary variables to make
+it clearer what may happen when a variable is used.  Neither addresses
+issues of object identity, however.  Like Babelsberg, the Turtle
+system provides constraint priorities; Kaplan does not. Because
 ordinary variables in Turtle are not determined by the solver, only
 constrainable variables have low-priority stay constraints on them.
 (Kaplan does not currently support constraints over mutable data
-types, so stay constraints are not relevant for it.)  Also analogous
-to Kaleidoscope, both languages separate constraint functions from
-ordinary functions. In Kaplan, only such specifically annotated
-functions can be used in constraints. Turtle does allow ordinary
-methods and variables to be used in constraints; however, their
-values are treated as constants, making all ordinary methods work only
-in the forward direction. We believe the simple rules for method
-inlining in our semantics could be used with these systems as
-well to allow a restricted set of ordinary object-oriented methods 
-to be used in constraints.
+types, so stay constraints are not relevant for it.)  Analogous to
+Kaleidoscope and in contrast to \ac{ocp}, both languages separate
+constraint functions from ordinary functions. In Kaplan, only such
+specifically annotated functions can be used in constraints. Turtle
+does allow ordinary methods and variables to be used in constraints;
+however, their values are treated as constants, making all ordinary
+methods work only in the forward direction. We believe the simple
+rules for method inlining in our semantics could be used with these
+systems as well to allow a restricted set of ordinary object-oriented
+methods to be used in constraints.
 
 BackTalk \cite{pachet1995,roy2000framework} and
 \textsc{Squander} \cite{Squander} explicitly allow the constraint solver
@@ -1929,7 +1959,7 @@ their models using imperative libraries, for example to experiment
 with visualizations for Alloy models. $\alpha$Rby translates Ruby
 programs into Alloy, but the programs  are written in a \ac{dsl} that
 closely mimics the Alloy language rather than using ordinary Ruby
-classes and methods.  In contrast to Babelsberg, Alloy
+classes and methods.  In contrast to Babelsberg, $\alpha$Rby
 aims to provide imperative constructs to Alloy users, whereas
 Babelsberg provides declarative constructs to object-oriented
 programmers.

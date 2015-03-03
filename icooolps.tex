@@ -26,7 +26,7 @@
 \usepackage[acronym]{glossaries}
 
 \lstdefinelanguage[80]{Smalltalk}{
-  morekeywords={true,false,self,super,nil,thisContext},
+  morekeywords={true,false,self,super,nil,thisContext,primitive},
   sensitive=true,
   morecomment=[s]{"}{"},
   morestring=[d]',
@@ -192,9 +192,6 @@ of abstraction for implementing primitives. From high to low
 abstraction, those are Smalltalk, the hosted language, RPython, the
 VM-implementation language, and C, accessible via RPython FFI.
 
-
-\todo{... todo describe RPython in 1--2 sentences}
-
 The original Squeak VM is written in a static subset of Smalltalk
 called \emph{Slang}. This code is statically translated into C and
 compiled to create the virtual machine. In addition, many methods in
@@ -236,9 +233,10 @@ names). Every access to a slot whose name starts with underscore (\_)
 should call a primitive function. If that function fails, the VM
 raises an error to be caught by the caller.
 
-In the following paragraphs, we present a grouping of primitives based
-on their behavior, ordered according to the necessity for having them
-in a VM.
+There are many ways to group primitives by necessity, behavior, or
+other metrics. We present here a grouping that we found useful for our
+work in deciding which primitives to put into the VM, and which to
+implement in the client language.
 
 \paragraph{Memory Primitives}
 \label{sec:memory-primitives}
@@ -367,28 +365,14 @@ easily understandable.
 
 \subsection{Reuse}
 Most widely used languages have more than one implementation. Examples
-are CPython, IronPython, and PyPy, all of which implement Python, MRI,
-JRuby, Rubinius, and Topaz, which implement Ruby, and Cog, RoarVM, and
-R/SqueakVM, which implement Squeak Smalltalk. Even if different VMs
-might not be compatible at the level of intermediate representation,
-any behavior not implemented in the hosted language needs to be
-supplied by the VM. Subsequently, any code which is not part of the
-original VM increases the amount of work needed to reimplement that
-language. In other words, any complex behavior implemented in the
-hosted language based on a small set of basic primitives can be taken
-and used directly, in contrast to programs which rely on hot loops
-implemented primitive, or C-compatibility for VM
-interfaces. Furthermore, a VM reimplementation may decide to not
-adhere to C-interfaces, or to reduce the number of primitives. In such
-cases, changes to the existing codebases of libraries are required.
-Unfortunately, such changes break compatibility with existing language
-implementations, leading to either increased effort to offer two
-versions of popular libraries with only small differences for the
-language implementations, or a decision to only support one of the
-VMs.
-
-- also discuss how Smalltalk fallback code duplicates VM behavior (and
-may deviate)
+are PyPy, CPython\cite{}, IronPython\cite{} for Python; MRI\cite{},
+JRuby\cite{}, Rubinius\cite{}, and Topaz\cite{} for Ruby; or
+Cog\cite{}, RoarVM\cite{}, and R/SqueakVM\cite{} for
+Squeak/Smalltalk. These different VMs may not be compatible at the
+level of intermediate representation, but all language behavior not
+implemented in the language itself needs to be supplied by the
+VM. Subsequently, any code which is not part of the original VM
+increases the amount of work needed to reimplement that language.
 
 \subsection{Changeability}
 When behavior is implemented as primitive, changing it usually
@@ -400,20 +384,32 @@ should not be subject to change. By fixing that behavior in form of a
 primitive, it is possible to assert a certain behavior by controlling
 the VM binary.
 
+\subsection{Code Duplication}
+In Squeak, some primitives are optional -- while they are implemented
+in the standard VM, fallback code in Smalltalk exists that implements
+the VM behavior. This is useful to get an alternative implementation
+working quickly, but is also a source of subtle and hard to track
+bugs, when code changes in the VM are not adequately reflected in the
+fallback code. A similar situation arises in JavaScript, where not all
+VMs implement the same set of features, and pure-JavaScript fallback
+code was built to support, for example, older browsers.
+
 \section{Measurements}
 \label{sec:measurements}
 
-\subsection{The Primitives in Question}
-\label{sec:primitives-question}
+In this chapter, we describe two algorithmic primitives. The first is
+used to fill an Array with a constant value. The second is BitBlt, the
+algorithm at the core of graphics in Squeak. We describe both
+primitives, since they show different kinds of complexity and
+optimization requirements.
 
-In this chapter, we describe two algorithmic primitives, BitBlt and
-Fill. Both are part of modern Squeak Smalltalk VMs. The
-implementation we show here is part of RSqueak/VM. We describe both
-primitives, since they are of different complexity and optimize
-differently.
-
-\section{Filling an Array}
-The fill primitive\footnote{Fill's primitive number is 145.} sets every element of an array to a constant value. The array may be an array containing words, or bytes. It is a simple representative for the group of algorithmic primitives. Listing \ref{FillST} illustrates how a primitive-calling method looks, and what the alternative Smalltalk implementation with identical behavior is.
+\subsection{Filling an Array}
+The fill primitive (number 145) sets every element of an array to a
+constant value. The array may be an array containing words, or
+bytes. It is a simple representative for the group of algorithmic
+primitives. Listing \ref{FillST} illustrates how a primitive-calling
+method looks, and what the alternative Smalltalk implementation with
+identical behavior is.
 
 \begin{lstlisting}[language=Smalltalk, caption={[The Smalltalk primitive caller of fill]The Smalltalk declaration of primitive fill field in SequenceableCollection, together with a correct implementation in case the primitive fails}, label=FillST, float=htb]
 atAllPut: aNumber 
@@ -421,7 +417,12 @@ atAllPut: aNumber
     1 to: self size do: [:index | self at: index put: aNumber]
 \end{lstlisting}
 
-This primitive can only be called on byte- and word-arrays, therefore the receiver types are limited. The argument is always an integer. If the receiver is a byte array, the argument needs to fit in one byte. As a result, the arguments types and range are bounded. On the other hand, the implementation for the VM [Listing \ref{FillRP}] has to check these assumptions, because the VM{}-language requires type-safety.
+This primitive can only be called on byte- and word-arrays, therefore
+the receiver types are limited. The argument is always an integer. If
+the receiver is a byte array, the argument needs to fit in one
+byte. As a result, the arguments types and range are bounded. The
+implementation in the VM [Listing \ref{FillRP}] has to check these
+assumptions, because the VM{}-language requires type-safety.
 
 \begin{lstlisting}[language=Python, caption={RSqueak/VM's fill field primitive}, label=FillRP, float=htb]
 @expose_primitive(145, unwrap_spec=[object, pos_32bit_int])
@@ -440,39 +441,92 @@ def func(interp, s_frame, w_arg, new_value):
     return w_arg
 \end{lstlisting}
 
-Listing \ref{FillRP} presents the RPython code implementing fill. Every primitives in RSqueak/VM use a decorator.
-The decorator manages the primitive table. Every primitive has to tell it at which number to register. The decorator can manage the stack for the primitive. It checks that there are all the  arguments required, retrieves them, and checks their types, and unwraps any boxed basic type arguments for the primitive function. The decorator also pushes the returned value onto the stack. In case the primitive fails, by raising a PrimitiveFailedError error, the decorator resets the stack to its initial state and tells the VM to invoke the alternative behavior.
+Listing \ref{FillRP} presents the RPython code implementing
+fill. Primitives in RSqueak/VM are defined using a Python decorator
+(line 1). The decorator receives the function following it, and adds
+it to the primitive table. The decorator also manages the stack for
+the primitive, it checks that enough arguments were passed, retrieves
+them, checks their types, and unwraps any boxed basic type arguments
+for the primitive function (in this case it unwraps the second
+argument as a 32bit integer). The primitive function is then called,
+and the decorator pushes its return value onto the stack before
+returning to the VM loop. A PrimitiveFailedError indicates a problem
+either in the primitive function or in the checks of the decorator. In
+that case, the decorator resets the stack to its initial state and
+tells the VM to invoke the alternative behavior.
 
-In this case, the decorator registers the function in slot 145, it ensures that there are two arguments, an unspecified object and an integer. Upon success, the decorator pushes the receiver, \texttt{w\_arg}, onto the Smalltalk stack.
+The primitive function itself has to switch on the first arguments
+type, the receivers type, to check for the correct upper bound of
+new\_value. The replacement loop in lines 6f. and 10f. is identical to
+the Smalltalk implementation, although replicated for each type
+because of different interfaces.
 
-The primitive itself has to switch on the first arguments type, the receivers type, to check for the correct upper bound of new\_value. The replacement loop in lines 6f. and 10f. is identical to the Smalltalk implementation, although replicated for each type because of different interfaces.
+\subsection{Transferring Bits to the Screen}
 
-\section{Transfering Bits}
-
-BitBlt is an algorithm which combines one rectangular block of bits in a conceptually two dimensional array to another. The conceptually two dimensional arrays are wrapped in form objects which remember width and height. The unique feature of BitBlt is that it supports bit-wise specification of source and target rectangle. To that end, BitBlt rotates and combines consecutive words of memory.
-
-BitBlt has its roots in graphical operations for one bit displays. `The first instance of this operation was coded by Dan Ingalls and Diana Merry at Xerox PARC in 1975'\cite{GuibasBitBlt}. An example is copying letters from the font-specification to a paragraph form, which in turn is copied in parts to the world form, which is the display. Figure \ref{BitBltImg} illustrates this. BitBlt not only supports replacing target with source words, but also combining them, or ignoring both, i.e. filling with a color. Current BitBlt implementations, like WarpBlt\cite{BackToTheFuture}, can also operate on more information per pixel, for example with 2\,bit for red, green, blue, and alpha, 8\,bit in total. Colorful pixels require more combination rules, allowing for additive or subtractive mixing of colors, or expansion of 1\,bit form values to 16\,bit colors. We measured only 1\,bit BitBlt performance.
+The second primitive we discuss is BitBlt. BitBlt is an algorithm that
+combines one block of bits with another according to some rule. BitBlt
+has its roots in graphical operations for one bit displays. The first
+instance of this operation was created by Dan Ingalls and Diana Merry
+at Xerox PARC in 1975\cite{GuibasBitBlt}. An example is copying
+letters from the font-specification to a paragraph form, which in turn
+is copied in parts to the world form, which is the display (Figure
+\ref{BitBltImg}). BitBlt supports multiple rules for combining target
+and source words, such as blending, replacing, or ignoring both to
+filling with a constant color. Current BitBlt implementations, like
+WarpBlt\cite{BackToTheFuture}, can also operate on more information
+per pixel, for example with 2\,bit for red, green, blue, and alpha,
+8\,bit in total. Colorful pixels require more combination rules,
+allowing for additive or subtractive mixing of colors, or expansion of
+1\,bit form values to 16\,bit colors.
 
 \begin{figure}
 \centering
 \includegraphics[width=\linewidth]{images/bluebook_bitblt_example.png}
-\caption[The BitBlt operation]{BitBlt transfers rectangular areas from one array to the other, accurate to the bit. In this image, a paragraph is composed from letters copied from the font form\cite[pg.~335]{Blue Book}.}
+\caption[The BitBlt operation]{BitBlt transfers rectangular areas from one array to the other, accurate to the bit. In this image, a paragraph is composed from letters copied from the font form\cite[pg.~335]{BlueBook}.}
 \label{BitBltImg}
 \end{figure}
 
-In contrast to BitBlt's semantic, Squeak Smalltalk implements BitBlt not as a message-send to forms, but wraps the algorithm in a BitBlt object which has a field for every argument. In order to invoke the primitive, the program needs to send \#copyBits to a correctly initialized BitBlt object.
+In contrast to BitBlt's semantic, Squeak Smalltalk implements BitBlt
+not as a message-send to forms, but wraps the algorithm in a BitBlt
+object which has a field for every argument. In order to invoke the
+primitive, the program needs to send \#copyBits to a correctly
+initialized BitBlt object.
 
-In Smalltalk-80, copying to the screen is the same as copying to any other form, except that one of the forms has been told prior that it should represent the display. The RSqueak/VM implementation transparently expands values and writes to display-memory, if it writes to the display form. Nevertheless, 1\,bit display forms maintain a cached copy of the screen, to enable faster access, and because the display memory supplied by the SDL is sometimes filled with zeros.
+In Smalltalk-80, copying to the screen is the same as copying to any
+other form, except that one of the forms has been told prior that it
+should represent the display. The RSqueak/VM implementation
+transparently expands values and writes to display-memory, if it
+writes to the display form. Nevertheless, 1\,bit display forms
+maintain a cached copy of the screen, to enable faster access, and
+because the display memory supplied by the SDL is sometimes filled
+with zeros.
 
-\subsection{\ldots in Smalltalk}
-The Smalltalk implementation mirrors the BitBlt simulation published in the Bluebook~\cite{BlueBook}. Due to the age of the Bluebook, there are some features missing, like additional combination rules, having the source form as an optional argument, or switching from 16 to 32\,bit word size. Unfortunately, implementing BitBlt in Smalltalk has two problems, which also impede tracing.
-% The biggest two problems when implementing BitBlt in Smalltalk is a special semantic of shifts and some arithmetic operations, and a one bit reduced primitive integer size. 
+\subsubsection{\ldots in Smalltalk}
+The Smalltalk implementation mirrors the BitBlt simulation published
+in the Bluebook~\cite{BlueBook}. Due to the age of the Bluebook, there
+are some features missing, like additional combination rules, having
+the source form as an optional argument, or switching from 16 to
+32\,bit word size. Unfortunately, implementing BitBlt in Smalltalk has
+two problems, which also impede tracing.
 
-First, Smalltalk has a different semantic when it comes to bit-shifts and some arithmetic operations. If any of these operations over- or underflow in a machine-oriented language, the result is still of the same range as the arguments, only that a global flag is set which indicates that the last result is incomplete. In contrast, the Smalltalk VM transparently creates LargePositiveInteger, which have a larger range, but arithmetics with such integer is magnitudes slower.
+First, Smalltalk has a different semantic when it comes to bit-shifts
+and some arithmetic operations. If any of these operations over- or
+underflow in a machine-oriented language, the result is still of the
+same range as the arguments, only that a global flag is set which
+indicates that the last result is incomplete. In contrast, the
+Smalltalk VM transparently creates LargePositiveInteger, which have a
+larger range, but arithmetics with such integer is magnitudes slower.
 
-Second, the primitive integer type SmallInteger only covers the 31\,bit range. As a result, 32\,bit integer are LargePositiveInteger. In RSqueak/VM, we added a special type for 32-bit LargePositiveInteger, which are used transparently in place of LargePositiveInteger, and are supported by the fast arithmetic primitive functions. Nevertheless, this increases the type variety when tracing. Resulting in several very similar traces for the same loop, which the VM switches between according to the result types.
+Second, the primitive integer type SmallInteger only covers the
+31\,bit range. As a result, 32\,bit integer are
+LargePositiveInteger. In RSqueak/VM, we added a special type for
+32-bit LargePositiveInteger, which are used transparently in place of
+LargePositiveInteger, and are supported by the fast arithmetic
+primitive functions. Nevertheless, this increases the type variety
+when tracing. Resulting in several very similar traces for the same
+loop, which the VM switches between according to the result types.
 
-\subsection{\ldots in C}
+\subsubsection{\ldots in C}
 The C implementation differs from the other two implementations
 because we reuse code which is part of the current Interpreter VM. In
 Squeak Smalltalk, whenever a primitive is not numbered but named, the
@@ -487,14 +541,35 @@ needed by BitBlt. For building the C-interface, we used the decorator
 idiom also found in RSqueak/VM's primitives and many other PyPy
 projects.
 
-The decorator has multiple arguments, which specify input and output of the function it decorates. The decorator fetches and checks the arguments. The loop for adapting the arguments is written and annotated in such a way, that PyPy can unroll it and remove unused branches during the initial translation.
+The decorator has multiple arguments, which specify input and output
+of the function it decorates. The decorator fetches and checks the
+arguments. The loop for adapting the arguments is written and
+annotated in such a way, that PyPy can unroll it and remove unused
+branches during the initial translation.
 
-In the end, our VM creates the so called InterpreterProxy structure from all the functions registered by name and signature.
+In the end, our VM creates the so called InterpreterProxy structure
+from all the functions registered by name and signature.
 
-While some of the functions of the InterpreterProxy used by BitBlt are trivial to implement, there is one particular function which required more effort since it breaks the abstractions: firstIndexableField. When given a words- or bytes-array, firstIndexableField should return the pointer where the collection starts, in order to allow the plugin direct memory access. Unfortunately, this is not possible with RPython lists, requiring manual memory management for such collections and conversion between the two formats.
+While some of the functions of the InterpreterProxy used by BitBlt are
+trivial to implement, there is one particular function which required
+more effort since it breaks the abstractions:
+firstIndexableField. When given a words- or bytes-array,
+firstIndexableField should return the pointer where the collection
+starts, in order to allow the plugin direct memory
+access. Unfortunately, this is not possible with RPython lists,
+requiring manual memory management for such collections and conversion
+between the two formats.
 
-The plugin itself is written in Slang~\cite{BackToTheFuture}. Slang is a small subset of Smalltalk which can be translated to C directly. It allows for only a restricted set of methods and types. While Slang looks like Smalltalk and mostly behaves the same way when interpreted as Smalltalk, there are two constructs required for its execution that hindered using the sources of the current BitBlt-plugin as basis for the Smalltalk and RPython implementation.
-First, Slang allows for inlined C code, which cannot be understood by Smalltalk. Second, the aforementioned InterpreterProxy is the receiver of plenty of messages in Slang.
+The plugin itself is written in Slang~\cite{BackToTheFuture}. Slang is
+a small subset of Smalltalk which can be translated to C directly. It
+allows for only a restricted set of methods and types. While Slang
+looks like Smalltalk and mostly behaves the same way when interpreted
+as Smalltalk, there are two constructs required for its execution that
+hindered using the sources of the current BitBlt-plugin as basis for
+the Smalltalk and RPython implementation.  First, Slang allows for
+inlined C code, which cannot be understood by Smalltalk. Second, the
+aforementioned InterpreterProxy is the receiver of plenty of messages
+in Slang.
 
 \todo{largeInteger something}
 
@@ -577,7 +652,7 @@ Table \ref{TimesTable} and Figure \ref{BitBltLinImg} both show the same data, th
 \begin{figure}[tbp]
     \centering
     \includegraphics[width=\linewidth]{statistics/comparision.png}
-    \caption[Speed-up for primitive functions]{Comparison of relative run times when implementing behavior as primitive for the Interpreter VM, the Cog VM, and the RSqueak/VM, for the two examples presented in Chapter \ref {cha:implementation}.} (less is better)
+    \caption[Speed-up for primitive functions]{Comparison of relative run times when implementing behavior as primitive for the Interpreter VM, the Cog VM, and the RSqueak/VM.} (less is better)
     \label{VMComparison}
 
     %             C Smalltalk
@@ -669,41 +744,128 @@ The recommendations of the PyPy project mirror this works discussion, but they l
 
 \subsection{Lessons learned}
 
-This section evaluates the trade-offs explained in Section \ref{sec:problems}, namely Programming Process, Reuse and Changeability. The points raised here are not limited to implementing algorithmic primitives. Some of them are specific to meta-tracing or PyPy.
+Through this work we have gained insights into some of the trade-offs
+mentioned in Section \ref{sec:trade-offs-between} regarding
+Programming Process, Reuse and Changeability. The points raised here
+are not limited to implementing algorithmic primitives, but some are
+specific to meta-tracing JITs or PyPy.
 
-\paragraph{Programming Process}{
-Developing and debugging primitives for the research VM RSqueak/VM has three major problems. First, Python is slow compared to the translated artifact. Even when using the PyPy Python interpreter, reaching the defect might take several minutes. In case of BitBlt, the basic case of drawing the initial windows takes several minutes when using both primitive and non-primitive implementation. As a result, the programmer either retranslates the VM, or waits for interpretation, in order to observe a code change.
+\paragraph{Programming Process}
+Developing and debugging primitives for the research VM RSqueak/VM has
+three major problems. First, Python is slow compared to the translated
+artifact. Even when using the PyPy Python interpreter, reaching the
+defect might take several minutes. In case of BitBlt, the basic case
+of drawing the initial windows takes several minutes when using both
+primitive and non-primitive implementation. As a result, the
+programmer either retranslates the VM, or waits for interpretation, in
+order to observe a code change.
 
-When deciding to retranslate, there is a second problem. PyPy so far does not support incremental translation, and due to its structure is unlikely to support it any time soon~\cite{PyPyParallel}. Any source changes require retranslation of the whole VM sources. For small VMs like RSqueak/VM, this takes about seven minutes. But translating the PyPy Python interpreter takes about 45 minutes in the setup described above.
+When deciding to retranslate, there is a second problem. PyPy so far
+does not support incremental translation, and due to its structure is
+unlikely to support it any time soon~\cite{PyPyParallel}. Any source
+changes require retranslation of the whole VM sources. For small VMs
+like RSqueak/VM, this takes about seven minutes. But translating the
+PyPy Python interpreter takes about 45 minutes in the setup described
+above.
 
-Third, and most problematically, behavior differs between the levels of computation. If a primitive works when interpreted as Python, it may not work when translated. Additionally, there might be problems only when using dynamic compilation, which leads to different behavior when translating the VM with and without JIT. While some of those problems are bugs in the PyPy toolchain, there is an inherent problem with changed number semantics. In Python, overflowing arithmetic operations yield results of different types, while in RPython, potentially overflowing operations have to be checked explicitly. Additionally, changed number types might propagate through the flow analysis and extend types far from the problem source.
+Third, and most problematically, behavior differs between the levels
+of computation. If a primitive works when interpreted as Python, it
+may not work when translated. Additionally, there might be problems
+only when using dynamic compilation, which leads to different behavior
+when translating the VM with and without JIT. While some of those
+problems are bugs in the PyPy toolchain, there is an inherent problem
+with changed number semantics. In Python, overflowing arithmetic
+operations yield results of different types, while in RPython,
+potentially overflowing operations have to be checked
+explicitly. Additionally, changed number types might propagate through
+the flow analysis and extend types far from the problem source.
 
-With regard to the two example primitives, the Fill primitive suffered only from the translation round-trip problem. But as the code shows (see Figure \ref{FillRP} for the code), the primitive implementation is simple and did not require debugging. On the other hand, implementing BitBlt illustrated some interesting problems around the different abstraction levels. 
+With regard to the two example primitives, the Fill primitive suffered
+only from the translation round-trip problem. But as the code shows
+(see Figure \ref{FillRP} for the code), the primitive implementation
+is simple and did not require debugging. On the other hand,
+implementing BitBlt illustrated some interesting problems around the
+different abstraction levels.
 
-The BitBlt implementation in C was the easiest to debug, because we could use traditional C tools, and the debug symbols mapped to our source artifacts quite well. This unfortunately stopped at the bridge to RPython, namely the InterpreterProxy. There are still memory problems which only occur during dynamic compilation. Debugging these with C-tools means working with debugging symbols for the generated sources. The mapping back to RPython is non-trivial, impeding any attempts at understanding what the infects might have been.
+The BitBlt implementation in C was the easiest to debug, because we
+could use traditional C tools, and the debug symbols mapped to our
+source artifacts quite well. This unfortunately stopped at the bridge
+to RPython, namely the InterpreterProxy. There are still memory
+problems which only occur during dynamic compilation. Debugging these
+with C-tools means working with debugging symbols for the generated
+sources. The mapping back to RPython is non-trivial, impeding any
+attempts at understanding what the infects might have been.
 
-For the BitBlt RPython implementation, the necessity to debug on a low level of abstraction was less of a problem. It was the last of the three attempts to implement BitBlt and the source code mirrors the Smalltalk implementation. The main problems were behavioral differences between RPython and Python, namely out of bounds array access. Negative and large indices are well-defined in Python. Thus, they raise no objection when interpreting RPython as Python. But once translated, errors and segmentation faults occurred, requiring repeated time-consuming translations.
+The Smalltalk BitBlt was the first among the
+implementations. Debugging Smalltalk requires the Smalltalk debugger
+to be rendered. But rendering depends on the BitBlt primitive. As a
+result, we developed using an existing Smalltalk VM and just reopened
+the image in RSqueak/VM for every increment. As a result, the
+round-trip times were the shortest compared to the other
+implementations, because we did not need to recompile the VM. Now,
+that we have an alternative, improving upon the current Smalltalk
+BitBlt using one of the alternatives is possible, using different
+BitBlt classes, or using different copyBits-methods. As a side effect,
+the Smalltalk BitBlt-implementation is both hardest and easiest to
+debug. Hardest, because the image does not just stop on error, but
+rather tries to create a debugger window, which might fail and obscure
+the actual error source, and easiest, because we can use the Squeak
+IDE. Switching might swap between an in-image Smalltalk version and a
+primitive implementation, or between two Smalltalk implementations.
 
-The Smalltalk BitBlt was the first among the implementations. Debugging Smalltalk requires the Smalltalk debugger to be rendered. But rendering depends on the BitBlt primitive. As a result, we developed using an existing Smalltalk VM and just reopened the image in RSqueak/VM for every increment. As a result, the round-trip times were the shortest compared to the other implementations, because we did not need to recompile the VM. Now, that we have an alternative, improving upon the current Smalltalk BitBlt using one of the alternatives is possible, using different BitBlt classes, or using different copyBits-methods. As a side effect, the Smalltalk BitBlt-implementation is both hardest and easiest to debug. Hardest, because the image does not just stop on error, but rather tries to create a debugger window, which might fail and obscure the actual error source, and easiest, because we can use the Squeak IDE. Switching might swap between an in-image Smalltalk version and a primitive implementation, or between two Smalltalk implementations.
+Since Smalltalk compiles method-wise and allows to change classes in a
+running system, the round-trip time is the method compilation time: a
+few hundred milliseconds.
 
-Since Smalltalk compiles method-wise and allows to change classes in a running system, the round-trip time is the method compilation time: a few hundred milliseconds.
-} % Programming Process end
+\paragraph{Reuse}
+While we show two examples of behavior implemented as primitive here,
+the code for the Smalltalk comparison existed and has been used for a
+long time. The BitBlt code used here originates from the Smalltalk
+Bluebook~\cite{BlueBook}, published in 1983. The `\#atPutAll'-Method
+is too old to have a correct timestamp.
 
-\paragraph{Reuse}{
-While we show two examples of behavior implemented as primitive here, the code for the Smalltalk comparison existed and has been used for a long time. The BitBlt code used here originates from the Smalltalk Bluebook~\cite{BlueBook}, published in 1983. The `\#atPutAll'-Method is too old to have a correct timestamp.
+More interestingly, there exist several primitives in Squeak, which
+have a correct Smalltalk implementation in case the primitive
+fails. This allows us to open newer images in older VMs, which might
+be missing those primitives. Also, there exists a plugin for named
+primitives, called MiscPlugin, which does not have to be present for
+the image to run. Of the primitives having an alternative
+implementations, only one has an implementation in the RSqueak/VM:
+\#replaceFrom:to:with:startingAt:, which replaces a continuous block
+of values from one collection with values from a second collection. In
+a minimized image, this primitive is used to alter immutable symbols
+after creation. The alternative implementation would require several
+private methods, which have been removed in the minimized image.
 
-More interestingly, there exist several primitives in Squeak, which have a correct Smalltalk implementation in case the primitive fails. This allows us to open newer images in older VMs, which might be missing those primitives. Also, there exists a plugin for named primitives, called MiscPlugin, which does not have to be present for the image to run. Of the primitives having an alternative implementations, only one has an implementation in the RSqueak/VM: \#replaceFrom:to:with:startingAt:, which replaces a continuous block of values from one collection with values from a second collection. In a minimized image, this primitive is used to alter immutable symbols after creation. The alternative implementation would require several private methods, which have been removed in the minimized image.
+Even in a community as small as Squeak/Pharo Smalltalk, there exist
+multiple different VM-implementations, all but one of which would
+benefit from a small set of primitives. The Cog VM is an improvement
+of the Interpreter VM, adding the JIT. As such, there is one main VM
+in two variants for Squeak Smalltalk. But then there are the Roar
+VM~\cite{RoarVM}, which explored primitives for parallel computation
+for VMs, the Potato Virtual Machine Project\cite{JSqueak}, running on
+the JVM, and now RSqueak/VM, as a research vessel built with PyPy.
 
-Even in a community as small as Squeak/Pharo Smalltalk, there exist multiple different VM-implementations, all but one of which would benefit from a small set of primitives. The Cog VM is an improvement of the Interpreter VM, adding the JIT. As such, there is one main VM in two variants for Squeak Smalltalk. But then there are the Roar VM~\cite{RoarVM}, which explored primitives for parallel computation for VMs, the Potato Virtual Machine Project\cite{JSqueak}, running on the JVM, and now RSqueak/VM, as a research vessel built with PyPy.
-}
+\paragraph{Changeability}
+All arguments against primitive behavior given in Section
+\ref{sec:trade-offs-between} apply. Changing the RPython primitives
+required a current checkout of the PyPy and RSqueak/VM sources, and
+the correct command line arguments to initiate translation. Being able
+to change the primitives requires superficial knowledge of the general
+VM structure, and knowledge of the decorator used for registering
+primitives. The PyPy translation works out of the box, if done in a
+32\,bit-environment.
 
-\paragraph{Changeability}{
-All arguments against primitive behavior given in Section \ref{sec:changeability} apply. Changing the RPython primitives required a current checkout of the PyPy and RSqueak/VM sources, and the correct command line arguments to initiate translation. Being able to change the primitives requires superficial knowledge of the general VM structure, and knowledge of the decorator used for registering primitives. The PyPy translation works out of the box, if done in a 32\,bit-environment. 
+The additional part needed for the C implementation are the external
+named plugins compiled for the Interpreter or Cog VM. Setting up an
+environment to do that is more
+involved~\cite{SmalltalkVMBuilding}. But once the VM compiles, you
+only need to change two configuration files to compile plugins to
+shared libraries.
 
-The additional part needed for the C implementation are the external named plugins compiled for the Interpreter or Cog VM. Setting up an environment to do that is more involved~\cite{SmalltalkVMBuilding}. But once the VM compiles, you only need to change two configuration files to compile plugins to shared libraries.
-
-The Smalltalk implementations on the other hand can be changed within seconds, without requiring any tools or sources other than those coming with a standard Squeak image.
-}
+The Smalltalk implementations on the other hand can be changed within
+seconds, without requiring any tools or sources other than those
+coming with a standard Squeak image.
 
 \subsection{Future Work and Conclusion}
 

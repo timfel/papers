@@ -823,15 +823,31 @@ constraints. Before, users of Babelsberg/JS could use identity checks
 as part of ordinary constraints, as long as they used an appropriate
 solver. We now disallow the identity equality operation as part of
 constraints, and add the restricted form of identity constraints
-presented in our semantics. In the executable semantics, identity
-constraints can be solved using Z3 by reasoning over the finite domain
-of available references and updating the environment. However, in
-JavaScript we cannot reflect on the heap or use first-class
-references, so identity constraints cannot be solved in the same
-way. Instead, we use the DeltaBlue local propagation solver
-\cite{freeman1989deltablue} to propagate identity changes as they
-occur, and call any solvers for value constraints after
-that.
+presented in our semantics. Thus, when an identity relation comes up
+as part of a constraint expression (even if within a called method),
+unless it is the \emph{only} type of operation, we generate an
+exception. Thus, the following is still valid for a given \verb!a! and
+\verb!b!:
+\begin{lstlisting}[language=JavaScript]
+function identical(obj1, obj2) { return obj1 === obj2 }
+always: { identical(a, b) }
+\end{lstlisting}
+
+But it would fail if we were we to define identical like this:
+\begin{lstlisting}[language=JavaScript]
+function identical(obj1, obj2) {
+    return obj1 == obj2 || obj1 === obj2
+}
+\end{lstlisting}
+
+In the executable semantics, identity constraints can be
+solved using Z3 by reasoning over the finite domain of available
+references and updating the environment. However, in JavaScript we
+cannot reflect on the heap or use first-class references, so identity
+constraints cannot be solved in the same way. Instead, we use the
+DeltaBlue local propagation solver \cite{freeman1989deltablue} to
+propagate identity changes as they occur, and call any solvers for
+value constraints after that.
 
 In the semantics, identity and value constraints are solved
 separately. If we were to hand them to the solver all at once, we
@@ -881,18 +897,63 @@ function addPt(p) {
     return new lively.Point(this.x + p.x, this.y + p.y);
 }
 \end{lstlisting}
-A future improvement to our design that may increase compatibility
-with existing applications may allow such statements that simply do
-argument checking, without adding them to the constraint. For now,
-although it is not semantically clean, the practical implementation
-allows such tests on arguments. The resulting constraints are not
-truly multi-directional, but in practice we think they exhibit the
-expected behavior.
+In Babelsberg/R, we do include an experimental solver that can solve
+for the length of arrays. While in this method it is not an issue,
+other methods dispatch based on the numbers of arguments passed. One
+such method is the method to make a rectangle:
+\begin{lstlisting}[language=JavaScript]
+makeRectangle: function (/**/) {
+    var bounds;
+    switch (arguments.length) {
+        case 1: // rectangle
+            bounds = arguments[0];
+            break;
+        case 2: // location and extent
+            bounds = arguments[0].extent(arguments[1]);
+            break;
+        case 4: // x,y,width, height
+            bounds = new Rectangle(arguments[0], arguments[1],
+                                   arguments[2], arguments[3]);
+            break;
+        default:
+            throw new Error("bad arguments " + arguments);
+    }
+    return new lively.morphic.Box(bounds);
+},
+\end{lstlisting}
+Were we to use this method with a solver that understands about
+array-like objects (such as the one in Babelsberg/R), we allow the
+solver to make up arguments. Consider the following constraint:
+\begin{lstlisting}[language=JavaScript]
+always: {
+     myRectangleMorph.equals(Morph.makeRectangle($world.bounds()))
+}
+\end{lstlisting}
 
-\paragraph{Branching }
+Here, the desire is to make the world bounds equal to the bounds of
+the \verb!myRectangleMorph!. However, the solver may decide to modify
+the arguments array and simly pass four integers corresponding to the
+bounds of \verb!myRectangleMorph!. The weak stays on the arguments
+array may not suffice here if other constraints are involved. For
+example, given a required stay that the world bounds stay at some
+constant, this should, by extension, keep the morph at the same
+constant. However, if the solver is free to modify the arguments
+array, it may just substitute the \verb!$world.bounds! argument.
+
+Although such beahvior is surprising, it is very common to check
+arguments in such a manner in the LivelyKernel and other JavaScript
+codebases. A future improvement to our design that may increase
+compatibility may allow such statements that simply do argument
+checking, without adding them to the constraint. For now, although it
+is not semantically clean, the practical implementation allows such
+tests on arguments, but special-cases them so they appear read-only to
+the solver.
+
+\paragraph{Branching}
 \label{sec:branching}
-We encountered a similar issue with methods that return one of two
-expressions, depending on a test. Our semantics does not allow
+Dispatching based on the number of arguments is a special case of a
+more general pattern we have encountered. Some methods return one of
+two expressions, depending on a test. Our semantics does not allow
 branching in constraints. Such a method encountered frequently is
 \verb!getPosition!:
 \begin{lstlisting}[language=JavaScript,caption={The \lstinline{lively.morphic.Morph.getPosition} method},label=lst:getPosition]
@@ -905,11 +966,11 @@ function getPosition() {
     }
 }
 \end{lstlisting}
-Moving the test outside of the method and adding the constraint only
-for the branch that is chosen fixes the issue for cases where the
-branch condition does not change. In the tested programs this was
-always the case. For this particular method, all Morphs we encountered
-that are used in constraints execute the first branch.
+If we allowed such methods in constraints, the solver could change the
+branch condition, which makes it harder to anticipate how a constraint
+will behave. We think our semantics adds clarity here by requiring the
+developer to move the test outside of the method and adding the
+constraint only for the branch that is chosen.
 
 \paragraph{Benign Side Effects }
 \label{sec:benign-side-effects}

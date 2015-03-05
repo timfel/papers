@@ -1,0 +1,549 @@
+\section{{Babelsberg/Objects}}
+\label{sec:babelsbergobjects}
+
+This appendix presents the semantic rules of Babelsberg/Objects beyond
+those needed for Babelsberg/UID\@.  Babelsberg/Objects adds classes
+and inheritance, methods and messages, as well as object-oriented
+constraint definitions.
+
+The syntax is augmented to support method invocation as
+expressions. We introduce syntax for the method body.  Additionally,
+we allow creating new objects as expressions now. We also have a form
+of immutable records and consider them as ``value objects,'' which can
+respond to methods.
+
+\begin{tt}
+  \begin{tabular}{lrrl}
+    {\rm Expression} & e & ::= & new o $\mid$ $\ldots$ $\mid$ e.l(e$_1$,$\ldots$,e$_n$)\\
+    {\rm Method Body} & b & ::= & s; return e $\mid$ return e \\
+\end{tabular}
+\end{tt}
+
+Since we have methods with local scopes now, we introduce local
+environments \Scope as mappings from local names to globally unique
+names in \E. Method lookup creates new local environments, and
+constraints are translated to translate local variable names to global
+variable names for the solver. The solver still returns a global
+environment, and does not know about the local environments and their
+mapping into the global environment. In addition, the constraint
+stores now store constraints in pairs with the local environment they
+were created in.
+
+The rest of this appendix just gives the judgments and rules for
+Babelsberg/Objects. A technical report is available with a more
+complete discussion \tf{CITE}.
+
+\judgment{\lookup{v}{l}{b}}
+
+``Lookup of method {\tt l} in the object or value {\tt v} returns the
+formal parameter names {\tt x$_1$} through {\tt x$_n$} and the method
+body {\tt b}''
+
+This judgment is opaque:  our semantics does not depend on how method
+lookup is performed.
+
+\judgment{\enter{\E}{\Scope}{\H}{\C}{\I}{v}{\E$'$}{\Scope$_m$}{\H$'$}{\C$'$}{\I$'$}}
+
+``Invoking a method on {\tt v} with argument names {\tt x$_1$} through
+{\tt x$_n$} and arguments {\tt e$_1$} through {\tt e$_n$} constructs
+the method scope \Scope$_m$ and may update the heap and constraint stores.''
+
+This is a helper judgment that simplifies the definition of evaluation
+for method calls (shown below).
+
+\infrule[Enter]{
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$}{v$_1$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \evalBig{\E$_{n-1}$}{\Scope}{\H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
+  \mbox{
+    \stepHO{\E$_n$}{\Scope$_m$}{\H$_n$}{\C$_n$}{\I$_n$}{self := v}{\E$_0$}{\Scope$_0$}{\H$_n$}{\C$_n$}{\I$_n$}}\\
+  \mbox{
+    \stepHO{\E$_0$}{\Scope$_0$}{\H$_n$}{\C$_n$}{\I$_n$}{x$_1$ := v$_1$}{\E$_{n+1}$}{\Scope$_1$}{\H$_n$}{\C$_n$}{\I$_n$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \stepHO{\E$_{2n-1}$}{\Scope$_{n-1}$}{\H$_n$}{\C$_n$}{\I$_n$}{x$_n$ := v$_n$}{\E$_{2n}$}{\Scope$_n$}{\H$_n$}{\C$_n$}{\I$_n$}}
+}{\mbox{
+    \enter{\E}{\Scope}{\H}{\C}{\I}{v}{\E$_{2n}$}{\Scope$_n$}{\H$_n$}{\C$_n$}{\I$_n$}
+}}
+
+\judgment{\evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}
+
+``Evaluating expression {\tt e} produces the value {\tt v}, while
+possibly having side-effects on everything but the local environment.''
+
+\inferax{E-Const}{\evalBig{\E}{\Scope}{\H}{\C}{\I}{c}{\E}{\H}{\C}{\I}{c}}
+
+\inferrule{E-Var}{
+  \Scope({\tt x}) = {\tt x$_g$} \andalso \E({\tt x$_g$}) = {\tt v}
+}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{x}{\E}{\H}{\C}{\I}{v}
+}
+
+\inferrule{E-Field}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{r} \andalso
+  {\tt \H$'$}({\tt r}) = {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ $i$ $\leq$ $n$
+}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e.l$_i$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_i$}
+}
+
+\inferrule{E-ValueField}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ $i$ $\leq$ $n$
+}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e.l$_i$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_i$}
+}
+
+\inferax{E-Ref}{\evalBig{\E}{\Scope}{\H}{\C}{\I}{r}{\E}{\H}{\C}{\I}{r}}
+
+\inferrule{E-Op}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBig{\E$_0$}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
+}
+
+\inferrule{E-Compare}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBig{\E$_0$}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
+}
+
+\inferrule{E-Combine}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBig{\E$_0$}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$} \andalso
+  {\tt v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = {\tt v}
+}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
+}
+
+
+\infrule[E-IdentityTrue]{
+  \mbox{%
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v} \andalso
+  \evalBig{\E}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$}{v}}
+}{\mbox{%
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{true}
+}}
+
+\infrule[E-IdentityFalse]{
+  \mbox{%
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$} \andalso
+  \evalBig{\E}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}
+  \andalso {\tt v$_1$} $\neq$ {\tt v$_2$}}
+}{\mbox{%
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{false}
+}}
+
+\infrule[E-Call]{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v} \andalso
+  \lookup{v}{l}{s; return e}}\\
+\mbox{
+  \enter{\E$_0$}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{v}{\E$_1$}{\Scope$_m$}{\H$_1$}{\C$_1$}{\I$_1$}}\\
+\mbox{\stepHO{\E$_1$}{\Scope$_m$}{\H$_1$}{\C$_1$}{\I$_1$}{s}{\E$'$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$} \andalso
+  \evalBig{\E$'$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$}{e}{\E$''$}{\H$''$}{\C$''$}{\I$''$}{v$_r$}}
+}{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e.l(e$_1$,$\ldots$,e$_n$)}{\E$''$}{\H$''$}{\C$''$}{\I$''$}{v$_r$}
+}}
+
+\infrule[E-CallSimple]{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v} \andalso
+  \lookup{v}{l}{return e}}\\
+\mbox{
+  \enter{\E$_0$}{\Scope}{\H$_0$}{\C$_0$}{\I$_0$}{v}{\E$_1$}{\Scope$_m$}{\H$_1$}{\C$_1$}{\I$_1$}}\\
+\mbox{
+  \evalBig{\E$_1$}{\Scope$_m$}{\H$_1$}{\C$_1$}{\I$_1$}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_r$}}
+}{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e.l(e$_1$,$\ldots$,e$_n$)}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_r$}
+}}
+
+\infrule[E-New]{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$}{v$_1$} $\cdots$ 
+  \evalBig{\E$_{n-1}$}{\Scope}{\H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
+\mbox{
+{\tt \H$_n$}({\tt r})$\uparrow$ \andalso  {\tt \H$'$} = ({\tt \H$_n$} $\bigcup$ \{({\tt r}, {\tt \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\})}
+}{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$_n$}{\H$'$}{\C$_n$}{\I$_n$}{r}
+}}
+
+\infrule[E-Value]{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$}{v$_1$} $\cdots$ 
+  \evalBig{\E$_{n-1}$}{\Scope}{\H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
+}{\mbox{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+}}
+
+\judgment{\tcH{\E}{\H}{e}{T}}
+\judgment{\tcHC{\E}{\H}{C}}
+
+The typechecking rules are unchanged from Babelsberg/UID. Note that
+this means that method calls do not typecheck: even though we allow
+method calls in expressions and thus in constraints syntactically, our
+rules for creating constraints given below inline method
+invocations. New (non-value) object construction also does not
+typecheck, since constraints must be side-effect-free. Finally, the
+typechecking rules continue to only type against the global
+environment, they do not use the local variable names or scopes. The
+inlining rules take care of translating local names to global names
+before typechecking occurs.
+
+\judgment{\solveH{\E}{\H}{C}}
+
+``\E~and \H~are solutions to {\tt C}''
+
+As before we assume that the solver natively supports records and
+uninterpreted functions, but do not assume that the solver understands
+methods. Methods are inlined using the rules further below.
+
+\judgment{\stay{\E}{C}}
+\judgment{\stay{\H}{C}}
+\judgment{\istay{e}{C}}
+\judgment{\istay{\E}{C}}
+\judgment{\istay{\H}{C}}
+
+The rules for stay constraints are unchanged from Babelsberg/UID.
+
+\judgment{\inline{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$}}
+
+``Inlining expression {\tt e} from the local environment \Scope turns
+into expression {\tt e$'$}. To connect variables across method calls,
+the constraint expression {\tt e$_C$} is returned.''
+
+We use an inlining judgment to translate expressions into a
+representation suitable for the solver. In particular, we translate
+local variables into their names in the global environment and provide
+a semantics for method calls inside constraints. Arguments to method
+calls are constrained to be equal to the expression that generated
+them. Inlining does not allow updates to the heap, so no new heap is
+returned. We do allow assignments to locals in inlined methods,
+however, so the global environment can change as a result of inlining.
+
+%% TODO LATER:
+%% \tf{SHOW: Any updates to the global environments would not affect
+%%   existing variables. The rules only allow assigning to temps in
+%%   methods that are inlined, so any changes to the global environment
+%%   are not visible from any outside scope.}
+
+\inferax{I-Const}{\inline{\E}{\Scope}{\H}{\C}{\I}{c}{\E}{true}{c}}
+
+\inferrule{I-Var}{
+  \Scope({\tt x}) = {\tt x$_g$}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{x}{\E}{true}{x$_g$}
+}
+
+\inferrule{I-Value}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_1$}{e$_{C_1}$}{e$'_1$} $\cdots$ \inline{\E}{\Scope}{\H$_{n-1}$}{\C}{\I}{e$_n$}{\E$_n$}{e$_{C_n}$}{e$'_n$}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$_n$}{e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
+}
+
+\inferrule{I-Field}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$} \andalso
+  \evalBig{\E$'$}{\Scope}{\H}{\C}{\I}{e}{\E$''$}{\H}{\C}{\I}{r}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e.l}{\E$'$}{e$_C$$\wedge$e$'$=r}{\H(e$'$).l}
+}
+
+\inferrule{I-ValueField}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$} \andalso
+  \evalBig{\E$'$}{\Scope}{\H}{\C}{\I}{e}{\E$''$}{\H}{\C}{\I}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e.l}{\E$'$}{e$_C$}{e$'$.l}
+}
+
+\inferax{I-Ref}{\inline{\E}{\Scope}{\H}{\C}{\I}{r}{\E}{true}{r}}
+
+\inferrule{I-Op}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\Scope}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\oplus$ e$_b$}
+}
+
+\inferrule{I-Compare}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\Scope}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\olessthan$ e$_b$}
+}
+
+\inferrule{I-Combine}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\Scope}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\ovee$ e$_b$}
+}
+
+\inferrule{I-Identity}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\Scope}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ == e$_b$}
+}
+
+\infrule[I-Call]{
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H}{\C}{\I}{v} \andalso
+    \lookup{v}{l}{s; return e}}\\
+  \mbox{
+    \enter{\E$'$}{\Scope}{\H}{\C}{\I}{v}{\E$''$}{\Scope$_m$}{\H}{\C}{\I}}\\
+  \mbox{
+    \stepHO{\E$''$}{\Scope$_m$}{\H}{\C}{\I}{s}{\E$'''$}{\Scope$'$}{\H}{\C}{\I} \andalso
+    \evalBig{\E$'''$}{\Scope$'$}{\H}{\C}{\I}{e}{\E$''''$}{\H}{\C}{\I}{v$_r$}}
+}{\mbox{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e.l(e$_1$,$\ldots$,e$_n$)}{\E$''''$}{true}{v$_r$}
+}}
+
+Methods that have any statements at all can only be used in a one-way
+manner. This is ensured by evaluating the return expression and using
+only the value in the constraint. Because we are retranslating all
+constraints on each semantic step, this return value will get updated
+when its dependencies change, it just won't work in the other
+direction.
+
+When inlining a method with more than one statement, the statements
+are simply executed.  In particular, this means that we eagerly choose
+which branch of if-statements to inline and eagerly unroll loops.
+Further, the {\sc I-Call} rule above and the {\sc I-MultiWayCall} rule
+below ensure that methods being used in constraints have no side
+effects.  This is accomplished by requiring the initial heap to remain
+unchanged.
+
+Similarly, methods used in constraints cannot declare nested
+constraints; this is accomplished by requiring the initial sets of
+ordinary and identity constraints to remain unchanged.
+
+\infrule[I-MultiWayCall]{
+  \mbox{
+    \inline{\E}{\Scope}{\H}{\C}{\I}{e$_0$}{\E$'$}{e$_{C_0}$}{e$_0'$} \andalso
+    \evalBig{\E$'$}{\Scope}{\H}{\C}{\I}{e$_0$}{\E$''$}{\H}{\C}{\I}{v}}\\
+  \mbox{
+    \lookup{v}{l}{return e}}\\
+  \mbox{
+    \enter{\E$''$}{\Scope}{\H}{\C}{\I}{v}{\E$'''$}{\Scope$_m$}{\H}{\C}{\I}}\\
+  \mbox{
+    \inline{\E$'''$}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_1$}{e$_{C_1}$}{e$_1'$}
+    $\cdots$
+    \inline{\E$_{n-1}$}{\Scope}{\H}{\C}{\I}{e$_n$}{\E$_n$}{e$_{C_n}$}{e$_n'$}}\\
+  \mbox{
+    {\tt E$_m$}({\tt self}) = {\tt x$_{g_{\tt self}}$} \andalso
+    {\tt E$_m$}({\tt x$_1$}) = {\tt x$_{g_1}$} $\cdots$
+    {\tt E$_m$}({\tt x$_n$}) = {\tt x$_{g_n}$}}\\
+  \mbox{
+    {\tt e$_C$} = ({\tt x$_{g_{\tt self}}$=e$_0'$ $\wedge$ x$_{g_1}$=e$_1'$ $\wedge$ $\cdots$ $\wedge$ x$_{g_n}$=e$_n'$}) \andalso
+    \inline{\E$_n$}{\Scope$_m$}{\H}{\C}{\I}{e}{\E$_n'$}{e$_{C_m}$}{e$'$}}
+}{\mbox{
+  \inline{\E}{\Scope}{\H}{\C}{\I}{e$_0$.l(e$_1$,$\ldots$,e$_n$)}{\E$_n'$}{e$_C$$\wedge$e$_{C_m}$$\wedge$e$_{C_0}$$\wedge$e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{e$'$}
+}}
+
+For methods that only return an expression, we inline the expression
+and pass it to the solver. Note that we execute the argument
+expressions and receiver for their value (potentially executing
+through other methods), and also inline them, potentially executing
+the same methods twice (once through \textsc{I-Call} and once through
+\textsc{E-Call}.)  Although not ideal in terms of providing the
+cleanest possible semantics, in practical terms this should 
+not be a problem, because we prohibit
+side-effects in these methods.
+
+
+\judgment{\reinline{\E}{\H}{\I}{\C}{\E$'$}{C}}
+\judgment{\reinline{\E}{\H}{\C}{\I}{\E$'$}{C}}
+
+``Re-inlining the constraint store \C\ returns a
+constraint {\tt C}''
+
+``Re-inlining the constraint store \I\ returns a
+constraint {\tt C}''
+
+\inferax{I-ReinlineEmptyC}{\reinline{\E}{\H}{\I}{$\emptyset$}{\E}{true}}
+
+\inferax{I-ReinlineEmptyI}{\reinline{\E}{\H}{\C}{$\emptyset$}{\E}{true}}
+
+\inferrule{I-ReinlineC}{
+  \C$_0$ = \C $\;\setminus$ $\{(\Scope, \rho\, {\tt e})\}$ \andalso
+  \reinline{\E}{\H}{\I}{\C$_0$}{\E$_0$}{C$_0$} \andalso
+  \inline{\E$_0$}{\Scope}{\H}{\C$_0$}{\I}{e}{\E$'$}{e$_{C_e}$}{e$'$}
+}{
+  \reinline{\E}{\H}{\I}{\C}{\E$'$}{C$_0$ $\wedge$ $\rho$ (e$'$ $\wedge$ e$_{C_e}$)}
+}
+
+\inferrule{I-ReinlineI}{
+  \I$_0$ = \I $\;\setminus$ $\{(\Scope, {\tt required\, e})\}$ \andalso
+  \reinline{\E}{\H}{\C}{\I$_0$}{\E$_0$}{C$_0$} \andalso
+  \inline{\E$_0$}{\Scope}{\H}{\C}{\I$_0$}{e}{\E$'$}{e$_{C_e}$}{e$'$}
+}{
+  \reinline{\E}{\H}{\C}{\I}{\E$'$}{C$_0$ $\wedge$ required (e$'$ $\wedge$ e$_{C_e}$)}
+}
+
+\judgment{{\tt <\E|\H|\C|\I|I|C>} $\Longrightarrow$ {\tt <\E$'$|\H$'$>}}
+
+This is a helper judgment for use in evaluating assignment statements
+and identity constraints.  These statements are the only ones that can
+cause the types of variables to change.  We handle this in two phases:
+in a first phase, we propagate the new equality constraint through all
+existing identity constraints in order to update other variables and
+fields as needed.  In the second phase we solve all of the
+non-identity constraints, plus any constraints {\tt C} created by
+inlining identity constraints.
+
+\infrule[TwoPhaseUpdate]{
+  \mbox{
+    \stay{\E}{C$_{E_s}$} \andalso
+    \stay{\H}{C$_{{H}_s}$} \andalso
+    \reinline{\E}{\H}{\C}{\I}{\E$_i$}{C$_i$} \andalso
+  }\\
+  \mbox{\solveH{\E$'$}{\H$'$}{(C$_i$ $\wedge$ C$_{E_s}$ $\wedge$ C$_0$ $\wedge$ C$_{{H}_s}$ $\wedge$ e$_1$=e$_2$)}}\\
+  \mbox{
+    \istay{\E$'$}{C$_{{E'}_s}$} \andalso
+    \istay{\H$'$}{C$_{{H'}_s}$} \andalso
+    \reinline{\E$'$}{\H$'$}{\I}{\C}{\E$_c$}{C} \andalso
+    \tcHC{\E$_c$}{\H$'$}{C}}\\
+  \mbox{
+    \solveH{\E$''$}{\H$''$}{(C $\wedge$ C$_0$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ e$_1$=e$_2$)}}
+}{\mbox{
+  {\tt <\E|\H|\C|\I|e$_1$ == e$_2$|C$_0$>} $\Longrightarrow$ {\tt <\E$''$|\H$''$>}
+}}
+
+
+\judgment{\stepHO{\E}{\Scope}{\H}{\C}{\I}{s}{\E$'$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$}}
+
+The stepping rules are refactored to work with the local environments
+and the new constraint and identity-constraint stores.
+
+\inferax{S-Skip}{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{skip}{\E}{\Scope}{\H}{\C}{\I}
+}
+
+\inferrule{S-Seq}{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{s$_1$}{\E$'$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$} \andalso
+  \stepHO{\E$'$}{\Scope$'$}{\H$'$}{\C$'$}{\I$'$}{s$_2$}{\E$''$}{\Scope$''$}{\H$''$}{\C$''$}{\I$''$}
+}{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{s$_1$;s$_2$}{\E$''$}{\Scope$''$}{\H$''$}{\C$''$}{\I$''$}
+}
+
+\inferrule{S-IfThen}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{true} \andalso
+  \stepHO{\E$'$}{\Scope}{\H$'$}{\C$'$}{\I$'$}{s$_1$}{\E$''$}{\Scope$'$}{\H$''$}{\C$''$}{\I$''$}
+}{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{if e then s$_1$ else s$_2$}{\E$''$}{\Scope$'$}{\H$''$}{\C$''$}{\I$''$}%
+}
+
+\inferrule{S-IfElse}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{false} \andalso
+  \stepHO{\E$'$}{\Scope}{\H$'$}{\C$'$}{\I$'$}{s$_2$}{\E$''$}{\Scope$'$}{\H$''$}{\C$''$}{\I$''$}
+}{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{if e then s$_1$ else s$_2$}{\E$''$}{\Scope$'$}{\H$''$}{\C$''$}{\I$''$}%
+}
+
+\infrule[S-WhileDo]{
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{true} \andalso
+    \stepHO{\E$'$}{\Scope}{\H$'$}{\C$'$}{\I$'$}{s}{\E$''$}{\Scope$'$}{\H$''$}{\C$''$}{\I$''$}}\\
+  \mbox{
+    \stepHO{\E$''$}{\Scope$'$}{\H$''$}{\C$''$}{\I$''$}{while e do s}{\E$'''$}{\Scope$''$}{\H$'''$}{\C$'''$}{\I$'''$}}
+}{\mbox{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{while e do s}{\E$'''$}{\Scope$''$}{\H$'''$}{\C$'''$}{\I$'''$}
+}}
+
+\inferrule{S-WhileSkip}{
+  \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{false}
+}{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{while e do s}{\E$'$}{\Scope}{\H$'$}{\C$'$}{\I$'$}
+}
+
+\infrule[S-AsgnNewLocal]{
+  \mbox{
+    \Scope({\tt x})$\uparrow$ \andalso
+    {\tt \E}({\tt x$_g$})$\uparrow$ \andalso
+    $\Scope' = \Scope \bigcup \{({\tt x},{\tt x}_g)\}$}\\
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
+  \mbox{
+    {\tt <\E$'$|\H$'$|\C$'$|\I$'$|x$_g$==v|true>} $\Longrightarrow$ {\tt <\E$''$|\H$''$>}}
+}{\mbox{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{x := e}{\E$''$}{\Scope$'$}{\H$''$}{\C$'$}{\I$'$}
+}}
+
+\infrule[S-AsgnLocal]{
+  \mbox{
+    $\Scope({\tt x}) = {\tt x}_g$}\\
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
+  \mbox{
+    {\tt <\E$'$|\H$'$|\C$'$|\I$'$|x$_g$==v|true>} $\Longrightarrow$ {\tt <\E$''$|\H$''$>}}
+}{\mbox{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{x := e}{\E$''$}{\Scope}{\H$''$}{\C}{\I}
+}}
+
+\infrule[S-AsgnLValue]{
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v} \andalso
+    \inline{\E$'$}{\Scope}{\H$'$}{\C$'$}{\I$'$}{e$_l$.l}{\E$''$}{e$_c$}{e$'$}} \\
+  \mbox{
+    {\tt <\E$''$|\H$'$|\C$'$|\I$'$|e$'$==v|e$_c$>} $\Longrightarrow$ {\tt <\E$'''$|\H$''$>}}
+}{\mbox{
+  \stepHO{\E}{\Scope}{\H}{\C}{\I}{e$_l$.l := e}{\E$'''$}{\Scope}{\H$''$}{\C$'$}{\I$'$}
+}}
+
+
+We do not allow updating the constraint store or heap during
+inlining. Thus, the above rule can only be used in
+constraint-construction mode if \H$ = $\H$'$\@. The same is true for
+the rules below.
+
+\infrule[S-Once]{
+  \mbox{
+    {\tt C$_0$} = $\rho$ {\tt e} \andalso
+    \inline{\E}{\Scope}{\H}{\C}{\I}{e}{\E$'$}{e$_{C_e}$}{e$'$} \andalso
+    {\tt C$_0'$} = $\rho$ ({\tt e$'$} $\wedge$ {\tt e$_{C_e}$}) \andalso
+    \tcHC{\E$'$}{\H}{C$_0'$} \andalso
+  }\\
+  \mbox{
+    \istay{\E$'$}{C$_{\Scope_s}$} \andalso
+    \istay{\H}{C$_{H_s}$} \andalso
+    \reinline{\E$'$}{\H}{\I}{\C}{\E$''$}{C} \andalso
+    \solveH{\E$'''$}{\H$'$}{$($C $\wedge$ C$_{\Scope_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
+}
+{\mbox{\stepHO{\E}{\Scope}{\H}{\C}{\I}{once C$_0$}{\E$'''$}{\Scope}{\H$'$}{\C}{\I}}}
+
+\infrule[S-Always]{
+  \mbox{
+    \stepHO{\E}{\Scope}{\H}{\C}{\I}{once C$_0$}{\E$'$}{\Scope}{\H$'$}{\C}{\I}}\\
+  \mbox{
+    \C$'$ = \C $\;\bigcup$ $\{(\Scope, {\tt C}_0)\}$}
+}
+{\mbox{\stepHO{\E}{\Scope}{\H}{\C}{\I}{always C$_0$}{\E$'$}{\Scope}{\H$'$}{\C$'$}{\I}}}
+
+\infrule[S-OnceIdentity]{
+  \mbox{
+    \evalBig{\E}{\Scope}{\H}{\C}{\I}{e$_0$}{\E$_0$}{\H}{\C}{\I}{v} \andalso
+    \evalBig{\E$_0$}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H}{\C}{\I}{v}}\\
+  \mbox{
+    \inline{\E$_1$}{\Scope}{\H}{\C}{\I}{e$_0$}{\E$_2$}{e$_{C_0}$}{e$_0'$} \andalso
+    \inline{\E$_2$}{\Scope}{\H}{\C}{\I}{e$_1$}{\E$_3$}{e$_{C_1}$}{e$_1'$}}\\
+}{\mbox{1
+    \stepHO{\E}{\Scope}{\H}{\C}{\I}{once e$_0$ == e$_1$}{\E$_3$}{\Scope}{\H}{\C}{\I}
+}}
+
+\infrule[S-AlwaysIdentity]{
+  \mbox{
+    \stepHO{\E}{\Scope}{\H}{\C}{\I}{once e$_0$ == e$_1$}{\E$'$}{\Scope}{\H$'$}{\C}{\I}}\\
+  \mbox{
+    \I$'$ = \I $\;\bigcup$ $\{($\Scope$,\,${\tt e}$_0$ {\tt ==} {\tt e}$_1)\}$}
+}{\mbox{
+    \stepHO{\E}{\Scope}{\H}{\C}{\I}{always e$_0$ == e$_1$}{\E$'$}{\Scope}{\H$'$}{\C}{\I$'$}
+}}
+
+
+%%% Local Variables: 
+%%% mode: latex
+%%% TeX-master: "main"
+%%% coding: utf-8
+%%% End: 

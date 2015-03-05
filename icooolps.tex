@@ -488,86 +488,58 @@ object which has a field for every argument. In order to invoke the
 primitive, the program needs to send \#copyBits to a correctly
 initialized BitBlt object.
 
-In Smalltalk-80, copying to the screen is the same as copying to any
-other form, except that one of the forms has been told prior that it
-should represent the display. The RSqueak/VM implementation
-transparently expands values and writes to display-memory, if it
-writes to the display form. Nevertheless, 1\,bit display forms
-maintain a cached copy of the screen, to enable faster access, and
-because the display memory supplied by the SDL is sometimes filled
-with zeros.
+In Smalltalk, copying to the screen is the same as copying to any
+other form. A primitive is run on startup to tell the VM which form
+represents the display --- if it changes, the VM is expected to update
+the screen accordingly. Forms are \emph{word objects} --- they are an
+array of machine words. The RSqueak/VM implementation transparently
+replaces the backing store of the form object that represents the
+display with an SDL Surface, which renders to the screen.
 
 \subsubsection{\ldots in Smalltalk}
-The Smalltalk implementation mirrors the BitBlt simulation published
-in the Bluebook\cite{BlueBook}. Due to the age of the Bluebook, there
-are some features missing, like additional combination rules, having
-the source form as an optional argument, or switching from 16 to
-32\,bit word size. Unfortunately, implementing BitBlt in Smalltalk has
-two problems, which also impede tracing.
+The Smalltalk implementation was originally based the BitBlt
+simulation published in the Bluebook\cite{BlueBook}. It has been much
+extended for Squeak, and is written entirely in Slang code, the subset
+of Smalltalk that can be statically compiled to C. The Squeak VM
+developers simulate this Slang code in Smalltalk for development, and
+then compile it to C and consequently machine code when done. In
+RSqueak/VM, we can eliminate this compilation step and just run the
+simulation code directly.
 
-First, Smalltalk has a different semantic when it comes to bit-shifts
-and some arithmetic operations. If any of these operations over- or
-underflow in a machine-oriented language, the result is still of the
-same range as the arguments, only that a global flag is set which
-indicates that the last result is incomplete. In contrast, the
-Smalltalk VM transparently creates LargePositiveInteger, which have a
-larger range, but arithmetics with such integer is magnitudes slower.
+Three issues present itself when running the pure Smalltalk code:
+\begin{itemize}
+\item The simulation code is not optimized -- for example, a static
+  array of dither values that the C plugin initializes once and then
+  just reads from is re-initialized on each BitBlt call to the
+  simulation.
+\item The Slang code simulates the bit-shift and C-array access
+  semantics using special code, which our JIT cannot eliminate.
+\item The primitive integer type \verb!SmallInteger! only covers the
+  31\,bit range. Because we are operating on a word-size array, some
+  values will overflow into \verb!LargePositiveInteger!
+  instances. During tracing, this increases the type variety,
+  resulting in several very similar traces for the same loop, which
+  the VM switches between according to the result types.
+\end{itemize}
 
-Second, the primitive integer type SmallInteger only covers the
-31\,bit range. As a result, 32\,bit integer are
-LargePositiveInteger. In RSqueak/VM, we added a special type for
-32-bit LargePositiveInteger, which are used transparently in place of
-LargePositiveInteger, and are supported by the fast arithmetic
-primitive functions. Nevertheless, this increases the type variety
-when tracing. Resulting in several very similar traces for the same
-loop, which the VM switches between according to the result types.
+\todo{talk about optimization with longs?}
 
 \subsubsection{\ldots in C}
-The C implementation differs from the other two implementations
-because we reuse code which is part of the current Interpreter VM. In
-Squeak Smalltalk, whenever a primitive is not numbered but named, the
-VM looks up the primitive function in the accordingly named shared
-library.  If the library is present, the VM loads it, initializes it,
-and then sets the interpreter. The interpreter is a structure
-containing the interface between VM and library. It is in effect a
-function table.
+In Squeak Smalltalk, whenever a primitive is not numbered but named
+(such as the BitBlt primitives), the VM looks up the primitive
+function in the accordingly named shared library.  If the library is
+present, the VM loads it and passes it a function table to the
+interpreter. In RSqueak/VM, we replicated this structure, providing
+the functions needed by BitBlt.
 
-In RSqueak/VM, we replicated this structure, providing the functions
-needed by BitBlt. For building the C-interface, we used the decorator
-idiom also found in RSqueak/VM's primitives and many other PyPy
-projects.
-
-The decorator has multiple arguments, which specify input and output
-of the function it decorates. The decorator fetches and checks the
-arguments. The loop for adapting the arguments is written and
-annotated in such a way, that PyPy can unroll it and remove unused
-branches during the initial translation.
-
-In the end, our VM creates the so called InterpreterProxy structure
-from all the functions registered by name and signature.
-
-While some of the functions of the InterpreterProxy used by BitBlt are
-trivial to implement, there is one particular function which required
-more effort since it breaks the abstractions:
-firstIndexableField. When given a words- or bytes-array,
-firstIndexableField should return the pointer where the collection
-starts, in order to allow the plugin direct memory
-access. Unfortunately, this is not possible with RPython lists,
-requiring manual memory management for such collections and conversion
-between the two formats.
-
-The plugin itself is written in Slang\cite{BackToTheFuture}. Slang is
-a small subset of Smalltalk which can be translated to C directly. It
-allows for only a restricted set of methods and types. While Slang
-looks like Smalltalk and mostly behaves the same way when interpreted
-as Smalltalk, there are two constructs required for its execution that
-hindered using the sources of the current BitBlt-plugin as basis for
-the Smalltalk and RPython implementation.  First, Slang allows for
-inlined C code, which cannot be understood by Smalltalk. Second, the
-aforementioned InterpreterProxy is the receiver of plenty of messages
-in Slang.
-
-\todo{largeInteger something}
+While many of the functions of the InterpreterProxy used by BitBlt are
+trivial to emulate in RSqueak/VM, there are others that require
+additional work and slow down our VM when using C plugins. Some
+functions require direct memory access to objects, which we cannot
+usually expose (because the JIT may have removed the
+allocation). Thus, when an object is used with the C plugin, we must
+switch to a manually memory-managed backing store which impedes the
+ability of the JIT to remove operations.
 
 \subsection{Measuring the Gap}
 \label{sec:measuring-gap}
@@ -584,31 +556,14 @@ in revision 513:9db538bbab54. All Benchmarks run in a modified Squeak
 mini-image\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak/blob/174c964/images/minibluebookdebug.image}}.
 \todo{Maybe we can just re-run in 4.5?}
 
-We measure wall times. For measuring time, we use the Smalltalk
-facilities, namely Time class>>\#millisecondsToRun:. As the message
-name indicates, the resolution is milliseconds. When measuring
-execution times of JITs, there is always the question whether to take
-into account the time the JIT needs to identify a hot loop. As Bolz
-and Tratt\cite{Bolz2013} argue, there is gain in measuring both
-times. While JIT-implementors often take the stance that in
-long-running processes, warming up times are irrelevant, others argue
-that most processes are short-running. Therefore, we measured the
-Smalltalk primitives twice, in order to show the penalty involved when
-not warming up the JIT.
+We measure wall times using the Smalltalk method Time
+class>>\#millisecondsToRun:. We measure both with and without JIT
+warmup\cite{Bolz2013}. Additionally, although Smalltalk uses
+green-threading with at least a UI thread always running, for our
+measurements, we start the normal VM and then stop UI thread by
+injecting a higher priority benchmark process and switching to it.
 
-Smalltalk uses green-threading. It provides a semi-cooperative
-scheduler with several priorities. As long as there are no interrupts,
-a thread can run as long as it wants to. If there is an interrupt
-resulting in an higher priority process to continue, the scheduler
-pre-empts the current process. For every measurement, we start the
-normal VM, but tell the main UI-loop to stop itself after
-initialization. Stopping the UI-process removes any influence the OS's
-window manager might have. Prior to starting the image, RSqueak/VM can
-inject an additional process, which starts the benchmark. The
-benchmark process will be scheduled once the main process terminated
-itself. The benchmarks print their results to the command line using a
-set of primitives originally introduced to alleviate debugging.
-
+\todo{write the next bits a new}
 All measured primitives evaluate fast. Usually, they evaluate faster
 than one millisecond, the measurement resolution. Therefore, we
 measure the time of execution in a loop. The loop for both our
@@ -630,20 +585,21 @@ the benchmarks were run in a modified Squeak 4.4 image.
 
 \section{Taking Measure}
 
+\todo{replace the numbers}
 % \the\textwidth
 \begin{table*}[tbp]
 \centering
-\begin{tabular}{r|c c c c}
-    n & C & RPython & Smalltalk warmed-up & Smalltalk cold \\
+\begin{tabular}{r|c c c}
+    n & C & Smalltalk warmed-up & Smalltalk cold \\
 \hline
-\multirow{2}{*}{100} &   6  &   28  &   444 &  1480 \\
-    & 6.66 $\pm$ 0.48 & 29.6 $\pm$ 1.77 & 458 $\pm$ 17.8 & 1510 $\pm$ 23.8\\
-\multirow{2}{*}{1000} &  73 &  293 & 1300 &  3550 \\
-    & 76.5 $\pm$ 8.50 & 299 $\pm$ 10.6 & 1330 $\pm$ 26.7 & 3620 $\pm$ 55.6\\
-\multirow{2}{*}{20000} & 884 & 5710 & 20300 & 24600 \\
-    & 896 $\pm$ 20.7 &  579 $\pm$  111 & 20600 $\pm$  117 & 24800 $\pm$ 112
+\multirow{2}{*}{100} &   6  &   444 &  1480 \\
+    & 6.66 $\pm$ 0.48 & 458 $\pm$ 17.8 & 1510 $\pm$ 23.8\\
+\multirow{2}{*}{1000} &  73 &  1300 &  3550 \\
+    & 76.5 $\pm$ 8.50 & 1330 $\pm$ 26.7 & 3620 $\pm$ 55.6\\
+\multirow{2}{*}{20000} & 884 & 20300 & 24600 \\
+    & 896 $\pm$ 20.7 &  20600 $\pm$  117 & 24800 $\pm$ 112
 \end{tabular}
-\caption[Wall times of the BitBlt benchmark on RSqueak/VM]{BitBlt benchmark  on a RSqueak/VM VM, minimum runtime and arithmetic mean runtime with standard deviation (in ms)}
+\caption{BitBlt benchmark  on a RSqueak/VM VM, minimum runtime and arithmetic mean runtime with standard deviation (in ms)}
 \label{TimesTable}
 \end{table*}
 
@@ -977,17 +933,26 @@ primitive count, or even actively reducing it, is worth considering.
 
 \todo{Make this future work pave the way for rstrategies}
 
-Future work on primitives, VMs with tracing JIT, and RSqueak/VM can go into several directions. 
+Future work on primitives, VMs with tracing JIT, and RSqueak/VM can go into several directions. None of the JavaScript-projects have published any data. Gathering and discussing that data may be fruitful task, even if it just strengthens the arguments against primitives.
 
-None of the JavaScript-projects have published any data. Gathering and discussing that data may be fruitful task, even if it just strengthens the arguments against primitives.
+RSqueak/VM offers some points of improvement with high
+potential. Neither the fact that objects cannot change in size after
+creation, nor that there might be a set of objects, which can be
+assumed constant during trace generation are exploited by the VM so
+far.
 
-RSqueak/VM offers some points of improvement with high potential. Neither the fact that objects cannot change in size after creation, nor that there might be a set of objects, which can be assumed constant during trace generation are exploited by the VM so far.
+The current Squeak/Pharo libraries are build with the assumption that
+SmallInteger have a range of 31\,bit. Neither is this exploited in
+RSqueak/VM, nor is known to us where the image will break when
+deciding to change that range make use of the fact that we use full
+32-bit boxed integers.
 
-The current Squeak/Pharo libraries are build with the assumption that SmallInteger have a range of 31\,bit. Neither is this exploited in RSqueak/VM, nor is known to us where the image will break when deciding to change that range and switch from tagged integers to boxed integers.
-
-While we compared several BitBlt implementations, those were not identical, in that the C implementation is younger, but includes several optimizations. Iterating over the Smalltalk implementation and updating it might lessen the gap for this data point.
-
-
+Finally, we are working to apply \emph{strategies}\todo{cite} to
+RSqueak/VM. Many full objects used in primitive operations (such as
+forms, rectangles, and points) have only fields of the same
+types. Using strategies, these may be stored unboxed and thus help the
+JIT eliminate more object allocations and improve performance.
+\todo{review the above paragraph}
 
 \bibliographystyle{abbrvnat}
 \bibliography{thesis}

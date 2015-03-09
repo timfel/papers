@@ -157,7 +157,7 @@ means:
   disallow.
 \end{itemize}
 
-\section{A Solver for an Executable Semantics}
+\section{An Executable Semantics With A Black-Box Solver}
 \label{sec:an-exec-semant}
 
 RML is a programming language to generate executables from natural
@@ -293,8 +293,13 @@ form Yacc, eval single expressions, and print debugging information
 from C.
 
 \subsection{RML Semantics}
-Similarily, the semantics rules map directly to rules in RML. We will
-give just one example:
+Similarily, the semantics rules map directly to rules in RML. RML
+evaluates such rules through unification of variables and backtracking
+until finding an appropriate rule. If all options are exhausted and we
+would get ``stuck'' in the formal semantics, RML halts the
+execution. RML syntax is modeled to correspond closely to the
+formatting of operational semantics rules. We will give just one
+example:
 
 \infrule[E-Field]{\mbox{
   \texttt{<\upshape{E}|S|\upshape{H}|\upshape{C}|\upshape{I}|e>} $\Downarrow$ 
@@ -317,21 +322,33 @@ rule	eval(E,S,H,C,I,e) => (E',H',C',I',R(r)) &
 	eval(E,S,H,C,I, LVALUE(FIELD(e, l))) => (E',H',C',I',v)
 \end{lstlisting}
 
-Line 1 represents the recursive call to evaluate the left-hand side of
-the field access. The result is then matched against the intended
-result, which is a reference. The type is annotated in RML as
-\lstinline|R|. It matches a box of type \lstinline|R|, and binds its
-contents to the variable \lstinline|r|. When the first rule succeeds,
-we inserted a debug print. This always succeeds, so RML proceeds to
-lookup \lstinline|r| on the heap. We use a utility function for this
-that simply searches the set of reference--object pairs on the
-heap. When found, the object is bound to the variable
-\lstinline|fvalues|. Finally, we lookup the intented label on this
-object. This looks slightly different from the semantic rule, because
-in practice we allow any string as a label, and do not assign a total
-order. If the lookup succeeds, the rule succeeds, and the evaluation
-finishes and returns the updated environment, heap, constraint and
-identity-constraint stores, and the value of the field.
+\begin{description}
+\item[Line 1] represents the recursive call to evaluate the left-hand
+  side of the field access. The result is then matched against the
+  intended result. This line succeeds only if RML can unify the
+  evalution of \lstinline!e! and \lstinline!R(r)!. Since we expect the
+  result to be a reference, we pattern match it against a box of type
+  \lstinline|R|, and unify its contents with the variable
+  \lstinline|r|. RML matches rules in order.
+\item[Line 2] ``matches'' a debug print.  When the first rule
+  succeeds, we proceed to this rules, which always succeeds.
+\item[Line 3] proceeds to lookup \lstinline|r| on the heap. We use a
+  utility function for this that simply searches the set of
+  reference--object pairs on the heap. When found, the object is bound
+  to the variable \lstinline|fvalues|.
+\item[Line 4] looks up the intented label on the bounds to
+  \lstinline!fvalues! by the previous rule. This looks slightly
+  different from the semantic rule. In the rule, we enumerate all
+  labels and check that the label we want is within the range of
+  enumerated labels. In practice we allow any string as a label, and
+  do not generate a total order, so the field lookup iterates over the
+  fields in the object and tries to match the labels using string
+  equality.
+\item[Line 6] finishes the evaluation. If all rules could be matched,
+  the rule succeeds, and the evaluation finishes and returns the
+  updated environment, heap, constraint and identity-constraint
+  stores, and the value of the field.
+\end{description}
 
 \subsection{The Solver Judgment}
 \label{sec:mapping-solver}
@@ -343,26 +360,32 @@ Babelsberg/Objects. So suppose we have a program
 \lstinline|x := 1 + 2|, RML will evaluate the right-hand side of this
 expression and then continue to execute the assignment
 rule. Assignment will execute to create a set of constraints and then
-hand those to the solver --- for which we give no rule, only this judgment:
+hand those to the solver --- for which the formal semantics provides
+no rules, only this judgment:
+\vskip0.7\baselineskip
+\framebox{\texttt{\upshape{E};\upshape{H}} $\models=$ \texttt{\upshape{C}}}
+\vskip\baselineskip
 
-\texttt{\upshape{E};\upshape{H}} $\models$ \texttt{\upshape{C}}
-
-Our implementation has to implement this judgment which involves:
+\noindent Our implementation has to implement this judgment which involves:
 \begin{enumerate}
-\item Convert the constraints in our syntax into a form that can be
-  understood by a solver
-\item Run the solver and retrieve its result
-\item Parse the result and generate new environment and heap to return
-  to the executable, and continue evaluating the rule
+\item Converting the constraints from the syntax of the formal
+  semantics into a form that can be understood by a solver
+\item Running the solver and retrieving its result
+\item Parsing the result and generating a new environment and heap to
+  return to the executable, and continue evaluating the rule through
+  RML
 \end{enumerate}
 
 \subsubsection{Converting Constraint Syntax}
 \label{sec:conv-constr-synt}
-We have chosen Z3 as our solver, which can parse SMT2, an open format
-for constraint system definition. In SMT2, we have to declare each
-type that we will use (including exhaustively listing the values for
-finite types), declare each variable and its type that will appear in
-a constraint, and then declare the constraints.
+For our executable semantics, have chosen Z3 as a solver, because it
+supports the types of constraints we want: constraints over integers,
+booleans, reals, records, and finite domains of uninterpreted symbols.
+Z3 can use SMT2 as input specification, an open format for constraint
+system definition. In SMT2, we have to declare each type that we will
+use (including exhaustively listing the values for finite types),
+declare each variable and its type that will appear in a constraint,
+and then declare the constraints.
 
 \paragraph{Declaring Types and Variables}
 \label{sec:declaring-types}
@@ -378,16 +401,16 @@ class components\footnote{Unfortunately, at the time of this writing
   on the ordering of the alternatives in the union type. For a
   variable that only has a soft constraint that would make it an
   array, Z3 will sometimes (depending on the order of the union) make
-  it a real. We work around this by trying with another
-  ordering.}. The latter is encoded as a Z3 array that maps
-\emph{labels} to reals. Labels and reference are declared as finite
-domain types that range over the existing references and record labels
-respectively. Note that we only support value classes with real fields
-here. The reason is that Z3 does not support recursive structures
-through arrays. This is not a problem in practice, as we can
-explicitly define datatypes for more nested records up to a finite
-depth $K$ as required --- for simplicity, we give here only a
-definition for $K = 1$:
+  it a real. We work around this by trying with another ordering,
+  which then produces the correct result.}. The latter is encoded as a
+Z3 array that maps \emph{labels} to reals. Labels and reference are
+declared as finite domain types that range over the existing
+references and record labels respectively. Note that we only support
+value classes with real fields here. The reason is that Z3 does not
+support recursive structures through arrays. This is not a problem in
+practice, as we can explicitly define datatypes for more nested
+records up to a finite depth $K$ as required --- for simplicity, we
+give here only a definition for $K = 1$:
 \begin{lstlisting}
 (declare-datatypes () ((Value (Record (rec (Array Label Real)))
                               (Real (real Real))
@@ -728,8 +751,80 @@ executable semantics, with the added side-effect of translating the
 executed program. Since the executable semantics for
 Babelsberg/Objects and the translation process for each language are
 thus tied together, the test suites for the concrete languages can be
-updated whenever the semantics change or a test is added.
+updated whenever the semantics change or a test is added. As an
+example, consider the following test from our formal semantics that is
+supposed to fail on the last line:
+\begin{lstlisting}
+x := 0;
+y := 0;
+always medium x=10;
+always y=test(x);
+\end{lstlisting}
 
+Translating just this test into JavaScript yields the following:
+\begin{lstlisting}[language=JavaScript]
+module('users.timfelgentreff.babelsberg.testsuite').
+requires('lively.TestFramework',
+         'users.timfelgentreff.babelsberg.constraintinterpreter',
+         'users.timfelgentreff.z3.CommandLineZ3').
+toRun(function() {
+
+  TestCase.subclass('users.timfelgentreff.babelsberg.testsuite.SemanticsTests', {
+    Test: function(self, i) {
+      ctx = {i: i};
+      always: {
+        priority: "medium",
+        ctx.i == 5;
+      }
+      return ctx.i + 1
+    },
+    test1: function() {
+      bbb.defaultSolvers = [new CommandLineZ3(), new DBPlanner()];
+      bbb.defaultSolvers[1].$$identity = true;
+      var ctx = {unsat: false};
+
+      try {
+        ctx.x = 0.0;
+      } catch (e) { ctx.unsat = true }
+      this.assert(ctx.x == 0.0);
+      try {
+        ctx.y = 0.0;
+      } catch (e) { ctx.unsat = true }
+      this.assert(ctx.x == 0.0);
+      this.assert(ctx.y == 0.0);
+      try {
+        always: {
+          priority: 'medium';
+          ctx.x == 10.0
+        }
+      } catch (e) { ctx.unsat = true }
+      this.assert(ctx.x == 10.0);
+      this.assert(ctx.y == 0.0);
+      try {
+        always: {
+          priority: 'required';
+          ctx.y == this.Test(null, ctx.x)
+        }
+      } catch (e) { ctx.unsat = true }
+      this.assert(ctx.unsat == true);
+    }
+  });
+});
+\end{lstlisting}
+
+Lines 1--15 are part of the scaffold. We provide the global function
+\lstinline!test! from the semantics as a \lstinline!Test! method on
+the TestCase object itself (ll.8--15). The \lstinline!test1! method is
+automatically translated from the example, and first sets up the
+default solvers to be used (l.17), Z3 for value constraints and
+DeltaBlue for identity constraints (l.18). It then sets a local
+\lstinline!unsat! flag to false, to indicate that no solving failed,
+yet (l.19). Each assignment and constraint definition is guarded
+against failure and sets this flag to true (ll.23,27,35,43). After
+each call to the solver, assertions are generated from the default
+solution (ll.24,28--29,36--37). If we expect the solver to fail, we
+assert that an exception was caught and the handler set the
+\lstinline!unsat! flag (l.44).
 
 \section{Applying the Semantics to Babelsberg/JS}
 \label{sec:apply-semant-babelsb}

@@ -299,12 +299,14 @@ satisfaction with common object-oriented constructs such as
 inheritance and polymorphism, and inherits many properties from the
 earlier Kaleidoscope \cite{lopez1994kaleidoscope} and Turtle
 \cite{grabmuller2004turtle} constraint imperative programming
-languages.  It is motivated by the observation that a number of key
-aspects of interactive applications can be concisely specified using
-constraints, but that other aspects are more easily specified using
-standard imperative constructs (assignment, loops, and so forth).  Its
-goal is to provide both paradigms in a cleanly integrated fashion,
-within an object-oriented framework that respects standard
+languages, as well as constraint systems such as BackTalk
+\cite{pachet1995}, Kaplan \cite{koksal2012constraints}, and Squander
+\cite{Squander}.  It is motivated by the observation that a number of
+key aspects of interactive applications can be concisely specified
+using constraints, but that other aspects are more easily specified
+using standard imperative constructs (assignment, loops, and so
+forth).  Its goal is to provide both paradigms in a cleanly integrated
+fashion, within an object-oriented framework that respects standard
 object-oriented features such as messages, encapsulation, and
 inheritance. However, experience with Babelsberg has shown that
 interactions between the object-oriented core and constraints can be
@@ -662,15 +664,17 @@ This adds a constraint on line 2 that \verb!account1! and
 account with debit balance or an account with credit balance (or both,
 or none). It is thus not clear which account we withdraw from in line
 3 (or even if this variable still refers to an account object --- the
-solver might let both variables might refer to \lstinline|null|). If
-both now refer to a debit account, the constraint on line 4 will not
-pass our structural compatibility checks. If we allow the solver to
-change the identities again to make the second constraint valid, we
-may withdraw from the credit account first and then assert that the
-debit account be above 0. The choice of identity in one place would
-thus determine the meaning of the second constraint and introduce
-non-determinism and thus make the programs more difficult to
-understand.
+solver might let both variables might refer to
+\lstinline|null|). Assuming the solver prefers to change as few
+variables as possible, both \verb!account1! and \verb!account2! may
+refer to a credit account after line 2 is executed. In that case the
+constraint on line 4 will not be structurally valid, because no
+\verb!debit!  field exists on a credit account. If we let the solver
+change identities to satisfy the constraint on line 4, we may have
+withdrawn from the credit account and then asserted that the debit
+account be above 0. The non-deterministic choice of identity would
+thus give rise to multiple possible meanings for the rest of the
+program, making it harder to reason about.
 
 To tame the power of constraints on object identity and type, we set
 the following goals for this aspect of our design:
@@ -1678,13 +1682,18 @@ function addPt(p) {
     return new lively.Point(this.x + p.x, this.y + p.y);
 }
 \end{lstlisting}
+Babelsberg/R includes a solver that can reason about the length and
+contents of arrays. If we allowed this method, we allow the solver to
+change the size of the arguments array or replace its first element to
+satisfy the constraint.
+
 A future improvement to our design that may increase compatibility
 with existing applications may allow such statements that simply do
 argument checking, without adding them to the constraint. For now,
 although it is not semantically clean, the practical implementation
-allows such tests on arguments. The resulting constraints are not
-truly multi-directional, but in practice we think they exhibit the
-expected behavior.
+allows such tests on arguments. Provided we select a solver that does
+not reason about arrays, this exhibits the expected behavior, but this
+is just a lucky coincidence.
 
 \paragraph{Branching }
 \label{sec:branching}
@@ -1702,11 +1711,23 @@ function getPosition() {
     }
 }
 \end{lstlisting}
-Moving the test outside of the method and adding the constraint only
-for the branch that is chosen fixes the issue for cases where the
-branch condition does not change. In the tested programs this was
-always the case. For this particular method, all Morphs we encountered
-that are used in constraints execute the first branch.
+In fact, as with the previous problem, this was an issue depending on
+which solver we used. The method \verb!hasFixedPosition! returns a
+boolean flag. When we used this method in a constraint with, for
+example, Cassowary, which can only reason about float values, the flag
+was treated by the solver as read-only, and the correct branch was
+chosen. However, switching the solver to Z3, which can handle
+booleans, the solver would sometimes set the flag to true and not only
+choose the other branch, but influence the rendering of the morph by
+making it fixed.
+
+We have removed this kind of surprising behavior by requiring the
+developer to move the test outside of the method and adding the
+constraint only for the branch that is chosen. In the tested programs
+all Morphs we encountered that are used in constraints execute the
+first branch. Note that this does not prohibit enabling the solver to
+also reason about the \verb!hasFixedPosition! flag using an additional
+constraint.
 
 \paragraph{Benign Side Effects }
 \label{sec:benign-side-effects}
@@ -1729,10 +1750,17 @@ function getBounds() {
     return this.cachedBounds = this.innerBounds();
 }
 \end{lstlisting}
-A workaround that we use here is to call
-\verb|innerBounds| directly, and circumvent the caching. For Morphs
-for which all child Morphs are contained within the bounds of their
-parent, this returns the same result.
+A workaround that we use here is to call \verb|innerBounds| directly,
+and circumvent the caching. For Morphs for which all child Morphs are
+contained within the bounds of their parent, this returns the same
+result. In the practical applications, this change removed some UI
+glitches that happened when the solver changed the cached bounds. The
+rendering code in the LivelyKernel expects changes to a Morph's bounds
+to go through the inner bounds to trigger re-rendering, but a change
+to the \verb!cachedBounds! rectangle did not update the UI unless
+something else triggered rendering (in which case the \verb!getBounds!
+method would return the updated \verb!cachedBounds! and the Morph was
+rendered at the correct position).
 
 Another example method directly uses lazy initialization in example code:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:getCelsius]
@@ -1753,8 +1781,14 @@ Some methods we encountered declared local variables to split up
 calculations or name constants. For such methods, manual inlining of
 the split up calculation into the return expression was required. The
 original Babelsberg design explicitly allows such methods, as long as
-the variables are used in \ac{ssa} fashion
-\cite{FelgentreffJOT14}.
+the variables are used in \ac{ssa} fashion \cite{FelgentreffJOT14}. In
+this case, our restrictions may be too strong. However, our experience
+with the different languages has shown that to some people it is not
+clear if the system can, in such cases, change the value of local
+variables hidden within a method, or if these can be regarded as
+constants. Thus, we argue that, although sometimes inconvenient, the
+restriction not to allow local variables makes it easier to reason
+about the program.
 
 % \pagebreak
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:airPressure]
@@ -1775,7 +1809,6 @@ in a diagram is dragged with the mouse.  Edit constraints are
 supported in the \javascript and Ruby implementations of Babelsberg,
 but are not yet accounted for in our formal semantics.  Adding them to
 the semantics should be straightforward.
-
 %% Finally, our semantics does not include support for edit constraints
 %% \cite{freeman1989deltablue,freeman1990incremental}, so existing
 %% programs which use them do not currently work. Although incremental
@@ -1796,13 +1829,16 @@ the semantics should be straightforward.
 %%   not present particular issues, they do require new rules. also, I'm
 %%   dissatisfied with the way they are in the implementations, so I'd
 %%   like to take the chance to change that.}
+\noindent\begin{center}
+* * *
+\end{center}
+\vskip-0.4\baselineskip
 
-Overall, we think these changes, although they represent additional
-work for the programmer, improve the clarity of the code and make 
-the interactions
-between the object-oriented part and the constraints more
-comprehensible. A future goal will be to see which of these
-workarounds can be removed, while still maintaining a clean and
+Overall, we think that these changes, although they represent
+additional work for the programmer, improve the clarity of the code
+and make the interactions between the object-oriented part and the
+constraints more comprehensible. A future goal will be to see which of
+these workarounds can be removed, while still maintaining a clean and
 comprehensible set of rules for the interaction of the object-oriented
 core and constraints.
 
@@ -1872,20 +1908,20 @@ rules for method inlining in our semantics could be used with these
 systems as well to allow a restricted set of ordinary object-oriented
 methods to be used in constraints.
 
-BackTalk \cite{pachet1995,roy2000framework} and
-\textsc{Squander} \cite{Squander} explicitly allow the constraint solver
-to determine object structure, and even to create new objects that
-satisfy a set of constraints. While these systems have many
-differences, they are more similar to each other than to
-Babelsberg. Both use object-oriented methods in constraints merely as
-tests for the backtracking algorithm as it tries different objects and
-object structures as assignments for the constrained variables. Thus, it
-is a basic property of these systems
-to allow actions that we prohibit in Babelsberg.  However, this
-does not represent such a
-problem in those systems, because the transition from declarative
-variables to ordinary variables is explicit, so the programmer can
-check for surprising results at that time.
+BackTalk \cite{pachet1995,roy2000framework} and \textsc{Squander}
+\cite{Squander} explicitly allow the constraint solver to determine
+object structure, and even to create new objects that satisfy a set of
+constraints. While these systems have many differences, both use
+object-oriented methods in constraints as tests for a backtracking
+algorithm as it tries different objects and object structures as
+assignments for the constrained variables. Thus, it is a basic
+property of these systems to allow actions that we prohibit in
+Babelsberg. In those systems, constraints are most useful when the
+concrete identity of an object is not relevant. When declarative code
+interacts with imperative code, however, this may not be the case,
+especially in dynamic languages such as JavaScript, where libraries
+add and remove properties to specific instances at runtime and check
+for object-identity rather than properties.
 
 Finally, $\alpha$Rby \cite{alloyRuby2014} is a language that embeds the
 Alloy specification language \cite{DBLP:journals/tosem/Jackson02} in
@@ -1937,7 +1973,7 @@ demonstrating its practicality. Another direction for future work is to
 use this test suite to move other implementations closer to conforming
 with the semantics, to further test its practicality.
 
-\bibliographystyle{splncs.bst}
+\bibliographystyle{abbrv}
 \bibliography{constraints}
 
 % \clearpage

@@ -1,5 +1,6 @@
 \documentclass[english,trtype=singlearticle]{hpitr}
 
+\usepackage{dirtree}
 \usepackage{enumerate}
 \usepackage{textcomp}
 \usepackage{xcolor}				% Allow for color (annotations)
@@ -1862,13 +1863,61 @@ ends in configuration \texttt{<E$'$|E$'$|\H$'$|\C$'$|\I$'$>}.''
     \stepHO{\E}{\S}{\H}{\C}{\I}{always e$_0$ == e$_1$}{\E$'$}{\S}{\H$'$}{\C}{\I$'$}
 }}
 
+\pagebreak
 \section{Executable Semantics}
 \label{sec:executable-semantics}
 
+To build the executable semantics we used the RML mirror at
+\url{https://github.com/timfel/rml}. The central file of an RML
+project is the language definition including syntax and semantic
+rules, which in our case is \verb!babelsberg.rml! given below. RML
+translates such files into C code which can then be compiled, creating
+a header file with function declarations for the parser and main
+file. The entry point is a C file written by hand that parses the
+source using Yacc. The Yacc source includes the generated header file
+to create the RML AST nodes during parsing. A basic layout of such a
+project, including lexer/parser, main.c, and a Makefile is part of the
+RML distribution, and our executable semantics is based on that. Our
+basic project structure is:\vskip0.3\baselineskip
+
+\dirtree{%
+.1 /.
+.2 z3\ (the\ solver\ binary).
+.2 rml.
+.3 ...\ (source\ tree\ of\ RML).
+.2 babelsberg-objects.
+.3 main.c.
+.3 parser.y.
+.3 lexer.l.
+.3 babelsberg.rml.
+.3 helper.rml.
+.3 printer.rml.
+.3 solver.rml.
+.3 solver.c.
+.3 cisolver.rb.
+.3 Makefile.
+.3 examples.
+.4 1.txt\ (example\ program\ 1).
+.4 1.env\ (expected\ solutions\ to\ solver\ calls\ in\ 1).
+.4 2.txt\ (example\ program\ 2).
+.4 2.illegal\ (marker\ file\ indicates\ that\ typing\ should\ fail\ in\ 2).
+.4 ...\ (more\ example\ programs).
+.2 javascript-test-generator.
+.3 main.c.
+.3 javascript.rml.
+.3 assertions.rml.
+.3 assertions.c.
+.3 find\_example.rb.
+.3 assert.rb.
+.3 scaffold.js.
+.3 Makefile.
+}
+
 We present here the source code of the lexer and parser, then the code
-of the main file that implements our semantic rules (omitting the
-printing and lookup rules, as these are straightforward), and finally,
-we present the interface to the solver.
+of the \verb!babelsberg.rml! file that implements our semantic rules
+(omitting the printing and helper rules, as these are
+straightforward), and finally, we present the interface to the solver
+given in \verb!solver.c!.
 
 \lstset{breaklines=true,basicstyle=\scriptsize}
 
@@ -3273,8 +3322,456 @@ File.open(outfile, 'w') do |f|
 end
 \end{lstlisting}
 
+\pagebreak
 \section{Test Generator}
 \label{sec:test-generator}
+
+The language independent part of the test suite generation comprises
+another set of scripts. \verb!find_example.rb! is used to determine
+which example program is currently running, \verb!assert.rb! is used
+to generates assertions from the expected results of the examples.
+
+\begin{lstlisting}[language=Ruby,caption={find\_example.rb}]
+#!/usr/bin/env ruby
+
+module FindExample
+  extend self
+
+  def example
+    return @example if @example
+    tree = Hash[*`ps -eo pid,ppid`.scan(/\d+/).map{|x|x.to_i}]
+    shid = Process.ppid
+    bbbid = tree[shid]
+    catid = tree[bbbid]
+    rakeid = tree[catid]
+    commandline = %x"ps -o cmd -fp #{catid}".lines.to_a.last
+    @example = /cat\s+(.*\d+[a-z]?\.txt)\s+/.match(commandline)[1]
+  end
+
+  def solution
+    example.sub(/\.txt$/, ".env")
+  end
+
+  def id
+    example.sub(/(?:.*?)(\d+[a-z]*)\.txt$/, "\\1")
+  end
+end
+
+print FindExample.send(ARGV[0]) if __FILE__ == $0 && ARGV[0]
+\end{lstlisting}
+
+\begin{lstlisting}[language=Ruby,caption={assert.rb}]
+#!/usr/bin/env ruby
+
+require File.expand_path("../find_example", __FILE__)
+
+outfile = ARGV[0]
+index = ARGV[1].to_i
+solution = FindExample.solution
+
+begin
+  environments = File.read(solution).split(";\n")
+rescue Exception
+  environments = []
+end
+
+File.open(outfile, 'w') do |f|
+  if env = environments[index]
+    identities = {}
+    objects = {}
+    # remove trailing numbers
+    env.gsub!(/([^ 0-9]+)\d+ :=/, "\\1 :=")
+    env = env.lines.map do |line|
+      if line =~ /^H\(#(\d+)\) := (.*)$/
+        objects[$1] = $2
+        nil
+      else
+        line
+      end
+    end.compact.map do |line|
+      if line =~ /^([^ ]+) := #(\d+)$/
+        if identities[$2]
+          "#{$1} := H(#{identities[$2]})\n"
+        else
+          identities[$2] = $1
+          "#{$1} := #{objects[$2]}\n"
+        end
+      else
+        line
+      end
+    end.join
+
+    env.gsub!(/^unsat$/, "unsat := true")
+
+    f << env
+  else
+    f << "unsat := true"
+  end
+end
+\end{lstlisting}
+
+These scripts are called from the \verb!Assertions! RML module.
+\begin{lstlisting}[language=rml,caption={assertions.rml}]
+module Assertions:
+  relation assert: int => ()
+  relation exampleId: () => string
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=C,caption={assertions.c}]
+/* Glue to call parser (and thus scanner) from RML */
+#include <stdio.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
+#include "rml.h"
+#include "javascript.h"
+#include "../objects/parser.h"
+
+
+extern int yy_scan_string(char *yy_str);
+extern void* absyntree;
+
+int ciindex = -1;
+
+/* No init for this module */
+void Assertions_5finit(void) {}
+/* The glue function */
+RML_BEGIN_LABEL(Assertions__assert)
+{
+    int first_param = RML_UNTAGFIXNUM(rmlA0);
+    char *assignment;
+    char cmd[255];
+    ciindex += first_param;
+    snprintf(cmd, 255, "$BBBPATH/assert.rb input %d", ciindex);
+    int exitcode = system(cmd);
+    if (exitcode != 0) {
+	RML_TAILCALLK(rmlFC);
+    }
+
+    FILE* input = fopen("input", "r");
+    while(fscanf(input, "%m[()#-{}a-zA-Z0-9.:=, \"]\n", &assignment) != EOF) {
+	/* printf("%s\n", assignment); */
+	yy_scan_string(assignment);
+	if (yyparse() != 0) {
+	    fprintf(stderr, "Parsing model failed!\n");
+	    RML_TAILCALLK(rmlFC);
+	}
+	rml_state_ARGS[0] = absyntree;
+	rml_prim_once(RML_LABPTR(javascript__printassert));
+	free(assignment);
+    }
+    rmlA0 = mk_nil();
+    RML_TAILCALLK(rmlSC);
+}
+RML_END_LABEL
+
+RML_BEGIN_LABEL(Assertions__exampleId)
+{
+    FILE* stream = popen("$BBBPATH/find_example.rb id", "r");
+    char* id[5] = {'\0'};
+    int read = fread((void*)id, 4, sizeof(char), stream);
+    pclose(stream);
+
+    rmlA0 = mk_scon((const char*)id);
+    RML_TAILCALLK(rmlSC);
+}
+RML_END_LABEL
+\end{lstlisting}
+
+To generate the test suites requires rules for the translation and a
+scaffolding file, which have to be written by the developer. Below, we
+give the scaffolding for the JavaScript language. Note that this
+includes the \verb!babelsberg.rml! file, and just adds the translation
+mechanism.
+
+\begin{lstlisting}[language=rml,caption={javascript.rml}]
+module javascript:
+  with "../objects/babelsberg.rml"
+  with "assertions.rml"
+
+  relation printprogram: babelsberg.Program => ()
+  relation printassert: babelsberg.Program => ()
+end
+
+relation printprogram: babelsberg.Program => () =
+  rule	printPreamble() &
+	printS(statement, "    ") &
+	printPostscript()
+	-----------------
+	printprogram(babelsberg.PROGRAM(statement))
+end
+
+relation printassert: babelsberg.Program => () =
+  rule	print "    this.assert(" &
+	printE(babelsberg.LVALUE(l)) & print " === " & printE(e) &
+	print ");\n"
+	----------------------------------------
+	printassert(babelsberg.PROGRAM(babelsberg.ASSIGN(l,babelsberg.DEREF(e))))
+
+  rule	print "    this.assert(this.fieldEquals(" &
+	printE(babelsberg.LVALUE(l)) & print ", " & printE(babelsberg.IRECORD(fieldexps)) &
+	print "));\n"
+	----------------------------------------
+	printassert(babelsberg.PROGRAM(babelsberg.ASSIGN(l,babelsberg.IRECORD(fieldexps))))
+
+  rule	print "    this.assert(" &
+	printE(babelsberg.LVALUE(l)) & print " == " & printE(e) &
+	print ");\n"
+	----------------------------------------
+	printassert(babelsberg.PROGRAM(babelsberg.ASSIGN(l,e)))
+end
+
+relation printPreamble: () => () =
+  rule	print "test" &
+	Assertions.exampleId() => s & print s &
+	print ": function() {\n" &
+	print "    delete bbb.defaultSolver;\n" &
+	print "    bbb.defaultSolvers = [new CommandLineZ3(), new DBPlanner()];\n" &
+	print "    bbb.defaultSolvers[1].$$identity = true;\n" &
+	print "    var ctx = {unsat: false};\n\n"
+	--------------------------------------------------
+	printPreamble()
+end
+
+relation printPostscript: () => () =
+  rule	print "},\n"
+	--------------------------------------------------
+	printPostscript()
+end
+
+relation printS: (babelsberg.Statement, string) => () =
+  axiom printS(babelsberg.SKIP, i) => ()
+
+  rule  printS(s1, i) & printS(s2, i)
+	-----------------------
+	printS(babelsberg.SEQ(s1,s2), i)
+
+  rule	string_append(i, "    ") => i' &
+	print i & print "if (" & printE(e) & print ") {\n" &
+	printS(s1, i') &
+	print i & print "} else {\n" &
+	printS(s2, i') &
+	print i & print "}\n"
+	----------------------------------------------
+	printS(babelsberg.IF(e, s1, s2), i)
+
+  rule	string_append(i, "    ") => i' &
+	print i & print "while (" & printE(e) & print ") {\n" &
+	printS(s, i') &
+	print i & print "}\n"
+	-----------------------
+	printS(babelsberg.WHILE(e, s), i)
+
+  rule	print i & print "try {\n" &
+	print i & print "    " & printE(babelsberg.LVALUE(l)) & print " = " & printE(e) & print ";\n" &
+	print i & print "} catch (e) { ctx.unsat = true }\n" &
+	Assertions.assert(2)
+	---------------------------------------------------------
+	printS(babelsberg.ASSIGN(l,e), i)
+
+  rule  print i & print "try { once: {\n" &
+	print i & print "    " & printE(babelsberg.IDENTITY(e0, e1)) & print "\n" &
+	print i & print "} } catch (e) { ctx.unsat = true }\n"
+	------------------------------------------------------------
+	printS(babelsberg.ONCE(babelsberg.CONSTRAINT(babelsberg.REQUIRED, babelsberg.IDENTITY(e0, e1))), i)
+
+  rule  print i & print "try { always: {\n" &
+	print i & print "    " & printE(babelsberg.IDENTITY(e0, e1)) & print "\n" &
+	print i & print "} } catch (e) { ctx.unsat = true }\n"
+	--------------------------------------------------------------
+	printS(babelsberg.ALWAYS(babelsberg.CONSTRAINT(babelsberg.REQUIRED, babelsberg.IDENTITY(e0, e1))), i)
+
+  rule	print i & print "try { once: {\n" &
+	print i & print "    " & print "priority: '" & printRho(rho) & print "';\n" &
+	print i & print "    " & printE(e) & print "\n" &
+	print i & print "} } catch (e) { ctx.unsat = true }\n" &
+	Assertions.assert(1)
+	-------------------------
+	printS(babelsberg.ONCE(babelsberg.CONSTRAINT(rho,e)), i)
+
+  rule	print i & print "try { always: {\n" &
+	print i & print "    " & print "priority: '" & printRho(rho) & print "';\n" &
+	print i & print "    " & printE(e) & print "\n" &
+	print i & print "} } catch (e) { ctx.unsat = true }\n" &
+	Assertions.assert(1)
+	-------------------------
+	printS(babelsberg.ALWAYS(babelsberg.CONSTRAINT(rho,e)), i)
+end
+
+relation printE: babelsberg.Exp => () =
+  rule	print "true"
+	------------
+	printE(babelsberg.VALUE(babelsberg.K(babelsberg.TRUE)))
+
+  rule	print "false"
+	------------
+	printE(babelsberg.VALUE(babelsberg.K(babelsberg.FALSE)))
+
+  rule	print "null"
+	------------
+	printE(babelsberg.VALUE(babelsberg.K(babelsberg.NIL)))
+
+  rule	print s
+	-------------------------------
+	printE(babelsberg.VALUE(babelsberg.K(babelsberg.STRING(s))))
+
+  rule	real_string(r) => s &
+	print s
+	-------
+	printE(babelsberg.VALUE(babelsberg.K(babelsberg.REAL(r))))
+
+  rule	string_length(x) => i &
+	i - 1 => li &
+	string_nth(x, li) => lst &
+	lst = #"?" &
+	string_list(x) => chars &
+	list_delete(chars, li) => chars' &
+	list_string(chars') => xs &
+	print "ro(ctx." & print xs & print ")"
+	-------------------------------------
+	printE(babelsberg.LVALUE(babelsberg.VARIABLE(x)))
+
+  rule	print "ctx." & print x
+	----------------------
+	printE(babelsberg.LVALUE(babelsberg.VARIABLE(x)))
+
+  rule	print "(" & printE(e) & print ")" &
+	print "." & print l
+	-------------------
+	printE(babelsberg.LVALUE(babelsberg.FIELD(e, l)))
+
+  rule	printE(e1) & printOp(op) & printE(e2)
+	-------------------------------------
+	printE(babelsberg.OP(e1, op, e2))
+
+  rule	printE(e1) & printComp(op) & printE(e2)
+	-------------------------------------
+	printE(babelsberg.COMPARE(e1, op, e2))
+
+  rule	printE(e1) & printComb(op) & printE(e2)
+	-------------------------------------
+	printE(babelsberg.COMBINE(e1, op, e2))
+
+  rule	printE(e1) & print " === " & printE(e2)
+	---------------------------------------
+	printE(babelsberg.IDENTITY(e1, e2))
+
+  rule	l = "Testpointxequals5" & (* special treatment, value class *)
+	Assertions.exampleId => id & id = "47" &
+	print "this.Testipointxequals5" &
+	print "(" & printEachArg(e :: argexps) & print ")"
+	-------------------------------------------
+	printE(babelsberg.CALL(e,l,argexps))
+
+  rule	print "this." & print l &
+	print "(" & printEachArg(e :: argexps) & print ")"
+	-------------------------------------------
+	printE(babelsberg.CALL(e,l,argexps))
+
+  rule	print "new Object({" & printFields(fieldexps) & print "})"
+	---------------------------------------------------------
+	printE(babelsberg.UIDRECORD(fieldexps))
+
+  rule	print "Object({" & printFields(fieldexps) & print "})"
+	---------------------------------------------------------------
+	printE(babelsberg.IRECORD(fieldexps))
+end
+
+relation printEachArg: babelsberg.Exp list => () =
+  axiom	printEachArg([]) => ()
+
+  rule	printE(e)
+	---------
+	printEachArg(e :: [])
+
+  rule	printE(e) & print ", " &
+	printEachArg(rest)
+	------------------
+	printEachArg(e :: rest)
+end
+
+relation printFields: babelsberg.ObjectLiteral => () =
+  axiom	printFields([]) => ()
+
+  rule	print l & print ": " & printE(e)
+	--------------------------------
+	printFields((l,e) :: [])
+
+  rule  print l & print ": " & printE(e) &
+	print ", " & printFields(rest)
+	------------------------------
+	printFields((l,e) :: rest)
+end
+
+relation printOp: babelsberg.Op => () =
+  rule	print " + "
+	-----------
+	printOp(babelsberg.ADD)
+
+  rule	print " - "
+	-----------
+	printOp(babelsberg.SUB)
+
+  rule	print " / "
+	-----------
+	printOp(babelsberg.DIV)
+
+  rule	print " * "
+	-----------
+	printOp(babelsberg.MUL)
+end
+
+relation printComp: babelsberg.Comp => () =
+  rule	print " < "
+	-----------
+	printComp(babelsberg.LESSTHAN)
+
+  rule	print " <= "
+	-----------
+	printComp(babelsberg.LEQUAL)
+
+  rule	print " == "
+	-----------
+	printComp(babelsberg.EQUAL)
+
+  rule	print " != "
+	-----------
+	printComp(babelsberg.NEQUAL)
+
+  rule	print " >= "
+	-----------
+	printComp(babelsberg.GEQUAL)
+
+  rule	print " > "
+	-----------
+	printComp(babelsberg.GREATERTHAN)
+end
+
+relation printComb: babelsberg.Comb => () =
+  rule	print " && "
+	-----------
+	printComb(babelsberg.AND)
+
+  rule	print " || "
+	-----------
+	printComb(babelsberg.OR)
+end
+
+relation printRho: babelsberg.Rho => () =
+  rule	print "weak"
+	--------------
+	printRho(babelsberg.WEAK)
+
+  rule	print "medium"
+	--------------
+	printRho(babelsberg.MEDIUM)
+
+  rule	print "required"
+	--------------
+	printRho(babelsberg.REQUIRED)
+end
+\end{lstlisting}
 
 \end{document}
 

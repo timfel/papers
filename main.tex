@@ -7,6 +7,7 @@
 \usepackage{amssymb}
 \usepackage{hyperref}
 \usepackage{xspace}
+\xspaceaddexceptions{'$'$ |(}
 \usepackage{bcprules}
 
 \def\sectionautorefname{Section}
@@ -65,7 +66,6 @@
   morecomment=[s]{(*}{*)},
   commentstyle=\color{purple}\ttfamily,
   stringstyle=\ttfamily,
-  morestring=[b]',
   morestring=[b]"
 }
 
@@ -1155,6 +1155,2126 @@ core and constraints.
 
 % \bibliographystyle{splncs.bst}
 \bibliography{constraints}
+
+\pagebreak
+\appendix
+
+This appendix presents the entirety of the semantic rules of
+Babelsberg/Objects. It also includes the complete source code to the
+RML semantics, and the source code of our test generation framework.
+
+\section{Formalism}
+\label{sec:formalism}
+
+\newcommand{\inferrule}[3]{\infrule[#1]{\mbox{#2}}{\mbox{#3}}}
+\newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
+\newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
+
+\newcommand{\E}{\texttt{\upshape E}\xspace}
+\newcommand{\Sc}{\texttt{\upshape S}\xspace}
+\newcommand{\Hc}{\texttt{\upshape H}\xspace}
+\newcommand{\Cc}{\texttt{\upshape C}\xspace}
+\newcommand{\I}{\texttt{\upshape I}\xspace}
+\ifx\C\undefined \newcommand{\C}{\Cc} \else \renewcommand{\C}{\Cc} \fi
+\ifx\H\undefined \newcommand{\H}{\Hc} \else \renewcommand{\H}{\Hc} \fi
+\ifx\S\undefined \newcommand{\S}{\Sc} \else \renewcommand{\S}{\Sc} \fi
+
+\newcommand{\lookup}[3]{\textit{lookup}(\texttt{#1},\texttt{#2}) = (\texttt{x$_1$} $\cdots$ \texttt{x$_n$},\texttt{#3})}
+\newcommand\enter[9]{%
+\def\argA{#1}\def\argB{#2}\def\argC{#3}\def\argD{#4}\def\argE{#5}%
+\def\argF{#6}\def\argG{#7}\def\argH{#8}\def\argI{#9}%
+\entercontinued
+}
+\newcommand\entercontinued[2]{%
+  \textit{enter}(\texttt{\argA},\texttt{\argB},\texttt{\argC},\texttt{\argD},\texttt{
+    \argE},\texttt{\argF},\texttt{x$_1$} $\cdots$ \texttt{x$_n$},\texttt{e$_1$} $\cdots$
+  \texttt{e$_n$}) = (\texttt{\argG},\texttt{\argH},\texttt{\argI},\texttt{#1},\texttt{#2})
+}
+\newcommand\evalBig[9]{%
+\def\argA{#1}\def\argB{#2}\def\argC{#3}\def\argD{#4}\def\argE{#5}%
+\def\argF{#6}\def\argG{#7}\def\argH{#8}\def\argI{#9}%
+\evalBigcontinued
+}
+\newcommand{\evalBigcontinued}[2]{%
+  \texttt{<\argA|\argB|\argC|\argD|\argE|\argF>} $\Downarrow$ \texttt{<\argG|\argH|\argI|#1|#2>}}
+\newcommand{\tcH}[4]{\texttt{#1;#2} $\vdash$ \texttt{#3} {\upshape :} \texttt{#4}}
+\newcommand{\tcHC}[3]{\texttt{#1;#2} $\vdash$ \texttt{#3}}
+\newcommand{\solveH}[3]{\texttt{#1;#2} $\models=$ \texttt{#3}}
+\newcommand{\stay}[2]{stay(\texttt{#1}) $=$ \texttt{#2}}
+\newcommand{\istay}[2]{i-stay(\texttt{#1}) $=$ \texttt{#2}}
+\newcommand{\inline}[9]{\texttt{<#1,#2,#3,#4,#5,#6>} $\leadsto$ \texttt{<#7,#8,#9>}}
+\newcommand{\reinline}[6]{\texttt{<#1,#2,#3,#4>} $\leadsto$ \texttt{<#5,#6>}}
+\newcommand\stepHO[9]{%
+\def\argA{#1}\def\argB{#2}\def\argC{#3}\def\argD{#4}\def\argE{#5}%
+\def\argF{#6}\def\argG{#7}\def\argH{#8}\def\argI{#9}%
+\stepHOcontinued
+}
+\newcommand{\stepHOcontinued}[2]{%
+  \texttt{<\argA|\argB|\argC|\argD|\argE|\argF>} $\longrightarrow$ \texttt{<\argG|\argH|\argI|#1|#2>}}
+
+
+{\texttt{
+\begin{tabular}{lrrl}
+\textrm{Statement} & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
+  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+\textrm{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
+\textrm{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
+$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I \\
+ & & & $\mid$ e.l(e$_1$,$\ldots$,e$_n$) $\mid$ o $\mid$ new o $\mid$ D\\
+\textrm{Identity} & I & ::= & e == e\\
+\textrm{Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
+\textrm{L-Value} & L & ::= & x $\mid$ e.l \\
+\textrm{Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ \textrm{base type constants}\\
+\textrm{Variable} & x & ::= & \textrm{variable names} \\
+\textrm{Label} & l & ::= & \textrm{record label names} \\
+\textrm{Reference} & r & ::= & \textrm{references to heap records} \\
+\textrm{Dereference} & D & ::= & \H(e) \\ & & &\\
+\textrm{Method Body} & b & ::= & s; return e $\mid$ return e \\
+\textrm{Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
+\end{tabular}
+}}
+
+\judgment{\lookup{v}{l}{b}}
+
+``Lookup of method \texttt{l} in the object or value \texttt{v} returns the
+formal parameter names \texttt{x$_1$} through \texttt{x$_n$} and the method
+body \texttt{b}''
+
+\judgment{\enter{\E}{\S}{\H}{\C}{\I}{v}{\E$'$}{\S$_m$}{\H$'$}{\C$'$}{\I$'$}}
+
+``Invoking a method on \texttt{v} with argument names \texttt{x$_1$} through
+\texttt{x$_n$} and arguments \texttt{e$_1$} through \texttt{e$_n$} constructs
+the method scope \texttt{\S$_m$} and may update the heap and constraint stores.''
+
+\infrule[Enter]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$}{v$_1$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \evalBig{\E$_{n-1}$}{\S}{\H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
+  \mbox{
+    \stepHO{\E$_n$}{\S$_m$}{\H$_n$}{\C$_n$}{\I$_n$}{self := v}{\E$_0$}{\S$_0$}{\H$_n$}{\C$_n$}{\I$_n$}}\\
+  \mbox{
+    \stepHO{\E$_0$}{\S$_0$}{\H$_n$}{\C$_n$}{\I$_n$}{x$_1$ := v$_1$}{\E$_{n+1}$}{\S$_1$}{\H$_n$}{\C$_n$}{\I$_n$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \stepHO{\E$_{2n-1}$}{\S$_{n-1}$}{\H$_n$}{\C$_n$}{\I$_n$}{x$_n$ := v$_n$}{\E$_{2n}$}{\S$_n$}{\H$_n$}{\C$_n$}{\I$_n$}}
+}{\mbox{
+    \enter{\E}{\S}{\H}{\C}{\I}{v}{\E$_{2n}$}{\S$_n$}{\H$_n$}{\C$_n$}{\I$_n$}
+}}
+
+\judgment{\evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}
+
+``Evaluating expression \texttt{e} produces the value \texttt{v}, while
+possibly having side-effects on everything but the local environment.''
+
+\inferax{E-Const}{\evalBig{\E}{\S}{\H}{\C}{\I}{c}{\E}{\H}{\C}{\I}{c}}
+
+\inferrule{E-Var}{
+  \texttt{\S}(\texttt{x}) = \texttt{x$_g$} \andalso \E(\texttt{x$_g$}) = \texttt{v}
+}{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{x}{\E}{\H}{\C}{\I}{v}
+}
+
+\infrule[E-Field]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{r} \andalso
+    \texttt{\H$'$}(\texttt{r}) = \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}\\
+  \mbox{1 $\leq$ $i$ $\leq$ $n$}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e.l$_i$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_i$}
+}}
+
+\inferrule{E-ValueField}{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ $i$ $\leq$ $n$
+}{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e.l$_i$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_i$}
+}
+
+\inferax{E-Ref}{\evalBig{\E}{\S}{\H}{\C}{\I}{r}{\E}{\H}{\C}{\I}{r}}
+
+\infrule[E-Op]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$}}\\
+  \mbox{
+    \evalBig{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}}\\
+  \mbox{
+    \texttt{v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = \texttt{v}}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
+}}
+
+\infrule[E-Compare]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$}}\\
+  \mbox{
+    \evalBig{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}}\\
+  \mbox{
+    \texttt{v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = \texttt{v}}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
+}}
+
+\infrule[E-Combine]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$}}\\
+  \mbox{
+    \evalBig{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}}\\
+  \mbox{
+    \texttt{v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = \texttt{v}}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
+}}
+
+
+\infrule[E-IdentityTrue]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v}}\\
+  \mbox{
+    \evalBig{\E}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}{v}}
+}{\mbox{%
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{true}
+}}
+
+\infrule[E-IdentityFalse]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$}}\\
+  \mbox{
+    \evalBig{\E}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}}\\
+  \mbox{
+    \texttt{v$_1$} $\neq$ \texttt{v$_2$}}
+}{\mbox{%
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{false}
+}}
+
+\infrule[E-Call]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v}}\\
+  \mbox{
+    \lookup{v}{l}{s; return e}}\\
+  \mbox{
+    \enter{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{v}{\E$_1$}{\S$_m$}{\H$_1$}{\C$_1$}{\I$_1$}}\\
+  \mbox{\stepHO{\E$_1$}{\S$_m$}{\H$_1$}{\C$_1$}{\I$_1$}{s}{\E$'$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}}\\
+  \mbox{
+    \evalBig{\E$'$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}{e}{\E$''$}{\H$''$}{\C$''$}{\I$''$}{v$_r$}}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e.l(e$_1$,$\ldots$,e$_n$)}{\E$''$}{\H$''$}{\C$''$}{\I$''$}{v$_r$}
+}}
+
+\infrule[E-CallSimple]{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v}}\\
+  \mbox{\lookup{v}{l}{return e}}\\
+\mbox{
+  \enter{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{v}{\E$_1$}{\S$_m$}{\H$_1$}{\C$_1$}{\I$_1$}}\\
+\mbox{
+  \evalBig{\E$_1$}{\S$_m$}{\H$_1$}{\C$_1$}{\I$_1$}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_r$}}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e.l(e$_1$,$\ldots$,e$_n$)}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_r$}
+}}
+
+\infrule[E-New]{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$}{v$_1$}}\\
+\mbox{$\cdots$}\\
+\mbox{
+  \evalBig{\E$_{n-1}$}{\S}{\H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
+\mbox{
+\texttt{\H$_n$}(\texttt{r})$\uparrow$ \andalso  \texttt{\H$'$} = (\texttt{\H$_n$} $\bigcup$ \{(\texttt{r}, \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\})}
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$_n$}{\H$'$}{\C$_n$}{\I$_n$}{r}
+}}
+
+\infrule[E-Value]{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H$_1$}{\C$_1$}{\I$_1$}{v$_1$}}\\\mbox{$\cdots$}\\\mbox{
+  \evalBig{\E$_{n-1}$}{\S}{\H$_{n-1}$}{\C$_{n-1}$}{\I$_{n-1}$}{e$_n$}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{v$_n$}}\\
+}{\mbox{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$_n$}{\H$_n$}{\C$_n$}{\I$_n$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+}}
+
+\judgment{\tcH{\E}{\H}{e}{T}}
+
+``Expression \texttt{e} has type \texttt{T} under \E and \H''
+
+\judgment{\tcHC{\E}{\H}{C}}
+
+``Constraint \texttt{C} is well-formed under \E and \H''
+
+{\texttt{
+\begin{tabular}{lrrl}
+\textrm{Type} & T & ::= & PrimitiveType $\mid$
+\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
+\end{tabular}
+}}
+
+\inferax{T-Constant}{
+  \tcH{\E}{\H}{c}{PrimitiveType}
+}
+
+\inferrule{T-Variable}{
+  \E(\texttt{x}) = \texttt{v} \andalso
+  \tcH{\E}{\H}{v}{T}
+}{
+  \tcH{\E}{\H}{x}{T}
+}
+
+\inferrule{T-Field}{
+  \tcH{\E}{\H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+  \andalso $1 \leq i \leq n$
+}{
+  \tcH{\E}{\H}{e.l$_i$}{T$_i$}
+}
+
+\inferrule{T-Ref}{
+  \texttt{\H}(\texttt{r})=\texttt{o} \andalso
+  \tcH{\E}{\H}{o}{T} 
+}{
+  \tcH{\E}{\H}{r}{T}
+}
+
+\inferrule{T-Deref}{
+  \tcH{\E}{\H}{e}{T}
+}{
+  \tcH{\E}{\H}{\H(e)}{T}
+}
+
+\inferrule{T-Op}{
+  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
+}{
+  \tcH{\E}{\H}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Compare}{
+  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
+}{
+  \tcH{\E}{\H}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-Combine}{
+  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
+}{
+  \tcH{\E}{\H}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
+}
+
+\inferrule{T-ValueObject}{
+  \tcH{\E}{\H}{e$_1$}{T$_1$} $\cdots$ \tcH{\E}{\H}{e$_n$}{T$_n$}
+}{
+  \tcH{\E}{\H}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+
+
+\inferrule{T-Constraint}{
+  \tcH{\E}{\H}{e}{T}
+}{
+  {\tcHC{\E}{\H}{$\rho$ e}}
+}
+
+\inferrule{T-CompoundConstraint}{
+  \tcH{\E}{\H}{C$_1$}{T} \andalso \tcH{\E}{\H}{C$_2$}{T}
+}{
+  \tcHC{\E}{\H}{C$_1$ $\wedge$ C$_2$}
+}
+
+
+\judgment{\solveH{\E}{\H}{C}}
+
+``A call to the solver to solve \texttt{C} yields \E and \H''
+
+\judgment{\stay{\E}{C}}
+
+``Adding weak stays to all values in \E yields \texttt{C}''
+
+\judgment{\stay{\H}{C}}
+
+``Adding weak stays to all objects on the heap \H yields \texttt{C}''
+
+\judgment{\istay{e}{C}}
+
+``Creating stays for the expression \texttt{e} yields weak stays for
+all primitive types and irecords in \texttt{e} and required stays for
+all references in \texttt{e}''
+
+\judgment{\istay{\E}{C}}
+
+``Adding stays to all values in \E yields weak stays for all primitive
+types and irecords and required stays for all references''
+
+\judgment{\istay{\H}{C}}
+
+``Adding stays to all objects on the heap \H yields weak stays for all
+primitive fields and irecords in those objects and required stays for
+all references''
+
+\inferax{StayEmpty}{\stay{$\emptyset$}{true}}
+
+\inferrule{StayOne}{
+  \E$(\texttt{x}) = \texttt{v}$ \andalso
+  \E$_0 = $\E$ \setminus \{(\texttt{x},\texttt{v})\}$ \andalso
+  \stay{\E$_0$}{C$_0$} \andalso
+  \texttt{C}$ = $\texttt{C}$_0$ $\wedge$ \texttt{weak x=v}
+}{
+  \stay{\E}{C}
+}
+
+\infrule[StayHeap]{
+  \mbox{
+    \H$(\texttt{r}) = \texttt{o}$ \andalso  
+    \H$_0 = $\H$ \setminus \{(\texttt{r},\texttt{o})\}$ \andalso
+    \stay{\H$_0$}{C$_0$} \andalso
+    $\texttt{o} = $\{\texttt{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\}}\\
+  \mbox{C$_w$ $=$ weak x$_{r0}$ = v$_0$ $\wedge$
+    $\ldots$ $\wedge$
+    weak x$_{rn}$ = v$_n$}
+}{\mbox{
+  \stay{\H}{C$_0$ $\wedge$
+    weak \H(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$ C$_w$}
+}}
+
+\inferax{IStayEmpty}{\istay{$\emptyset$}{true}}
+\inferax{IStayConst}{\istay{x=c}{weak x=c}}
+\infrule[IStayObject]{
+  \mbox{
+    \istay{x$_{x0}$=v$_0$}{C$_{x0}$} $\cdots$ \istay{x$_{xn}$=v$_n$}{C$_{xn}$} \andalso
+    $\texttt{C}_x = \texttt{C}_{x0} \wedge \ldots \wedge \texttt{C}_{xn}$}
+}{\mbox{
+\istay{x=\{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$\}}{
+    \texttt{required x=\{l$_0$:x$_{x0}$,$\ldots$,l$_n$:x$_{xn}$\}} $\wedge$ C$_x$}
+}}
+\inferax{IStayRef}{\istay{x=r}{required x=r}}
+
+\inferrule{IStayOne}{
+  \E$(\texttt{x}) = \texttt{v}$ \andalso
+  \E$_0 = $\E$ \setminus \{(\texttt{x},\texttt{v})\}$ \andalso
+  \istay{\E$_0$}{C$_0$} \andalso
+  \istay{x=v}{C$_s$}
+}{
+  \istay{\E}{\texttt{C}$_0$ $\wedge$ \texttt{C}$_s$}
+}
+
+\infrule[IStayHeap]{
+  \mbox{
+    \H$(\texttt{r}) = \texttt{o}$ \andalso  
+    \H$_0 = $\H$ \setminus \{(\texttt{r},\texttt{o})\}$ \andalso
+    \istay{\H$_0$}{C$_0$} \andalso
+    $\texttt{o} = $\{\texttt{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\}}\\
+  \mbox{
+    \istay{x$_{r0}$=v$_0$}{C$_{r0}$} $\cdots$ \istay{x$_{rn}$=v$_n$}{C$_{rn}$}}
+}{\mbox{
+  \istay{\H}{C$_0$ $\wedge$
+    required \H(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$
+    C$_{r0}$ $\wedge$
+    $\ldots$ $\wedge$
+    C$_{rn}$ }
+}}
+
+\judgment{\inline{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$}}
+
+``Inlining expression \texttt{e} from the local environment \texttt{\S} turns
+into expression \texttt{e$'$}. To connect variables across method calls,
+the constraint expression \texttt{e$_C$} is returned.''
+
+\inferax{I-Const}{\inline{\E}{\S}{\H}{\C}{\I}{c}{\E}{true}{c}}
+
+\inferrule{I-Var}{
+  \texttt{\S}(\texttt{x}) = \texttt{x$_g$}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{x}{\E}{true}{x$_g$}
+}
+
+\inferrule{I-Value}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_1$}{e$_{C_1}$}{e$'_1$} $\cdots$ \inline{\E}{\S}{\H$_{n-1}$}{\C}{\I}{e$_n$}{\E$_n$}{e$_{C_n}$}{e$'_n$}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$_n$}{e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
+}
+
+\inferrule{I-Field}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$} \andalso
+  \evalBig{\E$'$}{\S}{\H}{\C}{\I}{e}{\E$''$}{\H}{\C}{\I}{r}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e.l}{\E$'$}{e$_C$$\wedge$e$'$=r}{\H(e$'$).l}
+}
+
+\infrule[I-ValueField]{
+  \mbox{
+    \inline{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$}}\\
+  \mbox{
+    \evalBig{\E$'$}{\S}{\H}{\C}{\I}{e}{\E$''$}{\H}{\C}{\I}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
+}{\mbox{
+  \inline{\E}{\S}{\H}{\C}{\I}{e.l}{\E$'$}{e$_C$}{e$'$.l}
+}}
+
+\inferax{I-Ref}{\inline{\E}{\S}{\H}{\C}{\I}{r}{\E}{true}{r}}
+
+\inferrule{I-Op}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\oplus$ e$_b$}
+}
+
+\inferrule{I-Compare}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\olessthan$ e$_b$}
+}
+
+\inferrule{I-Combine}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\ovee$ e$_b$}
+}
+
+\inferrule{I-Identity}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ == e$_b$}
+}
+
+\infrule[I-Call]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H}{\C}{\I}{v}}\\
+  \mbox{
+    \lookup{v}{l}{s; return e}}\\
+  \mbox{
+    \enter{\E$'$}{\S}{\H}{\C}{\I}{v}{\E$''$}{\S$_m$}{\H}{\C}{\I}}\\
+  \mbox{
+    \stepHO{\E$''$}{\S$_m$}{\H}{\C}{\I}{s}{\E$'''$}{\S$'$}{\H}{\C}{\I}}\\
+  \mbox{
+    \evalBig{\E$'''$}{\S$'$}{\H}{\C}{\I}{e}{\E$''''$}{\H}{\C}{\I}{v$_r$}}
+}{\mbox{
+  \inline{\E}{\S}{\H}{\C}{\I}{e.l(e$_1$,$\ldots$,e$_n$)}{\E$''''$}{true}{v$_r$}
+}}
+
+\infrule[I-MultiWayCall]{
+  \mbox{
+    \inline{\E}{\S}{\H}{\C}{\I}{e$_0$}{\E$'$}{e$_{C_0}$}{e$_0'$}}\\
+  \mbox{
+    \evalBig{\E$'$}{\S}{\H}{\C}{\I}{e$_0$}{\E$''$}{\H}{\C}{\I}{v}}\\
+  \mbox{
+    \lookup{v}{l}{return e}}\\
+  \mbox{
+    \enter{\E$''$}{\S}{\H}{\C}{\I}{v}{\E$'''$}{\S$_m$}{\H}{\C}{\I}}\\
+  \mbox{
+    \inline{\E$'''$}{\S}{\H}{\C}{\I}{e$_1$}{\E$_1$}{e$_{C_1}$}{e$_1'$}
+    $\cdots$
+    \inline{\E$_{n-1}$}{\S}{\H}{\C}{\I}{e$_n$}{\E$_n$}{e$_{C_n}$}{e$_n'$}}\\
+  \mbox{
+    \texttt{\S$_m$}(\texttt{self}) = \texttt{x$_{g_\texttt{self}}$} \andalso
+    \texttt{\S$_m$}(\texttt{x$_1$}) = \texttt{x$_{g_1}$} $\cdots$
+    \texttt{\S$_m$}(\texttt{x$_n$}) = \texttt{x$_{g_n}$}}\\
+  \mbox{
+    \texttt{e$_C$} = (\texttt{x$_{g_\texttt{self}}$=e$_0'$ $\wedge$ x$_{g_1}$=e$_1'$ $\wedge$ $\cdots$ $\wedge$ x$_{g_n}$=e$_n'$})}\\
+  \mbox{
+    \inline{\E$_n$}{\S$_m$}{\H}{\C}{\I}{e}{\E$_n'$}{e$_{C_m}$}{e$'$}}
+}{\mbox{
+  \inline{\E}{\S}{\H}{\C}{\I}{e$_0$.l(e$_1$,$\ldots$,e$_n$)}{\E$_n'$}{e$_C$$\wedge$e$_{C_m}$$\wedge$e$_{C_0}$$\wedge$e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{e$'$}
+}}
+
+\judgment{\reinline{\E}{\H}{\I}{\C}{\E$'$}{C}}
+
+``Re-inlining the constraint store \C\ returns a
+constraint \texttt{C}''
+
+\judgment{\reinline{\E}{\H}{\C}{\I}{\E$'$}{C}}
+
+``Re-inlining the constraint store \I\ returns a
+constraint \texttt{C}''
+
+\inferax{I-ReinlineEmptyC}{\reinline{\E}{\H}{\I}{$\emptyset$}{\E}{true}}
+
+\inferax{I-ReinlineEmptyI}{\reinline{\E}{\H}{\C}{$\emptyset$}{\E}{true}}
+
+\infrule[I-ReinlineC]{
+  \mbox{
+    \C$_0$ = \C $\;\setminus$ $\{(\texttt{\S}, \rho\, \texttt{e})\}$ \andalso
+    \reinline{\E}{\H}{\I}{\C$_0$}{\E$_0$}{C$_0$}}\\
+  \mbox{
+    \inline{\E$_0$}{\S}{\H}{\C$_0$}{\I}{e}{\E$'$}{e$_{C_e}$}{e$'$}}
+}{\mbox{
+  \reinline{\E}{\H}{\I}{\C}{\E$'$}{C$_0$ $\wedge$ $\rho$ (e$'$ $\wedge$ e$_{C_e}$)}
+}}
+
+\infrule[I-ReinlineI]{
+  \mbox{
+    \I$_0$ = \I $\;\setminus$ $\{(\texttt{\S}, \texttt{required\, e})\}$ \andalso
+    \reinline{\E}{\H}{\C}{\I$_0$}{\E$_0$}{C$_0$}}\\
+  \mbox{
+    \inline{\E$_0$}{\S}{\H}{\C}{\I$_0$}{e}{\E$'$}{e$_{C_e}$}{e$'$}}
+}{\mbox{
+  \reinline{\E}{\H}{\C}{\I}{\E$'$}{C$_0$ $\wedge$ required (e$'$ $\wedge$ e$_{C_e}$)}
+}}
+
+\judgment{\texttt{<\E|\H|\C|\I|I|C>} $\Longrightarrow$ \texttt{<\E$'$|\H$'$>}}
+
+``Solving \texttt{I} and \texttt{C} first for identities and then
+values yields \E$'$ and \H$'$''
+
+\infrule[TwoPhaseUpdate]{
+  \mbox{
+    \stay{\E}{C$_{E_s}$} \andalso
+    \stay{\H}{C$_{{H}_s}$} \andalso
+    \reinline{\E}{\H}{\C}{\I}{\E$_i$}{C$_i$} \andalso
+  }\\
+  \mbox{\solveH{\E$'$}{\H$'$}{(C$_i$ $\wedge$ C$_{E_s}$ $\wedge$ C$_0$ $\wedge$ C$_{{H}_s}$ $\wedge$ e$_1$=e$_2$)}}\\
+  \mbox{
+    \istay{\E$'$}{C$_{{E'}_s}$} \andalso
+    \istay{\H$'$}{C$_{{H'}_s}$} \andalso
+    \reinline{\E$'$}{\H$'$}{\I}{\C}{\E$_c$}{C}}\\
+  \mbox{
+    \tcHC{\E$_c$}{\H$'$}{C} \andalso
+    \solveH{\E$''$}{\H$''$}{(C $\wedge$ C$_0$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ e$_1$=e$_2$)}}
+}{\mbox{
+  \texttt{<\E|\H|\C|\I|e$_1$ == e$_2$|C$_0$>} $\Longrightarrow$ \texttt{<\E$''$|\H$''$>}
+}}
+
+\judgment{\stepHO{\E}{\S}{\H}{\C}{\I}{s}{\E$'$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}}
+
+``Execution starting from configuration \texttt{<\E|E|\H|\C|\I|s>}
+ends in configuration \texttt{<E$'$|E$'$|\H$'$|\C$'$|\I$'$>}.''
+
+\inferax{S-Skip}{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{skip}{\E}{\S}{\H}{\C}{\I}
+}
+
+\infrule[S-Seq]{
+  \mbox{
+    \stepHO{\E}{\S}{\H}{\C}{\I}{s$_1$}{\E$'$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}}\\
+  \mbox{
+    \stepHO{\E$'$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}{s$_2$}{\E$''$}{\S$''$}{\H$''$}{\C$''$}{\I$''$}}
+}{\mbox{
+    \stepHO{\E}{\S}{\H}{\C}{\I}{s$_1$;s$_2$}{\E$''$}{\S$''$}{\H$''$}{\C$''$}{\I$''$}
+}}
+
+\infrule[S-IfThen]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{true}}\\
+  \mbox{
+    \stepHO{\E$'$}{\S}{\H$'$}{\C$'$}{\I$'$}{s$_1$}{\E$''$}{\S$'$}{\H$''$}{\C$''$}{\I$''$}}
+}{\mbox{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{if e then s$_1$ else s$_2$}{\E$''$}{\S$'$}{\H$''$}{\C$''$}{\I$''$}%
+}}
+
+\infrule[S-IfElse]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{false}}\\
+  \mbox{
+    \stepHO{\E$'$}{\S}{\H$'$}{\C$'$}{\I$'$}{s$_2$}{\E$''$}{\S$'$}{\H$''$}{\C$''$}{\I$''$}}
+}{\mbox{
+    \stepHO{\E}{\S}{\H}{\C}{\I}{if e then s$_1$ else s$_2$}{\E$''$}{\S$'$}{\H$''$}{\C$''$}{\I$''$}%
+}}
+
+\infrule[S-WhileDo]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{true}}\\
+  \mbox{
+    \stepHO{\E$'$}{\S}{\H$'$}{\C$'$}{\I$'$}{s}{\E$''$}{\S$'$}{\H$''$}{\C$''$}{\I$''$}}\\
+  \mbox{
+    \stepHO{\E$''$}{\S$'$}{\H$''$}{\C$''$}{\I$''$}{while e do s}{\E$'''$}{\S$''$}{\H$'''$}{\C$'''$}{\I$'''$}}
+}{\mbox{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{while e do s}{\E$'''$}{\S$''$}{\H$'''$}{\C$'''$}{\I$'''$}
+}}
+
+\inferrule{S-WhileSkip}{
+  \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{false}
+}{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{while e do s}{\E$'$}{\S}{\H$'$}{\C$'$}{\I$'$}
+}
+
+\infrule[S-AsgnNewLocal]{
+  \mbox{
+    \texttt{\S}(\texttt{x})$\uparrow$ \andalso
+    \texttt{\E}(\texttt{x$_g$})$\uparrow$ \andalso
+    $\texttt{\S}' = \texttt{\S} \bigcup \{(\texttt{x},\texttt{x}_g)\}$}\\
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
+  \mbox{
+    \texttt{<\E$'$|\H$'$|\C$'$|\I$'$|x$_g$==v|true>} $\Longrightarrow$ \texttt{<\E$''$|\H$''$>}}
+}{\mbox{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{x := e}{\E$''$}{\S$'$}{\H$''$}{\C$'$}{\I$'$}
+}}
+
+\infrule[S-AsgnLocal]{
+  \mbox{
+    $\texttt{\S}(\texttt{x}) = \texttt{x}_g$}\\
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
+  \mbox{
+    \texttt{<\E$'$|\H$'$|\C$'$|\I$'$|x$_g$==v|true>} $\Longrightarrow$ \texttt{<\E$''$|\H$''$>}}
+}{\mbox{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{x := e}{\E$''$}{\S}{\H$''$}{\C}{\I}
+}}
+
+\infrule[S-AsgnLValue]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
+  \mbox{
+    \inline{\E$'$}{\S}{\H$'$}{\C$'$}{\I$'$}{e$_l$.l}{\E$''$}{e$_c$}{e$'$}} \\
+  \mbox{
+    \texttt{<\E$''$|\H$'$|\C$'$|\I$'$|e$'$==v|e$_c$>} $\Longrightarrow$ \texttt{<\E$'''$|\H$''$>}}
+}{\mbox{
+  \stepHO{\E}{\S}{\H}{\C}{\I}{e$_l$.l := e}{\E$'''$}{\S}{\H$''$}{\C$'$}{\I$'$}
+}}
+
+\infrule[S-Once]{
+  \mbox{
+    \texttt{C$_0$} = $\rho$ \texttt{e} \andalso
+    \inline{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{e$_{C_e}$}{e$'$} \andalso
+    \texttt{C$_0'$} = $\rho$ (\texttt{e$'$} $\wedge$ \texttt{e$_{C_e}$})}\\
+  \mbox{
+    \tcHC{\E$'$}{\H}{C$_0'$} \andalso
+    \istay{\E$'$}{C$_{E_s}$} \andalso
+    \istay{\H}{C$_{H_s}$}
+  }\\
+  \mbox{
+    \reinline{\E$'$}{\H}{\I}{\C}{\E$''$}{C} \andalso
+    \solveH{\E$'''$}{\H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
+}
+{\mbox{\stepHO{\E}{\S}{\H}{\C}{\I}{once C$_0$}{\E$'''$}{\S}{\H$'$}{\C}{\I}}}
+
+\infrule[S-Always]{
+  \mbox{
+    \stepHO{\E}{\S}{\H}{\C}{\I}{once C$_0$}{\E$'$}{\S}{\H$'$}{\C}{\I}}\\
+  \mbox{
+    \C$'$ = \C $\;\bigcup$ $\{(\texttt{\S}, \texttt{C}_0)\}$}
+}
+{\mbox{\stepHO{\E}{\S}{\H}{\C}{\I}{always C$_0$}{\E$'$}{\S}{\H$'$}{\C$'$}{\I}}}
+
+\infrule[S-OnceIdentity]{
+  \mbox{
+    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_0$}{\E$_0$}{\H}{\C}{\I}{v} \andalso
+    \evalBig{\E$_0$}{\S}{\H}{\C}{\I}{e$_1$}{\E$_1$}{\H}{\C}{\I}{v}}\\
+  \mbox{
+    \inline{\E$_1$}{\S}{\H}{\C}{\I}{e$_0$}{\E$_2$}{e$_{C_0}$}{e$_0'$} \andalso
+    \inline{\E$_2$}{\S}{\H}{\C}{\I}{e$_1$}{\E$_3$}{e$_{C_1}$}{e$_1'$}}\\
+}{\mbox{1
+    \stepHO{\E}{\S}{\H}{\C}{\I}{once e$_0$ == e$_1$}{\E$_3$}{\S}{\H}{\C}{\I}
+}}
+
+\infrule[S-AlwaysIdentity]{
+  \mbox{
+    \stepHO{\E}{\S}{\H}{\C}{\I}{once e$_0$ == e$_1$}{\E$'$}{\S}{\H$'$}{\C}{\I}}\\
+  \mbox{
+    \I$'$ = \I $\;\bigcup$ $\{($\texttt{\S}$,\,$\texttt{e}$_0$ \texttt{=} \texttt{e}$_1)\}$}
+}{\mbox{
+    \stepHO{\E}{\S}{\H}{\C}{\I}{always e$_0$ == e$_1$}{\E$'$}{\S}{\H$'$}{\C}{\I$'$}
+}}
+
+\section{Executable Semantics}
+\label{sec:executable-semantics}
+
+We present here the source code of the lexer and parser, then the code
+of the main file that implements our semantic rules (omitting the
+printing and lookup rules, as these are straightforward), and finally,
+we present the interface to the solver.
+
+\lstset{breaklines=true,basicstyle=\scriptsize}
+
+\begin{lstlisting}[language=C,caption={lexer.l}]
+%{
+#define YYSTYPE void*
+#include "parser.h"
+#include "rml.h"
+#include "babelsberg.h"
+
+int lex_icon(void);
+int lex_ident(void);
+int lex_rcon(void);
+
+%}
+
+whitespace   [ \t\n]+
+letter       [a-zA-Z_]
+lowerletter  [a-z]
+upperletter  [A-Z]
+questionmark "?"
+ident        {lowerletter}({letter}|{digit})*{questionmark}?
+global       {upperletter}({letter}|{digit})*
+digit        [0-9]
+digits       {digit}+
+pt           "."
+quote        "\""
+sign         [-]
+exponent     ([eE]{sign}?{digits})
+rcon1        {sign}?{digits}({pt}{digits}?)?{exponent}
+rcon2        {sign}?{digits}?{pt}{digits}{exponent}?
+rcon         {rcon1}|{rcon2}
+icon1        {digits}
+icon2        {sign}{digits}
+icon         {icon1}|{icon2}
+string       {quote}({letter}|{digit}|{whitespace})+{quote}
+amp          "#"
+reference    {amp}{digits}
+
+%%
+
+{whitespace} ;
+{string}     return lex_string();
+{icon}       return lex_rcon();  /* convert ints to T_REALCONST */
+{rcon}       return lex_rcon();  /* T_REALCONST */
+{reference}  return lex_ref();
+"H"          return T_H_DEREF;
+"new"        return T_NEW;
+":="         return T_ASSIGN;
+"+"          return T_ADD;
+"-"          return T_SUB;
+"*"          return T_MUL;
+"/"          return T_DIV;
+"=="         return T_IDENTICAL;
+"<"          return T_LESSTHAN;
+"<="         return T_LEQUAL;
+"!="         return T_NEQUAL;
+"="          return T_EQUAL;
+">="         return T_GEQUAL;
+">"          return T_GREATERTHAN;
+"&&"         return T_AND;
+"and"        return T_AND;
+"or"         return T_OR;
+"("          return T_LPAREN;
+")"          return T_RPAREN;
+"{"          return T_LBRACE;
+"}"          return T_RBRACE;
+":"          return T_COLON;
+","          return T_COMMA;
+{pt}         return T_DOT;
+";"          return T_SEMIC;
+"skip"       return T_SKIP;
+"always"     return T_ALWAYS;
+"once"       return T_ONCE;
+"weak"       return T_WEAK;
+"medium"     return T_MEDIUM;
+"required"   return T_REQUIRED;
+"if"         return T_IF;
+"then"       return T_THEN;
+"else"       return T_ELSE;
+"while"      return T_WHILE;
+"do"         return T_DO;
+"true"       return T_TRUE;
+"false"      return T_FALSE;
+"nil"        return T_NIL;
+{ident}      return lex_ident(); /* T_IDENT */
+{global}     return lex_global(); /* T_GLOBAL */
+
+%%
+
+int lex_rcon(void)
+{
+  yylval= (void*)mk_rcon(atof(yytext));
+  return T_REALCONST;
+}
+
+int lex_ident(void)
+{
+  yylval = (void*)mk_scon(yytext);
+  return T_IDENT;
+}
+
+int lex_global(void)
+{
+  yylval = (void*)mk_scon(yytext);
+  return T_GLOBAL;
+}
+
+int lex_string(void)
+{
+  yylval = (void*)mk_scon(yytext);
+  return T_STRING;
+}
+
+int lex_ref(void)
+{
+  yylval = (void*)mk_icon(atoi(yytext + 1));
+  return T_REF;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=C,caption={parser.y}]
+%{
+#include <stdio.h>
+#include "rml.h"
+#include "babelsberg.h"
+
+#define YYSTYPE void*
+extern void* absyntree;
+
+/* int yydebug=1; */
+
+%}
+
+%token T_SEMIC
+%token T_ASSIGN
+%token T_IDENT
+%token T_GLOBAL
+%token T_REALCONST
+%token T_STRING
+%token T_H_DEREF
+%token T_REF
+%token T_NEW
+%token T_IDENTICAL
+%token T_LPAREN T_RPAREN
+%token T_LESSTHAN
+%token T_LEQUAL
+%token T_EQUAL
+%token T_NEQUAL
+%token T_GEQUAL
+%token T_GREATERTHAN
+%token T_OR
+%token T_AND
+%token T_ADD
+%token T_SUB
+%token T_MUL
+%token T_DIV
+
+%token T_LBRACE
+%token T_RBRACE
+%token T_COLON
+%token T_COMMA
+%token T_DOT
+
+%token T_GARBAGE
+
+%token T_SKIP
+%token T_ALWAYS
+%token T_ONCE
+%token T_WEAK
+%token T_MEDIUM
+%token T_REQUIRED
+%token T_IF
+%token T_THEN
+%token T_ELSE
+%token T_WHILE
+%token T_DO
+%token T_TRUE
+%token T_FALSE
+%token T_NIL
+
+
+%token T_ERR
+
+%left T_OR
+%left T_AND
+%left T_LESSTHAN T_LEQUAL T_EQUAL T_NEQUAL T_GEQUAL T_GREATERTHAN
+%left T_ADD T_SUB
+%left T_MUL T_DIV
+
+%%
+
+/* Yacc BNF grammar of the expression language BabelsbergPs */
+
+program         : statement
+                        { absyntree = babelsberg__PROGRAM($1);}
+
+statement       : T_SKIP
+                        { $$ = babelsberg__SKIP; }
+                | lvalue T_ASSIGN expression
+                        { $$ = babelsberg__ASSIGN($1, $3); }
+                | T_ALWAYS constraint
+                        { $$ = babelsberg__ALWAYS($2); }
+                | T_ONCE constraint
+                        { $$ = babelsberg__ONCE($2); }
+                | statement T_SEMIC statement
+                        { $$ = babelsberg__SEQ($1, $3); }
+                | T_IF expression T_THEN statement T_ELSE statement
+                        { $$ = babelsberg__IF($2, $4, $6); }
+                | T_WHILE expression T_DO statement
+                        { $$ = babelsberg__WHILE($2, $4); }
+
+constraint      : rho expression
+                        { $$ = babelsberg__CONSTRAINT($1, $2); }
+                | expression
+                        { $$ = babelsberg__CONSTRAINT(babelsberg__REQUIRED, $1); }
+                | constraint T_AND constraint
+                        { $$ = babelsberg__COMPOUNDCONSTRAINT($1, $3); }
+
+rho             : T_WEAK
+                        { $$ = babelsberg__WEAK; }
+                | T_MEDIUM
+                        { $$ = babelsberg__MEDIUM; }
+                | T_REQUIRED
+                        { $$ = babelsberg__REQUIRED; }
+
+expression      : value
+                        { $$ = babelsberg__VALUE($1); }
+                | lvalue
+                        { $$ = babelsberg__LVALUE($1); }
+                | expression woperation expression %prec T_MUL
+                        { $$ = babelsberg__OP($1, $2, $3); }
+                | expression soperation expression %prec T_ADD
+                        { $$ = babelsberg__OP($1, $2, $3); }
+                | expression comparison expression %prec T_EQUAL
+                        { $$ = babelsberg__COMPARE($1, $2, $3); }
+                | expression combination expression %prec T_AND
+                        { $$ = babelsberg__COMBINE($1, $2, $3); }
+                | expression disjunction expression %prec T_OR
+                        { $$ = babelsberg__COMBINE($1, $2, $3); }
+                | expression T_IDENTICAL expression %prec T_EQUAL
+                        { $$ = babelsberg__IDENTITY($1, $3); }
+                | T_GLOBAL T_LPAREN callargs T_RPAREN
+		        { $$ = babelsberg__CALL(babelsberg__VALUE(babelsberg__K(babelsberg__NIL)), $1, $3); }
+                | expression T_DOT label T_LPAREN callargs T_RPAREN
+                        { $$ = babelsberg__CALL($1, $3, $5); }
+                | T_LBRACE objectliteral T_RBRACE
+                        { $$ = babelsberg__IRECORD($2); }
+                | T_NEW T_LBRACE objectliteral T_RBRACE
+                        { $$ = babelsberg__UIDRECORD($3); }
+                | dereference
+                        { $$ = babelsberg__DEREF($1); }
+
+callargs        : /* empty */
+                       { $$ = mk_nil(); }
+                | expression
+                       { $$ = mk_cons($1, mk_nil()); }
+                | expression T_COMMA callargs
+                       { $$ = mk_cons($1, $3); }
+
+objectliteral   : /* empty */
+                       { $$ = mk_nil(); }
+                | fieldexpression
+                       { $$ = mk_cons($1, mk_nil()); }
+                | fieldexpression T_COMMA objectliteral
+                       { $$ = mk_cons($1, $3); }
+
+fieldexpression : label T_COLON expression
+                       { $$ = mk_box2(1, $1, $3); }
+
+lvalue          : variable
+                        { $$ = babelsberg__VARIABLE($1); }
+                | expression T_DOT label
+                        { $$ = babelsberg__FIELD($1, $3); }
+                | dereference /* only for solver model parsing */
+                        { $$ = babelsberg__ASSIGNDEREF($1); }
+
+constant        : T_TRUE
+                        { $$ = babelsberg__TRUE; }
+                | T_FALSE
+                        { $$ = babelsberg__FALSE; }
+                | T_NIL
+                        { $$ = babelsberg__NIL; }
+                | T_REALCONST
+                        { $$ = babelsberg__REAL($1);}
+                | T_STRING
+                        { $$ = babelsberg__STRING($1);}
+
+variable        : T_IDENT
+                        { $$ = $1; }
+
+label           : T_IDENT
+                        { $$ = $1; }
+
+reference       : T_REF
+                        { $$ = $1; }
+
+dereference     : T_H_DEREF T_LPAREN expression T_RPAREN
+                        { $$ = $3; }
+
+value           : constant
+                        { $$ = babelsberg__K($1); }
+                /*
+                 * | objectliteral
+                 *         { $$ = babelsberg__O($1); }
+                 */
+                | reference
+                        { $$ = babelsberg__R($1); }
+
+soperation      : T_ADD
+                        { $$ = babelsberg__ADD;}
+                | T_SUB
+                        { $$ = babelsberg__SUB;}
+woperation      : T_MUL
+                        { $$ = babelsberg__MUL;}
+                | T_DIV
+                        { $$ = babelsberg__DIV;}
+
+comparison      : T_LESSTHAN
+                        { $$ = babelsberg__LESSTHAN;}
+                | T_LEQUAL
+                        { $$ = babelsberg__LEQUAL;}
+                | T_EQUAL
+                        { $$ = babelsberg__EQUAL;}
+                | T_NEQUAL
+                        { $$ = babelsberg__NEQUAL;}
+                | T_GEQUAL
+                        { $$ = babelsberg__GEQUAL;}
+                | T_GREATERTHAN
+                        { $$ = babelsberg__GEQUAL;}
+
+combination     : T_AND
+                        { $$ = babelsberg__AND;}
+
+disjunction     : T_OR
+                        { $$ = babelsberg__OR;}
+\end{lstlisting}
+
+\begin{lstlisting}[language=rml,caption={babelsberg.rml}]
+module babelsberg:
+  datatype Program = PROGRAM of Statement
+
+  datatype Statement = SKIP
+		     | ASSIGN of LValue * Exp
+		     | ALWAYS of Constraint
+		     | ONCE of Constraint
+		     | SEQ of Statement * Statement
+		     | IF of Exp * Statement * Statement
+		     | WHILE of Exp * Statement
+
+  datatype Constraint = CONSTRAINT of Rho * Exp
+		      | COMPOUNDCONSTRAINT of Constraint * Constraint
+
+  datatype Rho = WEAK | MEDIUM | REQUIRED
+
+  datatype Exp = VALUE of Value
+	       | LVALUE of LValue
+	       | OP of Exp * Op * Exp
+	       | COMPARE of Exp * Comp * Exp
+	       | COMBINE of Exp * Comb * Exp
+	       | IDENTITY of Exp * Exp
+	       | CALL of Exp * Label * Exp list
+	       | IRECORD of ObjectLiteral
+	       | UIDRECORD of ObjectLiteral
+	       | DEREF of Dereference
+
+  type ObjectLiteral = (Label * Exp) list
+
+  datatype LValue = VARIABLE of Variable | FIELD of Exp * Label
+		  | ASSIGNDEREF of Dereference (* just for the parsing *)
+
+  datatype Constant = TRUE | FALSE | NIL | REAL of real | STRING of string
+
+  type Variable = string
+
+  type Label = string
+
+  type Reference = int
+
+  type Dereference = Exp
+
+  datatype MethodBody = METHOD of Statement * Exp | SIMPLE of Exp
+
+  datatype Value = K of Constant | O of ObjectLiteral | R of Reference
+
+(* Helper types *)
+  datatype Op =  ADD | SUB | MUL | DIV
+  datatype Comp = LESSTHAN | LEQUAL | EQUAL | NEQUAL | GEQUAL | GREATERTHAN
+  datatype Comb = AND | OR
+
+(* Type syntax *)
+  datatype Type = PRIMITIVE | TRECORD of (Label * Type) list
+
+(* Bindings and environments *)
+  type Env         = (Variable * Value) list
+  type Scope       = (Variable * Variable) list
+  type Heap        = (Reference * ObjectLiteral) list
+  type Cstore      = (Scope * Constraint) list
+  type Istore      = (Scope * Constraint) list
+
+  relation evalprogram: Program => ()
+  relation eval: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Heap, Cstore, Istore, Value)
+
+  relation alert: (string list, Exp list, string list) => ()
+end
+
+relation evalprogram: Program => () =
+  rule print "starting to evaluate\n" &
+       step([], [], [], [], [], statement) => (E,S,H,C,I)
+       --------------------------------------------------
+       evalprogram(PROGRAM(statement))
+end
+
+relation lookup: (Value, Label) => (Variable list, MethodBody) =
+  (* hard coded methods *)
+  axiom lookup(_, "one") => ([], (* return 1.0 *)
+			  SIMPLE(VALUE(K(REAL(1.0)))))
+
+  axiom lookup(_, "double") => ([], (* return 2*self *)
+			  SIMPLE(OP(VALUE(K(REAL(2.0))),MUL,LVALUE(VARIABLE("self")))))
+
+  axiom lookup(_, "Require_min_balance") => (["acct","min"], (* always acct.balance > min *)
+			  METHOD(ALWAYS(CONSTRAINT(REQUIRED, COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("acct")),"balance")),
+								     GREATERTHAN,
+								     LVALUE(VARIABLE("min?"))))),
+				 LVALUE(VARIABLE("self"))))
+
+  axiom lookup(_, "Has_min_balance") => (["acct","min"], (* return acct.balance > min *)
+			  SIMPLE(COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("acct")),"balance")),
+					 GREATERTHAN,
+					 LVALUE(VARIABLE("min")))))
+
+  (* {x: arg1, y: arg2} *)
+  axiom lookup(_, "Point") => (["x", "y"],
+				SIMPLE(IRECORD([("x", LVALUE(VARIABLE("x"))),
+						("y", LVALUE(VARIABLE("y")))])))
+
+  (* (self.upper_left.addPt(self.lower_right).divPtScalar(2) *)
+  axiom lookup(_, "center") => ([],
+				SIMPLE(CALL(CALL(LVALUE(FIELD(LVALUE(VARIABLE("self")), "upper_left")),
+						 "addPt",
+						 [LVALUE(FIELD(LVALUE(VARIABLE("self")), "lower_right"))]),
+					    "divPtScalar",
+					    [VALUE(K(REAL(2.0)))])))
+
+  (* {x: self.x + pt.x, y: self.y + pt.y} *)
+  axiom lookup(_, "addPt") => (["pt"],
+				SIMPLE(CALL(VALUE(K(NIL)),
+					    "Point",
+					    [OP(LVALUE(FIELD(LVALUE(VARIABLE("self")),"x")),
+						ADD,
+						LVALUE(FIELD(LVALUE(VARIABLE("pt")),"x"))),
+					     OP(LVALUE(FIELD(LVALUE(VARIABLE("self")),"y")),
+						ADD,
+						LVALUE(FIELD(LVALUE(VARIABLE("pt")),"y")))])))
+
+  (* {x: self.x / scale, y: self.y / scale} *)
+  axiom lookup(_, "divPtScalar") => (["scale"],
+				     SIMPLE(CALL(VALUE(K(NIL)),
+						 "Point",
+						 [OP(LVALUE(FIELD(LVALUE(VARIABLE("self")),"x")),
+						     DIV,
+						     LVALUE(VARIABLE("scale"))),
+						  OP(LVALUE(FIELD(LVALUE(VARIABLE("self")),"y")),
+						     DIV,
+						     LVALUE(VARIABLE("scale")))])))
+
+  (* self.x == other.x && self.y == other.y *)
+  axiom lookup(_, "ptEq") => (["other"],
+				SIMPLE(COMBINE(COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("self")),"x")),
+						       EQUAL,
+						       LVALUE(FIELD(LVALUE(VARIABLE("other")),"x"))),
+					       AND,
+					       COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("self")),"y")),
+						       EQUAL,
+						       LVALUE(FIELD(LVALUE(VARIABLE("other")),"y"))))))
+
+  (* always medium i = 5; return i + 1 *)
+  axiom lookup(_, "Test") => (["i"],
+			      METHOD(ALWAYS(CONSTRAINT(MEDIUM, COMPARE(LVALUE(VARIABLE("i")),EQUAL,VALUE(K(REAL(5.0)))))),
+				     OP(LVALUE(VARIABLE("i")),ADD,VALUE(K(REAL(1.0))))))
+
+  axiom lookup(_, "MutablePointNew") => (["x", "y"],
+					 SIMPLE(UIDRECORD([("x", LVALUE(VARIABLE("x"))),
+							   ("y", LVALUE(VARIABLE("y")))])))
+
+  axiom lookup(_, "WindowNew") => ([],
+				   SIMPLE(UIDRECORD([("window", VALUE(K(TRUE)))])))
+
+  axiom lookup(_, "CircleNew") => ([],
+				   SIMPLE(UIDRECORD([("circle", VALUE(K(TRUE)))])))
+
+
+  axiom lookup(_, "Makeeq") => (["x","y"],
+				METHOD(ALWAYS(CONSTRAINT(REQUIRED,
+							 IDENTITY(LVALUE(VARIABLE("x")),LVALUE(VARIABLE("y"))))),
+				       LVALUE(VARIABLE("self"))))
+
+  axiom lookup(_, "MakeIdentical") => (["a","b"],
+				METHOD(ALWAYS(CONSTRAINT(REQUIRED,
+							 IDENTITY(LVALUE(VARIABLE("a")),LVALUE(VARIABLE("b"))))),
+				       LVALUE(VARIABLE("self"))))
+
+  axiom lookup(_, "Testalwaysxequal5") => (["x"],
+				METHOD(ALWAYS(CONSTRAINT(REQUIRED,
+							 COMPARE(LVALUE(VARIABLE("x")),EQUAL,VALUE(K(REAL(5.0)))))),
+				       LVALUE(VARIABLE("x"))))
+
+  axiom lookup(_, "Testalwaysaequalsbplus3") => (["a", "b"],
+				METHOD(ALWAYS(CONSTRAINT(REQUIRED,
+							 COMPARE(LVALUE(VARIABLE("a")),EQUAL,OP(LVALUE(VARIABLE("b")),ADD,VALUE(K(REAL(3.0))))))),
+				       LVALUE(VARIABLE("a"))))
+
+  axiom lookup(_, "Testpointxequals5") => (["p"],
+				METHOD(ALWAYS(CONSTRAINT(REQUIRED,
+							 COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("p")),"x")),EQUAL,VALUE(K(REAL(5.0)))))),
+				       LVALUE(VARIABLE("p"))))
+
+  axiom lookup(_, "TestXGetsXPlus3ReturnX") => (["x"],
+				METHOD(ASSIGN(VARIABLE("x"),OP(LVALUE(VARIABLE("x")),ADD,VALUE(K(REAL(3.0))))),
+				       LVALUE(VARIABLE("x"))))
+
+end
+
+relation enter: (Env, Scope, Heap, Cstore, Istore, Value, Variable list, Exp list) => (Env, Scope, Heap, Cstore, Istore) =
+  rule evalEach(E, S, H, C, I, argexps) => (En, Hn, Cn, In, argvals) &
+       assignEachFresh(En, [], Hn, Cn, In, "self" :: argnames, v :: argvals) => (E2n, Sn, Hn, Cn, In)
+       ----------------------------------------------------------------------------------------------
+       enter(E, S, H, C, I, v, argnames, argexps) => (E2n, Sn, Hn, Cn, In)
+end
+
+relation evalEach: (Env, Scope, Heap, Cstore, Istore, Exp list) => (Env, Heap, Cstore, Istore, Value list) =
+  axiom	evalEach(E,S,H,C,I,[]) => (E,H,C,I,[])
+
+  rule	eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	evalEach(E',S,H',C',I',rest) => (E'',H'',C'',I'',values)
+	------------------------------------------------------
+	evalEach(E,S,H,C,I,e :: rest) => (E'',H'',C'',I'',v :: values)
+end
+
+relation assignEachFresh: (Env, Scope, Heap, Cstore, Istore, Variable list, Value list) => (Env, Scope, Heap, Cstore, Istore) =
+  axiom	assignEachFresh(E,S,H,C,I,[],[]) => (E,S,H,C,I)
+
+  rule	tick() => i & int_string(i) => is & string_append(x,is) => xg &
+	list_append(S,[(x,xg)]) => S' &
+	list_append(E,[(xg,v)]) => E' &
+	assignEachFresh(E',S',H,C,I,xrest, vrest) => (E'',S'',H,C,I)
+	------------------------------------------------------------
+	assignEachFresh(E,S,H,C,I,x :: xrest, v :: vrest) => (E'',S'',H,C,I)
+end
+
+relation eval: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Heap, Cstore, Istore, Value) =
+  axiom eval(E,S,H,C,I,VALUE(K(c))) => (E,H,C,I,K(c))
+
+  rule	alert(["E-Var(", x],[],[")\n"]) &
+	Util.lookupScope(S, x) => xg & Util.lookupEnv(E, xg) => v
+	---------------------------------------------------------
+	eval(E,S,H,C,I, LVALUE(VARIABLE(x))) => (E,H,C,I,v)
+
+  rule	eval(E,S,H,C,I,e) => (E',H',C',I',R(r)) &
+	alert(["E-Field(", l, ")\n"], [], []) &
+	Util.lookupHeap(H', r) => fvalues &
+	Util.lookupRecord(fvalues, l) => v
+	----------------------------------
+	eval(E,S,H,C,I, LVALUE(FIELD(e, l))) => (E',H',C',I',v)
+
+  rule	eval(E,S,H,C,I,e) => (E',H',C',I',O(fvalues)) &
+	alert(["E-ValueField(", l, ")"], [], []) &
+	Util.lookupRecord(fvalues, l) => v
+	----------------------------------
+	eval(E,S,H,C,I, LVALUE(FIELD(e, l))) => (E',H',C',I',v)
+
+  axiom	eval(E,S,H,C,I, VALUE(R(r))) => (E,H,C,I, R(r))
+
+  rule alert(["E-Op\n"],[],[]) &
+       eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
+       Util.apply_binop(op,v1,v2) => v
+       -------------------------------
+       eval(E,S,H,C,I, OP(e1, op, e2)) => (E'',H'',C'',I'',v)
+
+  rule alert(["E-Compare\n"],[],[]) &
+       eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
+       Util.apply_bincomp(op,v1,v2) => v
+       ---------------------------------
+       eval(E,S,H,C,I, COMPARE(e1, op, e2)) => (E'',H'',C'',I'',v)
+
+  rule eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+       Util.shortcircuit_bincomb(op,v1) => (true, v) &
+       alert(["E-CombineShortCircuit\n"],[],[])
+       -------------------------------
+       eval(E,S,H,C,I, COMBINE(e1, op, e2)) => (E',H',C',I',v1)
+
+  rule alert(["E-Combine\n"],[],[]) &
+       eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+       Util.shortcircuit_bincomb(op,v1) => (false, v) &
+       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
+       Util.apply_bincomb(op,v1,v2) => v
+       ---------------------------------
+       eval(E,S,H,C,I, COMBINE(e1, op, e2)) => (E'',H'',C'',I'',v1)
+
+  rule eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
+       v1 = v2 &
+       alert(["E-IdentityTrue\n"],[],[])
+       ------------------------
+       eval(E,S,H,C,I, IDENTITY(e1, e2)) => (E'',H'',C'',I'',K(TRUE))
+
+  rule eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
+       not v1 = v2 &
+       alert(["E-IdentityFalse\n"],[],[])
+       ------------------------
+       eval(E,S,H,C,I, IDENTITY(e1, e2)) => (E'',H'',C'',I'',K(FALSE))
+
+  rule	eval(E,S,H,C,I,e) => (E0,H0,C0,I0,v) &
+	lookup(v,l) => (argnames, METHOD(s, returne)) &
+	alert(["E-Call\n"],[],[]) &
+	enter(E0,S,H0,C0,I0,v,argnames,argexps) => (E1,Sm,H1,C1,I1) &
+	step(E1,Sm,H1,C1,I1,s) => (E',S',H',C',I') &
+	eval(E',S',H',C',I',returne) => (E'',H'',C'',I'',vr)
+	----------------------------------------------
+	eval(E,S,H,C,I,CALL(e,l,argexps)) => (E'',H'',C'',I'',vr)
+
+  rule	alert(["E-CallSimple\n"],[],[]) &
+	eval(E,S,H,C,I,e) => (E0,H0,C0,I0,v) &
+	lookup(v,l) => (argnames, SIMPLE(returne)) &
+	enter(E0,S,H0,C0,I0,v,argnames,argexps) => (E1,Sm,H1,C1,I1) &
+	eval(E1,Sm,H1,C1,I1,returne) => (E',H',C',I',vr)
+	----------------------------------------------
+	eval(E,S,H,C,I,CALL(e,l,argexps)) => (E',H',C',I',vr)
+
+  rule	alert(["E-New\n"],[],[]) &
+	evalEachField(E,S,H,C,I,fieldexps) => (En,Hn,Cn,In,fieldvalues) &
+	tick() => r &
+	list_append([(r, fieldvalues)], Hn) => H'
+	------------------------------------------------------------------
+	eval(E,S,H,C,I,UIDRECORD(fieldexps)) => (En,H',Cn,In,R(r))
+
+  rule	alert(["E-Value\n"],[],[]) &
+	evalEachField(E,S,H,C,I,fieldexps) => (En,Hn,Cn,In,fieldvalues)
+	------------------------------------------------------------------
+	eval(E,S,H,C,I,IRECORD(fieldexps)) => (En,Hn,Cn,In,O(fieldvalues))
+end
+
+relation evalEachField: (Env, Scope, Heap, Cstore, Istore, ObjectLiteral) => (Env, Heap, Cstore, Istore, ObjectLiteral) =
+  axiom	evalEachField(E,S,H,C,I,[]) => (E,H,C,I,[])
+
+  rule	eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	evalEachField(E',S,H',C',I',rest) => (E'',H'',C'',I'',values)
+	------------------------------------------------------
+	evalEachField(E,S,H,C,I,(l,e) :: rest) => (E'',H'',C'',I'',(l,VALUE(v)) :: values)
+end
+
+relation tC: (Env, Heap, Exp) => Type =
+  axiom tC(E, H, VALUE(K(c))) => PRIMITIVE
+
+  rule	alert(["T-Var\n"],[],[]) &
+	Util.lookupEnv(E, x) => v &
+	tC(E,H,VALUE(v)) => T
+	---------------------------------
+	tC(E,H, LVALUE(VARIABLE(x))) => T
+
+  rule alert(["T-Field\n"],[],[]) &
+       tC(E,H,e) => TRECORD(ftypes) &
+       Util.lookupRecordType(ftypes, l) => T
+       -------------------------------------
+       tC(E,H, LVALUE(FIELD(e, l))) => T
+
+  rule	alert(["T-Ref\n"],[],[]) &
+	Util.lookupHeap(H, r) => fvalues &
+	tC(E,H,VALUE(O(fvalues))) => T
+	------------------------------
+	tC(E,H,VALUE(R(r))) => T
+
+  rule	alert(["T-Op\n"],[],[]) &
+	tC(E,H,e1) => PRIMITIVE &
+	tC(E,H,e2) => PRIMITIVE
+	--------------------------
+	tC(E,H, OP(e1, op, e2)) => PRIMITIVE
+
+  rule alert(["T-Compare\n"],[],[]) &
+       tC(E,H,e1) => T1 &
+       tC(E,H,e2) => T2 &
+       T1 = T2
+       --------------------------
+       tC(E,H, COMPARE(e1, op, e2)) => PRIMITIVE
+
+  rule alert(["T-Combine\n"],[],[]) &
+       tC(E,H,e1) => PRIMITIVE &
+       tC(E,H,e2) => PRIMITIVE
+       --------------------------
+       tC(E,H, COMBINE(e1, op, e2)) => PRIMITIVE
+
+  rule alert(["T-ValueObject\n"],[],[]) &
+       tCFields(E,H, fvalues) => ftypes
+       ---------------------------------------
+       tC(E,H, VALUE(O(fvalues))) => TRECORD(ftypes)
+
+  rule alert(["T-Deref\n"],[],[]) &
+       tC(E,H, e) => T
+       ---------------------------------------
+       tC(E,H, DEREF(e)) => T
+end
+
+relation tCFields: (Env, Heap, ObjectLiteral) => (Label * Type) list =
+  axiom tCFields(E,H,[]) => []
+
+  rule tC(E,H,e) => T &
+       tCFields(E,H,rest) => ftypes
+       ----------------------------
+       tCFields(E,H, (l,e) :: rest) => ((l,T) :: ftypes)
+end
+
+relation welltyped: (Env, Heap, Constraint) => () =
+  rule tC(E,H,e) => T
+       ---------------------------
+       welltyped(E,H, CONSTRAINT(rho, e))
+
+  rule welltyped(E,H,C1) & welltyped(E,H,C2)
+       -------------------------------------
+       welltyped(E,H, COMPOUNDCONSTRAINT(C1, C2))
+end
+
+with "solver.rml"
+with "printer.rml"
+with "helper.rml"
+
+relation models: Constraint => (Env, Heap) =
+  rule Print.printC(C) => plainCs &
+       Print.pRefDom(C) => refDom &
+       Print.pLabDom(C) => labDom &
+       Print.pDefs(C) => defs &
+       Print.printZ3C(C) => Cs &
+       string_append_list(["(set-option :pp.decimal true)(set-option :model.compact true)\n",
+			   refDom, "\n", labDom, "\n
+; Next block of declarations are the same everywhere
+; We use a Union type for values
+(declare-datatypes () ((Value (Record (rec (Array Label Real)))
+                              (Real (real Real))
+			      (Bool (bool Bool))
+                              (Reference (ref Reference)))))
+; A default record has 'invalid' for all fields
+(declare-const iRec (Array Label (Value)))
+(assert (= iRec ((as const (Array Label (Value))) (Reference invalid))))
+(declare-const invalidR Real) (assert (= invalidR 1334))
+(declare-const vRec (Array Label (Real)))
+(assert (= vRec ((as const (Array Label (Real))) invalidR)))
+; Records are (Array Label (Value))
+(declare-fun H ((Value)) (Array Label (Value)))
+(assert (and (= (H (Reference invalid)) iRec) (= (H (Reference nil)) iRec)))
+
+(define-fun plus ((x (Value)) (y (Value))) (Value)
+                 (Real (+ (real x) (real y))))
+(define-fun minus ((x (Value)) (y (Value))) (Value)
+                 (Real (- (real x) (real y))))
+(define-fun times ((x (Value)) (y (Value))) (Value)
+                 (Real (* (real x) (real y))))
+(define-fun divide ((x (Value)) (y (Value))) (Value)
+                 (Real (/ (real x) (real y))))
+
+(define-fun lessthan ((x (Value)) (y (Value))) (Value)
+                 (Bool (< (real x) (real y))))
+(define-fun leq ((x (Value)) (y (Value))) (Value)
+                 (Bool (<= (real x) (real y))))
+(define-fun greaterthan ((x (Value)) (y (Value))) (Value)
+                 (Bool (> (real x) (real y))))
+(define-fun geq ((x (Value)) (y (Value))) (Value)
+                 (Bool (>= (real x) (real y))))
+
+(define-fun equal ((x (Value)) (y (Value))) (Value)
+                 (Bool (= x y)))
+(define-fun notequal ((x (Value)) (y (Value))) (Value)
+                 (Bool (not (= x y))))
+
+(define-fun bbband ((x (Value)) (y (Value))) (Value)
+                 (Bool (and (bool x) (bool y))))
+(define-fun bbbor ((x (Value)) (y (Value))) (Value)
+                 (Bool (or (bool x) (bool y))))
+
+",
+			   defs, "\n", Cs, "\n(check-sat)\n(get-model)\n"]) => srr &
+       Solver.solve(plainCs, srr) => El &
+       print "\n" &
+       Print.parseEnvironment(El, [], []) => (E, H) &
+       print "\n"
+       ------------------------------
+       models(C) => (E, H)
+end
+
+relation stay: Env => Constraint =
+  axiom stay([]) => CONSTRAINT(REQUIRED, VALUE(K(TRUE)))
+
+  rule alert(["StayOne\n"],[],[]) &
+       stay(E0) => C0
+       --------------------------------
+       stay((x, v) :: E0) => COMPOUNDCONSTRAINT(C0, CONSTRAINT(WEAK, COMPARE(LVALUE(VARIABLE(x)), EQUAL, VALUE(v))))
+end
+
+relation stayH: Heap => Constraint =
+  axiom stayH([]) => CONSTRAINT(REQUIRED, VALUE(K(TRUE)))
+
+  rule alert(["StayHeap\n"],[],[]) &
+       stayH(H0) => C0
+       --------------------------------
+       stayH((r, o) :: H0) => COMPOUNDCONSTRAINT(C0, CONSTRAINT(WEAK, COMPARE(DEREF(VALUE(R(r))), EQUAL, VALUE(O(o)))))
+end
+
+relation stayFields: (Reference, ObjectLiteral) => (Constraint, ObjectLiteral) =
+  axiom stayFields(_, []) => (CONSTRAINT(REQUIRED, VALUE(K(TRUE))), [])
+
+  rule stayFields(r, rest) => (C, o) &
+       int_string(r) => is & string_append_list(["ref", is, "_", l]) => x
+       -------------------------------------------------------------------------------
+       stayFields(r, (l, e) :: rest) => (COMPOUNDCONSTRAINT(CONSTRAINT(WEAK, COMPARE(LVALUE(VARIABLE(x)), EQUAL, e)), C),
+					 (l, LVALUE(VARIABLE(x))) :: o)
+end
+
+relation identityStay: Env => Constraint =
+  axiom identityStay([]) => CONSTRAINT(REQUIRED, VALUE(K(TRUE)))
+
+  rule alert(["StayRef\n"],[],[]) &
+       identityStay(E0) => C0
+       --------------------------------
+       identityStay((x, R(r)) :: E0) => COMPOUNDCONSTRAINT(C0, CONSTRAINT(REQUIRED, COMPARE(LVALUE(VARIABLE(x)), EQUAL, VALUE(R(r)))))
+
+  rule alert(["StayObj\n"],[],[]) & identityStay(E0) => C0 & stay([(x, O(o))]) => C1
+       --------------------------------------------------------------------
+       identityStay((x, O(o)) :: E0) => COMPOUNDCONSTRAINT(C0, C1)
+
+  rule alert(["StayConst\n"],[],[]) & identityStay(E0) => C0 & stay([(x, K(c))]) => C1
+       ----------------------------------------------------------------------
+       identityStay((x, K(c)) :: E0) => COMPOUNDCONSTRAINT(C0, C1)
+end
+
+relation identityStayH: Heap => Constraint =
+  axiom identityStayH([]) => CONSTRAINT(REQUIRED, VALUE(K(TRUE)))
+
+  rule alert(["IdentityStayHeap\n"],[],[]) &
+       identityStayH(H0) => C0
+       --------------------------------
+       identityStayH((r, o) :: H0) => COMPOUNDCONSTRAINT(C0, CONSTRAINT(WEAK, COMPARE(DEREF(VALUE(R(r))), EQUAL, VALUE(O(o)))))
+end
+
+relation identityStayFields: (Reference, ObjectLiteral) => (Constraint, ObjectLiteral) =
+  axiom identityStayFields(_, []) => (CONSTRAINT(REQUIRED, VALUE(K(TRUE))), [])
+
+  rule identityStayFields(r, rest) => (C, o) &
+       int_string(r) => is &string_append(is, "_") => is' & string_append(is', l) => x &
+       identityStay([(x, v)]) => C0
+       ---------------------------------------------------------------------------------
+       identityStayFields(r, (l, VALUE(v)) :: rest) => (COMPOUNDCONSTRAINT(C0, C), (l, LVALUE(VARIABLE(x))) :: o)
+end
+
+relation inline: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Exp, Exp) =
+  axiom inline(E,S,H,C,I,VALUE(K(c))) => (E,VALUE(K(TRUE)),VALUE(K(c)))
+
+  rule	alert(["I-Var"],[],[]) &
+	Util.lookupScope(S,x) => xg
+	---------------------------
+	inline(E,S,H,C,I,LVALUE(VARIABLE(x))) => (E,VALUE(K(TRUE)),LVALUE(VARIABLE(xg)))
+
+  rule	alert(["I-Record"],[],[]) &
+	inlineEachField(E,S,H,C,I,o) => (En,ec,o')
+	------------------------------------
+	inline(E,S,H,C,I,IRECORD(o)) => (En,ec,VALUE(O(o')))
+
+  rule	alert(["I-Record"],[],[]) &
+	inlineEachField(E,S,H,C,I,o) => (En,ec,o')
+	------------------------------------
+	inline(E,S,H,C,I,VALUE(O(o))) => (En,ec,VALUE(O(o')))
+
+  rule	alert(["I-Field"],[],[]) &
+	inline(E,S,H,C,I,e) => (E',ec,e') &
+	eval(E',S,H,C,I,e) => (E'',H,C,I,R(r))
+	---------------------------------------------
+	inline(E,S,H,C,I,LVALUE(FIELD(e,l))) => (E',COMBINE(ec,AND,COMPARE(e',EQUAL,VALUE(R(r)))),LVALUE(FIELD(DEREF(e'),l)))
+
+  rule	alert(["I-ValueField"],[],[]) &
+	inline(E,S,H,C,I,e) => (E',ec,e') &
+	eval(E',S,H,C,I,e) => (E'',H,C,I,O(o))
+	---------------------------------------------
+	inline(E,S,H,C,I,LVALUE(FIELD(e,l))) => (E',ec,LVALUE(FIELD(e',l)))
+
+  axiom inline(E,S,H,C,I,VALUE(R(r))) => (E,VALUE(K(TRUE)),VALUE(R(r)))
+
+  rule	alert(["I-Op"],[],[]) &
+	inline(E,S,H,C,I,e1) => (E',eca,ea) &
+	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
+	-------------------------------------
+	inline(E,S,H,C,I,OP(e1,op,e2)) => (E'',COMBINE(eca,AND,ecb),OP(ea,op,eb))
+
+  rule	alert(["I-Compare"],[],[]) &
+	inline(E,S,H,C,I,e1) => (E',eca,ea) &
+	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
+	-------------------------------------
+	inline(E,S,H,C,I,COMPARE(e1,op,e2)) => (E'',COMBINE(eca,AND,ecb),COMPARE(ea,op,eb))
+
+  rule	alert(["I-Combine"],[],[]) &
+	inline(E,S,H,C,I,e1) => (E',eca,ea) &
+	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
+	-------------------------------------
+	inline(E,S,H,C,I,COMBINE(e1,op,e2)) => (E'',COMBINE(eca,AND,ecb),COMBINE(ea,op,eb))
+
+  rule	alert(["I-Identity"],[],[]) &
+	inline(E,S,H,C,I,e1) => (E',eca,ea) &
+	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
+	-----------------------------------------------------
+	inline(E,S,H,C,I,IDENTITY(e1,e2)) => (E'',COMBINE(eca,AND,ecb),IDENTITY(ea,eb))
+
+  rule	eval(E,S,H,C,I,e) => (E',H,C,I,v) & lookup(v,l) => (argnames,METHOD(s,e)) &
+	alert(["I-Call(", l],[],[")"]) &
+	enter(E',S,H,C,I,v,argnames,argexps) => (E'',Sm,H,C,I) &
+	step(E'',Sm,H,C,I,s) => (E''',S',H',C',I') &
+        H' = H & C' = C & I' = I & (* this is just explicit unification *)
+	eval(E''',S',H,C,I,e) => (E'''',H,C,I,vr)
+	-----------------------------------------
+	inline(E,S,H,C,I,CALL(e,l,argexps)) => (E'''',VALUE(K(TRUE)),VALUE(vr))
+
+  rule	inline(E,S,H,C,I,e0) => (E',ec0,e0') & eval(E',S,H,C,I,e0) => (E'',H,C,I,v) &
+	lookup(v,l) => (argnames,SIMPLE(e)) &
+	alert(["I-SimpleCall(", l],[],[")"]) &
+	enter(E'',S,H,C,I,v,argnames,argexps) => (E''',Sm,H,C,I) &
+	inlineEach(E''',S,H,C,I,argexps) => (En,ecn,inlinedargexps) &
+	Util.lookupScope(Sm,"self") => xgself &
+	Util.lookupScopeEach(Sm,argnames) => globalargnames &
+	Util.pairwiseEqualEach(xgself :: globalargnames, e0' :: inlinedargexps) => argequalities &
+	Util.combineEach(argequalities) => ec &
+	inline(En,Sm,H,C,I,e) => (En',ecm,e') &
+	Util.combineEach([ec0, ec, ecm, ecn]) => eC
+	-----------------------------------------
+	inline(E,S,H,C,I,CALL(e0,l,argexps)) => (En',eC,e')
+end
+
+relation inlineEach: (Env, Scope, Heap, Cstore, Istore, Exp list) => (Env, Exp, Exp list) =
+  axiom inlineEach(E,S,H,C,I,[]) => (E,VALUE(K(TRUE)),[])
+
+  rule	inline(E,S,H,C,I,e) => (E',eC,e') &
+	inlineEach(E',S,H,C,I,rest) => (E'',restC,rest')
+	------------------------------------------------
+	inlineEach(E,S,H,C,I,e :: rest) => (E'',COMBINE(eC,AND,restC),e' :: rest')
+end
+
+relation inlineEachField: (Env, Scope, Heap, Cstore, Istore, ObjectLiteral) => (Env, Exp, ObjectLiteral) =
+  axiom inlineEachField(E,S,H,C,I,[]) => (E,VALUE(K(TRUE)),[])
+
+  rule	inline(E,S,H,C,I,e) => (E',eC,e') &
+	inlineEachField(E',S,H,C,I,rest) => (E'',restC,rest')
+	------------------------------------------------
+	inlineEachField(E,S,H,C,I,(l,e) :: rest) => (E'',COMBINE(eC,AND,restC),(l,e') :: rest')
+end
+
+relation reinlineC: (Env, Heap, Istore, Cstore) => (Env, Constraint) =
+  axiom reinlineC(E,H,I,[]) => (E,CONSTRAINT(REQUIRED, VALUE(K(TRUE))))
+
+  rule	reinlineC(E,H,I,Cstore0) => (E0,C0) &
+	inline(E0,S,H,Cstore0,I,e) => (E',eC,e')
+	-----------------------------------------------------------------
+	reinlineC(E,H,I,(S,CONSTRAINT(rho,e)) :: Cstore0) => (E',COMPOUNDCONSTRAINT(C0,CONSTRAINT(rho,COMBINE(e',AND,eC))))
+end
+
+relation reinlineI: (Env, Heap, Cstore, Istore) => (Env, Constraint) =
+  axiom reinlineI(E,H,C,[]) => (E,CONSTRAINT(REQUIRED, VALUE(K(TRUE))))
+
+  rule	reinlineI(E,H,C,Istore0) => (E0,C0) &
+	inline(E0,S,H,C,Istore0,e) => (E',eC,e')
+	----------------------------------------------------------------------
+	reinlineI(E,H,C,(S,CONSTRAINT(REQUIRED,e)) :: Istore0) => (E',COMPOUNDCONSTRAINT(C0,CONSTRAINT(REQUIRED,COMBINE(e',AND,eC))))
+end
+
+relation twoPhaseUpdate: (Env, Heap, Cstore, Istore, Exp, Constraint) => (Env, Heap) =
+  rule	stay(E) => CEs & stayH(H) => CHs & reinlineI(E,H,C,I) => (Ei,Ci) &
+	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(Ci,CEs),C0),
+				  COMPOUNDCONSTRAINT(CHs,CONSTRAINT(REQUIRED,COMPARE(e1,EQUAL,e2))))) => (E',H') &
+	identityStay(E') => CEs' & identityStayH(H') => CHs' & reinlineC(E',H',I,C) => (Ec,Cc) & welltyped(Ec,H',Cc) &
+	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(Cc,C0),
+						     COMPOUNDCONSTRAINT(CEs',CHs')),
+				  CONSTRAINT(REQUIRED,COMPARE(e1,EQUAL,e2)))) => (E'',H'')
+	----------------------------------------------------------------------------------
+	twoPhaseUpdate(E,H,C,I,IDENTITY(e1,e2),C0) => (E'',H'')
+end
+
+relation step: (Env, Scope, Heap, Cstore, Istore, Statement) => (Env, Scope, Heap, Cstore, Istore) =
+
+  axiom step(E,S,H,C,I,SKIP) => (E,S,H,C,I)
+
+  rule  alert(["S-Seq\n"],[],[]) &
+	step(E, S, H, C, I, s1) => (E',S',H',C',I') &
+	step(E',S',H',C',I',s2) => (E'',S'',H'',C'',I'')
+	------------------------------------------------
+	step(E,S,H,C,I,SEQ(s1,s2)) => (E'',S'',H'',C'',I'')
+
+  rule  eval(E,S,H,C,I,e) => (E',H',C',I',K(TRUE)) &
+	alert(["S-IfThen\n"],[],[]) &
+	step(E',S,H',C',I',s1) => (E'',S',H'',C'',I'')
+	----------------------------------------------
+	step(E,S,H,C,I,IF(e, s1, s2)) => (E'',S',H'',C'',I'')
+
+  rule  eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	not v = K(TRUE) &
+	alert(["S-IfElse\n"],[],[]) &
+	step(E',S,H',C',I',s2) => (E'',S',H'',C'',I'')
+	----------------------------------------------
+	step(E,S,H,C,I,IF(e, s1, s2)) => (E'',S',H'',C'',I'')
+
+  rule  eval(E,S,H,C,I,e) => (E',H',C',I',K(TRUE)) &
+	alert(["S-WhileDo\n"],[],[]) &
+	step(E',S,H',C',I',s) => (E'',S',H'',C'',I'') &
+	step(E'',S',H'',C'',I'', WHILE(e, s)) => (E''',S'',H''',C''',I''')
+	------------------------------------------------------------------
+	step(E,S,H,C,I,WHILE(e, s)) => (E''',S'',H''',C''',I''')
+
+  rule  eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	not v = K(TRUE) &
+	alert(["S-WhileSkip\n"],[],[])
+	-----------------------------------------------------
+	step(E,S,H,C,I, WHILE(e, s)) => (E',S,H',C',I')
+
+  rule	Util.lookupScope(S,x) => xg & alert(["S-AsgnLocal(",x,")\n"],[],[]) &
+	eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	twoPhaseUpdate(E',H',C',I',IDENTITY(LVALUE(VARIABLE(xg)),VALUE(v)),CONSTRAINT(REQUIRED,VALUE(K(TRUE)))) => (E'',H'')
+	-----------------------------------------------------------------------------------------------
+	step(E,S,H,C,I,ASSIGN(VARIABLE(x),e)) => (E'',S,H'',C',I')
+
+  rule	not Util.lookupScope(S,x) => _ & alert(["S-AsgnNewLocal(",x,") := "],[e],["\n"]) &
+	tick() => i & int_string(i) => istring & string_append(x,istring) => xg &
+	list_append(S,[(x,xg)]) => S' &
+	eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	twoPhaseUpdate(E',H',C',I',IDENTITY(LVALUE(VARIABLE(xg)),VALUE(v)),CONSTRAINT(REQUIRED,VALUE(K(TRUE)))) => (E'',H'')
+	-----------------------------------------------------------------------------------------------
+	step(E,S,H,C,I,ASSIGN(VARIABLE(x),e)) => (E'',S',H'',C',I')
+
+  rule  alert(["S-AsgnLValue\n"],[],[]) &
+	eval(E,S,H,C,I,e) => (E',H',C',I',v) &
+	inline(E',S,H',C',I',LVALUE(FIELD(el,l))) => (E'',eC,e') &
+	twoPhaseUpdate(E'',H',C',I',IDENTITY(e',VALUE(v)),CONSTRAINT(REQUIRED,eC)) => (E''',H'')
+	---------------------------------------------------------------------------------------------
+	step(E,S,H,C,I,ASSIGN(FIELD(el,l),e)) => (E''',S,H'',C',I')
+
+  rule  alert(["S-OnceIdentity\n"],[],[]) &
+	eval(E,S,H,C,I,e0) => (E0,H,C,I,v0) & eval(E0,S,H,C,I,e1) => (E1,H,C,I,v1) & v0 = v1 &
+	inline(E1,S,H,C,I,e0) => (E2,eC0,e0') & inline(E2,S,H,C,I,e1) => (E3,eC1,e1')
+	-----------------------------------------------------------------------------
+	step(E,S,H,C,I, ONCE(CONSTRAINT(REQUIRED, IDENTITY(e0, e1)))) => (E3,S,H,C,I)
+
+  rule	alert(["S-AlwaysIdentity\n"],[],[]) &
+	step(E,S,H,C,I, ONCE(CONSTRAINT(REQUIRED, IDENTITY(e0, e1)))) => (E',S,H,C,I) &
+	list_append(I,[(S,CONSTRAINT(REQUIRED, IDENTITY(e0, e1)))]) => I'
+	-----------------------------------------------------------------
+	step(E,S,H,C,I, ALWAYS(CONSTRAINT(REQUIRED, IDENTITY(e0, e1)))) => (E',S,H,C,I')
+
+  rule	alert(["S-Once\n"],[],[]) &
+	inline(E,S,H,C,I,e) => (E',eC,e') &
+	welltyped(E',H, CONSTRAINT(rho,COMBINE(e',AND,eC))) &
+	identityStay(E') => CEs & identityStayH(H) => CHs &
+	reinlineC(E',H,I,C) => (E'', Cc) &
+	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(CEs, CHs),
+				  COMPOUNDCONSTRAINT(Cc, CONSTRAINT(rho,COMBINE(e',AND,eC))))) => (E''',H')
+	--------------------------------------------------------------------------------------------------
+	step(E,S,H,C,I,ONCE(CONSTRAINT(rho,e))) => (E''',S,H',C,I)
+
+  rule	alert(["S-Always\n"],[],[]) &
+	step(E,S,H,C,I, ONCE(C0)) => (E',S,H',C,I) &
+	list_append(C,[(S,C0)]) => C'
+	---------------------------------------------
+	step(E,S,H,C,I, ALWAYS(C0)) => (E',S,H',C',I)
+end
+
+
+(* debugging *)
+relation alert: (string list, Exp list, string list) => () =
+  axiom alert(_, _, _) => ()
+
+   rule  string_append_list(s1) => s1' & print s1' &
+   	Print.printE(e) => es & print es &
+   	string_append_list(s2) => s2' & print s2'
+   	-----------------------------------------
+   	alert(s1,e :: _,s2)
+   
+   rule  string_append_list(s1) => s1' & print s1' &
+   	print "<unprintable>" &
+   	string_append_list(s2) => s2' & print s2'
+   	-----------------------------------------
+   	alert(s1,e :: _,s2)
+   
+   rule  string_append_list(s1) => s1' & print s1' &
+   	string_append_list(s2) => s2' & print s2'
+   	-----------------------------------------
+   	alert(s1,[],s2)
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=rml,caption={solver.rml}]
+module Solver:
+  with "babelsberg.rml"
+
+  (* Call solver in C *)
+  relation solve: (string, string) => babelsberg.Program list
+  relation string_real: string => real
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=C,caption={solver.c}]
+/* Glue to call parser (and thus scanner) from RML */
+#include <stdio.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
+#include "rml.h"
+#include "babelsberg.h"
+#include "parser.h"
+
+extern int yy_scan_string(char *yy_str);
+extern void* absyntree;
+
+/* No init for this module */
+void Solver_5finit(void) {}
+/* The glue function */
+RML_BEGIN_LABEL(Solver__solve)
+{
+    char *assignment;
+    double rvalue = 0;
+    char *first_param = RML_STRINGDATA(rmlA0);
+    char *second_param = RML_STRINGDATA(rmlA1);
+    char c;
+
+    printf("\n\n### These are the current constraints: %s\n", first_param);
+
+    FILE* z3 = fopen("constraints.smt", "w");
+    fwrite(second_param, sizeof(char), strlen(second_param), z3);
+
+    /* Call the alert relation, so we only print this in debug mode */
+    rml_state_ARGS[0]= mk_cons(mk_scon(
+	   "\n\nA terminal with your $BBBEDITOR will open. Please enter a new " \
+	   "environment satisfying the constraints as 'var := value' pairs, "\
+	   "each separated by a newline. Save and close finishes.\n"\
+	   "To fail in the solver, just write 'unsat'.\n\n"), mk_nil());
+    rml_state_ARGS[1]= mk_nil();
+    rml_state_ARGS[2]= mk_nil();
+    rml_prim_once(RML_LABPTR(babelsberg__alert));
+    fflush(NULL);
+
+    int exitcode = system("$BBBEDITOR input");
+    if (exitcode != 0) {
+	RML_TAILCALLK(rmlFC);
+    }
+
+    FILE* input = fopen("input", "r");
+    void* list = mk_nil();
+
+    while(fscanf(input, "%m[()#-{}a-zA-Z0-9.:=, \"]\n", &assignment) != EOF) {
+	/* printf("%s\n", assignment); */
+	yy_scan_string(assignment);
+	if (yyparse() != 0) {
+	    fprintf(stderr, "Parsing model failed!\n");
+	    RML_TAILCALLK(rmlFC);
+	}
+	list = mk_cons(absyntree, list);
+
+	free(assignment);
+    }
+
+    rmlA0 = list;
+    RML_TAILCALLK(rmlSC);
+}
+RML_END_LABEL
+
+RML_BEGIN_LABEL(Solver__string_5freal)
+{
+    char *first_param = RML_STRINGDATA(rmlA0);
+    char *endptr = first_param;
+    errno = 0;
+    double r = strtod(first_param, &endptr);
+
+    if (endptr == first_param || errno != 0) {
+	/* printf("Conversion failed %s\n", first_param); */
+	RML_TAILCALLK(rmlFC);
+    }
+    /* printf("Conversion success %s -> %f\n", first_param, r); */
+    rmlA0 = mk_rcon(r);
+    RML_TAILCALLK(rmlSC);
+}
+RML_END_LABEL
+\end{lstlisting}
+
+To run the test with automatically calling the Z3 binary and feeding
+the solution back to the RML executable, we use the following
+additional script. When the environment variable \lstinline!BBBEDITOR!
+is set to this script, the C interface that implements the solver
+judgment will call this file with the generated constraints.
+
+\begin{lstlisting}[language=Ruby,caption={cisolver.rb}]
+require "pp"
+
+module Z3ModelParser
+  extend self
+
+  def parse(str)
+    raise "no model!" unless str.start_with?("(model")
+    env = read_environment(str)
+    simple_env = simplify_env(env)
+    remove_temps(simple_env)
+  end
+
+  def hash_to_rml_env(hash)
+    hash.each_pair.inject([]) do |acc,kv|
+      k = kv[0]
+      if k == "H"
+        acc + [kv[1].inject([]) do |heapacc, object|
+          ref = object[0]
+          key = value_to_rml(object[1])
+          heapacc + ["H(#{ref}) := #{key}"]
+        end.join("\n")]
+      elsif k =~ /^(?:[vi]Rec|invalidR)$/
+        acc
+      else
+        v = value_to_rml(kv[1])
+        acc + ["#{k} := #{v}"]
+      end
+    end.sort_by {|a| a =~ /(\d+)/; $1.to_i }.reject(&:empty?).join("\n")
+  end
+
+  def value_to_rml(v)
+    if Hash === v
+      "{" + v.inject([]) do |acc2,kv2|
+        acc2 + ["#{kv2[0]}: #{value_to_rml(kv2[1])}"]
+      end.sort.join(", ") + "}"
+    else
+      v
+    end
+  end
+
+  def remove_temps(env)
+    Hash[*env.each_pair.map do |key, value|
+      if key =~ /!/
+        nil
+      else
+        [key, value]
+      end
+    end.flatten.compact]
+  end
+
+  def simplify_env(env)
+    Hash[*env.each_pair.map do |key, value|
+      [key, simplify_value(env, value)]
+    end.flatten.compact]
+  end
+
+  def simplify_value(env, value)
+    if value =~ /^\s*\(Real (\d+\.\d+)\)\s*$/
+      $1
+    elsif value =~ /^\s*\(Real \(\- (\d+\.\d+)\)\)\s*$/
+      "-#{$1}"
+    elsif value =~ /^\s*\(\- (\d+\.\d+)\)\s*$/
+      "-#{$1}"
+    elsif value =~ /^\s*\(Reference ref(\d+)\)\s*$/
+      "##{$1}"
+    elsif value =~ /^\s*\(Reference nil\)\s*$/
+      "nil"
+    elsif value =~ /^\s*\(Bool (\w+)\)\s*$/
+      $1
+    elsif value =~ /^\s*\(Record \(_ as-array (k!\d+)\)\)\s*$/
+      transform_ite(env, env[$1])
+    elsif value =~ /^\s*\(_ as-array (k!\d+)\)\s*$/
+      transform_ite(env, env[$1])
+    elsif value =~ /ite/
+      transform_ite(env, value)
+    elsif value =~ /^\s*\(Record \(store/
+      transform_store(env, value)
+    else
+      value
+    end
+  end
+
+  def transform_store(env, str)
+    record = {}
+    regexp = /([\w]+) (\d+\.\d+)/
+    s = str
+    while md = regexp.match(s)
+      s = md.post_match
+      next if md[1] == "undef"
+      record[simplify_value(env, md[1])] = simplify_value(env, md[2])
+    end
+    record
+  end
+
+  def transform_ite(env, str)
+    record = {}
+    regexp = /ite \(= \w!\d (\(?[\w\s\d]+\)?)\) ([^\n]+)\n/m
+    s = str
+    while md = regexp.match(s)
+      s = md.post_match
+      next if md[1] == "undef"
+      record[simplify_value(env, md[1])] = simplify_value(env, md[2])
+    end
+    record
+  end
+
+  def read_environment(str)
+    env = {}
+    pos = "(model".size
+    while pos < str.size
+      pos, fun = read_fun(pos, str)
+      key, value = parse_fun(fun)
+      env[key] = value
+    end
+    env
+  end
+
+  def read_fun(pos, str)
+    i = str.index("(", pos)
+    return str.size, nil if i.nil?
+    open = 1
+    ((i + 1)..str.size).each do |idx|
+      c = str[idx]
+      case c
+      when "(" then open += 1
+      when ")" then open -= 1
+      end
+      return idx, str[i..idx] if open == 0
+    end
+    return str.size, nil
+  end
+
+  def parse_fun(sexp)
+    sexp =~ /^\(define-fun ([^ ]+) (?:\((?:\([^\)]+\))?\)) (?:[A-Za-z]+|\([^\)]+\))?\s+(.*)\)$/m
+    return $1, $2
+  end
+
+end
+
+outfile = ARGV[0]
+
+
+tree = Hash[*`ps -eo pid,ppid`.scan(/\d+/).map{|x|x.to_i}]
+shid = Process.ppid
+bbbid = tree[shid]
+catid = tree[bbbid]
+rakeid = tree[catid]
+commandline = %x"ps -o cmd -fp #{catid}".lines.to_a.last
+example = /cat\s+(.*\d+[a-z]?\.txt)\s+/.match(commandline)[1]
+solution = example.sub(/\.txt$/, ".env")
+number = solution.split("/").last.sub(/\..*$/,"")
+
+begin
+  environments = File.read(solution).split(";\n")
+rescue Exception
+  environments = []
+end
+
+
+if File.exist?(outfile) && File.read(outfile) =~ /^cIIndex := (\d+)$/m
+  idx = $1.to_i
+else
+  idx = 0
+end
+
+File.open(outfile, 'w') do |f|
+  f << "cIIndex := #{idx + 1}\n"
+  if ENV["BBBReview"] || ENV["BBBZ3"]
+    puts "\n# #{number} # This is the expected solution:\n#{environments[idx]}"
+    if ENV["BBBZ3"]
+      puts "\n# #{number} # This is what Z3 produces:"
+      system("#{File.expand_path('../../z3', outfile)} -smt2 constraints.smt > constraints.model")
+      output = File.read("constraints.model")
+      if midx = output.index("(model")
+        hash = Z3ModelParser.parse(output[midx..-1])
+        model = Z3ModelParser.hash_to_rml_env(hash)
+        puts model
+        if ENV["BBBZ3FB"]
+          f << environments[idx]
+        else
+          f << model + "\n"
+        end
+      else
+        puts output
+      end
+    else
+      f << environments[idx]
+    end
+    unless ENV["BBBZ3Auto"]
+      %x{xterm -e "read -p 'Please review the constraints and solution. Are they ok? (Y/n)' -n 1 -r; echo; if [[ \\$REPLY =~ ^[Nn]$ ]]; then kill #{rakeid}; fi"}
+    end
+    if ENV["BBBZ3AutoCompare"]
+      shortmodel = model.lines.map { |l| l.gsub(" ", "").strip }
+      shortmodel += shortmodel.map do |l|
+        l.gsub(".0", "") # use ints
+      end
+      environments[idx].lines.each do |line|
+        next if line.strip.empty?
+        unless shortmodel.include? line.gsub(" ", "").strip
+          e = "ERROR: Z3 model does not check out! #{line.gsub(" ", "")} not found in #{shortmodel}"
+          puts e
+          f << e
+        end
+      end
+    end
+  else
+    f << environments[idx]
+  end
+end
+\end{lstlisting}
+
+\section{Test Generator}
+\label{sec:test-generator}
 
 \end{document}
 

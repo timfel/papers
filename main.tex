@@ -66,7 +66,7 @@
   comment=[l]{//},
   morecomment=[s]{(*}{*)},
   commentstyle=\color{purple}\ttfamily,
-  stringstyle=\ttfamily,
+  stringstyle=\color{orange}\ttfamily,
   morestring=[b]"
 }
 
@@ -116,6 +116,12 @@
 \author{Tim Felgentreff}
 \date{\today}
 \maketitle
+
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\tableautorefname{Table}
+\def\figureautorefname{Figure}
 
 \section{Introduction}
 
@@ -1921,6 +1927,12 @@ given in \verb!solver.c!.
 
 \lstset{breaklines=true,basicstyle=\scriptsize}
 
+\subsection*{Lexer}
+
+The lexer rules are mostly straightforward. The source code for the
+lexer includes \verb!babelsberg.h! and \verb!rml.h! to generate the
+correct boxes for literals immediately in the tokenization phase.
+
 \begin{lstlisting}[language=C,caption={lexer.l}]
 %{
 #define YYSTYPE void*
@@ -2038,6 +2050,14 @@ int lex_ref(void)
   return T_REF;
 }
 \end{lstlisting}
+
+\subsection*{Parser}
+\label{sec:parser}
+
+The Yacc parser uses the constructors for AST boxes that RML generated
+from our abstract syntax definition in \verb!babelsberg.rml! to create
+the abstract syntax tree. This tree is thus immediately in a form that
+can be processed by RML rules.
 
 \begin{lstlisting}[language=C,caption={parser.y}]
 %{
@@ -2256,7 +2276,17 @@ disjunction     : T_OR
                         { $$ = babelsberg__OR;}
 \end{lstlisting}
 
-\begin{lstlisting}[language=rml,caption={babelsberg.rml}]
+\subsection*{RML Semantics}
+The next listings combined form the file \verb!babelsberg.rml!. The
+listing is split according to the semantic rules that are
+implemented for readability.
+
+\subsubsection*{Abstract Syntax}
+We presented the abstract syntax in \autoref{sec:syntax}. Note that
+during compilation, RML generates a header file with constructor
+functions for all AST nodes that we define, which we used above in our
+lexer and parser.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml abstract syntax}]
 module babelsberg:
   datatype Program = PROGRAM of Statement
 
@@ -2323,14 +2353,28 @@ module babelsberg:
 
   relation alert: (string list, Exp list, string list) => ()
 end
+\end{lstlisting}
 
+\subsubsection*{Main Entry Point}
+The next relation is the main entry point for evaluation. It receives
+the entire AST from the parser and evaluates it to the end or until it
+gets stuck.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml main evaluation}]
 relation evalprogram: Program => () =
   rule print "starting to evaluate\n" &
        step([], [], [], [], [], statement) => (E,S,H,C,I)
        --------------------------------------------------
        evalprogram(PROGRAM(statement))
 end
+\end{lstlisting}
 
+\subsubsection*{Method Lookup}
+\judgment{\lookup{v}{l}{b}}
+The lookup relation has no rules in the formal semantics. For our
+executable semantics, we define all methods that we use in the test
+cases inline, that is, we provide rules for all method names that we
+use in programs and return an argument list and a method body.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml method lookup}]
 relation lookup: (Value, Label) => (Variable list, MethodBody) =
   (* hard coded methods *)
   axiom lookup(_, "one") => ([], (* return 1.0 *)
@@ -2441,7 +2485,16 @@ relation lookup: (Value, Label) => (Variable list, MethodBody) =
 				       LVALUE(VARIABLE("x"))))
 
 end
+\end{lstlisting}
 
+\subsubsection*{Method Activation}
+\judgment{\enter{\E}{\S}{\H}{\C}{\I}{v}{\E$'$}{\S$_m$}{\H$'$}{\C$'$}{\I$'$}}
+
+This rule implements method activation, by evaluating each argument
+expression and creating a new method scope with the argument names
+bound to the results of the argument evaluation. It uses helper
+relations to evaluate and assign variables in a new scope.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml enter judgment}]
 relation enter: (Env, Scope, Heap, Cstore, Istore, Value, Variable list, Exp list) => (Env, Scope, Heap, Cstore, Istore) =
   rule evalEach(E, S, H, C, I, argexps) => (En, Hn, Cn, In, argvals) &
        assignEachFresh(En, [], Hn, Cn, In, "self" :: argnames, v :: argvals) => (E2n, Sn, Hn, Cn, In)
@@ -2468,7 +2521,15 @@ relation assignEachFresh: (Env, Scope, Heap, Cstore, Istore, Variable list, Valu
 	------------------------------------------------------------
 	assignEachFresh(E,S,H,C,I,x :: xrest, v :: vrest) => (E'',S'',H,C,I)
 end
+\end{lstlisting}
 
+\subsubsection*{Expression Evaluation}
+\judgment{\evalBig{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}
+
+Here we implement the rules for expression evaluation. Besides the
+preconditions from the formal semantics, we include debug statements
+that print which formal rule we have matched.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml evaluation}]
 relation eval: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Heap, Cstore, Istore, Value) =
   axiom eval(E,S,H,C,I,VALUE(K(c))) => (E,H,C,I,K(c))
 
@@ -2572,7 +2633,15 @@ relation evalEachField: (Env, Scope, Heap, Cstore, Istore, ObjectLiteral) => (En
 	------------------------------------------------------
 	evalEachField(E,S,H,C,I,(l,e) :: rest) => (E'',H'',C'',I'',(l,VALUE(v)) :: values)
 end
+\end{lstlisting}
 
+\subsubsection*{Structural Type Checking}
+\judgment{\tcH{\E}{\H}{e}{T}}
+
+The next rules implement our structural type checking rules for
+expressions. Again, we add debug statements to print which rule we
+have matched.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml typing}]
 relation tC: (Env, Heap, Exp) => Type =
   axiom tC(E, H, VALUE(K(c))) => PRIMITIVE
 
@@ -2632,7 +2701,12 @@ relation tCFields: (Env, Heap, ObjectLiteral) => (Label * Type) list =
        ----------------------------
        tCFields(E,H, (l,e) :: rest) => ((l,T) :: ftypes)
 end
+\end{lstlisting}
 
+\judgment{\tcHC{\E}{\H}{C}}
+
+For this judgment we deviated from the naming scheme of the formalism.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml constraint type checking}]
 relation welltyped: (Env, Heap, Constraint) => () =
   rule tC(E,H,e) => T
        ---------------------------
@@ -2642,7 +2716,18 @@ relation welltyped: (Env, Heap, Constraint) => () =
        -------------------------------------
        welltyped(E,H, COMPOUNDCONSTRAINT(C1, C2))
 end
+\end{lstlisting}
 
+\subsubsection*{Constraint Solving}
+\judgment{\solveH{\E}{\H}{C}}
+
+This judgment has no rules in the formalism. In our formal semantics,
+we use printing rules to convert all expressions into Z3's SMT2
+syntax, as described in \autoref{sec:conv-constr-synt}. We then call
+the solver and parse the solution using another helper relation,
+\verb!Print.parseEnvironment!.
+
+\begin{lstlisting}[language=rml,caption={babelsberg.rml constraint solving}]
 with "solver.rml"
 with "printer.rml"
 with "helper.rml"
@@ -2708,7 +2793,18 @@ relation models: Constraint => (Env, Heap) =
        ------------------------------
        models(C) => (E, H)
 end
+\end{lstlisting}
 
+\subsubsection*{Stay Constraints}
+\judgment{\stay{\E}{C}}
+\judgment{\stay{\H}{C}}
+\judgment{\istay{e}{C}}
+\judgment{\istay{\E}{C}}
+\judgment{\istay{\H}{C}}
+
+The next rules generate our stay constraints.
+
+\begin{lstlisting}[language=rml,caption={babelsberg.rml stay relations}]
 relation stay: Env => Constraint =
   axiom stay([]) => CONSTRAINT(REQUIRED, VALUE(K(TRUE)))
 
@@ -2772,7 +2868,17 @@ relation identityStayFields: (Reference, ObjectLiteral) => (Constraint, ObjectLi
        ---------------------------------------------------------------------------------
        identityStayFields(r, (l, VALUE(v)) :: rest) => (COMPOUNDCONSTRAINT(C0, C), (l, LVALUE(VARIABLE(x))) :: o)
 end
+\end{lstlisting}
 
+\subsubsection*{Expression Inlining}
+\judgment{\inline{\E}{\S}{\H}{\C}{\I}{e}{\E$'$}{e$_C$}{e$'$}}
+\judgment{\reinline{\E}{\H}{\I}{\C}{\E$'$}{C}}
+\judgment{\reinline{\E}{\H}{\C}{\I}{\E$'$}{C}}
+
+Below we give the rules for the above judgments. As before, debug
+prints inform which semantic rules is implemented by which RML rule.
+
+\begin{lstlisting}[language=rml,caption={babelsberg.rml inlining}]
 relation inline: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Exp, Exp) =
   axiom inline(E,S,H,C,I,VALUE(K(c))) => (E,VALUE(K(TRUE)),VALUE(K(c)))
 
@@ -2888,7 +2994,15 @@ relation reinlineI: (Env, Heap, Cstore, Istore) => (Env, Constraint) =
 	----------------------------------------------------------------------
 	reinlineI(E,H,C,(S,CONSTRAINT(REQUIRED,e)) :: Istore0) => (E',COMPOUNDCONSTRAINT(C0,CONSTRAINT(REQUIRED,COMBINE(e',AND,eC))))
 end
+\end{lstlisting}
 
+\subsubsection*{Statement Evaluation}
+\judgment{\texttt{<\E|\H|\C|\I|I|C>} $\Longrightarrow$ \texttt{<\E$'$|\H$'$>}}
+\judgment{\stepHO{\E}{\S}{\H}{\C}{\I}{s}{\E$'$}{\S$'$}{\H$'$}{\C$'$}{\I$'$}}
+
+As the final set of rules we implement from the formalism, we give the
+statement evaluation rules.
+\begin{lstlisting}[language=rml,caption={babelsberg.rml statements}]
 relation twoPhaseUpdate: (Env, Heap, Cstore, Istore, Exp, Constraint) => (Env, Heap) =
   rule	stay(E) => CEs & stayH(H) => CHs & reinlineI(E,H,C,I) => (Ei,Ci) &
 	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(Ci,CEs),C0),
@@ -2987,29 +3101,43 @@ relation step: (Env, Scope, Heap, Cstore, Istore, Statement) => (Env, Scope, Hea
 	step(E,S,H,C,I, ALWAYS(C0)) => (E',S,H',C',I)
 end
 
+\end{lstlisting}
 
+\subsubsection*{Debugging}
+The last relation we include corresponds to no rule in the semantics,
+but is used for debugging. RML does not include conditional
+compilation, so to deactivate debugging statements, we uncomment the
+first axiom of this debugging relation, which matches anything and
+maps it to an empty list, short-circuiting the following debug prints.
+
+\begin{lstlisting}[language=rml,caption={babelsberg.rml debugging}]
 (* debugging *)
 relation alert: (string list, Exp list, string list) => () =
-  axiom alert(_, _, _) => ()
+   (* axiom alert(_, _, _) => () *)
 
-   rule  string_append_list(s1) => s1' & print s1' &
+   rule string_append_list(s1) => s1' & print s1' &
    	Print.printE(e) => es & print es &
    	string_append_list(s2) => s2' & print s2'
    	-----------------------------------------
    	alert(s1,e :: _,s2)
    
-   rule  string_append_list(s1) => s1' & print s1' &
+   rule string_append_list(s1) => s1' & print s1' &
    	print "<unprintable>" &
    	string_append_list(s2) => s2' & print s2'
    	-----------------------------------------
    	alert(s1,e :: _,s2)
    
-   rule  string_append_list(s1) => s1' & print s1' &
+   rule string_append_list(s1) => s1' & print s1' &
    	string_append_list(s2) => s2' & print s2'
    	-----------------------------------------
    	alert(s1,[],s2)
 end
 \end{lstlisting}
+
+\subsection*{C Interface to the Solver}
+Since RML compiles rules to C, we can interface with the solver by
+implementing a module entirely in C, and only declaring its rules in
+RML to link other RML modules against it.
 
 \begin{lstlisting}[language=rml,caption={solver.rml}]
 module Solver:

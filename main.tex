@@ -218,8 +218,9 @@
 \preprintfooter{Submitted to OOPSLA'15}   % 'preprint' option specified.
 
 \title{Checks and Balances}
-\subtitle{Trade-offs between Code Clarity and Expressive Power\\
-  in Object-Constraint Programming Languages}
+% \subtitle{Trade-offs between Code Clarity and Expressive Power\\
+%   in Object-Constraint Programming Languages}
+\subtitle{Constraint Solving without Surprises in Object-Constraint Programming Languages}
 
 \authorinfo{Tim~Felgentreff\and Robert~Hirschfeld}
            {Hasso-Plattner-Institute,\\Potsdam, Germany}
@@ -237,37 +238,66 @@
 \maketitle
 
 \begin{abstract}
-% \AEBadge{}
-  Systems that integrate constraint solving with general purpose
-  programming languages must strike a balance between exposing the
-  full power of solvers and how aware programmers need to be of
-  the solving process to write understandable and correct
-  programs.  To integrate with imperative languages, this balancing
-  act extends to how freely programmers can express constraints versus
-  how aware they need to be of the transition between the imperative
-  and declarative parts of the program in order to understand its
-  limits.
-  Babelsberg is a framework that integrates constraints with a standard
-  object-oriented language. Experience with Babelsberg, as well as
-  with earlier constraint imperative languages, revealed the potential
-  for complex interactions between constraints and the object-oriented core,
-  in particular powerful constraints involving object
-  identity, multiple types, and change over time.
+  % \AEBadge{}
+  Object-constraint programming systems integrate declarative
+  constraint solving with imperative, object-oriented languages. Such
+  systems must strike a balance between exposing the full power of the
+  solver and how aware programmers need to be of the limits of the
+  solving process in order to write understandable and correct
+  programs. Experience with object-constraint systems such as
+  Babelsberg and Kaleidoscope has shown that giving too much power to
+  the solver opens up the potential for surprising solutions,
+  non-determinism, and complex interactions between constraints and
+  imperative code% , in particular for constraints involving object
+  % identity, multiple types, and change over time
+  . On the other hand, systems that limit the power of the solver; for
+  example by disallowing constraints involving mutable objects, object
+  identity, or polymorphic message sends; run the risk of not being
+  able to solve a large set of interesting problems.
+  % Systems that integrate constraint solving with general purpose
+  % programming languages must strike a balance between exposing the
+  % full power of solvers and how aware programmers need to be of
+  % the solving process to write understandable and correct
+  % programs.  To integrate with imperative languages, this balancing
+  % act extends to how freely programmers can express constraints versus
+  % how aware they need to be of the transition between the imperative
+  % and declarative parts of the program in order to understand its
+  % limits.
+  % Babelsberg is a framework that integrates constraints with a standard
+  % object-oriented language. Experience with Babelsberg, as well as
+  % with earlier constraint imperative languages, revealed the potential
+  % for complex interactions between constraints and the object-oriented core,
+  % in particular powerful constraints involving object
+  % identity, multiple types, and change over time.
+
 %%   Programmers needed
 %%   to be aware of these complications to make effective use of
 %%   constraints, and sometimes refactor the constraint expressions or
 %%   the structure of objects in response. Otherwise, the system might
 %%   come up with surprising solutions, or none at all.
+  % In this paper we present design principles that tame the power of
+  % the constraint solver and of the translation between imperative and
+  % declarative expressions, avoiding difficult corner cases and
+  % surprising solutions while retaining the key features and
+  % capabilities of the approach. We provide an informal description of
+  % the resulting language, and a formal semantics for a useful subset
+  % of it, with the full semantics given in a companion technical
+  % report. We validate the utility of this semantics with an executable
+  % version that allows us to run test programs in it and to verify that
+  % they provide the same results as the actual implementations of
+  % Babelsberg in JavaScript, Ruby, and Smalltalk.
+
   In this paper we present design principles that tame the power of
-  the constraint solver and of the translation between imperative and
-  declarative expressions, avoiding difficult corner cases and
-  surprising solutions while retaining the key features and
-  capabilities of the approach. We provide an informal description of
+  the constraint solver in object-constraint languages to avoid
+  difficult corner cases and surprising solutions while retaining the
+  key features of the approach, including constraints over mutable
+  objects, constraints involving object identity, and constraints on
+  the results of message sends. We provide an informal description of
   the resulting language, and a formal semantics for a useful subset
   of it, with the full semantics given in a companion technical
   report. We validate the utility of this semantics with an executable
   version that allows us to run test programs in it and to verify that
-  they provide the same results as the actual implementations of
+  they provide the same results as actual implementations of
   Babelsberg in JavaScript, Ruby, and Smalltalk.
 \end{abstract}
 
@@ -294,13 +324,9 @@ Imperative Programming, Executable Semantics Test Suites
 \section{Introduction}
 \label{sec:introduction}
 
-Babelsberg is a family of object-constraint languages, with current
-instances being Babelsberg/R (a Ruby extension)
-\cite{FelgentreffJOT14}, Babelsberg/JS (a \javascript extension)
-\cite{FelgentreffECOOP14}, and Babelsberg/S (a Squeak extension)
-\cite{GraberREBLS2014}. Object-constraint programming integrates constraint
-satisfaction with common object-oriented constructs such as
-inheritance and polymorphism, and, in its Babelsberg incarnation, inherits many properties from the
+\ac{ocp} integrates constraint satisfaction with common
+object-oriented constructs such as inheritance and polymorphism, and,
+in its Babelsberg incarnation, inherits many properties from the
 earlier Kaleidoscope \cite{lopez1994kaleidoscope} and Turtle
 \cite{grabmuller2004turtle} constraint imperative programming
 languages, as well as constraint systems such as BackTalk
@@ -312,27 +338,33 @@ using standard imperative constructs (assignment, loops, and so
 forth).  Its goal is to provide both paradigms in a cleanly integrated
 fashion, within an object-oriented framework that respects standard
 object-oriented features such as messages, encapsulation, and
-inheritance. However, experience with Babelsberg has shown that
-interactions between the object-oriented core and constraints can be
-difficult to understand --- in prior versions of the language,
-it was easy to formulate constraints that
-allowed the system to come up with surprising solutions, or
-no solutions at all, because they would
-need to be formulated differently for the translation from imperative
-code to constraints to work as intended.
+inheritance.
+
+Experience with \ac{ocp} systems has shown that a number of
+interesting problems involve constraints that include mutable objects,
+object identity, and message sends. These have the potential for
+surprising solutions and non-determinism. If a constraint references a
+field that does not exist on an object, should the solver be allowed
+to add it? If a constraint requires two variables to refer to the same
+object, which variable should be changed? Can a method be used in a
+constraint only for its result to determine another variable, or can
+the system infer how the result of the method was created and then
+solve the constraint multi-directionally by affecting its return
+value?
 
 In this paper we formalize restrictions on the solver and rules for
 the translation from methods to constraints that help programmers
-understand how constraints in Babelsberg will work and what the
-properties of the solutions will be, as well as providing guidance to
-language implementors. Our restrictions make the solving
-process more deterministic and offer guidance how to express valid
-constraints, while still providing enough freedom to express many
-interesting problems. The main contributions are:
+understand how such constraints will work and what the properties of
+the solutions will be, as well as providing guidance to language
+implementors. Our restrictions make the solving process more
+deterministic and help developers express valid constraints, while
+still providing enough freedom to express many interesting
+problems. The main contributions are:
 \begin{itemize}
-\item A non-standard form of structural type-checking combined with soft
-  constraints to tame the power of the solver and to define how
-  constraints interact with object identity and structure.
+\item A non-standard form of structural type-checking combined with
+  soft constraints to tame the power of the solver and to define how
+  constraints interact with mutable object structure and object
+  identity.
 \item A formalization of prior work on object-constraint programming
   to integrate objects, methods, classes, and constraints in a way
   that is backwards compatible with the existing object-oriented
@@ -353,14 +385,11 @@ interesting problems. The main contributions are:
 \end{itemize}
 
 The remainder of this paper is structured as follows:
-\autoref{sec:example-programs} presents example programs in
-Babelsberg that illustrate the expressiveness that comes from
-integrating support for object-oriented programming with constraints,
-but that also (formerly) exhibited some kind of surprising behavior 
-that we
-address in this work.  \autoref{sec:informal-solution} gives an
-informal overview of our solver and translation
-rules. \autoref{sec:semantics} presents the semantics for a small
+\autoref{sec:example-programs} presents example programs in Babelsberg
+that illustrate the expressiveness that comes from integrating support
+for object-oriented programming with constraints, but that also
+formerly exhibited some kind of surprising behavior and how we address
+it. \autoref{sec:semantics} presents the semantics for a small
 language, Babelsberg/UID, which implements those
 rules. \autoref{sec:evaluation} presents our executable semantics and
 corresponding test suite, our experiences adapting the existing
@@ -372,43 +401,28 @@ work, and \autoref{sec:conclusions} concludes.
 \section{Motivating Examples}
 \label{sec:example-programs}
 
-\ac{ocp} integrates constraints with an object-oriented language's
-syntax and semantics, allowing constraints on the results of message
-sends in a way that respects encapsulation and polymorphism and that
-does not require the programmer to understand all the details of the
-constraint system. Constraints in \ac{ocp} are useful to establish and
-maintain invariants during the runtime of the program. In Babelsberg,
-the details of the underlying solvers are abstracted so that
-constraints can be handed to a number of different solvers which can
-then cooperate to find solutions.
-
-Example programs written in the Babelsberg implementations of \ac{ocp}
-include a graphical application for building and simulating electrical
-circuits, games, programs to solve logic puzzles, a GUI for a color
-picker, and simple mobile applications on a smart phone.
-These programs illustrate the division of labor and interplay between
-the imperative object-oriented portions of the code and the constraint
-parts, as well as the different kinds of constraints and solvers that
-can be employed.  The electrical circuit editor and simulator
-\cite{FelgentreffECOOP14}, for example, uses constraints and an
-appropriate solver to capture the relevant laws of physics such as
-Ohm's Law and Kirchhoff's Current Laws and to solve the resulting sets
-of simultaneous linear equations, and imperative constructs to support
-actions such as making new resistor, battery, and meter instances, and
-placing and connecting them.  The games combine constraints to
-encode the game mechanics with imperative constructs for the user interface.
-The logic puzzle applications
-\cite{GraberREBLS2014} --- for Sudoku, cryptarithmetic, Pentominoes,
-and Star Battle --- use a different class of constraints and solver,
-namely constraints over finite domains and a SAT solver, but similarly
-have a division of labor into a constraint part for the constraints
-that define the puzzle rules and an imperative part to control the
-interaction.  The color picker \cite{FelgentreffECOOP14} illustrates
-hard and soft constraints, as well as support for fast incremental
-re-solving during interactive editing.  Finally,
-the mobile application illustrates the use of identity constraints
-(constraints that two variables refer to the same identical object) to
-connect the UI and the underlying model.
+Babelsberg, which we will use for our discussion, is a family of
+object-constraint languages, with current instances being Babelsberg/R
+(a Ruby extension) \cite{FelgentreffJOT14}, Babelsberg/JS (a
+\javascript extension) \cite{FelgentreffECOOP14}, and Babelsberg/S (a
+Squeak extension) \cite{GraberREBLS2014}. Babelsberg is a recent
+\ac{ocp} system which allows developers much freedom in how
+constraints can be employed. However, experience with the design has
+shown that interactions between the object-oriented core and
+constraints can be difficult to understand --- in prior versions of
+the language, it was easy to formulate constraints that allowed the
+system to come up with surprising solutions, or no solutions at all,
+because they would need to be formulated differently for the
+translation from imperative code to constraints to work as
+intended. In Babelsberg, the details of the underlying solvers are
+abstracted so that constraints can be handed to a number of different
+solvers which can then cooperate to find solutions. We will use
+Babelsberg/JS for the code (\ie \javascript syntax).  Babelsberg/JS
+provides the keyword labels \verb!always! and \verb!once! to declare
+constraints on the return values of ordinary object-oriented
+expressions and solve them immediately. An \verb!always!  constraint
+then holds for the rest of the execution, whereas a \verb!once!
+constraint is redacted after being solved one time.
 
 As a sample constraint, suppose that we want to express the
 requirement that a window in a graphical application stay centered on
@@ -600,30 +614,14 @@ define constraints, and when they can be used multi-directionally.
 \section{Solution Overview}
 \label{sec:informal-solution}
 
-A goal of this work is to clarify design decisions of Babelsberg to
-guide language users and implementers.  However, it is not intended to
-be a complete description of a practical object-constraint language,
-and we omit aspects of the language that are inherited from the host
-language and that are not core to the interaction between constraints
-and object-oriented programming, such as class and method definitions,
-exception handling, and \textsc{IO}.
-
-A guiding principle in our design has been to adhere to the original
-goal of Babelsberg: in the absence of constraints, it should behave like a
-standard object-oriented language. This work focuses on how
-object-oriented constructs need to be modified to support the
-Babelsberg design. Where there is a choice, we aim to make the
-smallest possible changes while still accommodating constraints in a
-clean and powerful way. Beyond this, we favor simplicity of the rules
-over support for interesting features that are rarely used in
-practice.
-
-This section consists of two parts: the first presents how we restrict
-the power of the solver to be deterministic with regards to objects'
-identities and structure. The second part presents how we restrict the
-translation from object-oriented methods to constraints to avoid
-edge cases and give simple rules for programmers to follow when they
-define constraints.
+We present our solution in two parts: the first presents how we
+restrict the power of the solver to be deterministic with regards to
+objects' identities and structure. The second part presents how we
+restrict the translation from object-oriented methods to constraints
+to avoid edge cases and give simple rules for programmers to follow
+when they define constraints. A goal for our solution has been to
+create a small set of clear rules, while still accommodating
+constraints in a clean and powerful way.
 
 \subsection{Restricting the Solver}
 \label{sec:restricting-solver}
@@ -875,18 +873,31 @@ test for object identity.
 \section{Formalism}
 \label{sec:semantics}
 
-For our semantics we use a simple language, called Babelsberg/UID, that
-includes primitive types (ints, reals, booleans, and strings), as well as
-mutable objects that live on the heap and immutable objects on the
-stack. 
-Its semantic rules are mostly standard imperative rules,
-with the addition of rules to assert and maintain constraints. The
-semantics for this language, although not object-oriented, illustrates
-our key contributions. Extending it to include all the
-essential features of the actual object-constraint languages, including
-support for classes, methods, messages, and inheritance, along with
-constraint definitions that can include polymorphic method calls, is
-straightforward, and we present this extension in a companion technical report
+A goal of this work is to clarify design decisions of Babelsberg to
+guide language users and implementers.  However, it is not intended to
+be a complete description of a practical object-constraint language,
+and we omit aspects of the language that are inherited from the host
+language and that are not core to the interaction between constraints
+and object-oriented programming, such as class and method definitions,
+exception handling, and \textsc{IO}.
+
+For our semantics we use a simple language, called Babelsberg/UID,
+that includes primitive types (ints, reals, booleans, and strings), as
+well as mutable objects that live on the heap and immutable objects on
+the stack. A guiding principle in our design has been to adhere to the
+original goal of Babelsberg: in the absence of constraints, it should
+behave like a standard imperative language. We focus on how imperative
+constructs need to be modified to support the Babelsberg design. Where
+there is a choice, we aim to make the smallest possible changes while
+still accommodating constraints in a clean and powerful way. Beyond
+this, we favor simplicity of the rules over support for interesting
+features that are rarely used in practice. The semantics for this
+language, although not object-oriented, illustrates our key
+contributions. Extending it to include all the essential features of
+the actual object-constraint languages, including support for classes,
+methods, messages, and inheritance, along with constraint definitions
+that can include polymorphic method calls, is straightforward, and we
+present this extension in a companion technical report
 \cite{felgentreff:2014:semantics}.
 
 In addition to the imperative semantics, after every statement
@@ -1681,17 +1692,36 @@ from its library.\footnote{These examples are part of a published
   artifact \cite{FelgentreffECOOP14}, and are also available from the
   Babelsberg/JS repository at
   \url{https://github.com/babelsberg/babelsberg-js}. For our adaption,
-  we used the versions from the repository.} These programs
-demonstrate various aspects of constraint use in Babelsberg/JS, and
-include a simulation for a radial engine, a simple temperature
-converter, a simulator for electrical circuits, a generator for color
-schemes, and a layout example. These are all constructed using the
-LivelyKernel's direct manipulation Morphic interface, so they have
-very little code, with about 100 lines per example, with between
-\sfrac{1}{4} and \sfrac{1}{2} of those being in constraint
-definitions. Nonetheless, these programs represent real-world tools
-and the changes required illustrate the expressiveness of our
-semantics in actual use.
+  we used the versions from the repository.}  Babelsberg programs
+include a graphical application for building and simulating electrical
+circuits, games, programs to solve logic puzzles, a GUI for a color
+picker, and simple mobile applications on a smart phone.  These
+programs illustrate the division of labor and interplay between the
+imperative object-oriented portions of the code and the constraint
+parts, as well as the different kinds of constraints and solvers that
+can be employed. These are all constructed using the LivelyKernel's
+direct manipulation Morphic interface, so they have very little code,
+with about 100 lines per example, with between \sfrac{1}{4} and
+\sfrac{1}{2} of those being in constraint definitions. The electrical
+circuit editor and simulator \cite{FelgentreffECOOP14}, for example,
+uses constraints and an appropriate solver to capture the relevant
+laws of physics such as Ohm's Law and Kirchhoff's Current Laws and to
+solve the resulting sets of simultaneous linear equations, and
+imperative constructs to support actions such as making new resistor,
+battery, and meter instances, and placing and connecting them.  The
+games combine constraints to encode the game mechanics with imperative
+constructs for the user interface.  The logic puzzle applications
+\cite{GraberREBLS2014} --- for Sudoku, cryptarithmetic, Pentominoes,
+and Star Battle --- use a different class of constraints and solver,
+namely constraints over finite domains and a SAT solver, but similarly
+have a division of labor into a constraint part for the constraints
+that define the puzzle rules and an imperative part to control the
+interaction.  The color picker \cite{FelgentreffECOOP14} illustrates
+hard and soft constraints, as well as support for fast incremental
+re-solving during interactive editing.  Finally, the mobile
+application illustrates the use of identity constraints (constraints
+that two variables refer to the same identical object) to connect the
+UI and the underlying model.
 
 \paragraph{Argument Checking }
 \label{sec:argument-checking}

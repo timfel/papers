@@ -6,7 +6,7 @@
 % \sloppy  % avoid overflowing lines ....
 
 \RequirePackage{xspace}
-
+\usepackage[usenames,dvipsnames]{xcolor}
 \usepackage{tabularx}
 \usepackage{placeins}
 \usepackage{multirow} 
@@ -69,31 +69,16 @@
 \def\tf#1{\textcolor{purple}{\textsf{TF: #1}}}
 
 \lstdefinelanguage{JavaScript}{
-  keywords={typeof, new, true, false, catch, function, return, null, catch, switch, var, if, in, while, do, else, case, break},
+  keywords={typeof, new, true, false, catch, return, null, catch, switch, var, if, in, while, do, else, case, break, this, throw},
   keywordstyle=\bfseries,
-  ndkeywords={class, export, boolean, throw, implements, import, this},
+  ndkeywords={function, class, export, boolean},
   ndkeywordstyle=\color{darkgray}\bfseries,
   identifierstyle=\color{black},
   sensitive=false,
   comment=[l]{//},
   morecomment=[s]{/*}{*/},
-  commentstyle=\color{purple}\ttfamily,
-  stringstyle=\ttfamily,
-  morestring=[b]',
-  morestring=[b]"
-}
-
-\lstdefinelanguage{rml}{
-  keywords={relation, rule, axiom},
-  keywordstyle=\bfseries,
-  ndkeywords={with, module},
-  ndkeywordstyle=\color{darkgray}\bfseries,
-  identifierstyle=\color{black},
-  sensitive=false,
-  comment=[l]{//},
-  morecomment=[s]{(*}{*)},
-  commentstyle=\color{purple}\ttfamily,
-  stringstyle=\ttfamily,
+  commentstyle=\color{Bittersweet},%\ttfamily,
+  stringstyle=\color{Green},%\ttfamily,
   morestring=[b]',
   morestring=[b]"
 }
@@ -110,8 +95,10 @@
     % breaklines=true,
     breakatwhitespace=false,%
     literate={<<}{\tiny{$\ll$}~}{1}%
-    {.?}{\bfseries\emph{.?}}{1}%
-    % {===}{\slightspace{}===\slightspace{}}{1}%
+    {?}{\bfseries ?}{1}%
+    {priority:}{priority: }{1}%
+    {credit:}{credit: }{1}%
+    {debit:}{debit: }{1}%
     % {==}{=\slightspace{}=}{1}%
     {visible?}{visible?}{1},%
     showstringspaces=false,%
@@ -398,7 +385,7 @@ needed to change to work with our changed
 semantics. \autoref{sec:related-work} gives an overview of related
 work, and \autoref{sec:conclusions} concludes.
 
-\section{Surprising Behavior in Object-Constraint Languages}
+\section{Surprising Solutions}
 \label{sec:example-programs}
 
 Babelsberg, which we will use for our discussion, is a family of
@@ -436,15 +423,39 @@ constraints.
 \subsection{Non-determinism in Structure and Identity}
 \label{sec:object-structure}
 
-As an example to illustrate the surprising behavior that can arise
-when using constraints involving mutable objects, consider a bank
-account application in which we want to prevent changes that would
-make the account balance drop below a certain threshold. Additionally,
-we want to track the daily interest, but not allow it to rise above 10
-euros.  (This example is simple enough that we can show the listing
-easily, but is designed to illustrate some complexities around object
-identity, as well as constraint features such as soft constraints and
-read-only annotations on variables.)
+At the core of our design is the idea that the solver determines the
+entire heap and environment after each statement. However, for an
+imperative programmer it would be surprising if objects unnecessarily
+lose or gain fields, if variables change more than they have to, or
+non-deterministically change their identity --- the solver should
+always pick a solution that is ``close'' to the current state of the
+system. To address this problem, we define a set of restrictions on
+the language, which result in taming the power of the constraint
+solver and ruling out a significant number of such solutions. First,
+we use a form of structural typechecking at run time before constraint
+solving to ensure that object-structure cannot be modified by the
+solver. Second, we only allow changes to object identity to flow from
+imperative assignment statements, rather than be determined as part of
+the solving process. And third, we implicitly add a low priority
+``stay'' constraint to each variable, so that its value only changes
+if required by some higher-priority constraint.\footnote{The
+  formulation of the first two restrictions is new in this work; the
+  third has been present in Babelsberg since the original language
+  definition, as well as in the earlier Kaleidoscope design.}
+
+\subsubsection{Object Structure}
+\label{sec:object-structure}
+
+As an example to illustrate the non-deterministic and surprising
+behavior that can arise when using constraints involving objects with
+mutable structure, consider a bank account application in which we
+want to prevent changes that would make the account balance drop below
+a certain threshold. Additionally, we want to track the daily
+interest, but not allow it to rise above 10 euros.  (This example is
+simple enough that we can show the listing easily, but is designed to
+illustrate some complexities around object identity, as well as
+constraint features such as soft constraints and read-only annotations
+on variables.)
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:account]
 var acc = new Account(), minBal = 100, dailyInterest = 0;
 always: { acc.balance >= minBal? }
@@ -468,74 +479,59 @@ if possible, but it is no error not to do so. Due to the third
 constraint, if the daily interest were to rise above 10, the system
 can leave the second constraint unsatisfied.
 
-\autoref{lst:account} adds a constraint on the \verb!balance! field on
-line 2. However, in the absence of other restrictions, we discovered
-that Babelsberg as well as earlier systems that integrate constraints
-and objects would sometimes find unintuitive solutions that the human
-programmer did not even consider. For example, we intuitively expect
-the solver to reason about the balance of the newly created
-\verb!Account!  object. However, in the absence other restrictions
-nothing prevents the solver from considering other solutions.
-\begin{inparaenum}
-\item[] If the \verb!Account! class has no \verb!balance!  field,
-  should the solver invent a balance field and constrain it? May it
-  then remove fields from the account that are not mentioned in the
+Consider the constraint on the \verb!balance! field on line 2. In the
+absence of other restrictions, we discovered that Babelsberg as well
+as earlier systems that integrate constraints and objects would
+sometimes find unintuitive solutions that the human programmer did not
+even consider. For example, we intuitively expect the solver to reason
+about the balance of the newly created \verb!Account!
+object. However, in the absence other restrictions nothing prevents
+the solver from considering other solutions:
+\begin{inparaenum}[i)]
+\item If the \verb!Account! class has no \verb!balance! field, should
+  the solver invent a balance field and constrain it? May it then
+  remove fields from the account that are not mentioned in the
   constraint?
-\item[] Can the solver change the variable \verb!acc! to point to
+\item Can the solver change the variable \verb!acc! to point to
   another object that has a balance field with the right value?
-\item[] Finally, if the constraint is already satisfied, is the solver
+\item Finally, if the constraint is already satisfied, is the solver
   allowed to make the balance equal to \verb!minimum!, as this would
   also satisfy the constraint?
 \end{inparaenum}
+
 These solutions are clearly undesired: imperative programmers do not
 expect the identity or the object structure of the \verb!acc!
 variable to change. Neither do they expect the property to change if
 the constraint is already satisfied. Yet it is inconvenient to have to
-add constraints to prohibit all these solutions.
-
-At the core of our design is the idea that the solver determines the
-entire heap and environment after each statement. However, for an
-imperative programmer it would be surprising if variables change more
-than they have to, or if objects unnecessarily lose or gain fields or
-change their types --- the solver should always pick a solution that
-is ``close'' to the current state of the system. To address this
-problem, we define a set of restrictions on the language, which result
-in taming the power of the constraint solver and ruling out a
-significant number of such solutions. Our restrictions are
-three-fold. First, we use a form of structural typechecking at run
-time before constraint solving to ensure that object-structure cannot
-be modified by the solver. Second, we only allow changes to object
-identity to flow from imperative assignment statements, rather than be
-determined as part of the solving process. And third, we implicitly
-add a low priority ``stay'' constraint to each variable, so that its
-value only changes if required by some higher-priority
-constraint.\footnote{The formulation of the first two restrictions is
-  new in this work; the third has been present in Babelsberg since the
-  original language definition, as well as in the earlier Kaleidoscope
-  design.}
-
-\subsubsection{Object Structure}
-\label{sec:object-structure}
-
-We use a non-standard form of structural type-checking at run-time to
-ensure the solver cannot add or remove fields from objects. Our
-\emph{structural compatibility checks} are dynamically asserted before
-sending the constraints involving objects to the solver. They ensure,
-for example, that field accesses occur only on objects (and not
-primitive values), and that those objects have the necessary
-fields. These assertions, unlike constraints, are only checked --- if
-one is violated it is an error and the constraint solving fails. The
-programmer must ensure that objects used in constraints have all the
-referenced fields. This intentionally restricts the power of the
-constraints while continuing to provide our desired functionality, in
-support of our goal of integrating constraints with an object-oriented
-language in a way that reflects the expectations of imperative
-programmers.
+add constraints to prohibit all these solutions. To avoid these
+undesired solutions, we add the following restrictions to our design:
+\begin{enumerate}[a)]
+\item We use a non-standard form of \emph{structural type-checking} at
+  run-time before sending constraints to the solver. Our checks
+  dynamically assert that field accesses occur only on objects (and
+  not primitive values), and that those objects have the necessary
+  fields. These assertions, unlike constraints, are only checked ---
+  if one is violated it is an error and the constraint solving
+  fails. The programmer must ensure that objects used in constraints
+  have all the referenced fields. This intentionally restricts the
+  power of the constraints in support of our goal of integrating
+  constraints with an object-oriented language in a way that reflects
+  the expectations of imperative programmers.
+\item We furthermore add implicit constraints on the structure of each
+  object that is sent to the solver to have the exact same fields,
+  thus forcing the solver to keep the object structure, once our
+  type-checks have determined the constraint to be valid.
+\item Finally, as in Kaleidoscope, Babelsberg adds implicit {\tt weak}
+  stay constraints to each variable and field to keep it at its
+  current value, if possible. This satisfies the desire that the
+  solver should not change a variable if no constraint on it is
+  violated.
+\end{enumerate}
 
 \subsubsection{Object Identity}
 \label{sec:determ-object-ident}
 
-A central issue in the design of an object-constraint language is the
+Another issue in the design of an object-constraint language is the
 interaction between constraints and object identity.  Object identity
 plays an essential role when using an object-oriented language to
 model aspects of the real world and so, in a language that integrates
@@ -564,7 +560,7 @@ or none). It is thus not clear which account we withdraw from in line
 3, or even if this variable still refers to an account object --- in
 the absence of suitable restrictions, the
 solver might throw up its hands and set both variables to
-\lstinline|null|.  Assuming we prefer solutions that change as few
+\verb|null|.  Assuming we prefer solutions that change as few
 variables as possible, both \verb!account1! and \verb!account2! might
 refer to a credit account after line 2 is executed. In that case the
 constraint on line 4 would not be structurally valid, because no
@@ -575,29 +571,29 @@ account be above 0. The non-deterministic choice of identity would
 thus give rise to multiple possible meanings for the rest of the
 program, making it harder to reason about.
 
-To tame the power of constraints on object identity and type, we set
-the following goals for this aspect of our design:
+To tame the power of constraints on object identity, we set the
+following goals for this aspect of our design:
 \begin{enumerate}[a)]
 \item Constraints on object identity must be declared explicitly using
   the host languages identity check method (\verb!===! in the case of
   \javascript). They cannot be hidden within a method.
 \item\label{item:deterministic} The solution to the constraints is
-  deterministic as far as object identity and type are concerned ---
-  there should never be multiple correct solutions in which a given
-  variable refers to objects with different identities in the
-  different solutions. Thus, the programmer must first ensure the
-  identity constraint is already satisfied, before asserting it.
+  deterministic as far as object identity is concerned --- there
+  should never be multiple correct solutions in which a given variable
+  refers to objects with different identities in the different
+  solutions. Thus, the programmer must first ensure the identity
+  constraint is already satisfied, before asserting it.
 \item Any change to the identities of the objects referred to by
   variables can only flow from an assignment statement --- the
   constraint solver may not otherwise alter object identities.
-\item To make Babelsberg programs more understandable for
-  programmers, the identities of objects in value
-  constraints should be clear. We thus first solve all the identity constraints (with
-  a deterministic solution, in keeping with goal
-  \ref{item:deterministic}), and then the value constraints. In the
-  second step, identities are fixed, and thus method lookup follows
-  regular object-oriented semantics. This requires all identity
-  constraints to be declared separately from value constraints.%  We
+\item To make Babelsberg programs more understandable for programmers,
+  the identities of objects in value constraints should be clear. We
+  thus first solve all the identity constraints (with a deterministic
+  solution, in keeping with goal \ref{item:deterministic}), and then
+  the value constraints. In the second step, identities are fixed, and
+  thus method lookup follows regular object-oriented semantics. This
+  requires all identity constraints to be declared separately from
+  value constraints.% We
   % disallow non-required identity constraints, to avoid having to
   % backtrack when solving value constraints (or otherwise
   % non-deterministically failing).
@@ -612,14 +608,6 @@ program succeeds; if the programmer makes them refer to the credit
 account, it halts with a structural compatibility check error; in
 either case it becomes deterministic and straightforward to reason
 about.
-
-\subsubsection{Stay Constraints}
-\label{sec:stay-constraints}
-
-As in Kaleidoscope, Babelsberg adds an implicit {\tt weak} stay constraint
-to each variable to keep it at its current value, if possible. This
-satisfies the desire that the solver should not change a variable if
-no constraint on it is violated.
 
 \subsection{Clear Rules for Writing Valid Constraints}
 \label{sec:rules-constr-expr}
@@ -1654,29 +1642,31 @@ picker, and simple mobile applications on a smart phone.  These
 programs illustrate the division of labor and interplay between the
 imperative object-oriented portions of the code and the constraint
 parts, as well as the different kinds of constraints and solvers that
-can be employed. These are all constructed using the LivelyKernel's
-direct manipulation Morphic interface, so they have very little code,
-with about 100 lines per example, with between \sfrac{1}{4} and
-\sfrac{1}{2} of those being in constraint definitions. The electrical
-circuit editor and simulator \cite{FelgentreffECOOP14}, for example,
-uses constraints and an appropriate solver to capture the relevant
-laws of physics such as Ohm's Law and Kirchhoff's Current Laws and to
-solve the resulting sets of simultaneous linear equations, and
-imperative constructs to support actions such as making new resistor,
-battery, and meter instances, and placing and connecting them.  The
-games combine constraints to encode the game mechanics with imperative
-constructs for the user interface.  The logic puzzle applications
-\cite{GraberREBLS2014} --- for Sudoku, cryptarithmetic, Pentominoes,
-and Star Battle --- use a different class of constraints and solver,
-namely constraints over finite domains and a SAT solver, but similarly
-have a division of labor into a constraint part for the constraints
-that define the puzzle rules and an imperative part to control the
-interaction.  The color picker \cite{FelgentreffECOOP14} illustrates
-hard and soft constraints, as well as support for fast incremental
-re-solving during interactive editing.  Finally, the mobile
-application illustrates the use of identity constraints (constraints
-that two variables refer to the same identical object) to connect the
-UI and the underlying model.
+can be employed.
+
+The programs we examined were constructed using the LivelyKernel's
+direct manipulation Morphic interface. They are small, with about 200
+lines per example, with between \sfrac{1}{4} and \sfrac{1}{2} of those
+being constraint definitions. The electrical circuit editor and
+simulator \cite{FelgentreffECOOP14}, for example, uses constraints and
+an appropriate solver to capture the relevant laws of physics such as
+Ohm's Law and Kirchhoff's Current Laws and to solve the resulting sets
+of simultaneous linear equations, and imperative constructs to support
+actions such as making new resistor, battery, and meter instances, and
+placing and connecting them.  The games combine constraints to encode
+the game mechanics with imperative constructs for the user interface.
+% The logic puzzle applications \cite{GraberREBLS2014} --- for Sudoku,
+% cryptarithmetic, Pentominoes, and Star Battle --- use a different
+% class of constraints and solver, namely constraints over finite
+% domains and a SAT solver, but similarly have a division of labor into
+% a constraint part for the constraints that define the puzzle rules and
+% an imperative part to control the interaction.  
+The color picker and temperature converter \cite{FelgentreffECOOP14}
+illustrates hard and soft constraints, as well as support for fast
+incremental re-solving during interactive
+editing.  % Finally, the mobile application illustrates the use of
+% identity constraints (constraints that two variables refer to the same
+% identical object) to connect the UI and the underlying model.
 
 \paragraph{Argument Checking }
 \label{sec:argument-checking}

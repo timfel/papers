@@ -237,13 +237,17 @@
   % Babelsberg and Kaleidoscope
   has shown that giving too much power to
   the constraint solver opens up the potential for solutions that are
-  surprising and unintended as well as complex interactions between constraints and
-  imperative code% , in particular for constraints involving object
+  surprising and unintended as well as for complex interactions 
+  between constraints and
+  imperative code. 
+  % , in particular for constraints involving object
   % identity, multiple types, and change over time
-  . On the other hand, systems that limit the power of the solver, for
+  On the other hand, systems that overly limit the power of the solver, for
   example by disallowing constraints involving mutable objects, object
-  identity, or polymorphic message sends, run the risk of not being
-  able to declaratively express a large set of interesting problems.
+  identity, or polymorphic message sends, run the risk of excluding the 
+  core object-oriented features of the language from the constraint
+  part, and consequently not being
+  able to express declaratively a large set of interesting problem solutions.
   % Systems that integrate constraint solving with general purpose
   % programming languages must strike a balance between exposing the
   % full power of solvers and how aware programmers need to be of
@@ -286,7 +290,7 @@
   the context of the Babelsberg object-constraint language, providing
   both an informal description of
   the resulting language and a formal semantics for a core subset
-  of it; the full semantics is given in a companion technical
+  of it.  The full semantics is given in a companion technical
   report. We validate the utility of this semantics with an executable
   version that allows us to run test programs and to verify that
   they provide the same results as existing implementations of
@@ -333,8 +337,8 @@ fashion, within an object-oriented framework that respects standard
 object-oriented features such as messages, encapsulation, and
 inheritance.
 
-Experience with \ac{ocp} systems has shown that a number of
-interesting problems involve constraints that include mutable objects,
+Experience with \ac{ocp} systems has shown that the solutions to a number of
+important problems involve constraints that include mutable objects,
 object identity, and message sends. These have the potential for
 surprising solutions and non-determinism. If a constraint references a
 field that does not exist on an object, should the solver be allowed
@@ -346,12 +350,18 @@ multi-directional constraints?
 
 In this paper we propose a set of design principles to answer these
 questions, along with a set of restrictions on the behavior of
-\ac{ocp} systems that enforce these principles.  Specifically:
+\ac{ocp} systems that enforce these principles.  These principles and
+restrictions are as follows:
 \begin{itemize}
+\begin{sloppypar}
 \item {\em Structure preservation}: Asserted constraints cannot change
   the structure of any objects.  This property is enforced through a
   form of dynamic structural typechecking, along with extra constraints
-  that enforce a frame condition.
+  that implement frame axioms.
+\todo{Is this rewording ok?  Was ``enforce a frame condition'' --
+  ``enforce'' seemed strange to me, since we aren't enforcing these
+  constraints (they are soft).}
+\end{sloppypar}
 
 \item {\em Identity preservation}: Similarly, adding a constraint
   cannot change the identity of the object stored in a particular
@@ -368,12 +378,12 @@ questions, along with a set of restrictions on the behavior of
   resulting environment and heap.
 
 \item {\em Syntactic method rules}:  A simple syntactic check suffices
-  to determine whether/how a method can be used within constraints.
+  to determine whether and how a method can be used within constraints.
   In short, methods with side effects (writes other than to local
   variables) cannot be used in constraints.  Other methods whose
   bodies simply compute and return an expression can be used
   multi-directionally in constraints, while the remaining methods can
-  be used just in the forward direction in constraints.
+  be used just in the forward direction.
 \end{itemize}
 
 We have instantiated our approach in the context of the Babelsberg
@@ -416,7 +426,7 @@ our experience porting existing
 % semantics. \autoref{sec:related-work} gives an overview of related
 % work, and \autoref{sec:conclusions} concludes.
 
-\section{Surprising Solutions}
+\section{Ruling Out Surprising Solutions}
 \label{sec:example-programs}
 
 Babelsberg, which we will use for our discussion, is a family of
@@ -427,16 +437,16 @@ Squeak extension) \cite{GraberREBLS2014}. Babelsberg is a recent
 \ac{ocp} system which allows developers much freedom in how
 constraints can be employed. However, experience with the design has
 shown that interactions between the object-oriented core and
-constraints can be difficult to understand --- in prior versions of
+constraints could be difficult to understand.  In prior versions of
 the language, it was easy to formulate constraints that allowed the
-system to come up with surprising solutions, or no solutions at all,
-because they would need to be formulated differently for the
+system to come up with surprising solutions, or no solutions at all ---
+they would need to be formulated differently for the
 translation from imperative code to constraints to work as
 intended.
 
 In Babelsberg, the details of the underlying solvers are abstracted so
-that constraints can be handed to a number of different solvers which
-can then cooperate to find solutions. We will use Babelsberg/JS for
+that constraints can be handed to a number of different solvers, including
+ones that can then cooperate to find solutions. We will use Babelsberg/JS for
 the code (\ie \javascript syntax).  Babelsberg/JS provides the keyword
 labels \verb!always! and \verb!once! to declare constraints on the
 return values of ordinary object-oriented expressions and solve them
@@ -452,7 +462,7 @@ cases and give simple rules for programmers to follow when they define
 constraints.
 
 \subsection{Non-determinism in Structure and Identity}
-\label{sec:object-structure}
+\label{sec:no-non-determinism}
 
 At the core of our design is the idea that the solver determines the
 entire heap and environment after each statement. However, for an
@@ -586,8 +596,8 @@ always: { account1.debit >= 0 }
 This adds a constraint on line 2 that \verb!account1! and
 \verb!account2! be identical. However, it is not clear if
 \verb!account1! and \verb!account2! will afterwards refer to an
-account with debit balance or an account with credit balance (or both,
-or none). It is thus not clear which account we withdraw from in line
+account with a debit balance or an account with a credit balance (or both,
+or neither).  It is thus not clear which account we withdraw from in line
 3, or even if this variable still refers to an account object --- in
 the absence of suitable restrictions, the
 solver might throw up its hands and set both variables to
@@ -606,14 +616,14 @@ To tame the power of constraints on object identity, we set the
 following goals for this aspect of our design:
 \begin{enumerate}[a)]
 \item Constraints on object identity must be declared explicitly using
-  the host languages identity check method (\verb!===! in the case of
-  \javascript). They cannot be hidden within a method.
+  the identity test from the host language (\verb!===! in the case of
+  \javascript). They cannot be hidden within another method.
 \item\label{item:deterministic} The solution to the constraints is
   deterministic as far as object identity is concerned --- there
   should never be multiple correct solutions in which a given variable
   refers to objects with different identities in the different
   solutions. Thus, the programmer must first ensure the identity
-  constraint is already satisfied, before asserting it.
+  constraint is already satisfied before asserting it.
 \item Any change to the identities of the objects referred to by
   variables can only flow from an assignment statement --- the
   constraint solver may not otherwise alter object identities.
@@ -636,7 +646,7 @@ constraint \verb|account1 === account2| is not satisfied at the time it
 is asserted. If the programmer uses an assignment to first make both
 \verb|account1| and \verb|account2| refer to the debit account, the
 program succeeds; if the programmer makes them refer to the credit
-account, it halts with a structural compatibility check error; in
+account, it halts with a structural compatibility check error.  In
 either case it becomes deterministic and straightforward to reason
 about.
 
@@ -684,18 +694,31 @@ what constitutes ``benign'' side effects. The
 implementations also vary slightly in their wording of the rules, and
 rule \ref{item:ssa} in particular was omitted for Babelsberg/JS.
 
-In this work, we provide a clear and straightforward set
-of restrictions on constraint expressions, which also makes them
-amenable to use in proofs.  These restrictions are stronger than the
-earlier versions.  They do allow us to express a wide range of useful
-programs, but we suspect we can do better, and a direction for future
-work (\autoref{sec:conclusions}) is to relax some of them while still
+In the work reported here, we have developed and formalized a set of
+restrictions on constraint expressions, which also makes them amenable
+to use in proofs.  They are as follows.
+\begin{inparaenum}
+\item[First,] if the method consists solely of a single return
+  statement (for example, returning with an expression that is a calculation on the
+  object's fields) it can work multi-directionally.
+\item[Second,] if a method has any statements before returning, it can
+  only be used in the forward direction.
+\item[Third,] if the method has any side effects, such as writing to a
+  non-local location or generating a random number, it cannot be used
+  in a constraint in any direction.
+\end{inparaenum}
+
+These restrictions are stronger than the earlier versions.  They do
+allow us to express a wide range of useful programs, but we suspect we
+can do better, and a direction for future work
+(\autoref{sec:conclusions}) is to relax some of them while still
 retaining clarity and precision.
 
 \subsubsection{One-Way and Multi-Way Constraints}
 \label{sec:transl-multi-way}
 
-As a sample constraint, suppose that we want to express the
+To illustrate this aspect of the restrictions,
+suppose that we want to express the
 requirement that a window in a graphical application stay centered on
 a particular point.  This constraint can then be defined as:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:window]
@@ -724,10 +747,10 @@ function getCenter() {
 \end{lstlisting}
 The above code has only a simple return statement. The center is
 computed from fields, and the systems can solve a constraint involving
-this method multi-directionally, that is, it can modify the parts of
-the \verb!topLeft!, \verb!width!, and \verb!height! of the window to
-satisfy the constraint. However consider this alternative implementation:
-\begin{lstlisting}[language=JavaScript,caption={~},label=lst:simpleGetCenter]
+this method multi-directionally, that is, it can modify any or all of the
+\verb!topLeft!, \verb!width!, and \verb!height! properties of the window to
+satisfy the constraint. However consider this alternate implementation:
+\begin{lstlisting}[language=JavaScript,caption={~},label=lst:otherGetCenter]
 function getCenter() {
     var center = // ... previous code
     if (this.isScaled) {
@@ -739,7 +762,7 @@ function getCenter() {
 \end{lstlisting}
 Here, it is difficult to judge which fields the solver would modify to
 satisfy the constraint. Besides changing \verb!topLeft!, \verb!width!,
-and \verb!height!, the solver might decide to scale the window to keep
+or \verb!height!, the solver might decide to scale the window to keep
 the constraint satisfied. In practice, we have found this to lead to
 hard to predict solutions.
 
@@ -756,14 +779,15 @@ semantics for heap objects). Thus, the second implementation of
 satisfaction will fail for \autoref{lst:window}, unless the constraint
 is already satisfied.
 
-In the semantics, to use a method multi-directionally is done by
-creating an environment for the activation of the method and inlining
+In the semantics, to support methods that can be used
+multi-directionally, we create an environment for the activation of
+the method and inline
 the returned expression with respect to that environment. The
 parameters in that environment are constrained to be identical to
 their respective argument expressions, and \verb|self| is constrained
 to be identical to the receiver of the message. All constraints
 created through this transformation are then passed to the solver
-together.
+simultaneously.
 
 \subsubsection{No Side Effects in Constraints}
 \label{sec:no-side-effects}
@@ -807,7 +831,7 @@ regarding object creation, modification, and when it is permissible to
 test for object identity.
 
 Consider again the \verb!getCenter! method. If the calculation of the
-center is expensive, the method might also cache that calculation for
+center were expensive, the method might also cache that calculation for
 faster retrieval. Regardless, the programmer expects the system to
 adjust appropriate parts of the window that contribute to the result
 of \verb!getCenter! so that the center stays at $(150,150)$. If the
@@ -828,21 +852,6 @@ expression could be used multi-directionally, \ie to determine all
 variables involved in a constraint, versus when system could only
 determine one distinguished variable given the values of all others, 
 in a data-flow manner (\cf{\autoref{sec:transl-multi-way}}).
-
-In the work reported here, we have developed and formalized a
-simple-to-understand set of restrictions on the expressions that
-define constraints, and when they can be used multi-directionally.
-\begin{inparaenum}
-\item[First,] if the method consists solely of a single return
-  statement (for example, returning with an expression that is a calculation on the
-  object's fields) it can work multi-directionally.
-\item[Second,] if a method has any statements before returning, it can
-  only be used in the forward direction.
-\item[Third,] if the method has any side effects, such as writing to a
-  non-local location or generating a random number, it cannot be used
-  in a constraint in any direction.
-\end{inparaenum}
-\vskip\baselineskip
 
 \section{Formalism}
 \label{sec:semantics}
@@ -1079,7 +1088,7 @@ We use a notion of typechecking to prevent undesirable non-determinism
 in constraints.  Specifically, we want constraint solving to preserve
 the structure of the values of variables, changing only the underlying
 primitive data as part of a solution, in support of the goals listed
-in \autoref{sec:object-structure}.  We formalize our notion of
+in \autoref{sec:no-non-determinism}.  We formalize our notion of
 structure through a simple syntax of types:
 \vskip0.5\baselineskip\noindent\begin{tt}
 \begin{tabular}{ll}

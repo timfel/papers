@@ -1,0 +1,580 @@
+\chapter{Refining Babelsberg Concepts for Object-Oriented Environments}
+%Connecting Constraints and Behavior (Design)
+%Additional Concepts
+%Refine Babelsberg Concepts for object-oriented Environments/Use Case
+\label{cha:design}
+%\todo{[Key question: Why we need those concepts? Additionally, how do we imagine the concept? (Pseudocode is okay)]}
+
+\autoref{sec:application-bbb-shortcomings} identified three shortcomings in the current Babelsberg design: a missing mechanism to deal with constraints unsolvable by any available solver, the missing ability to invoke or adapt behavior based on constraint, and the need for a convenient scoping mechanism.
+This chapter describes concepts to address these shortcomings.
+
+\section{Continuous Assertions}
+\label{sec:design-continuousassertions}
+%\paragraph{\emph{easier to describe than to solve -> no avaibalebe solver}}
+One of the fundamental assumptions of \gls{cp} is that problems are typically easy to describe, but hard to solve. To solve and maintain desired properties \gls{cp} makes use of constraint solvers. However, these solvers have limited domains and functionality, even when combining multiple solvers using Babelsberg.
+So, some problems cannot be solved using the available constraint solvers, especially when dealing with high-level objects in \gls{ocp}.
+
+%\paragraph{\emph{what programmer can do to deal with this. -> write specific solver, or do it imperatively}}
+When a constraint is not solvable by any available constraint solver the programmer has two possibilities. First, the programmer could solve and maintain the invariant manually as in an ordinary \gls{oo} language. However, doing so one would lose all advantages of \gls{ocp} even with \gls{ocp} available.
+Second, the programmer can encapsulate the needed functionality in a new solver.
+% or extend an appropriate existent one.
+In addition to problem-specific solving routines, the programmer has to implement solver specific constraint variables and primitive constraint objects required for the constraint construction.
+So, writing a specific solver for each problem puts an additional load on the programmer and, therefore, seems unfeasible for typical \gls{oo} programmers.
+
+%We argue that both cases are not optimal
+
+%\paragraph{\emph{look at always, and what it does essentially}}
+To find a practical solution to this problem, we investigate how the \texttt{always} statement works.
+%
+As depicted in \autoref{fig:design_always-vs-assert} defining a constraint with predicate \texttt{p} separates the domain of the system state into two categories, valid and invalid system states. The figure shows the successive states in the execution of a program. An \gls{ocp} application is typically in a valid state, as defined by its constraints. When an assignment moves the system state into the invalid portion, a constraint solver is called in order to (re-)solve the violated constraint. So, the system moves back into a valid state in terms of constraints. However, note that this program state is typically different from the previous one, because assignments are modeled using temporary constraints.
+The invalid state is temporary and only visible by the constraint system.
+
+%\paragraph{\emph{idea}}
+At its core the \texttt{always} statement prevents the constraint expression from being invalid by employing constraint satisfaction techniques.
+%
+If no solver is available to maintain a certain constraint, another solution is required to bring the system back into a consistent state.
+One solution to this issue is to revert the system back into its previous state.
+So, if an assignment attempts to invalidate a certain constraint, the assignment will be discarded.
+If the condition is already violated on constraint construction, the construction of the constraint will fail.
+
+Using this concept allows us to describe expected invariants of our system. Then, Babelsberg checks the expected invariants during the execution of the program.
+This behavior is similar to the assertion statement which is available to many programming languages.
+Similar to assertions we check for a specific condition. In spite of this, assertions only check a condition at a single point during execution, whereas our statement checks the desired invariant continuously. Therefore, we call this concept \emph{continuous assertion}.
+%advantages/differences between normal assert and continuous assertions.
+
+%To inform the programmer about a broken invariant, continuous assertions throw a dedicated error if an assignment or a constraint construction fails. If the control flow should not be interrupted by the error, one can attach an \texttt{onError} callback to the constraint to ignore the error.
+%%Doing so allows to ensure that a certain condition holds along the execution of a program.
+
+We argue that for certain types of problems, preventing the system from entering an erroneous state suffices.
+In contrast to the \texttt{always} statement which enforce invariants, continuous assertions check for and prevent invalid system states without any repair attempts.
+In spite of this, both statements are quite alike. This fact suggests a similar notation. This unified notation is further covered by \autoref{sec:design-unifiedsyntax}.
+
+\begin{figure}
+\centering
+\includegraphics[width=.45\linewidth]{ppt/design_always.png}
+\caption{System state trajectory adjusted by a constraint created using the always statement}
+\label{fig:design_always-vs-assert}
+\end{figure}
+%\missingfigure{2 images to illustrate this issue:
+%1. always) when entering an invalid state by an assignment, a constraint solver brings the system into an other valid state; then continuing the control flow normally
+%2. assert) when entering an invalid state by an assignment, the assignment is reverted, so the state is the same as before; then, raising an exception potentially changes the control flow
+%}
+
+
+%\paragraph{\emph{eval/use cases}}
+One should only use continuous assertions if the following two criteria are met.
+\begin{itemize}
+\item No available solver is able to deal with the constraint in a sufficient way.
+%For example, a constraint involves high-level objects, yet, most solvers can only deal with primitive types
+%(like an expression depending on dictionary lookups)(efficient solvers are restricted to particular domains or types of constraints)
+\item Reverting invalid statements is a valid option for the program. Continuous assertions can revert assignments, yet, this behavior might be unfamiliar to \gls{oo} developers.
+%One would achieve a similar effect when modelling assignments as soft costraints. So, those assignments have no effect in overconstrained systems. %e.g. illegal actions in a board game: chess game with constraints on positions) ...
+\end{itemize}
+
+%Continuous assertions seem less powerful than actually maintaining a given property by solvers. However, in certain situations this (= revert the change that causes the fail and throw an error) can help more than the state repair attempts of a solver. E.g.
+%\begin{itemize}\item To track down the fault of a failure during debugging
+%\item To check if certain invariants hold for the execution of a program (the traditional assertion use case, just not limited to a specific point during execution).
+%\end{itemize}
+%\todo{split to when to use assertion(prerequisites like reverting assignments is a valid option), and in what use cases}
+
+%assertions können nicht 1 zu 1 mit triggers umgesetz werden, da dazu das Wissen, wie der valide originalzustand wiederherzustellen ist im dem trigger callback gegeben sein muss.
+
+\section{Reactive Constraints}
+As stated in \autoref{sec:application-bbb-shortcomings}, \gls{cp} and \gls{oop} treat behavior differently. While \gls{cp} strictly separates state and behavior, \gls{oop} integrates them. As \gls{ocp} attempts to unify both paradigms, it has to deal with this fundamental difference. Babelsberg already allows to use arbitrary function expressions to define constraints, yet, constraints can only modify the state of a program, not its behavior.
+In this section we describe concepts to connect state described by constraints and \gls{oo} behavior to push the integration of \gls{ocp} forward.
+From our example we identified two distinct cases how behavior can be related to constraint expressions: invoke a piece of behavior \emph{as soon as} a constraint expression evaluates to true, and adapt behavior \emph{as long as} an associated constraint expression holds.
+In the following we discuss both cases separately.
+%\todo{distinguish "predicate" and "constraint expression", because in the following, constraint expressions are not meant to be invariant. Instead they are predicates whose evaluation result causes some action}
+
+\subsection{Triggers: Invoke Behavior Depending on Constraint Expressions}
+\label{sec:design-trigger}
+Similar to the maintenance of invariants, the invocation of behavior upon a condition is typically managed implicitly by scattered code fragments in \gls{oop}. For example, a certain event should be emitted once a condition is met.
+\gls{ocp} treats the first issue by making the desired constraint explicit.
+We address the second issue, triggering behavior on a condition, in a similar way, i.e. by making the desired functionality explicit.
+Therefore, we introduce the concept of \emph{trigger constraints}.
+Using a trigger constraint one can explicitly specify that a given piece of behavior should be invoked once a given condition evaluates to true.
+%Similar to the initial goal of \gls{ocp} itself, avoiding scattered code fragments to check and \optprefix{re}satisfy invariants, triggers allow to describe when a certain callback show be invoked by the means of a declarative condition that should be met. (Avoids shattered calls to check the condition and invoke the intended behavior if appropriate)
+
+As an example, suppose we want to express the following functionality of our game: when the player presses the left mouse button, then the player tank should launch a bullet.
+\autoref{lst:design-triggerexample} shows how a trigger constraint specifies this behavior using the unified notation described in \autoref{sec:design-unifiedsyntax}.
+Line 3 specifies the callback that should be invoked. In this case the \texttt{fireBullet} method should be called with the player bound as \texttt{this} context.
+Line 2 shows the constraint expression of the trigger constraint, namely, whether the input service recognizes a left click of the player.
+\autoref{fig:design_trigger} depicts when the callback is called depending on the result of the constraint expression.
+%\autoref{fig:design_trigger} depicts that the callback is called every time the constraint expression becomes true.
+As shown in the figure, every time the system enters a state in which the constraint expression is fulfilled from a state in which the constraint expression is not fulfilled, Babelsberg invokes the callback.
+So, before the callback can be called again, the system has to leave the space of states in which the constraint expression is fulfilled. When reentering this space, the given callback is called again.
+%If the trajectory leaves the space of valid states and reenters the space in which the predicate is fulfilled, the given callback is called again.
+%So, on a state transition from a state in which the constraint expression evaluates to false to a state in which the constraint expression evaluates to true the given callback is invoked.
+When this happens, Babelsberg invokes the callback before execution of the next statement.
+If the constraint expression is already fulfilled during the construction of the trigger constraint, the given callback is immediately invoked.
+
+\begin{lstlisting}[label=lst:design-triggerexample,%
+caption={Trigger constraint to launch a bullet once the player presses the left mouse button},float,numbers=left,language=JavaScript,morekeywords={always}]
+predicate(function() {
+  return input.pressed("leftclick");
+}).trigger(player.fireBullet.bind(player));
+\end{lstlisting}
+
+\begin{figure}
+\centering
+\includegraphics[width=.45\linewidth]{ppt/design_trigger.png}
+\caption{A trigger constraint invokes the given callback when the system reaches a state in which the corresponding constraint expression evaluates to true
+%System state trajectory augmented by a trigger constraint
+}
+\label{fig:design_trigger}
+\end{figure}
+
+\subsection{Activators: Adapt Behavior Depending on Constraint Expressions}
+\label{sec:design-activators}
+Games frequently involve dynamic changes of the system's behavior depending on various conditions. Certain functionality can be restricted to a specific game mode, e.g. velocities are only rendered in debug mode.
+%example
+%- debugmode
+%- editor or game mode
+%- timer -> power up
+As with trigger constraints, we want to specify the relation between the behavior adaption and the condition explicitly.
+So, we introduce the concept of \emph{activator constraints}.
+Using activator constraints one can specify that a certain adaption in behavior applies as long as a given condition holds.
+
+%\paragraph{Explain cop + why cop for the job?}
+Note, that activator constraints rely on an additional concept to dynamically adapt behavior. The concept of \glsf{cop}~\cite{costanza:2005:language, hirschfeld:2008:cop} provides such a mechanism.
+\gls{cop} provides means to associate partial behavior definitions with explicit context objects, \emph{layers}.
+Layers can be activated or deactivated during the execution of a program, usually based on the control flow.
+When a layer is activated, the partial behavior definitions become part of the respective objects and classes until the deactivation of the layer.
+\gls{cop} enables dynamic adaption and variation in behavior based on the current context.
+To illustrate this, consider the spring power up described in \autoref{sec:application-description}. The spring power up causes all bullets of the affected tank to bounce off walls once more.
+This functionality can easily be expressed using layers as in \autoref{lst:design-coplayerexample}. Line 1 creates a layer and associates a partial object definition to this layer. Lines 2 to 4 augment the method \texttt{getBulletRicochets} of the \texttt{tank} object by incrementing the result of the original function by one.
+In addition to the definition of the layer and the partial behavior, one has to activate the layer in order for the adaption to take place.
+A layer is typically de-/activated globally or for the dynamic extent of a function invocation. Such mechanisms only allow control flow-specific scoping. However, adaptions can also depend on scopes other than control flow, such as conditions on the current state of the program.
+%However, contexts are often bound to certain conditions that hold.
+%However, these acvivation methods are control flow-based ...
+As with trigger constraints, we want to treat the condition associated with a context explicitly. We imagine activator constraints to activate a given layer as long as the associated constraint expression is fulfilled, as illustrated by \autoref{fig:design_activate}. Once we reach a state in which the constraint expression is fulfilled, the layer is activated until the constraint expression evaluates to false. Then, we deactivate the respective layer again.
+
+\begin{figure}
+\centering
+\includegraphics[width=.45\linewidth]{ppt/design_activate.png}
+\caption{System state trajectory augmented by an activator constraint}
+\label{fig:design_activate}
+\end{figure}
+
+\begin{lstlisting}[label=lst:design-coplayerexample,caption={Constructing a \gls{cop} layer with partial behavior},float,numbers=left,language=JavaScript,morekeywords={always}]
+var powerUpLayer = new Layer().refineObject(tank, {
+  getBulletRicochets: function() {
+    return cop.proceed() + 1;
+  }
+});
+\end{lstlisting}
+
+As continuation of the spring power up example, suppose the benefit of the power up is of limited duration. So, the power up is only active until its time is running out. We use a dedicated \texttt{Timer} class to keep track of time in our example. Using activator constraints we can connect an instance of this class with the previously defined \texttt{powerUpLayer}, as shown in \autoref{lst:design-activatorexample}. In line 2 we define the condition that the \texttt{remainingTime} attribute of the \texttt{timer} is greater than zero. Next, we connect this condition with the \texttt{powerUpLayer} and, thereby, create the desired relation in line 3.
+
+\begin{lstlisting}[label=lst:design-activatorexample,caption={Activator constraint to activate a power up for a specific amount of time},float,numbers=left,language=JavaScript,morekeywords={always}]
+predicate(function() {
+  return timer.remainingTime > 0;
+}).activate(powerUpLayer);
+\end{lstlisting}
+
+We use layers as units of dynamic behavior adaption because of the following reasons:
+\begin{itemize}
+\item \gls{cop} treats context objects, layers, explicitly.
+These context objects can easily be activated based on a condition. \item \gls{cop} is no special solution dedicated to JavaScript, but has been implemented in many other languages such as Lisp, Smalltalk, Python, Java, and Ruby. So, Babelsberg implementations in languages other than JavaScript can also base on the very concept of \gls{cop}.
+%, not special-library solution
+\item Aside partial object and class definitions \gls{cop} layer can act as units of scoping for constraints as well, as described in \autoref{sec:design-scopedconstraints}. Being able to use constraints to activate layers and layers to scope constraints provides additional synergy effects between both concepts.
+\end{itemize}
+Appeltauer et al. compare several \gls{cop} implementations as well as their activation means~\cite{Appeltauer:2009:comparison}. We argue that constraint expressions represent a new form\todo{nah, its just: implicit activation similar to PyContext} of layer activation.
+\autoref{sec:relatedwork-copevents} deals with the comparison between activator constraints and event-based layer activation techniques.
+
+\section{Scoped Constraints}
+\label{sec:design-scopedconstraints}
+As stated in \autoref{sec:motivation-problem-statement}, \gls{cp} typically revolves around describing a global system state. In contrast to \gls{cp}, \gls{oop} revolves modularization of system state and dynamic adaption.
+%
+Babelsberg already provides means to dynamically adapt constraints. Still, these means are limited to the low-level methods \texttt{enable} and \texttt{disable}.
+As explained in \autoref{sec:motivation-problem-statement}, manipulating constraints using such low-level techniques is unfeasible for larger systems.
+In case of Babelsberg/R one can activate constraints dynamic extent of a code block. Yet, this mechanism is control flow-specific.
+In \autoref{sec:design-activators} we introduced activator constraints as a mechanism to activate \gls{cop} layers based on arbitrary conditions. So far, layers have been used as convenient units of scoping to adapt behavior.
+%
+%We extend the concept of layers to scope constraints of all kinds as well.
+%
+However, as we integrate constraints and \gls{oo} concepts, the requirements of an \gls{oo} environment start to apply to constraints as well. Constraints should be able to adapt dynamically as behavior does.
+%constraints are also adaptions in behavior. Such an adaption need sometimes to vary.
+So, similar to partial class and object behavior, we introduce \emph{scoped constraints}, i.e. constraints associated with a \gls{cop} layer.
+%
+%how does this work?:
+%constraints can be added to a layer
+One can associate layers with constraints as one would do with partial behavior.
+%We propose the concept to associate layers with constraints as  layers are associated with partial behavior.
+Similar to partial behavior definitions, scoped constraints take effect as soon as the associated layer becomes active.
+Deactivating the layer again causes the constraints to be disabled.
+That way, the constraint is enabled as long as the associated layer is active.
+
+To exemplify the concept of scoped constraints, suppose the following functionality of our game example for the tile-based cursor in the editor mode: as long as the game is in editor mode, this cursor should always refer to the \texttt{Tile} under the mouse.
+To cleanly separate the editor mode from the rest of the game, the editor mode is represented by a dedicated layer, the \texttt{EditorLayer}. This layer cross-cuts all relevant modules to implement the editor mode including the constraint described above. \autoref{lst:design-scopedconstraintexample} shows the definition of this constraint. First, line 1 states that the following predicate is associated with the \texttt{EditorLayer}. Then, line 2 specifies that the \texttt{tileIndex} of the editor mode \texttt{cursor}, and so its position, should be equal to the mouse position converted to tile-based coordinates. Finally, lines 3 to 5 ensure that this constraint expression will be fulfilled using an instance of the DeltaBlue constraint solver. The whole definition causes the desired behavior to only take place in editor mode.
+
+\begin{lstlisting}[label=lst:design-scopedconstraintexample,caption={Scoped constraint to make the cursor graphic hover over the tile under the mouse while in editor mode},float,numbers=left,language=JavaScript,morekeywords={always}]
+EditorLayer.predicate(function() {
+  return cursor.tileIndex.equals(map.positionToCoordinates(input.position));
+}).always({
+  solver: new DBPlanner()
+});
+\end{lstlisting}
+
+As an additional advantage, layers can group multiple constraints due to their cross-cutting aspect. So, one can structurally en-/disable multiple constraints related to the same context.
+%Not only allows this concept to dynamically scope constraints as one can do with partial behavior ...
+%Use scope for grouping constraints; structured switching on/off GROUPs of constraints. <- due to the cross-cutting aspect of layers
+%Another advantage of using \gls{cop} layers as units of scoping is that layers can be associated with an arbitrary number of constraint. So, layer allow grouping constraints and
+%
+In conclusion, \gls{cop} provides constraints the variability needed in an \gls{oo} environment.
+
+%---
+
+%relation to assert-during in Babelsberg/R
+%[refer to jot paper: Babelsberg/R had assert-during, only because Kaleidoscope also had this. Was never used in a single example. So, it was not brought over to other implementations of Babelsberg. But assert-during is only local, no possibility to formulate for example a condition on which the scope is active. But state that one sort of scoping already existed, and was just not used and not that powerful. --> maybe mention this only in related work. ]
+
+%possible motivation for scoped constraints
+%Certain conditions should only hold for a specific duration, like effects of power-ups. The always statement does not support this kind of feature. As one way to deal with this issue, the programmer could manually manage the constraints. A constraint can be enabled at the start of a certain section and disabled at its end. However, this is error-prune and could be handled automatically by defining a scope for this constraint. ...
+
+%small motivation
+%As with behavioral variations covered by the concept of \gls{cop}, certain desired properties of a system also vary.
+
+%motivation using goto analogy
+%Scoping from design point of view means enable some constraint, run something, and disable constraints again. We could also use try-finally for this, but would look ugly and is equivalent to unstructured programming because f.e. there are no branches but gotos. But an \gls{oo} programmer wants a structure for this, similar to the with-statement in JavaScript.
+
+%advantage of scoped constraints using \gls{cp}
+%using cop as explicit context objects: better integration with other newly defined constructs as cop layers can already be activated by constraints using activators.
+
+\section{A Unified Notation for Constraint Specification}
+\label{sec:design-unifiedsyntax}
+%\lstinline!foobar()!
+Currently, most Babelsberg implementations provide two new primitives for constraint construction, \texttt{always} and \texttt{once}.
+For instance, the \texttt{always:} expression followed by a block with the constraint expression is used to construct a global constraint in JavaScript. All constraints constructed through \texttt{always} are enabled immediately.
+%Currently \texttt{always} and \texttt{once} available via GOTO labels. this is just syntactic sugar. A source code transformation creates the real function calls with appropriate contexts.
+%This type of constraint construction suffices in \gls{cp} applications.
+However, this type of definition only allows to define global constraints as usual in \gls{cp} applications.
+As we introduce trigger, activator, and scoped constraints to better fit constraints into \gls{oo} systems, a unified notation to cover all presented concept is desirable.
+%we are in need for an api suitable in an oo environment/elaborated notation.
+
+In contrast to the currently used notation for constraints, we treat constraint expressions explicitly.
+To do so, we propose a single global method, \texttt{predicate}. This method takes a function as parameter and returns a corresponding \texttt{ConstraintExpression} object.
+A \texttt{ConstraintExpression} provides methods to construct actual constraints:
+\begin{itemize}
+\item The \texttt{once} and  \texttt{always} method return an ordinary constraint. Options, e.g. the solver to solve the constraint, are passed as parameter as in the old notation.
+\item The \texttt{assert} method returns a continuous assertion instead of an ordinary constraint.
+\item The \texttt{trigger} method takes a callback as parameter and returns the respective trigger constraint. \autoref{lst:design-triggerexample} shows an example of this method.
+\item The \texttt{activate} method takes a layer as parameter and returns the respective activator constraint. \autoref{lst:design-activatorexample} exemplifies the usage of this method.
+\end{itemize}
+To enable scoping, we extend layers to provide an additional method, \texttt{predicate}, that works like its global counterpart but returns a scoped constraint expression instead of a global one.
+
+We argue that the described notation using constraint expressions as separate entities has several advantages:
+\begin{itemize}
+\item The notation allows to reuse a constraint expression. With the introduction of trigger and activator constraints reusing the very same constraint expression becomes plausible. For instance, suppose an activator to activate a layer. If the system needs additional setup for the behavior variation, this setup could be provided using a trigger constraint on the same constraint expression.
+\item The notation allows to decouple the constraint declaration from the actual usage. In contrast, the old notation tightly bound both together.
+So, constraint expressions become a first class entity. Functions can take constraint expressions as parameters or return them. For example, \autoref{lst:design-unifiedsyntaxexample} shows how the predicate used in \autoref{lst:design-activatorexample} can be provided by a dedicated function. This allows to hide the concrete implementation of the constraint expression inside the object that provides the constraint expression.
+%In \gls{oo} environment constraints are more than simple statements that should be solved. Instead, constraints can be passed around like any other object. For example, the creation and usage of a constraint can be decoupled from one another.
+\end{itemize}
+
+%we want to provide a consistent api
+
+%Constraints are now more than expressions that should be true: they support multiple methods
+
+\begin{lstlisting}[label=lst:design-unifiedsyntaxexample,caption={Expression that a \texttt{Timer} has not reached a timeout encapsulated in a dedicated method},float,numbers=left,language=JavaScript,morekeywords={always}]
+Object.extend(Timer.prototype, {
+  tilTimeout: function() {
+    this._tilTimeoutExpression = this._tilTimeoutExpression || predicate(function() {
+      return this.remainingTime > 0;
+    });
+    
+    return this._tilTimeoutExpression;
+  }
+});
+\end{lstlisting}
+
+\section{Open Issues}
+Integrating the concepts of \gls{cop} and \gls{cp} leads to several issues about their semantics. Each question allows for multiple valid answers as the expectation of the programmer depends on the concrete use case. None of the following three issues is relevant to our game use case.\todo{SHOULD THIS BE IN FUTURE WORK?}
+
+The first issue is concerned with what happens when two activator constraints refer to the same layer. This question can be solved in multiple ways:
+%Another issue is what are the semantics when two activator constraints refer to the same layer.
+\begin{itemize}
+\item[1) ] The layer is active if one or more of the activator constraints evaluate to true.
+\item[2) ] The layer is only active if all associated activator constraints evaluate to true.
+\item[3) ] Treat an activator constraint as an equivalent always constraint as in \autoref{lst:design-openissueexample}. Line 2 ensures that Babelsberg keeps the layer active if the constraint expression becomes true. When a second activator constraint is defined, the value of \texttt{layer.isActive()} as well as both activator constraints is maintained to be equal by Babelsberg.
+%see it as \texttt{always: layer.active == const.fulfilled} and \texttt{always: layer.active == constr2.fulfilled} and let Babelsberg try to solve both constraints
+\item[4) ] Trying to define an activator constraint for a layer that is already associated with an activator constraint raises an error.
+\end{itemize}
+%
+\begin{code}[lst:design-openissueexample]{An activator constraint modelled as an always constraint}{float,numbers=left,language=JavaScript,morekeywords={always}}
+predicate(function() {
+  return layer.isActive() == activatorConstraint.isFulfilled();
+}).always();
+\end{code}
+%
+The second issue regards the integration of activator constraints and control flow-based activations of a layer. As a concrete question: what happens if a layer that is associated with an activator constraint is activated manually?
+%Especially the integration with previous control flow-based means to activate layers are difficult: a layer associated with an activator constraint (currently evaluates to false) is activated using layer.beGlobal.
+\begin{itemize}
+\item[1) ] Trying to manually activate a layer that is associated with an activator constraint raises an error.
+\item[2) ] The manual layer activation fails silently.
+\item[3) ] The activator constraint is modelled as an always constraint. The manual activation causes Babelsberg to solve the constraint expression of the activator constraint.
+\end{itemize}
+%
+Note, that the semantics of both issues are clear when using the layer activation semantics of ContextJ~\cite{appeltauer:2011:contextj}. In this implementation of \gls{cop} activating a layer multiple times causes the variation in behavior to be applied multiple times.
+So, activating a layer twice, regardless whether the activation is manual or by the means of activator constraints, applies the behavior adaption twice.
+
+For the third issue, suppose an activator constraint refers to a layer. The constraint expression of the activator constraint evaluates to true and, therefore, the layer is active. What should happen when the activator constraint is now disabled?
+\begin{itemize}
+\item[1) ] Disabling an activator constraint deactivates the layer.
+\item[2) ] Disabling the activator constraint has no effect on the layer. The layer holds its current state and stays active even if the constraint expression of the activator constraint becomes false, because the activator is disabled.
+\end{itemize}
+Currently, our implementation holds the last state of the layer until the layer is adjusted manually or by the means of another activator constraint as in the first option.
+%\texttt{layer.isActive}: so, when a layer was active due to an activator constraint, and this constraint becomes disabled, the layer stays active.
+
+\chapter{Implementation}
+\label{cha:implementation}
+This chapter explains the implementation of the concepts described in \autoref{cha:design} in JavaScript.
+The implementation of these concepts requires the extension of two existing libraries: Babelsberg/JS and ContextJS~\cite{Lincke:2011:instance-specific-adaption}.
+First, we explain how the constraint construction and maintenance of Babelsberg works.
+Second, we describe the extension to Babelsberg/JS to enable continuous assertion, trigger and activator constraints. Last, we describe how to extend layers to use them for scoping of constraints as well.
+%
+\todo{[class diagrams]}
+\todo{[How the concepts discussed previously are implemented? How is the concrete syntax (sample code should be pastable)?]}
+
+\section{Constraint Construction and Maintenance in Babelsberg}
+\label{sec:implementation-babelsberg-ccm}
+In this section we briefly explain how a constraint is constructed in Babelsberg/JS. As a simple example, suppose we want to specify that the \texttt{y} coordinate of a point object \texttt{pt} is twice as big as its \texttt{x} coordinate. \autoref{lst:implementation-cassowaryexample} shows the constraint.
+As this constraint is linear, we can use the Cassowary constraint solver to solve the constraint as done in line 1. Line 2 constaints the actual constraint expression.
+
+To ready the code for execution a preprocessing step is taken.
+When using Babelsberg the source code needs to be transformed before its actual execution. The Babelsberg source code transformation emits the appropriate call to the library as seen in \autoref{lst:implementation-cassowaryexamplesourcetransformed}.
+Additionally, the source code transformation adds a context object to the function call. This object contains all variables that are directly referenced by the function.
+In order to interpret the constraint expression the interpreter requires this context object.
+
+When calling Babelsberg's \texttt{always} method, the given function is delegated to a JavaScript interpreter alongside contextual information.
+Thereby, the normal execution by the interpreter is adapted using a layer, the \texttt{ConstraintConstructionLayer}, provided by the Babelsberg library.
+In order to intercept accesses and assignments to relevant variables later during execution the constraint construction mode wraps properties with property accessors. For example, to get the value of a variable, the accessors returns the appropriate value from a constraint solver.
+However, during constraint construction Babelsberg does not use these accessors, but returns a \texttt{ConstrainedVariable} object instead. To get a specialized \texttt{ConstrainedVariable} for a concrete solver, its \texttt{constrainedVariableFor} method is invoked. The solver returns a \texttt{ConstrainedVariable} if the interpreter tries to access a value of a type supported by the specific solver. For instance, when accessing the \texttt{x} coordinate of the point object, Cassowary returns a \texttt{ConstrainedVariable} as a stand-in for the \texttt{Number} value.
+Now, messages are sent to this object instead of calculating values.
+Each \texttt{ConstrainedVariable} has a set of supported methods. These methods are used to create primitive constraint objects that can be satisfied using the solver.
+%In the case of Cassowary, the multiplication operation returns a \texttt{LinearExpression} object. Then, the equality operation returns 
+As a consequence, the interpreted constraint expression returns a specific constraint object that supports the \texttt{enable} and \texttt{disable} methods.
+When a constraint was successfully created, this constraint is immediately enabled and, in turn, solved.
+
+%\begin{itemize}
+%\item constraint code
+%\item src-transformation
+%\item weitergeben an interpreter, augmented by ccmLayer
+%\item solver decide, which types they can handle (in constraintVariableFor(typically written in a wrapper for actual solver)), and create constraint variables as stand-ins for regular values
+%\item variables have a set of supported methods -> they know how to create a constraint (this constraint is specific for the concrete solver)
+%\item interpreted constraint expression should return a specific constraint object. That is one that supports the \texttt{enable} and \texttt{disable} method.
+%\item methods are also interpreted by Babelsberg.
+%\end{itemize}
+
+\begin{code}[lst:implementation-cassowaryexample]{A simple constraint before source code transformation}{float,numbers=left,language=JavaScript,morekeywords={always}}
+always: { solver: new ClSimplexSolver()
+  pt.x * 2 == pt.y
+}
+\end{code}
+
+\begin{code}[lst:implementation-cassowaryexamplesourcetransformed]{A simple constraint after source code transformation}{float,numbers=left,language=JavaScript,morekeywords={}}
+bbb.always({
+  solver: new ClSimplexSolver() 
+  ctx: {
+    pt: pt
+  }
+}, function() {
+  return pt.x * 2 == pt.y
+});
+\end{code}
+
+Besides constructing and solving a constraint once, another important feature of the always statement is the automatic maintenance of the desired relation.
+To do so, Babelsberg installed property accessors during the interpretation of the constraint expression.
+When a new value is assigned to a property wrapped with a property accessor, the \texttt{suggestValue} method of the corresponding \texttt{ConstrainedVariable} object is called.
+To solve the assignment Babelsberg creates a temporary equality constraint between the variable and its new value. However, this change could affect the whole constraint system. So, Babelsberg finds all constraints with the modified variable. Babelsberg repeats this process for all variables of all constraints found in the previous step, and so on. This process stops once the convex hull of the assignment is found.
+In order to solve the constraints, Babelsberg sorts all participating solvers according to their weight. 
+%So, constraints are solved in order of their importance.
+Then, the solver with the highest weight solves all of its constraints using its specialized solving algorithm.
+Babelsberg continues to solve the constraint system with the next solver. However, all variables referenced by previous solvers are marked as read-only. As a consequence, a solver cannot modify variables assigned by previous solvers. This process continues for all remaining solvers. As a result, the constraint system is satisfied and the regular program execution can proceed with the next statement.
+
+%\begin{itemize}
+%\item Then, how are assignments handled?
+%\item interpreter installs listener on accessors all along the interpretation
+%\item  -> suggest value
+%\item - find all constraints with the changed variable
+%\item - for all variables in all these constraints: find all constraint in which they participate
+%\item - and so on til the convex hull is found
+%\item Next, linearize all participating solvers using their weight
+%\item Solve all constraints of the solver with the highest weight, including the assignment modeled as temporary equality constraint
+%\item Continue solving by solving all constraints of the next solver, but with all variables referenced by the first solver marked as read-only
+%\item Continue til all solvers are done; process next statement
+%\end{itemize}
+
+\paragraph{\emph{Limitations of the current implementation.}}
+Babelsberg/JS is an implementation of the \gls{ocp} paradigm provided as a library without any VM support. Such an implementation has several requirements on the host language~\cite{Felgentreff:2014:babelsbergjs}. One of those requirements is that the host language must support means to intercept variable lookup. Babelsberg/JS uses property accessors to meet this requirement. However, this technique only supports object fields, and cannot intercept local variables. Additionally, some fields of built-in types, such as the \texttt{length} attribute of \texttt{Arrays}, do not support property accessors.
+Another requirement is that the host language must provide means to modify the interpretation of a block.
+As described in this section, Babelsberg/JS uses a augmented JavaScript interpreter for constraint construction.
+Yet, this interpreter cannot access any variable scoped in a closure. 
+As a consequence, Babelsberg/JS cannot instrument any method refined by ContextJS, because ContextJS employs scoped variables. In addition, current state of the art browser-based JavaScript modules, asynchronous module definitions, cannot be instrumented if the module definition uses locally scoped variables.
+
+\section{Additional Concepts as Separate Solvers/Utilizing the Architecture of Cooperating Solvers (to Implement Additional Concepts)}
+In order to implement the concepts described in \autoref{cha:design}, we extend the existing Babelsberg library.
+However, we want to apply the least few changes to the Babelsberg library.
+So, we search for the points of variation in Babelsberg. We identified the constraint solvers as such a point, because Babelsberg is meant to be extended using additional solver.
+To be specific, we can utilize the architecture of cooperating solvers to implement the concepts as additional solvers.
+Doing so allows to decouple the existing Babelsberg from the additional concepts and requires only minor changes to Babelsberg itself. Additionally, the implementation as solvers allows an easy integration with existing behavior, because both use the same techniques.
+%Concepts implemented as separate solver for decoupling reasons and less changes to Babelsberg itself.
+%
+The described concepts, continuous assertions, trigger constraints, and activator constraints, share the same domain of arbitrary objects and primitive types they work on. They only differ in their solving behavior.
+Accordingly, we implement a shared solver superclass, \texttt{ReactiveSolver}, for all these concepts. This superclass deals with the necessary communication with Babelsberg. Each concept is provided by a solver class that inherits from \texttt{ReactiveSolver} and implements its own means to fulfill the desired property.
+
+When one of the constructs is used, a new respective solver instance is created, e.g. a \texttt{TriggerSolver}. Then, Babelsberg's \texttt{always} method is invoked, and instructs the interpretation of the given constraint expression using available context information and the solver instance. 
+When accessing a field upon interpretation, Babelsberg  calls the \texttt{constraintVariableFor} method of the given solver as explained in \autoref{sec:implementation-babelsberg-ccm}. The \texttt{ReactiveSolver} returns a \texttt{ReactiveSolver.ConstraintVariable} for every object and primitive value regardless its type of the accessed value. As a consequence, arbitrary constraint expressions are supported. In contrast, ordinary solvers only construct constraint variables for particular types and values, e.g. Cassowary only supports \texttt{Number} values. Additionally, a Cassowary constraint variable only responds to certain operations such as +, $\ast$, and $\leq$. On the contrary, \texttt{ReactiveSolver.ConstraintVariables} do not respond to any operation, instead, the logic is passed back to the Babelsberg interpreter. However, constructing a constraint variable for each field access also allows simple constraint expressions over field accesses that do not involve any calculation.
+%texttt{Variable} inherit from Constraint to support constraint expressions over simple field accesses.
+%responds to no operation, with the exception of assignments as these are handled 
+As a result of the interpretation, the Babelsberg constraint is created and all property accessors delegate to an appropriate \texttt{ReactiveSolver.ConstraintVariable}.
+%
+One has to keep in mind that Babelsberg expects each constraint expression to evaluate to true. This is typically enforces by the \texttt{always} statement. Yet, trigger and activator constraints do not require the expression to evaluate to true. Babelsberg considers a constraint expression that evaluates to false as an unsatisfiable constraint and raises an error. Therefore, we added the option \texttt{allowFailing} for this very case.\todo{add class diagram and ref to it}
+
+Aside constructing constraints, the other main task of Babelsberg is to ensure the desired properties. Therefore, the \texttt{solve} method of a solver is called when a constraint is enabled, usually immediate after its construction, or a \texttt{ConstrainedVariable} is modified. Both cases invoke the \texttt{solve} method that is implemented for each concrete solver.
+
+\begin{figure}
+\centering
+\includegraphics[width=.45\linewidth]{ppt/implementation_execution_order.png}
+\caption{Execution order to solve constraints depends on the solver's weight}
+\label{fig:implementation_execution_order}
+\end{figure}
+
+\autoref{fig:implementation_execution_order} depicts the order in which the additional concepts are executed related to ordinary solvers. The order of execution is determined by the weight of the solvers. The lower the weight the later the solver is executed.
+First, Babelsberg processes ordinary solvers. They maintain the user-defined constraint system.
+Next, Babelsberg checks all continuous assertions.
+Finally, trigger and activator constraints check whether they need to invoke or adapt behavior.
+To ensure this particular order, \texttt{AssertSolvers} have a lower weight than any ordinary solver, and \texttt{TriggerSolver} and \texttt{ActivatorSolver} have an even lower weight.
+%Weight/Priority:
+%Continuous assertion solver have a high priority. They function as early out, so if an assignment invalidates a continuous assertion, an error in thrown immediately. This way normal solvers do not need to perform complex computations.
+%Next, normal solvers are processed. They maintain user defined constraints.
+%Once everything is consistently solved, trigger and layer activation solver kick in and deal with behavior if needed.\todo{WRONG!: used assertions between ordinary solver and reactive constraint solvers}
+
+%Each trigger creates always a new solver. So the convex hull of an assignment is not extended more than needed for Babelsberg. In contrast, using a single solver instance for all triggers would lead to: have to check each trigger constraint each time one of them is affected by an assignment.
+
+\paragraph{\emph{Continuous Assertion Solver.}}
+A continuous assertion prevents the program from entering an erroneous\todo{correct word?} state as described in \autoref{sec:design-continuousassertions}.
+Therefore, the solver checks whether the given predicate is fulfilled as illustrated in line 2 of \autoref{lst:implementation-continuousassertion}.
+If that is not the case, the solver throws a specialized error as seen in line 3. This error causes Babelsberg to break out of its solving routine.
+Canceling the solving routine causes all trigger and activator constraints to be omitted\todo{correct for ausgelassen} as the failed assertion detects that the program has entered an inconsistent state.
+Additionally, the error instructs the \texttt{ConstraintVariable} to revert to its previous value, or disables the constraint that causes the error.
+Currently, reverting the state is limited to assignments which suffices in basic cases.
+
+\begin{code}[lst:implementation-continuousassertion]{The \texttt{solve} method of the \texttt{AssertSolver}}{float,numbers=left,language=JavaScript,morekeywords={always}}
+solve: function() {
+  if(!this.constraint.predicate()) {
+    throw new ContinuousAssertError(this.message);
+  }
+}
+\end{code}
+
+\paragraph{\emph{Trigger Solver.}}
+Trigger constraints promise\todo{is this a verb?} that a given piece of behavior will be invoked as soon as a given condition becomes true.
+Therefore, the solver keeps track of whether the predicate was fulfilled during last evaluation as seen in line 7 of \autoref{lst:implementation-trigger}. Initially, the solver's \texttt{previoslyFulfilled} attribute is set to false. As specified in line 4 if the given predicate is now fulfilled but was not during last evaluation, the given function should be invoked. To invoke a function, Babelsberg adds the function to a list of callbacks as in line 5. These callbacks are called at the end of the entire solving routine. So, callbacks can modify \texttt{ConstraintVariables} and, in turn, cause Babelsberg to solve constraints again.
+
+\begin{code}[lst:implementation-trigger]{The \texttt{solve} method of the \texttt{TriggerSolver}}{float,numbers=left,language=JavaScript,morekeywords={always}}
+solve: function() {
+  var predicateFulfilled = this.constraint.predicate();
+
+  if(predicateFulfilled && !this.previouslyFulfilled) {
+    bbb.addCallback(this.callback, this.constraint.bbbConstraint, []);
+  }
+  this.previouslyFulfilled = predicateFulfilled;
+},
+\end{code}
+
+\paragraph{\emph{Activator Solver.}}
+Activator constraints apply a certain adaption in behavior as long as a given condition holds. Therefore, the solver checks whether the evaluation result of the condition coincides with the layer activation status. So, if the condition is fulfilled but the layer is currently deactivated, the solver activates the layer as seen in line 5 and 6 of \autoref{lst:implementation-activator}. In the same way, if the layer is active but the condition evaluates to false, the solver deactivates the layer as stated in line 7 and 8.
+%whether the condition and the layer are consistent.
+
+
+%ContextJS
+
+%no delegation to two trigger constraints because of performance reasons/to minimize the number of solvers Babelsberg has to handle.
+
+\begin{code}[lst:implementation-activator]{The \texttt{solve} method of the \texttt{ActivatorSolver}}{float,numbers=left,language=JavaScript,morekeywords={always}}
+solve: function() {
+  var layerIsGlobal = this.layer.isGlobal(),
+      predicateFulfilled = this.constraint.predicate();
+
+  if(predicateFulfilled && !layerIsGlobal) {
+    this.layer.beGlobal();
+  } else if(!predicateFulfilled && layerIsGlobal) {
+    this.layer.beNotGlobal();
+  }
+},
+\end{code}
+
+\paragraph{\emph{An alternative implementation strategy.}}
+Another way to implement the described concepts without altering the Babelsberg/JS library at all is to implement a separate library. 
+However, this new library also has to employ a JavaScript interpreter like Babelsberg does. 
+The interpreter has to be augmented to create appropriate property accessors. Yet, this task is already solved by Babelsberg. So, a new library results in code duplication.
+%could also be done by extracting the JavaScript interpreter from Babelsberg and, then, providing the additional concepts as a separate library.
+Additionally, the interaction between ordinary constraints and our new concepts would suffer. For instance, the execution order of both libraries might depend on the order of specification of the concepts. To be specific, consider a trigger constraint and an always statement with the same constraint expression. The execution order of both statements is crucial if an assignment invalidates the constraint expression. If the trigger is processed first, the assignment would reset the trigger. Next, the always constraint resatisfies the constraint expression. Then, the trigger invokes its callback, because the constraint expression evaluates to true again. In contrast, if the always constraint is processed first, the constraint expression would be resatisfied immediately. As a consequence, the trigger is not reset, thus, no callback is invoked. We argue that implementing the additional concepts as separate library would lead to less predictable behavior as exemplified.
+
+\section{Use ContextJS Layer to Scope Constraints}
+Scoped constraints are only enabled as long as an associated constraint is active. The implementation of scoped constraints is twofold. First, we need to provide means to create constraints associated with a layer. Second, constraints have to be enable and disabled when the associated layer is activated and deactivated, respectively.
+
+To create a constraint associated with a layer, we added the method \texttt{predicate} to the \texttt{Layer} class. This method creates and returns a \texttt{LayeredPredicate} as seen in line 3 of \autoref{lst:implementation-layerextension}.
+A \texttt{LayeredPredicate} contains all information that are necessary to create a \texttt{Constraint} just like ordinary \texttt{Predicates}. Additionally, the associated \texttt{Layer} is stored as shown in line 4 of \autoref{lst:implementation-layeredpredicate}.
+
+\begin{code}[lst:implementation-layerextension]{Extention of the ContextJS \texttt{Layer} class}{float,numbers=left,language=JavaScript,morekeywords={always}}
+Object.extend(Layer.prototype, {
+  predicate: function(func, opts) {
+    return new LayeredPredicate(func, opts, this);
+  },
+  _enableConstraints: function() {
+    this._constraintObjects.forEach(function(cobj) {
+      cobj.enable();
+    });
+  },
+  _disableConstraints: function() {
+    this._constraintObjects.forEach(function(cobj) {
+      cobj.disable();
+    });
+  }
+});
+\end{code}
+
+As discussed in \autoref{sec:design-unifiedsyntax}, a \texttt{Predicate} provides methods to create actual constraint objects. The lines 6 to 11 exemplify this for the method \texttt{always}. 
+First, line 7 sets the \texttt{postponeEnabling} attribute in the options object depending on whether the associated layer is active. We added the \texttt{postponeEnabling} option to be able to prevent Babelsberg from immediately enabling newly created constraints.
+Then, the constraint is constructed in the usual manner in line 8. Thereby, the constraint is only enabled if the layer is already active.
+Next, we add the constraint to a list of constraints associated with the layer as shown in line 9. Finally, we return the created constraint.
+To sum up, the method creates a constraint and associates it with the layer.
+
+\begin{code}[lst:implementation-layeredpredicate]{Parts of the \texttt{LayeredPredicate} class definition}{float,numbers=left,language=JavaScript,morekeywords={}}
+Predicate.subclass("LayeredPredicate", {
+  initialize: function($super, func, opts, layer) {
+    $super(func, opts);
+    this.layer = layer;
+  },
+  always: function($super, opts) {
+    opts.postponeEnabling = !this.layer.isGlobal();
+    var cobj = $super(opts);
+    this.layer._constraintObjects.push(cobj);
+    return cobj;
+  }
+});
+\end{code}
+
+The second portion of the implementation regards the dynamic adaption of constraints when the activation state the associated layer changes. To do so, we extend the activation methods of ContextJS. For instance, \autoref{lst:implementation-layeractivation} shows how the global activation of a layer is extended. First, we call the layer's \texttt{\_enableConstraints} method.
+This method enables all constraint objects associated with the layer as shown in line 5 to 9 in \autoref{lst:implementation-layerextension}.
+Then, we proceed with the original function. The methods for global deactivation as well as control flow-based activation are extended in the same way.
+
+\begin{code}[lst:implementation-layeractivation]{Global layer activation extended to activate associated constraints}{float,numbers=left,language=JavaScript,morekeywords={always}}
+cop.enableLayer = cop.enableLayer.wrap(function(callOriginal, layer) {
+  layer._enableConstraints();
+  return callOriginal(layer);
+});
+\end{code}
+\todo{impl.: alle DeltaBlue Constraints an einen globalen DBPlanner schicken, diese instance bei jedem neu laden überschreiben}
+
+%One way to implement this is with \gls{cop}. \gls{cop} allow to dynamically switch behaviour on and off. Then, how is it implemented in terms of classes (maybe diagram), how is it structured in the existing architecture.
+%%
+%Why \gls{cop} for behavior adaption:
+%\begin{itemize}
+%\item Enables us to express contexts in terms a an expression; no need to explicitly (de-)activate layers
+%\item pragmatic reason: Babelsberg/JS already uses COP for CCM, so one library less to depend on
+%\end{itemize}
+%%
+%enabling a constraint causes it to be solved immediately. So, trigger or activator constraints are checked upon layer activation.
+%%
+%needs additional flag in Babelsberg: postponeEnabling to make scoped constraints possible, because by default all constraints are immediately enabled when constructing the constraint:

@@ -1,0 +1,116 @@
+\section{Discussion}
+\label{sec:discussion}
+
+%\subsection{Further strategies}
+%\todo{More strategies?..}
+%\subsubsection{Multiple Type Strategies}
+%\todo{FloatAndInt}
+%\subsubsection{Strategies for Dictionaries}
+%\subsubsection{Run-Length Strategies}
+%\todo{Ranges, length-of-nil, ...?  We don't have this, so future work...}
+
+The collection types supported by rstrategies are fixed sized and variable sized lists.
+Of course there are may more collection types and algorithms used in modern programs.
+The collection framework in the Java standard library features 8 interfaces and 10 implementation classes.
+A modern Squeak image \footnote{\url{http://www.squeak.org/}} has as many as 79 subclasses of \lstinline{Collection}, because it includes collections with very special purposes.
+However, rstrategies is a library for optimizing collections on VM level, which means it is only meaningful to support collections that occur as \emph{primitive types} in multiple programming languages.
+Even though Java supports collections like \lstinline{ArrayList}, \lstinline{TreeSet} and \lstinline{HashMap}, the only primitive collection type is the \lstinline{Array}.
+The same goes for Smalltalk and many other programming languages.
+
+It would be possible to take the approach of storage strategies even further and let the VM transparently optimize collection types from the standard library of the programming language.
+For example, since the interface and semantics of Javas \lstinline{ArrayList} are well defined, the VM could try to handle instances of \lstinline{ArrayList} by itself, without actually executing the Java bytecode in the methods of the \lstinline{ArrayList} class.
+This might lead to improved performance when accessing elements of \lstinline{ArrayList}, but this approach has several drawbacks.
+One important function of a standard library is to reduce the complexity of the VM.
+Moving parts of the library into the VM would only further increase its complexity.
+Another purpose of having a separate standard library is that it is able to evolve independently of the VM.
+It is very hard to exactly mirror the code of the standard library and the suggested approach would require releasing a new VM version after every substential change to the standard library.
+
+Therefore we chose to only optimize primitive collection types with rstrategies.
+The rest of this section lists and discusses several collection types not supported by rstrategies, although they do occur as primitive types in several modern programming languages.
+
+\subsection{Non-List Collections}
+
+We examined the primitive datatypes of the top programming languages according to the TIOBE Index for July 2014 \footnote{\url{http://www.tiobe.com/index.php/content/paperinfo/tpci/index.html}}.
+Even though such an index is never exact and changes fairly quickly, we believe it provides a satisfactory view of the state-of-the-art of programming languages.
+We looked at the top 10 programming languages which are usually executed by a VM.
+C and C++ are excluded, for example, since storage strategies are not applicable for statically compiled languages.
+Table \ref{tab:collectionTypes} summarizes the results by listing the primitive datatypes of each language and mapping them to abstract collection types which are explained in the following.
+
+\begin{table}
+\centering
+
+\begin{tabular}[ht]{ l l l l }
+\toprule
+Language & Fixed List & Variable List & Dictionary \\
+\midrule
+Java & Object, Array & {} & {} \\
+Objective-C & Object, Array & {} & {} \\
+C\# & struct, Object, Array & {} & {} \\
+PHP & {} & array & array \\
+Python & tuple, bytearray & list & object, dict \\
+JavaScript & {} & object & object \\
+Perl & Object, array & {} & hash \\
+Visual Basic .NET & Object, Array & {} & {} \\
+F\# & list, tuple, array & {} & struct, record \\
+Ruby & {} & array & object, hash \\
+\bottomrule
+\end{tabular}
+
+\caption{Programming languages and their primitive collection types.}
+\label{tab:collectionTypes}
+\end{table}
+
+The first line of table \ref{tab:collectionTypes} lists 3 abstract collection types: \emph{Fixed List}, \emph{Variable List} and \emph{Dictionary}.
+\emph{Fixed List} and \emph{Variable List} correspond to the collection types supported by rstrategies, using the mixin hierarchy described in \ref{sec:solutionOptimizations}.
+Therefore, all collection types listed in these two columns could be implemented and optimized using rstrategies.
+
+\emph{Dictionary} is a third abstract collection type that is quite important for many languages.
+There are two kinds of \emph{Dictionary} based collections.
+The first kind corresponds to Pythons or Rubys \lstinline{object} type, which only allows symbols as keys.
+This type is an integral part of these languages and therefore its optimization is central to VM performance.
+The standard optimization for such \emph{slot objects} is called maps, has been first developed for the Self VM \cite{self, selfDissertation}.
+This advanced optimization is not part of rstrategies because it is inherently language dependent.
+The second kind of \emph{Dictionary} based collections are regular lookup tables as implemented in standard libraries of many languages.
+This collection type is supported as built in type in Python, Perl and Ruby.
+Other languages, like JavaScript, feature types which can be used as both slot objects or general lookup tables.
+
+Storage strategies can be extended to include support for lookup tables.
+This has been done for the Python interpreter PyPy \cite{strategies} and in the JRuby+Truffle project \cite{smallDataStructures}.
+We have not yet implemented lookup tables as part of rstrategies yet, but intend to do so as part of our future work on this library.
+
+The contents of table \ref{tab:collectionTypes} are complete for every language, with one exception.
+Python has several additional primitive types for special use cases: \lstinline{buffer}, \lstinline{xrange}, \lstinline{set}, \lstinline{frozenset}, \lstinline{iterator}, \lstinline{generator}.
+This variety of primitive collection types is special to Python and all these types can be mapped to the \emph{Fixed List} or \emph{Variable List} types by adding additional algorithms to the \lstinline{store} and \lstinline{fetch} routines.
+Therefore we chose not to support special datatypes like these.
+
+
+\begin{comment}
+% This "idea" is not really meaningful
+\subsection{Multilevel-Strategies}
+
+In theory, storage strategies could even be applied to multiple levels, like illustrated in figure \ref{fig:MultipleLevels}.
+In this example, there are multiple equally sized lists of integer objects, which in turn are collected in a single, larger list.
+This two-level setup could be optimized by placing the unboxed version of all integers in consecutive memory.
+
+We decided to not take the storage strategies approach that far.
+For one thing, scenarios like that are rare.
+Furthermore, this optimization would require the VM to store and constantly evaluate additional control information, like the number of levels optimized and the length of the contained lists.
+This requires additional resources and the required analysis would likely be too expensive to pay off.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.7\textwidth]{strategies_multipleLevels}
+\caption{In theory, even multiple levels of storage can be optimized.}
+\label{fig:MultipleLevels}
+\end{figure}
+\end{comment}
+
+\subsection{Non-Contiguous Lists}
+
+Functional programming languages often feature a primitive datatype for linked lists.
+Lisp for example has the built in type \lstinline{cons} which represents one link of a linked list, formed by two fields: the value (named \lstinline{car}) and the pointer to the next link (named \lstinline{cdr}).
+While these labels have historical reasons originating in the 1950s, the linked list is still a central data structure in modern Lisp programs.
+Since accessing arbitrary elements of a linked list requires walking the entire list up to that element, optimizing linked lists would be very beneficial.
+For example, all elements of the list could be placed in consecutive memory, allowing constant access to any element.
+However, such optimizations bring about further complications and are a separate (although related) research topic to storage strategies.
+Therefore, we consider optimizations of linked lists out of scope for rstrategies.

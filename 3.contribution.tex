@@ -1,0 +1,189 @@
+\section{Language Independent Storage Strategies}
+
+%\subsection{The rstrategies Framework}
+%\todo{Framework description}
+
+%\subsection{Storage Strategies for Objects}
+%\todo{RSqueak Implementation}
+%\todo{which strategies are most important? why?}
+
+%\subsubsection{Single Value Strategies}
+%\todo{Nil}
+
+%\subsubsection{Single Type Strategies}
+%\todo{Int, Float}
+
+%\subsubsection{Mixed Type Strategies}
+%\todo{NilAndInt, NilAndFloat}
+
+%\subsection{Supporting Exotic Objects}
+%\todo{ContextParts, Classes, MethodDicts}
+
+
+In this chapter we present the design of our library for storage strategies called rstrategies.
+First we introduce the principles this library design is based on, then we describe different parts of the library and how a VM developer can utilize the library to create specific collection implementations.
+
+In order to be reusable in the context of different programming languages, rstrategies must expose its functionality in a very flexible way.
+We use the concept of mixins \cite{brachaMixins, mixins} to provide the required level of flexibility while allowing the VM to extend the provided functionality when needed.
+
+In the context of RPython, any regular class can be used as a mixin.
+The programmer must simply include a \lstinline{import_from_mixin(MixinClass)} clause into the body of the instantiating class.
+All attributes and methods will then be copied over from \lstinline{MixinClass} to the target class, including all inherited methods.
+A mixin is not intended to be used on its own.
+It can require other mixins and fields or methods provided by the instantiating class itself.
+This way the code inside a mixin can be written in an abstract way to promote modularity.
+
+rstrategies supports two types of collections: variable sized and fixed sized lists.
+These two abstract types of collections cover the needs of primitive collections for most programming languages.
+The reasons behind this design decision are further explained in section \ref{sec:discussion}.
+
+The rstrategies library provides a hierarchy of mixins that can be combined into actual collection classes.
+If required, parts of the provided functionality can instead be implemented in the VM specific collection classes.
+Any mixin class can also be extended in the VM specific code before being used.
+There is one main mixin hierarchy that provides the largest part of the functionality.
+At the top of this hierarchy is the class \lstinline{AbstractStrategy}.
+
+\lstinline{AbstractStrategy} defines the interface implemented in its specific subclasses, in addition to a few internal methods.
+The following methods are used to interact with the various storage strategy implementations:
+\begin{description}
+\item[store(index, item)]{Stores the given \lstinline{item} at the given \lstinline{index} in the collection. 
+The strategy will check internally if it can store the value of \lstinline{item} in an optimized way.
+If this check fails, the strategy will be automatically switched to a more general strategy that is able to hold both the current elements and the new \lstinline{item}.
+The switching mechanism is explained in section \ref{sec:switching}.
+Optionally, the value of \lstinline{index} is checked and an error is raised if it is out of bounds of the collections size.
+The value of \lstinline{index} must be within the bounds of the collection, even if the collection is variable sized.
+}
+\item[fetch(index)]{Returns the item stored at the given \lstinline{index} in the collection.
+Depending on the underlying strategy, it might be necessary to box the value on the fly to represent it on the VM level.
+Because of this, the results of two identical calls to \lstinline{fetch} might have different object identities, while still ayways containing equal values.
+The distinction between object identity and value equality is important.
+The same goes for a call to \lstinline{fetch} after switching the unterlying storage strategy: the results must contain equal values, but there are no guarantees about the object identity.
+}
+\item[size()]{Returns the number of elements stored in the collection.
+In case of a variable sized collection, the result of this can change after an intermediate call to \lstinline{insert} or \lstinline{delete}.}
+\item[insert(index, items)]{Inserts the given list of \lstinline{items} at the given \lstinline{index} in the collection.
+This increases the size of the collection by the number of inserted items and should therefore only be used in the context of variable sized collections.}
+\item[delete(start, end]{Deletes the items at indices \lstinline{start} (inclusive) to \lstinline{end} (exclusive) from the collection.
+All indices must be within the bounds of the collection.
+This decreases the size of the collection by \lstinline{$end-start$}.}
+\end{description}
+
+\subsection{Strategy Optimizations}
+\label{sec:solutionOptimizations}
+
+The interface of \lstinline{AbstractStrategy} is designed in a way that any of its subclasses can be used both in a fixed sized or variable sized context.
+A collection becomes fixed sized by simply never invoking any of the \lstinline{insert} or \lstinline{delete} methods.
+RPythons optimizer will then determine that underlying storage arrays are never changed in size and accordingly optimize allocations and accesses of such collections.
+
+Different subclasses of \lstinline{AbstractStrategy} represent different storage strategies, as described in chapter \ref{cha:storageStrategies}.
+Table \ref{tab:strategiesOverwiew} gives an overview over the supported strategies, which are further explained in the following paragraphs.
+
+\begin{table}
+\centering
+
+\begin{tabular}[ht]{ l l }
+\toprule
+EmptyStrategy & Size always zero \\
+SingleValueStrategy & Every element is the same value \\
+GenericStrategy & Can hold any element \\
+WeakGenericStrategy & Holds on weakly to its elements \\
+SingleTypeStrategy & Stores unboxed values of a single type \\
+TaggingStrategy & Stores unboxed values of a single type plus one special tag value \\
+\bottomrule
+\end{tabular}
+
+\caption{Summary of the strategies supported by rstrategies.}
+\label{tab:strategiesOverwiew}
+\end{table}
+
+
+The first one is \lstinline{EmptyStrategy}, which represents a collection with zero elements.
+The size of a collection using \lstinline{EmptyStrategy} is always zero, the \lstinline{fetch} operation always raises an error, and the \lstinline{store} operation always switches the strategy to a different one.
+The \lstinline{EmptyStrategy} can be used together with variable sized lists, like Pythons primitive \lstinline{list} type.
+In such a context, the \lstinline{EmptyStrategy} would be the starting point for every empty list.
+Then, depending on the first inserted element, the storage strategy would be switched appropriately.
+When all elements of a list are removed, the strategy can be optimized to the \lstinline{EmptyStrategy} once again, in case it is reused with a different type of element.
+% \citeauthor{strategies} have implemented this strategy for the Python interpreter PyPy.
+
+Another useful strategy mixin is \lstinline{SingleValueStrategy}.
+This strategy can only store a single value and therefore does not require to allocate an entire storage array.
+Again, this strategy can save a lot of memory when used frequently.
+The \lstinline{SingleValueStrategy} must allocate memory only for a single value: the size of the list.
+As soon as a different value is stored in this strategy, it must be deoptimized to a more general strategy.
+This is useful for programming languages with fixed sized primitive collections that are always instantiated filled with a default element.
+For example, a Java \lstinline{Array} is initially always filled with \lstinline{null} values, and a Smalltalk object is initially always filled with \lstinline{nil} values.
+Here, the \lstinline{SingleValueStrategy} can be used as initial strategy, before being deoptimized to a more general strategy.
+
+\lstinline{GenericStrategy} is the strategy that is able to handle any element.
+It corresponds to a simple, non-optimized list and is the fallback strategy when any other strategy has to be deoptimized.
+Depending on the context, there can be cases where a \lstinline{GenericStrategy} is again optimized to another strategy.
+For example, if the last element is removed from a variable sized list using a \lstinline{GenericStrategy}, it switches the strategy to \lstinline{EmptyStrategy}.
+This way, it will again switch to another optimized strategy next time an element is added.
+Similar scenarios can be constructed when using a fixed sized list, but in that case additional information must be maintained about the elements.
+For example, keeping track of the number of \lstinline{null} values would allow optimizing a generic fixed-sized array to \lstinline{SingleValueStrategy}.
+The associated overhead of maintaining this information would most likely surpass the optimization benefits.
+
+\lstinline{WeakGenericStrategy} is a version of \lstinline{GenericStrategy} that holds on weakly to its elements.
+This means that an element of a list using a \lstinline{WeakGenericStrategy} can be garbage collected, if the list contains the last reference to this element.
+Many programming languages require support for weak collections or objects on VM level.
+Since this strategy serves a very special purpose, collections should never switch from or to this strategy.
+Instead, a collection should be instantiated with this strategy and keep it throughout its lifetime.
+
+\lstinline{SingleTypeStrategy} is able to store elements of a single type in an optimized storage array, as described in section \ref{cha:storageStrategies}.
+Certain conditions must be met in order to use this strategy.
+Namely, the identity of the element objects must be determined only through their value, and element objects must be immutable.
+These strict conditions are the same as for pooling objects (see section \ref{sec:pooling}) and are usually only met by primitive types like integer or float datatypes.
+Therefore, the \lstinline{SingleTypeStrategy} can be used to implement optimized storage for collections of such primitive datatypes.
+The VM has to provide routines for \emph{boxing} and \emph{unboxing} the elements of this strategy.
+These routines form the bridge between the machine level and VM level representations of the element values.
+For example, assume an \lstinline{IntegerStrategy} has been implemented based on \lstinline{SingleTypeStrategy}.
+Now a boxed integer object is added to a collection with such a strategy.
+This object has to be unboxed in order to store its value into a machine level array of integers.
+When fetching a value from this strategy, the according boxed integer object has to be created again.
+
+The \lstinline{TaggingStrategy} is an extension of \lstinline{SingleTypeStrategy}.
+In addition to optimized storage of a single element type, it uses one specific tag value in the value range of unboxed elements to represent some special boxed value.
+This is useful when fixed sized collections have a default value for their contents.
+For example, a fresh Java \lstinline{Array} is filled with the default value \lstinline{null}.
+When this array is filled with \lstinline{Integer} instances, there will often be some slots in the array which still have the value \lstinline{null}.
+Now if we were using the \lstinline{SingleTypeStrategy}, we would already have to deoptimize to \lstinline{GenericStrategy} in order to represent both \lstinline{null} and \lstinline{Integer} values in the same collection.
+With the help of the \lstinline{TaggingStrategy}, we can avoid this early deoptimization by representing the \lstinline{null} slots with special integer values, for example the maximum possible integer value.
+
+There are two drawbacks to this strategy.
+First, it adds the overhead of comparing fetched elements with the tag value.
+This is the penalty for representing two different types in the same optimized storage.
+Second, the \lstinline{TaggingStrategy} can not store the tag value itself.
+Therefore, the tag value should be chosen to occur very rarely in real situations.
+This can be hard for integer values, since even the maximum possible integer can very well be produced by the user program.
+For float values, the IEEE 754 Standard \cite{ieeeFloat} allows for multiple representations of the \lstinline{NaN} value, one of which can be used as tag value.
+
+The described strategies can further be combined by the VM.
+For example, a Smalltalk object can consist of two parts: a fixed sized part containing instance variables, and an optional variable sized part, which is Smalltalks notion of arrays.
+Even though the two parts form a single object, they can have different requirements regarding storage strategies.
+In this case, the VM can use two instances of different strategies to represent a single object.
+
+The VM can even implement strategies that contain objects with more than one data field.
+For example, a language might have a primitive type representing a \emph{point}, consisting of two number fields.
+A collection of such \emph{point} objects could be optimized by storing all the point numbers in one consecutive array.
+This can be implemented using \lstinline{SingleTypeStrategy} and storing instances of RPythons \lstinline{tuple} type into it.
+In this example, the VM would have to provide routines to convert between the tuple of raw data, and an actual \emph{point} object.
+
+
+\subsection{Switching Strategies}
+\label{sec:switching}
+
+An important part of rstrategies is the mechanism that allows a collection to switch between different storage strategies.
+The generic and naive way to switch from one strategy to another requires two steps:
+
+\begin{enumerate}
+\item{Allocate a new storage strategy of an appropriate type and with an appropriate size.}
+\item{Invoke \lstinline{fetch} on the old strategy instance and \lstinline{store} on the new strategy instance for every element in the old instance.}
+\end{enumerate}
+
+While the first step can not be avoided, the second step can be largely optimized in many cases.
+For example, when switching from a \lstinline{SingleValueStrategy} to a \lstinline{GenericStrategy}, every \lstinline{fetch} operation will yield the same result.
+Therefore, an optimized switching routine can be implemented, which allocates a \lstinline{GenericStrategy} and fills its storage array with a fixed value, using a routine similar to \lstinline{memset} of the C standard library.
+
+In rstrategies, such optimized switching routines are implemented using a \lstinline{StrategyFactory}.
+An instance of \lstinline{StrategyFactory} knows all available storage strategies, manages the switching of strategies and instantiates new strategies.
+The \lstinline{StrategyFactory} class is described in more detail in section \ref{sec:StrategyFactory}.

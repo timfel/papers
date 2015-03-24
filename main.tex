@@ -32,7 +32,8 @@
 \usepackage{paralist} % figures
 \usepackage[shortcuts]{extdash} % figures
 \usepackage{hyperref}
-\usepackage{todonotes}
+\usepackage[textwidth=5em]{todonotes}
+\setlength{\marginparwidth}{1.9cm}
 \usepackage{xfrac}
 
 \newcommand{\maybe}{{\bf\footnotesize{?}}\kern-1pt}
@@ -64,9 +65,9 @@
 \xspaceaddexceptions{'$'$ |(}
 \newcommand{\reinline}[6]{{\tt <#1,#2,#3,#4>} $\leadsto$ {\tt <#5,#6>}}
 
-\def\tdm#1{\textcolor{blue}{\textsf{TDM: #1}}}
-\def\ab#1{\textcolor{red}{\textsf{AB: #1}}}
-\def\tf#1{\textcolor{purple}{\textsf{TF: #1}}}
+\def\tdm#1{\todo[color=green]{\textsf{\footnotesize TDM: #1}}}
+\def\ab#1{\todo[color=red]{\textsf{\footnotesize AB: #1}}}
+\def\tf#1{\todo[color=purple]{\textsf{\footnotesize TF: #1}}}
 
 \lstdefinelanguage{JavaScript}{
   keywords={typeof, new, true, false, catch, return, null, catch, switch, var, if, in, while, do, else, case, break, this, throw},
@@ -452,11 +453,11 @@ ones that can then cooperate to find solutions. Below we will use Babelsberg/JS 
 the examples (\ie \javascript syntax).  
 
 Babelsberg/JS augments JavaScript with new statements of the form
-\verb!always e! and \verb!once e! to declare constraints, where
+\verb!always: { e }! and \verb!once: { e }! to declare constraints, where
 \verb!e! is an ordinary JavaScript expression.  An \verb!always!
 constraint is required to hold for the rest of
 the execution; Babelsberg/JS therefore re-solves the constraint as
-part of the execution of each subsequent statement.
+part of the execution of each subsequent statement if it may have become invalidated.
 In contrast, a \verb!once!  constraint is
 solved once and then immediately redacted.
 
@@ -487,25 +488,30 @@ prevents the solver from changing it to satisfy the
 constraint. Because this is an \verb!always! constraint, it will be
 re-checked, and if necessary re-solved, after each subsequent
 statement.  It is possible for the current set of constraints to be
-unsatisfiable, in which case an exception occurs. \tdm{is that true?}
+unsatisfiable, in which case an exception occurs.
 For example, if a later constraint requires that \verb!acc.balance! have the
 value 50, or if that value is directly assigned to \verb!acc.balance!,
-then an exception will be thrown.
+then an exception will be generated.
 
 Line 3 computes the daily interest and again uses a read-only
 annotation, now so that 
 \verb!acc.balance! cannot be changed in order to satisfy the
 constraint.  By default constraints have a priority of \verb!required!,
-\tdm{is that true} but Babelsberg/JS supports \emph{soft constraints}
+but Babelsberg/JS supports \emph{soft constraints}
 as well.  For example, we assign a priority of \verb!medium! to the
 constraint on line 3, 
 which tells the system that it should satisfy the constraint
 if possible, but it is no error not to do so. In particular, if the
 daily interest were to rise above 10, then the system would choose to
 satisfy the constraint on line 4 but leave the constraint on line 3
-unsatisfied.  \tdm{It seems like a sentence or two on optimality
+unsatisfied.
+%
+A number of functions exist that define how the system can find an
+\emph{optimal solution} for competing, non-required constraints
+\cite{borning1992constraint}, but the concrete choice is not relevant
+for our semantics and is left to the solver. \tdm{It seems like a sentence or two on optimality
   criteria is warranted here.}
-
+\tf{I added the above. Alan, is this ok?}
 
 The rest of this section describes the problems that can arise with
 such an expressive object-constraint language, our design principles
@@ -545,7 +551,7 @@ principles.
 \label{sec:object-structure}
 
 Consider again the bank account example shown above.  The programmer
-expects the constraints to have the effect of possibly modifying the
+expects the constraints to possibly affect the
 bank's balance as well as the daily interest.  However, in the 
 absence of other restrictions, we discovered that Babelsberg as well
 as earlier systems that integrate constraints and objects would
@@ -644,14 +650,18 @@ specifying real-world constraints that require two variables to denote the
 same actual object and to describe circular structures.
 However, experience with Kaleidoscope in particular
 suggests that identity constraints can have non-obvious consequences.
-As an example, consider a constraint \verb!acc1 === acc2! that
-requires two variables to point to the same account object.  Here it
-is not clear whether the solution will require them both to point to
-the object stored in \verb!acc1! or that stored in \verb!acc2!.
-Further, if these objects have different structures that can lead to
-nondeterministic failures in subsequent structural checks.  Finally,
-the solver can also satisfy the identity constraint by assigning both
-variables to yet a third object.
+As an example, consider we add the following constraint after
+\autoref{lst:account}:
+\begin{lstlisting}[language=JavaScript,caption={~},label=lst:account-ident,numbers=none]
+always: { acc === acc2 }
+\end{lstlisting}
+This identity constraint requires two both variables to point to the
+same object.  Here it is not clear whether the solution will require
+them both to point to the object stored in \verb!acc! or that stored
+in \verb!acc2!.  Further, if these objects have different structures
+that can lead to nondeterministic failures in subsequent structural
+checks.  Finally, the solver can also satisfy the identity constraint
+by assigning both variables to yet a third object.
 
 % This adds a constraint on line 2 that \verb!account1! and
 % \verb!account2! be identical. However, it is not clear if
@@ -679,7 +689,7 @@ in two ways.  First, we require all identity constraints to be
 \emph{already satisfied} at the point where they are asserted.  
 In our example above, the programmer must explicitly resolve the
 nondeterminism, for example by assigning \verb!acc2! to point to 
-the value of \verb!acc1!, before asserting the identity constraint.
+the value of \verb!acc!, before asserting the identity constraint.
 If this check fails we treat the constraint as unsatisfiable.  
 Second,
 we provide additional ``stay'' constraints to the solver that require
@@ -714,13 +724,13 @@ Specifically, Babelsberg requires identity
 constraints to be asserted on their own, separate from other
 constraints, and it forbids such constraints from appearing within
 disjunctions or negations.  
-To see why this approach ensures determinism consider again a
-constraint of the form {\tt always (acc1 === acc2)} and suppose that
+To see why this approach ensures determinism consider again the constraint in \autoref{lst:account-ident}
+ and suppose that
 \verb!acc2! is subsequently re-assigned to point to some object {\tt o}.  Since that
 re-assignment requires \verb!acc2! to point to {\tt o},
 the only
-solution to the existing identity constraint is to re-assign
-\verb!acc1! to point to {\tt o} as well.
+way to re-satisfy the existing identity constraint is to re-assign
+\verb!acc! to point to {\tt o} as well.
 
 Finally, an assignment statement may cause violations in both identity
 constraints as well as ordinary ``value'' constraints.  To provide a

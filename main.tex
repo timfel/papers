@@ -426,77 +426,49 @@ our experience porting existing
 % semantics. \autoref{sec:related-work} gives an overview of related
 % work, and \autoref{sec:conclusion} concludes.
 
-\section{Ruling Out Surprising Solutions}
+\section{Overview}
 \label{sec:example-programs}
 
-Babelsberg, which we will use for our discussion, is a family of
+This section motivates the problem we address with object-constraint
+languages and overviews our solution informally.  We will use
+Babelsberg for our discussion, which is a family of
 object-constraint languages, with current instances being Babelsberg/R
 (a Ruby extension) \cite{FelgentreffJOT14}, Babelsberg/JS (a
 \javascript extension) \cite{FelgentreffECOOP14}, and Babelsberg/S (a
-Squeak extension) \cite{GraberREBLS2014}. Babelsberg is a recent
-\ac{ocp} system which allows developers much freedom in how
-constraints can be employed. However, experience with the design has
-shown that interactions between the object-oriented core and
-constraints could be difficult to understand.  In prior versions of
-the language, it was easy to formulate constraints that allowed the
-system to come up with surprising solutions, or no solutions at all ---
-they would need to be formulated differently for the
-translation from imperative code to constraints to work as
-intended.
-
+Squeak extension) \cite{GraberREBLS2014}. Babelsberg allows
+constraints to be interleaved with imperative code and supports
+expressive constraints involving mutable objects and their methods. 
+% However, experience with the design has
+% shown that interactions between the object-oriented core and
+% constraints could be difficult to understand.  In prior versions of
+% the language, it was easy to formulate constraints that allowed the
+% system to come up with surprising solutions, or no solutions at all ---
+% they would need to be formulated differently for the
+% translation from imperative code to constraints to work as
+% intended.
 In Babelsberg, the details of the underlying solvers are abstracted so
 that constraints can be handed to a number of different solvers, including
-ones that can then cooperate to find solutions. We will use Babelsberg/JS for
-the code (\ie \javascript syntax).  Babelsberg/JS provides the keyword
-labels \verb!always! and \verb!once! to declare constraints on the
-return values of ordinary object-oriented expressions and solve them
-immediately. An \verb!always!  constraint then holds for the rest of
-the execution, whereas a \verb!once!  constraint is redacted after
-being solved one time.
+ones that can then cooperate to find solutions. Below we will use Babelsberg/JS for
+the examples (\ie \javascript syntax).  
 
-This section consists of two parts: the first presents how we restrict
-the power of the solver to be deterministic with regards to object
-structure and identity. The second part presents how we restrict the
-translation from object-oriented methods to constraints to avoid edge
-cases and give simple rules for programmers to follow when they define
-constraints.
+Babelsberg/JS augments JavaScript with new statements of the form
+\verb!always e! and \verb!once e! to declare constraints, where
+\verb!e! is an ordinary JavaScript expression.  An \verb!always!
+constraint is required to hold for the rest of
+the execution; Babelsberg/JS therefore re-solves the constraint as
+part of the execution of each subsequent statement.
+In contrast, a \verb!once!  constraint is
+solved once and then immediately redacted.
 
-\subsection{Non-determinism in Structure and Identity}
-\label{sec:no-non-determinism}
-
-At the core of our design is the idea that the solver determines the
-entire heap and environment after each statement. However, for an
-imperative programmer it would be surprising if objects unnecessarily
-lose or gain fields, if variables change more than they have to, or
-non-deterministically change their identity --- the solver should
-always pick a solution that is ``close'' to the current state of the
-system. To address this problem, we define a set of restrictions on
-the language, which result in taming the power of the constraint
-solver and ruling out a significant number of such solutions. First,
-we use a form of structural typechecking at run time before constraint
-solving to ensure that object-structure cannot be modified by the
-solver. Second, we only allow changes to object identity to flow from
-imperative assignment statements, rather than be determined as part of
-the solving process. And third, we implicitly add a low priority
-``stay'' constraint to each variable, so that its value only changes
-if required by some higher-priority constraint.\footnote{The
-  formulation of the first two restrictions is new in this work; the
-  third has been present in Babelsberg since the original language
-  definition, as well as in the earlier Kaleidoscope design.}
-
-\subsubsection{Object Structure}
-\label{sec:object-structure}
-
-As an example to illustrate the non-deterministic and surprising
-behavior that can arise when using constraints involving objects with
-mutable structure, consider a bank account application in which we
+As a simple example, consider a bank account application in which we
 want to prevent changes that would make the account balance drop below
 a certain threshold. Additionally, we want to track the daily
-interest, but not allow it to rise above 10 euros.  (This example is
-simple enough that we can show the listing easily, but is designed to
-illustrate some complexities around object identity, as well as
-constraint features such as soft constraints and read-only annotations
-on variables.)
+interest, but not allow it to rise above 10 euros. Below is part of a
+Babelsberg/JS implementation of such an application.  %  (This example is
+% simple enough that we can show the listing easily, but is designed to
+% illustrate some complexities around object identity, as well as
+% constraint features such as soft constraints and read-only annotations
+% on variables.)
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:account]
 var acc = new Account(), minBal = 100, dailyInterest = 0;
 always: { acc.balance >= minBal? }
@@ -505,72 +477,150 @@ always: { priority: "medium"
 always: { dailyInterest <= 10 }
 \end{lstlisting}
 
-The desired semantics is that the solver will ensure that
-\verb!acc.balance! remains at least \verb!minBal! after line 2. The
+The constraint on line 2 ensures that 
+\verb!acc.balance! remains at least \verb!minBal!. If the constraint
+is already satisfied at that point, then nothing need be done;
+otherwise the solver will modify the values of variables and their
+properties in order to satisfy the constraint.  The
 read-only annotation on \verb!minBal! (indicated by the question mark)
-prevents the solver from changing it to satisfy the constraint. Thus,
-any change to the account that would drop the result of
-\verb!acc.balance! below \verb!minBal! is rejected by the
-system. Conversely, the system is not allowed to change the result of
-\verb!acc.balance! to satisfy the second constraint. The daily
-interest is always determined from the current balance, but not vice
-versa. Note also that we assign a priority to the second
-constraint. This tells the system that it should satisfy this relation
-if possible, but it is no error not to do so. Due to the third
-constraint, if the daily interest were to rise above 10, the system
-can leave the second constraint unsatisfied.
+prevents the solver from changing it to satisfy the
+constraint. Because this is an \verb!always! constraint, it will be
+re-checked, and if necessary re-solved, after each subsequent
+statement.  It is possible for the current set of constraints to be
+unsatisfiable, in which case an exception occurs. \tdm{is that true?}
+For example, if a later constraint requires that \verb!acc.balance! have the
+value 50, or if that value is directly assigned to \verb!acc.balance!,
+then an exception will be thrown.
 
-Consider the constraint on the \verb!balance! field on line 2. In the
+Line 3 computes the daily interest and again uses a read-only
+annotation, now so that 
+\verb!acc.balance! cannot be changed in order to satisfy the
+constraint.  By default constraints have a priority of \verb!required!,
+\tdm{is that true} but Babelsberg/JS supports \emph{soft constraints}
+as well.  For example, we assign a priority of \verb!medium! to the
+constraint on line 3, 
+which tells the system that it should satisfy the constraint
+if possible, but it is no error not to do so. In particular, if the
+daily interest were to rise above 10, then the system would choose to
+satisfy the constraint on line 4 but leave the constraint on line 3
+unsatisfied.  \tdm{It seems like a sentence or two on optimality
+  criteria is warranted here.}
+
+
+The rest of this section describes the problems that can arise with
+such an expressive object-constraint language, our design principles
+for addressing these problems, and our rules for enforcing the
+principles.
+% consists of two parts: the first presents how we restrict
+% the power of the solver to be deterministic with regards to object
+% structure and identity. The second part presents how we restrict the
+% translation from object-oriented methods to constraints to avoid edge
+% cases and give simple rules for programmers to follow when they define
+% constraints.
+
+% \subsection{Non-determinism in Structure and Identity}
+% \label{sec:no-non-determinism}
+
+% At the core of our design is the idea that the solver determines the
+% entire heap and environment after each statement. However, for an
+% imperative programmer it would be surprising if objects unnecessarily
+% lose or gain fields, if variables change more than they have to, or
+% non-deterministically change their identity --- the solver should
+% always pick a solution that is ``close'' to the current state of the
+% system. To address this problem, we define a set of restrictions on
+% the language, which result in taming the power of the constraint
+% solver and ruling out a significant number of such solutions. First,
+% we use a form of structural typechecking at run time before constraint
+% solving to ensure that object-structure cannot be modified by the
+% solver. Second, we only allow changes to object identity to flow from
+% imperative assignment statements, rather than be determined as part of
+% the solving process. And third, we implicitly add a low priority
+% ``stay'' constraint to each variable, so that its value only changes
+% if required by some higher-priority constraint.\footnote{The
+%   formulation of the first two restrictions is new in this work; the
+%   third has been present in Babelsberg since the original language
+%   definition, as well as in the earlier Kaleidoscope design.}
+
+\subsection{Structure Preservation}
+\label{sec:object-structure}
+
+Consider again the bank account example shown above.  The programmer
+expects the constraints to have the effect of possibly modifying the
+bank's balance as well as the daily interest.  However, in the 
 absence of other restrictions, we discovered that Babelsberg as well
 as earlier systems that integrate constraints and objects would
-sometimes find unintuitive solutions that the human programmer did not
-even consider. For example, we intuitively expect the solver to reason
-about the balance of the newly created \verb!Account!
-object. However, in the absence other restrictions nothing prevents
-the solver from considering other solutions:
-\begin{inparaenum}[i)]
-\item If the \verb!Account! class has no \verb!balance! field, should
-  the solver invent a balance field and constrain it? May it then
-  remove fields from the account that are not mentioned in the
-  constraint?
-\item Can the solver change the variable \verb!acc! to point to
-  another object that has a balance field with the right value?
-\item Finally, if the constraint is already satisfied, is the solver
-  allowed to make the balance equal to \verb!minimum!, as this would
-  also satisfy the constraint?
-\end{inparaenum}
+sometimes find unintuitive solutions that the programmer likely did not
+even consider, let alone intend. 
 
-These solutions are clearly undesired: imperative programmers do not
-expect the identity or the object structure of the \verb!acc!
-variable to change. Neither do they expect the property to change if
-the constraint is already satisfied. Yet it is inconvenient to have to
-add constraints to prohibit all these solutions. To avoid these
-undesired solutions, we add the following restrictions to our design:
-\begin{enumerate}[a)]
-\item We use a non-standard form of \emph{structural type-checking} at
-  run-time before sending constraints to the solver. Our checks
-  dynamically assert that field accesses occur only on objects (and
-  not primitive values), and that those objects have the necessary
-  fields. These assertions, unlike constraints, are only checked ---
-  if one is violated it is an error and the constraint solving
-  fails. The programmer must ensure that objects used in constraints
-  have all the referenced fields. This intentionally restricts the
-  power of the constraints in support of our goal of integrating
-  constraints with an object-oriented language in a way that reflects
-  the expectations of imperative programmers.
-\item We furthermore add implicit constraints on the structure of each
-  object that is sent to the solver to have the exact same fields,
-  thus forcing the solver to keep the object structure, once our
-  type-checks have determined the constraint to be valid.
-\item Finally, as in Kaleidoscope, Babelsberg adds implicit {\tt weak}
-  stay constraints to each variable and field to keep it at its
-  current value, if possible. This satisfies the desire that the
-  solver should not change a variable if no constraint on it is
-  violated.
-\end{enumerate}
+Specifically, suppose the object \verb!acc! has no 
+\verb!balance! field.  In earlier versions of Babelsberg the solver
+could silently invent such a field and then constrain it.  While one
+might argue that such behavior is desirable in this case, it is a slippery slope.
+For example, consider a constraint of the form \verb!p.x > 0 || p.y > 0! on a point \verb!p!.
+There is inherent nondeterminism here --- the solver can choose which
+property to update if the constraint does not hold.  But if
+\verb!p! lacks an \verb!x! property should it be invented?  If
+\verb!p! lacks both properties which one should be invented?
 
-\subsubsection{Object Identity}
-\label{sec:determ-object-ident}
+To avoid confusion, we employ a principle of \emph{structure
+  preservation}:  the solution to an asserted constraint will never
+change the structure of any objects.
+%
+% These solutions are clearly undesired: imperative programmers do not
+% expect the identity or the object structure of the \verb!acc!
+% variable to change. Neither do they expect the property to change if
+% the constraint is already satisfied. Yet it is inconvenient to have to
+% add constraints to prohibit all these solutions. To avoid these
+% undesired solutions, we add the following restrictions to our design:
+% \begin{enumerate}[a)]
+We enforce this principle by employing a form of \emph{structural type-checking} at
+  run time, just before sending constraints to the solver. Our checks
+  ensure that all structural requirements of the given constraints are
+  already satisfied in the current environment and heap.  For example,
+  before solving the constraint in line 2 of our bank account example,
+  Babelsberg will check that \verb!acc! indeed has a \verb!balance!
+  property.  Violations of these checks are treated the same way as unsatisfiable
+  constraints.  Indeed, the constraints \emph{are} unsatisfiable if
+  structural changes are forbidden.
+
+The above checks ensure that the solver will never need to add a
+property to an object in order to satisfy a constraint.  But we
+additionally would like to ensure that the solver will neither remove properties from an
+  object that are not
+  mentioned in the constraint nor add extraneous properties to an
+  object.  This is accomplished by extending the notion of ``stay''
+  constraints used in prior languages such as Kaleidoscope.  Those
+  languages provide {\tt weak} constraints to the solver specifying
+  that each variable keep its current value.
+Thus, a variable's value will only change if necessary to
+  satisfy a violated constraint.  We employ these same constraints and
+  additionally include ``stay'' constraints that each object retain
+  its exact structure.
+
+%   current value, if possible. This satisfies the desire that the
+%   solver should not change a variable if no constraint on it is
+%   violated.
+
+%   Once the structural checks are performed, we know that the
+%   structures of objects need not be changed.  Therefore, Babelsberg
+%   adds extra constraints to send to the solver that requires objects
+%   to retain their structures.  This ensures 
+%   fields. These assertions, unlike constraints, are only checked ---
+%   if one is violated it is an error and the constraint solving
+%   fails. The programmer must ensure that objects used in constraints
+%   have all the referenced fields. This intentionally restricts the
+%   power of the constraints in support of our goal of integrating
+%   constraints with an object-oriented language in a way that reflects
+%   the expectations of imperative programmers.
+% \item We furthermore add implicit constraints on the structure of each
+%   object that is sent to the solver to have the exact same fields,
+%   thus forcing the solver to keep the object structure, once our
+%   type-checks have determined the constraint to be valid.
+% \item Finally, as in Kaleidoscope, Babelsberg adds implicit {\tt weak}
+% \end{enumerate}
+
+
+\subsection{Identity Preservation}
 
 Another issue in the design of an object-constraint language is the
 interaction between constraints and object identity.  Object identity
@@ -578,77 +628,125 @@ plays an essential role when using an object-oriented language to
 model aspects of the real world and so, in a language that integrates
 constraints with object-oriented features, we need to resolve the
 tensions between these fundamental features \cite{lopez-ecoop-1994}.
-Additionally, making explicit identity constraints available to the
-programmer allows for useful capabilities such as specifying that two
-variables refer to the same identical object, or describing circular
-structures.  However, experience with Kaleidoscope in particular
-suggests that allowing powerful constraints on object identity and
-types can lead to non-obvious consequences. As an example, consider
-the following program:
 
-\begin{lstlisting}[language=JavaScript,caption={~},label=lst:identity]
-var account1 = {credit: 10}, account2 = {debit: 100};
-always: { account1 === account2 }
-account1.withdraw(1);
-always: { account1.debit >= 0 }
-\end{lstlisting}
+Surprisingly, this tension arises even in the simple bank account
+example shown earlier.  Consider the constraint on \verb!acc.balance!
+in line 2.  While the programmer expects the value of the account's
+\verb!balance! property to be updated as necessary to satisfy the
+constraint, earlier versions of Babelsberg and prior object-constraint
+languages could also choose to simply
+change \verb!acc! to point to another object whose \verb!balance!
+property satisfies the constraint.
 
-This adds a constraint on line 2 that \verb!account1! and
-\verb!account2! be identical. However, it is not clear if
-\verb!account1! and \verb!account2! will afterwards refer to an
-account with a debit balance or an account with a credit balance (or both,
-or neither).  It is thus not clear which account we withdraw from in line
-3, or even if this variable still refers to an account object --- in
-the absence of suitable restrictions, the
-solver might throw up its hands and set both variables to
-\verb|null|.  Assuming we prefer solutions that change as few
-variables as possible, both \verb!account1! and \verb!account2! might
-refer to a credit account after line 2 is executed. In that case the
-constraint on line 4 would not be structurally valid, because no
-\verb!debit!  field exists on a credit account. If we let the solver
-change identities to satisfy the constraint on line 4, we may have
-withdrawn from the credit account and then asserted that the debit
-account be above 0. The non-deterministic choice of identity would
-thus give rise to multiple possible meanings for the rest of the
-program, making it harder to reason about.
+Additional complications arise in the presence of explicit
+constraints on object identity.  Such constraints are useful for
+specifying real-world constraints that require two variables to denote the
+same actual object and to describe circular structures.
+However, experience with Kaleidoscope in particular
+suggests that identity constraints can have non-obvious consequences.
+As an example, consider a constraint \verb!acc1 === acc2! that
+requires two variables to point to the same account object.  Here it
+is not clear whether the solution will require them both to point to
+the object stored in \verb!acc1! or that stored in \verb!acc2!.
+Further, if these objects have different structures that can lead to
+nondeterministic failures in subsequent structural checks.  Finally,
+the solver can also satisfy the identity constraint by assigning both
+variables to yet a third object.
 
-To tame the power of constraints on object identity, we set the
-following goals for this aspect of our design:
-\begin{enumerate}[a)]
-\item Constraints on object identity must be declared explicitly using
-  the identity test from the host language (\verb!===! in the case of
-  \javascript). They cannot be hidden within another method.
-\item\label{item:deterministic} The solution to the constraints is
-  deterministic as far as object identity is concerned --- there
-  should never be multiple correct solutions in which a given variable
-  refers to objects with different identities in the different
-  solutions. Thus, the programmer must first ensure the identity
-  constraint is already satisfied before asserting it.
-\item Any change to the identities of the objects referred to by
-  variables can only flow from an assignment statement --- the
-  constraint solver may not otherwise alter object identities.
-\item To make Babelsberg programs more understandable for programmers,
-  the identities of objects in value constraints should be clear. We
-  thus first solve all the identity constraints (with a deterministic
-  solution, in keeping with goal \ref{item:deterministic}), and then
-  the value constraints. In the second step, identities are fixed, and
-  thus method lookup follows regular object-oriented semantics. This
-  requires all identity constraints to be declared separately from
-  value constraints.% We
+% This adds a constraint on line 2 that \verb!account1! and
+% \verb!account2! be identical. However, it is not clear if
+% \verb!account1! and \verb!account2! will afterwards refer to an
+% account with a debit balance or an account with a credit balance (or both,
+% or neither).  It is thus not clear which account we withdraw from in line
+% 3, or even if this variable still refers to an account object --- in
+% the absence of suitable restrictions, the
+% solver might throw up its hands and set both variables to
+% \verb|null|.  Assuming we prefer solutions that change as few
+% variables as possible, both \verb!account1! and \verb!account2! might
+% refer to a credit account after line 2 is executed. In that case the
+% constraint on line 4 would not be structurally valid, because no
+% \verb!debit!  field exists on a credit account. If we let the solver
+% change identities to satisfy the constraint on line 4, we may have
+% withdrawn from the credit account and then asserted that the debit
+% account be above 0. The non-deterministic choice of identity would
+% thus give rise to multiple possible meanings for the rest of the
+% program, making it harder to reason about.
+
+To address these problems, we employ a principle of \emph{identity
+  preservation}:  asserted constraints cannot change the identity of
+an object stored in a variable or property.  The principle is enforced
+in two ways.  First, we require all identity constraints to be
+\emph{already satisfied} at the point where they are asserted.  
+In our example above, the programmer must explicitly resolve the
+nondeterminism, for example by assigning \verb!acc2! to point to 
+the value of \verb!acc1!, before asserting the identity constraint.
+If this check fails we treat the constraint as unsatisfiable.  
+Second,
+we provide additional ``stay'' constraints to the solver that require
+the identities of objects in variables and properties to remain unchanged.
+While
+this approach places a bit more burden on the programmer, we believe
+that the programmer effort is more than made up for by the strong guarantee that
+constraint solving will never change identities.  
+
+\subsection{Structural/Identity Determinism}
+
+Of course, imperative programs do need to sometimes update the structures of
+objects as well as the identities of objects stored in variables and
+properties.  In Babelsberg we must therefore allow such updates.  The
+challenge, then, is to provide this expressiveness while at the same
+time avoiding the kinds of surprising behaviors described earlier when
+attempting to re-establish violated constraints.  
+
+To that end, we allow arbitrary updates to objects and variables
+through ordinary assignment but impose a principle of \emph{structural
+  and identity determinism}:  all solutions to the
+violated constraints must agree on the structures of all objects and
+the identities stored in all variables and properties.  The key
+observation is that changes to structure and identity can only occur through an
+assignment statement, and the inherent directionality of an assignment
+ensures a deterministic ``flow'' to other variables in order to
+re-establish violated constraints.
+
+However, making this approach work requires a few new restrictions,
+particularly with respect to identity constraints.
+Specifically, Babelsberg requires identity
+constraints to be asserted on their own, separate from other
+constraints, and it forbids such constraints from appearing within
+disjunctions or negations.  
+To see why this approach ensures determinism consider again a
+constraint of the form {\tt always (acc1 === acc2)} and suppose that
+\verb!acc2! is subsequently re-assigned to point to some object {\tt o}.  Since that
+re-assignment requires \verb!acc2! to point to {\tt o},
+the only
+solution to the existing identity constraint is to re-assign
+\verb!acc1! to point to {\tt o} as well.
+
+Finally, an assignment statement may cause violations in both identity
+constraints as well as ordinary ``value'' constraints.  To provide a
+clean semantics for programmers, we introduce a two-phase approach to
+constraint solving as part of an assignment statement. 
+ In the first phase all identity constraints are deterministically
+ re-established as described above.  In the second phase, all value
+ constraints are solved, with the structure and identities of all
+ objects now fixed using the ``stay'' constraints described in the
+ previous subsections. 
+
+% We
   % disallow non-required identity constraints, to avoid having to
   % backtrack when solving value constraints (or otherwise
   % non-deterministically failing).
-\end{enumerate}
+% \end{enumerate}
 
-To preview the results of our rules, the program in
-\autoref{lst:identity} would then be illegal, since the identity
-constraint \verb|account1 === account2| is not satisfied at the time it
-is asserted. If the programmer uses an assignment to first make both
-\verb|account1| and \verb|account2| refer to the debit account, the
-program succeeds; if the programmer makes them refer to the credit
-account, it halts with a structural compatibility check error.  In
-either case it becomes deterministic and straightforward to reason
-about.
+% To preview the results of our rules, the program in
+% \autoref{lst:identity} would then be illegal, since the identity
+% constraint \verb|account1 === account2| is not satisfied at the time it
+% is asserted. If the programmer uses an assignment to first make both
+% \verb|account1| and \verb|account2| refer to the debit account, the
+% program succeeds; if the programmer makes them refer to the credit
+% account, it halts with a structural compatibility check error.  In
+% either case it becomes deterministic and straightforward to reason
+% about.
 
 \subsection{Clear Rules for Writing Valid Constraints}
 \label{sec:rules-constr-expr}

@@ -65,9 +65,9 @@
 \xspaceaddexceptions{'$'$ |(}
 \newcommand{\reinline}[6]{{\tt <#1,#2,#3,#4>} $\leadsto$ {\tt <#5,#6>}}
 
-\def\tdm#1{\todo[color=blue!40]{\textsf{\footnotesize TDM: #1}}}
-\def\ab#1{\todo[color=red!40]{\textsf{\footnotesize AB: #1}}}
-\def\tf#1{\todo[color=purple!40]{\textsf{\footnotesize TF: #1}}}
+\def\tdm#1{\todo[size=\footnotesize,color=blue!40]{\textsf{TDM: #1}}}
+\def\ab#1{\todo[size=\footnotesize,color=red!40]{\textsf{AB: #1}}}
+\def\tf#1{\todo[size=\footnotesize,color=purple!40]{\textsf{TF: #1}}}
 
 \lstdefinelanguage{JavaScript}{
   keywords={typeof, new, true, false, catch, return, null, catch, switch, var, if, in, while, do, else, case, break, this, throw},
@@ -153,6 +153,7 @@
 \newacronym{rml}{\textsc{RML}}{the Relational Meta-Language}
 
 \hyphenation{LivelyKernel}
+\hyphenation{work-around}
 
 \newcommand\slightspacewide{\kern1em}
 \newcommand\slightspace{\kern0.5em}
@@ -697,6 +698,7 @@ that the programmer effort is more than made up for by the strong guarantee that
 constraint solving will never change identities.  
 
 \subsection{Structural/Identity Determinism}
+\label{sec:determinism}
 
 Of course, imperative programs do need to sometimes update the structures of
 objects as well as the identities of objects stored in variables and
@@ -1304,8 +1306,8 @@ We use a notion of typechecking to prevent undesirable non-determinism
 in constraints.  Specifically, we want constraint solving to preserve
 the structure of the values of variables, changing only the underlying
 primitive data as part of a solution, in support of the goals listed
-in \autoref{sec:no-non-determinism}.  We formalize our notion of
-structure through a simple syntax of types:
+in Sections \ref{sec:object-structure} through \ref{sec:determinism}.  We
+formalize our notion of structure through a simple syntax of types:
 \vskip0.5\baselineskip\noindent\begin{tt}
 \begin{tabular}{ll}
 {\rm Type} T ::= & PrimitiveType $\mid$ \{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}
@@ -1888,19 +1890,20 @@ determined.
 
 A guiding principle for this work was to start with clear and simple
 rules that are understandable to the programmer and amenable for use
-in proofs. We believe that these are currently more conservative than
-is convenient. To evaluate where the limitations are, we examine the
-programs included with Babelsberg/JS\footnote{These examples are part
-  of a published artifact \cite{FelgentreffECOOP14}, and are also
-  available from the Babelsberg/JS repository at
+in proofs. We recognize that these are currently more
+conservative than is convenient in some cases. To evaluate where the limitations
+are, we examined the programs included with
+Babelsberg/JS\footnote{These examples are part of a published artifact
+  \cite{FelgentreffECOOP14}, and are also available from the
+  Babelsberg/JS repository at
   \url{https://github.com/babelsberg/babelsberg-js}. For our adaption,
-  we used the versions from the repository.} that no longer work, and
-then seek generalizations of the problems we encounter and possible
-avenues for amending our rules to be more convenient. In general,
-however, we need to balance simplicity and clarity with the needs for
-additional expressiveness, we do not want to introduce a large number
-of additional special cases or special forms, and we need to retain
-soundness.
+  we used the versions from the repository.} that no longer
+work. Below we generalize the problems we encountered frequently and
+consider possible avenues for amending our rules to be more
+convenient. In general, however, we need to balance simplicity and
+clarity with the needs for additional expressiveness, we do not want
+to introduce a large number of additional special cases or special
+forms, and we need to retain soundness.
 
 The programs we examine were constructed using the LivelyKernel's
 direct manipulation Morphic interface and include a graphical
@@ -1932,16 +1935,20 @@ editing.  % Finally, the mobile application illustrates the use of
 % identity constraints (constraints that two variables refer to the same
 % identical object) to connect the UI and the underlying model.
 
+We present each issue, its intended semantics, a workaround with our
+current semantics, and an intuition for future work that could address
+the issue.
+
 \paragraph{Argument Checking }
 \label{sec:argument-checking}
-One issue we encountered is that many LivelyKernel methods have,
-besides a return statement, some statements that check the number,
-types, or structure of arguments. As per our semantics, such methods
-do not work multi-directionally. In fact, allowing them to be truly
-multi-directional would allow the solver to change the number, types,
-or structure of arguments, which are examples of the surprising behaviors we
-want to avoid. As an example, consider the frequently used method to
-add two points in LivelyKernel:
+Many LivelyKernel methods have, besides a return statement, some
+statements that check the number, types, or structure of arguments. As
+per our semantics, such methods do not work multi-directionally. In
+fact, allowing them to be truly multi-directional would allow the
+solver to change the number, types, or structure of arguments, which
+are examples of the surprising behaviors we want to avoid. As an
+example, consider the frequently used method to add two points in
+LivelyKernel:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:addPt]
 function addPt(p) {
     if (arguments.length != 1)
@@ -1950,14 +1957,16 @@ function addPt(p) {
 }
 \end{lstlisting}
 We almost certainly don't want to satisfy a constraint that calls the
-\verb|addPt| method with a bad argument by changing the argument to
-be a point.  In the future we plan to revise the semantics to allow
-argument checking simply as checks, rather than as parts of the 
-constraint that can be used multi-directionally.
-For now, although it is not semantically clean,
-the practical implementation allows such tests on arguments, because
-these checks are so pervasive that working around was very
-inconvenient.
+\verb|addPt| method with a bad argument by changing the argument to be
+a point. Instead, the argument check should not be part of the
+constraint.
+
+As a workaround, although it is not semantically clean, the practical
+implementation allows such tests on arguments, because these checks
+are so pervasive that working around was very inconvenient. As part of
+future work, we consider adding assertions as constructs that can be
+checked before handing the constraints to the solver. Assertions can
+then be used instead of branches and explicit exceptions.
 
 \paragraph{Branching }
 \label{sec:branching}
@@ -1983,31 +1992,34 @@ function getPosition() {
   red herring --- we should be concerned with the desired semantics of
   the constraint, not the solver.}
 \tf{is the text below clearer?}
+%
 The desired semantics is that the constraint modify the object's
 position, but allowing this method to be used multi-directionally
-allows the solver to change an object's \verb!hasFixedPosition!
-boolean flag as well. A workaround was to carefully choose the solver
-in this case. Cassowary, for example, does not reason about booleans
-and treats the flag as a constant, exhibiting the desired
-behavior. Z3, on the other hand, can change \verb!hasFixedPosition!,
-leading to surprising solutions and graphical glitches.
+allows the solver to change an object's \verb!FixedPosition!  boolean
+flag as well. Previously, the examples carefully chose the solver to
+get the desired behavior. Cassowary, for example, cannot reason about
+booleans and treats the flag as a constant as intended. Z3, on the
+other hand, would sometimes change \verb!FixedPosition!, leading to
+surprising solutions and graphical glitches.
 
 In our semantics, the specifics of the solver no longer influence the
 meaning of using \verb!getPosition! in a constraint --- it can only be
-used in the forward direction. To allow a constraint to affect the
-position of the morph, the developer has to move the test outside of
-the method and add the constraint only for the branch that is chosen.
+used in the forward direction. As a workaround, the developer has to
+move the test outside of the method and add the constraint only for
+the branch that is chosen. In future work, we want to add a mechanism
+to recognize this pattern and automatically mark the branch condition
+as read-only to the solver.
 
 \paragraph{Benign Side Effects }
 \label{sec:benign-side-effects}
-Lazy initialization and caching are used in the constraints in some of the
-example applications. Prior work has explicitly allowed such
-benign side effects \cite{FelgentreffJOT14,FelgentreffECOOP14},
-but our formal semantics disallows them.  (We believe that this is an
-appropriate simplification to the formal semantics, preferring to
-leave this issue to clear but less formal guidance to programmers and
-language implementors.)  For example, the LivelyKernel method
-\verb|Morph.getBounds| is used (often indirectly) in many of the
+Lazy initialization and caching are used in some of the example
+applications. Prior work has explicitly allowed such benign side
+effects \cite{FelgentreffJOT14,FelgentreffECOOP14}, but our formal
+semantics disallows them.  (We believe that this is an appropriate
+simplification to the formal semantics, preferring to leave this issue
+to clear but less formal guidance to programmers and language
+implementors.)  For example, the LivelyKernel method
+\verb|Morph.getBounds| is used in many of the
 examples.  The code below was adapted to focus on the caching --- the
 method also uses branches and local variables, which are also
 disallowed now:
@@ -2018,18 +2030,25 @@ function getBounds() {
     return this.cachedBounds = this.innerBounds();
 }
 \end{lstlisting}
-A workaround that we use here is to call \verb|innerBounds| directly,
-and circumvent the caching. For Morphs for which all child Morphs are
-contained within the bounds of their parent, this returns the same
-result. In the practical applications, this change had the additional
-benefit of removing some UI glitches that happened when the solver
-changed the cached bounds. The rendering code in the LivelyKernel
-expects changes to a Morph's bounds to go through the inner bounds to
-trigger re-rendering, but a change to the \verb!cachedBounds!
-rectangle did not update the UI unless something else triggered
-rendering (in which case the \verb!getBounds!  method would return the
-updated \verb!cachedBounds! and the Morph was rendered at the correct
-position).
+The desired semantics is to bypass the cache and affect the actual
+fields that contribute to the calculation of the bounds.
+
+A workaround here is to call \verb|innerBounds| directly, and
+circumvent the caching. In the practical applications, this change had
+the additional benefit of removing some UI glitches that happened when
+the solver changed the cached bounds, but the rendering code was
+watching the inner bounds.
+% SHORTER VERSION OF THE BELOW IN HALF SENTENCE ABOVE
+% The rendering code in the LivelyKernel
+% expects changes to a Morph's bounds to go through the inner bounds to
+% trigger re-rendering, but a change to the \verb!cachedBounds!
+% rectangle did not update the UI unless something else triggered
+% rendering (in which case the \verb!getBounds!  method would return the
+% updated \verb!cachedBounds! and the Morph was rendered at the correct
+% position).
+As future work, we want to introduce rules in the semantics to
+recognize cached values as benign side-effects, so the solver modifies
+the correct fields and invalidates or updates the cache appropriately.
 
 \ab{I'm confused by this example as well.  What is the desired
   semantics?  It seems like maybe we should have some explicit
@@ -2056,20 +2075,10 @@ position).
 
 \paragraph{Local Variables }
 \label{sec:local-variables}
-Some methods we encountered declared local variables to split up
-calculations or name constants. For such methods, manual inlining of
-the split up calculation into the return expression was required. The
-original Babelsberg design explicitly allows such methods, as long as
-the variables are used in \ac{ssa} fashion \cite{FelgentreffJOT14}. In
-this case, our restrictions may be too strong. However, our experience
-with the different languages has shown that to some people it is not
-clear if the system can, in such cases, change the value of local
-variables hidden within a method, or if these can be regarded as
-constants. Thus, we argue that, although sometimes inconvenient, the
-restriction not to allow local variables makes it easier to reason
-about the program.
-
-% \pagebreak
+Some methods use local variables to split up calculations or name
+constants. The original Babelsberg design explicitly allows such
+methods, as long as the variables are used in \ac{ssa} fashion
+\cite{FelgentreffJOT14}.
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:airPressure]
 function pressure() {
    var gasConstantDryAir = 287.058, // J/(kg*K)
@@ -2078,6 +2087,18 @@ function pressure() {
    return entropyPerVol * this.K / 1000;
 }
 \end{lstlisting}
+Although the desired semantics in this case is to inline the variables
+as constants into the return expression, our experience with \ac{ocp}
+has shown that it is not always clear if the system should change the
+value of hidden variables, if they are used to build a constraint
+system, or if they can always be regarded as constants. Thus, we argue
+that, although sometimes inconvenient, the restriction not to allow
+local variables makes it easier to reason about the programs.
+
+As a workaround, manual inlining of the split up calculation into the
+return expression was required. As an extension to our rules, when
+local variables are used only as names for constants, these should be
+inlined automatically.
 
 \ab{Is there a way to clean this issue up?  For example, maybe the
   simple version is no local variables in methods used in multi-way
@@ -2089,16 +2110,17 @@ function pressure() {
   variables to be used in constraints, and simply saying they are
   always read-only. Not sure I want to discuss this here, though, I
   think I need to experiment with that a little.}
+\tf{removed paragraph on edit constraints for space}
 
-\paragraph{Edit Constraints }
-\label{sec:edit-constraints}
-Edit constraints \cite{freeman1989deltablue}
-support the efficient updating of a solution to the current
-constraints as a set of input values changes, for example, as a point
-in a diagram is dragged with the mouse.  Edit constraints are
-supported in the \javascript and Ruby implementations of Babelsberg,
-but are not yet accounted for in our formal semantics.  Adding them to
-the semantics should be straightforward.
+% \paragraph{Edit Constraints }
+% \label{sec:edit-constraints}
+% Edit constraints \cite{freeman1989deltablue}
+% support the efficient updating of a solution to the current
+% constraints as a set of input values changes, for example, as a point
+% in a diagram is dragged with the mouse.  Edit constraints are
+% supported in the \javascript and Ruby implementations of Babelsberg,
+% but are not yet accounted for in our formal semantics.  Adding them to
+% the semantics should be straightforward.
 %% Finally, our semantics does not include support for edit constraints
 %% \cite{freeman1989deltablue,freeman1990incremental}, so existing
 %% programs which use them do not currently work. Although incremental

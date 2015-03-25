@@ -646,16 +646,16 @@ property satisfies the constraint.
 
 Additional complications arise in the presence of explicit
 constraints on object identity.  Such constraints are useful for
-specifying real-world constraints that require two variables to denote the
-same actual object and to describe circular structures.
+specifying real-world requirements that two variables denote the
+same actual object and to describe cyclic structures.
 However, experience with Kaleidoscope in particular
 suggests that identity constraints can have non-obvious consequences.
-As an example, consider we add the following constraint after
+As an example, suppose we add the following constraint after
 \autoref{lst:account}:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:account-ident,numbers=none]
 always: { acc === acc2 }
 \end{lstlisting}
-This identity constraint requires two both variables to point to the
+This identity constraint requires two variables to point to the
 same object.  Here it is not clear whether the solution will require
 them both to point to the object stored in \verb!acc! or that stored
 in \verb!acc2!.  Further, if these objects have different structures
@@ -758,168 +758,147 @@ constraint solving as part of an assignment statement.
 % either case it becomes deterministic and straightforward to reason
 % about.
 
-\subsection{Clear Rules for Writing Valid Constraints}
+\subsection{Invoking Methods in Constraints}
 \label{sec:rules-constr-expr}
 
-Another issue is that programmers need to be aware of certain
-restrictions on how methods can be used in constraints. Kaleidoscope
-and Turtle distinguish imperative and declarative behavior definitions
-that are used depending on whether an object is used in an imperative
-or a declarative context. This means that programmers have to consider
-both interfaces of an object, depending on what they want to
-express.  Babelsberg unifies these definitions, allowing the
-programmer to express constraints directly using imperative
-methods. However, this creates a different set of problems, as not all
-methods work equally well in constraints.
+Just as procedural abstraction is very useful in imperative code,
+object-constraint languages require a way to name and parameterize
+constraints.  Prior languages like
+Kaleidoscope
+and Turtle accomplish this by introducing a new abstraction which is
+the analogue of procedures for constraints.  
+This approach is semantically simple but makes the language larger, requires programmers to
+carefully separate their imperative and declarative code, and requires
+duplication for functionality that is intended to be used both imperatively
+and declaratively.  
 
-In Babelsberg, constraints are ordinary expressions in the host
-language that evaluate to a boolean --- the constraint being that they
-evaluate to true.  In our semantics, we have rules to translate these
-expressions into constraints.  Our translation process traces through
-methods and effectively unrolls loops, prunes branches, and inlines
-method bodies.
+Babelsberg instead unifies these abstractions,
+allowing constraints to directly invoke ordinary methods.
+This approach simplifies programming by avoiding the problems
+described above.  However, it also creates new semantic
+challenges.  The Babelsberg implementation must be able to translate
+method bodies into constraints.  However,  not all imperative code can
+be (easily) translated to declarative constraints.  In earlier
+versions of Babelsberg, the line between methods that could
+successfully be used as constraints and those that could not was
+blurry and evolved alongside the implementations in an {\em ad hoc}
+manner.  \tdm{is that fair?}  
 
-%% WAS: ordinary imperative expressions - removed the word imperative
-%% since they are side-effect-free and ``imperative'' seems confusing
-%% in that context
+In this work we provide a simple set of
+syntactic criteria that allows programmers to easily understand
+whether and how a given method can be used as a constraint.  In the
+rest of this section we discuss several semantic issues and how they
+are addressed.  The resulting rules are more restrictive than the
+prior Babelsberg implementations, but they can still 
+express a wide range of useful programs while remaining easy to understand.
 
-In prior work, the restrictions on constraint expressions, and
-the rules to translate expressions into constraints, evolved alongside
-the existing implementations, driven in part by practical
-considerations about the expectations of programmers familiar with the
-underlying host language. These rules were originally defined as:
-\begin{inparaenum}[1)]
-\item\label{item:ssa} if there are assignments, variables assigned to
-  must be used in \ac{ssa} form,
-\item the constraint expression should either be free of side effects,
-  or if there are side effects, they should be benign, and
-\item repeatedly evaluating the constraint expression should return
-  the same result, so a method that returns the current system time
-  would not qualify.
-\end{inparaenum}
-In practice, it was not clear which constructs follow these rules, or
-what constitutes ``benign'' side effects. The
-implementations also vary slightly in their wording of the rules, and
-rule \ref{item:ssa} in particular was omitted for Babelsberg/JS.
+% In Babelsberg, constraints are ordinary expressions in the host
+% language that evaluate to a boolean --- the constraint being that they
+% evaluate to true.  In our semantics, we have rules to translate these
+% expressions into constraints.  Our translation process traces through
+% methods and effectively unrolls loops, prunes branches, and inlines
+% method bodies.
 
-In the work reported here, we have developed and formalized a set of
-restrictions on constraint expressions, which also makes them amenable
-to use in proofs.  They are as follows.
-\begin{inparaenum}
-\item[First,] if the method consists solely of a single return
-  statement (for example, returning with an expression that is a calculation on the
-  object's fields) it can work multi-directionally.
-\item[Second,] if a method has any statements before returning, it can
-  only be used in the forward direction.
-\item[Third,] if the method has any side effects, such as writing to a
-  non-local location or generating a random number, it cannot be used
-  in a constraint in any direction.
-\end{inparaenum}
+% %% WAS: ordinary imperative expressions - removed the word imperative
+% %% since they are side-effect-free and ``imperative'' seems confusing
+% %% in that context
 
-These restrictions are stronger than the earlier versions.  They do
-allow us to express a wide range of useful programs, but we suspect we
-can do better, and a direction for future work
-(\autoref{sec:conclusion}) is to relax some of them while still
-retaining clarity and precision.
+% In prior work, the restrictions on constraint expressions, and
+% the rules to translate expressions into constraints, evolved alongside
+% the existing implementations, driven in part by practical
+% considerations about the expectations of programmers familiar with the
+% underlying host language. These rules were originally defined as:
+% \begin{inparaenum}[1)]
+% \item\label{item:ssa} if there are assignments, variables assigned to
+%   must be used in \ac{ssa} form,
+% \item the constraint expression should either be free of side effects,
+%   or if there are side effects, they should be benign, and
+% \item repeatedly evaluating the constraint expression should return
+%   the same result, so a method that returns the current system time
+%   would not qualify.
+% \end{inparaenum}
+% In practice, it was not clear which constructs follow these rules, or
+% what constitutes ``benign'' side effects. The
+% implementations also vary slightly in their wording of the rules, and
+% rule \ref{item:ssa} in particular was omitted for Babelsberg/JS.
 
-\subsubsection{One-Way and Multi-Way Constraints}
-\label{sec:transl-multi-way}
+% In the work reported here, we have developed and formalized a set of
+% restrictions on constraint expressions, which also makes them amenable
+% to use in proofs.  They are as follows.
+% \begin{inparaenum}
+% \item[First,] if the method consists solely of a single return
+%   statement (for example, returning with an expression that is a calculation on the
+%   object's fields) it can work multi-directionally.
+% \item[Second,] if a method has any statements before returning, it can
+%   only be used in the forward direction.
+% \item[Third,] if the method has any side effects, such as writing to a
+%   non-local location or generating a random number, it cannot be used
+%   in a constraint in any direction.
+% \end{inparaenum}
 
-To illustrate this aspect of the restrictions,
-suppose that we want to express the
-requirement that a window in a graphical application stay centered on
-a particular point.  This constraint can then be defined as:
-\begin{lstlisting}[language=JavaScript,caption={~},label=lst:window]
-var window = new Window(0,0,100,100);
-always: { window.getCenter().equalsPoint(Point(150,150)) }
-\end{lstlisting}
+% These restrictions are stronger than the earlier versions.  They do
+% allow us to express a wide range of useful programs, but we suspect we
+% can do better, and a direction for future work
+% (\autoref{sec:conclusion}) is to relax some of them while still
+% retaining clarity and precision.
 
-After running this code, the system should ensure that the window is
-centered on the point $(150,150)$. If it is resized or dragged by the
-title bar, the system will either adjust other parts of the window to
-keep the center at the desired position, or, if that is not possible,
-prevent the interaction. It does not matter if \verb!getCenter!  is
-just an accessor or a calculated property; in either case, Babelsberg
-traces into the method and creates the correct relations between the
-actual parts of the window and the point.
+\subsubsection{Dynamic Dispatch}
 
-Consider the implementation of the \verb!getCenter! method in
-\autoref{lst:window}. A simple implementation may be the following:
-\begin{lstlisting}[language=JavaScript,caption={~},label=lst:simpleGetCenter]
-function getCenter() {
-    return Point(
-            this.topLeft.x + this.width / 2,
-            this.topLeft.y + this.height / 2
-    );
-}
-\end{lstlisting}
-The above code has only a simple return statement. The center is
-computed from fields, and the systems can solve a constraint involving
-this method multi-directionally, that is, it can modify any or all of the
-\verb!topLeft!, \verb!width!, and \verb!height! properties of the window to
-satisfy the constraint. However consider this alternate implementation:
-\begin{lstlisting}[language=JavaScript,caption={~},label=lst:otherGetCenter]
-function getCenter() {
-    var center = // ... previous code
-    if (this.isScaled) {
-        center.x = center.x / this.scale;
-        center.y = center.y / this.scale;
-    }
-    return center;
-}
-\end{lstlisting}
-Here, it is difficult to judge which fields the solver would modify to
-satisfy the constraint. Besides changing \verb!topLeft!, \verb!width!,
-or \verb!height!, the solver might decide to scale the window to keep
-the constraint satisfied. In practice, we have found this to lead to
-hard to predict solutions.
+An immediate concern with allowing methods to be invoked in
+constraints is the fact that methods are dynamically dispatched:
+different method implementations can be invoked at a call site, depending on the
+run-time class of the receiver object.  Thanks to our restrictions on
+object identities along with the two-phase constraint-solving process
+described earlier, this turns out to be a non-issue.  Specifically,
+after the first phase of constraint solving, all object identities are
+fixed.  At that point, the dynamic dispatch can be performed in order
+to identify the appropriate method implementation, which can then be
+translated to a constraint as part of the second, ``value'' phase of
+constraint solving.  The only new restriction we require to make this approach
+work is that methods
+used in constraints cannot themselves contain identity constraints.
 
-We impose a simple rule that methods that contain more than a return
-statement can only be used in the forward direction, which means that
-the result from the method can be used to determine a variable, but
-the variable cannot change any variables that participate in creating
-said result. This includes methods with multiple assignments, which
-removes the earlier rule that variables assigned to in constraints
-must be used in \ac{ssa} form. Such methods can still be called in the
-usual way, including passing parameters by value (with pointer
-semantics for heap objects). Thus, the second implementation of
-\verb!getCenter! will not work multi-directionally, and constraint
-satisfaction will fail for \autoref{lst:window}, unless the constraint
-is already satisfied.
-
-In the semantics, to support methods that can be used
-multi-directionally, we create an environment for the activation of
-the method and inline
-the returned expression with respect to that environment. The
-parameters in that environment are constrained to be identical to
-their respective argument expressions, and \verb|self| is constrained
-to be identical to the receiver of the message. All constraints
-created through this transformation are then passed to the solver
-simultaneously.
-
-\subsubsection{No Side Effects in Constraints}
+\subsubsection{Side Effects}
 \label{sec:no-side-effects}
 
-Our rules prevent the programmer from asserting constraints that have
-non-benign side effects. We define ``non-benign'' here as side effects
-that change the value of existing variables that are visible after the
-constraint expression returns (rather than just creating new temporary
-variables), the creation of new objects where identity and equality
-are not the same (because these could be discerned by identity in
-languages that allow reflection on the heap), or system calls other
-than ones that return a constant value
-(for example calls to a random number generator or the clock).
+Methods that perform side effects cannot safely be used in
+constraints.  The presence of such side effects would cause the program's
+behavior to be dependent on the number of times that a constraint is
+checked, making programs very difficult to reason about. Side effects
+in constraints can also cause other constraints to become violated,
+leading to semantic challenges such as the potential for the constraint
+solving process to diverge. \tdm{please check and update.}
 
-A particularly tricky issue relates to creating new objects in
-constraint expressions.  This is
-problematic when the identity of the newly created object could be
-significant (see above); yet we found numerous useful examples that involved
+We use a simple syntactic rule to ensure that methods used in
+constraints have no side effects.  Such methods can only write to
+local variables and can only invoke other side-effect-free methods.
+This rule is checked dynamically before constraint solving.
+
+% Our rules prevent the programmer from asserting constraints that have
+% non-benign side effects. We define ``non-benign'' here as side effects
+% that change the value of existing variables that are visible after the
+% constraint expression returns (rather than just creating new temporary
+% variables), the creation of new objects where identity and equality
+% are not the same (because these could be discerned by identity in
+% languages that allow reflection on the heap), or system calls other
+% than ones that return a constant value
+% (for example calls to a random number generator or the clock).
+
+However, we would also like to allow the creation of new objects in 
+constraint expressions.  Doing so is
+problematic if the identity of the newly created object could be
+significant, for example via reflection or explicit identity tests, 
+yet we found numerous useful examples that involved
 creating simple objects such as points and rectangles in constraint
 expressions.  To resolve this issue, we add the concept of \emph{value
-  classes} to Babelsberg.  Instances of these classes are immutable
-after creation, and object identity is not significant for them.  An
-example of a value class is the \verb!Point! constructor used in
-\autoref{lst:window}.  However, value classes are more than simple
+  classes} to Babelsberg and allow instances of these classes to be
+created in constraints.  Unlike regular objects, instances of value
+classes are immutable after creation \tdm{why is that necessary
+  again?}, 
+and they do not have object identity. % An
+% example of a value class is the \verb!Point! constructor used in
+% \autoref{lst:window}.  
+However, value classes are more than simple
 records, since they support methods and inheritance.  A number of
 existing languages support or have proposals for forms of value classes, for example
 Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}
@@ -932,34 +911,140 @@ and Java\footnote{\url{http://openjdk.java.net/jeps/169}}.
 %% such as Java\footnote{\url{http://openjdk.java.net/jeps/169}} and
 %% Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}.
 
-For practical implementations in which the host language does not
-support value classes, we can allow the creation of instances of
-ordinary classes, and provide conventions for developers to follow
-regarding object creation, modification, and when it is permissible to
-test for object identity.
+% For practical implementations in which the host language does not
+% support value classes, we can allow the creation of instances of
+% ordinary classes, and provide conventions for developers to follow
+% regarding object creation, modification, and when it is permissible to
+% test for object identity.
 
-Consider again the \verb!getCenter! method. If the calculation of the
-center were expensive, the method might also cache that calculation for
-faster retrieval. Regardless, the programmer expects the system to
-adjust appropriate parts of the window that contribute to the result
-of \verb!getCenter! so that the center stays at $(150,150)$. If the
-system fails to satisfy the constraint, it may not be clear to the
-programmer which of the operations --- the check for cache
-invalidation, storing the result, or the calculation itself --- does
-not work as part of the constraint. In such cases the system may
-generate a run-time exception to help the programmer better understand
-the problem. However, this does not always work reliably (especially
-in situations involving side-effects), and the system might continue
-running based on an incorrect solution.
+% Consider again the \verb!getCenter! method. If the calculation of the
+% center were expensive, the method might also cache that calculation for
+% faster retrieval. Regardless, the programmer expects the system to
+% adjust appropriate parts of the window that contribute to the result
+% of \verb!getCenter! so that the center stays at $(150,150)$. If the
+% system fails to satisfy the constraint, it may not be clear to the
+% programmer which of the operations --- the check for cache
+% invalidation, storing the result, or the calculation itself --- does
+% not work as part of the constraint. In such cases the system may
+% generate a run-time exception to help the programmer better understand
+% the problem. However, this does not always work reliably (especially
+% in situations involving side-effects), and the system might continue
+% running based on an incorrect solution.
 
-Earlier work on Babelsberg enumerated a set of informal rules describing when
-an expression could be used in the definition of a constraint. However, there
-were some confusing edge cases involving object identity and
-constraints, and regarding when methods called from a constraint
-expression could be used multi-directionally, \ie to determine all
-variables involved in a constraint, versus when system could only
-determine one distinguished variable given the values of all others, 
-in a data-flow manner (\cf{\autoref{sec:transl-multi-way}}).
+% Earlier work on Babelsberg enumerated a set of informal rules describing when
+% an expression could be used in the definition of a constraint. However, there
+% were some confusing edge cases involving object identity and
+% constraints, and regarding when methods called from a constraint
+% expression could be used multi-directionally, \ie to determine all
+% variables involved in a constraint, versus when system could only
+% determine one distinguished variable given the values of all others, 
+% in a data-flow manner (\cf{\autoref{sec:transl-multi-way}}).
+
+\subsubsection{One-Way and Multi-Way Constraints}
+\label{sec:transl-multi-way}
+
+A nice advantage of constraints is that they are 
+\emph{multi-way}:  any subset of variables can be considered
+``unknowns.''  In contrast, imperative code typically always computes
+from a pre-determined set of inputs to a pre-determined output.  In
+general, imperative code is not ``reversible'' for many reasons, such
+as complex arithmetic, recursion, unbounded loops, etc. \tdm{This is
+  still not clear to me.}  Prior
+versions of Babelsberg used a kind of ``best effort'' strategy which
+made it difficult to know what would work when.
+
+Our current rules are instead quite simple.  If a method consists only
+of a single {\tt return} statement, then it can be used in a
+constraint in a multi-way manner, just like any other constraint.
+While seemingly restrictive, this approach allows a variety of useful
+programming idioms.  For example,
+suppose that we want to express the
+requirement that a window in a graphical application stay centered on
+a particular point.  This constraint can then be defined as follows:
+\begin{lstlisting}[language=JavaScript,caption={~},label=lst:window]
+var window = new Window(0,0,100,100);
+always: { window.getCenter().equalsPoint(Point(150,150)) }
+\end{lstlisting}
+After running this code, the system will ensure that the window is
+centered on the point $(150,150)$. If it is resized or dragged by the
+title bar, the system will either adjust other parts of the window to
+keep the center at the desired position, or, if that is not possible,
+prevent the interaction. 
+
+It does not matter if \verb!getCenter!  is
+just an accessor or a calculated property; in either case, Babelsberg
+traces into the method and creates the correct relations between the
+actual parts of the window and the point.  For example, the following
+implementation of \verb!getCenter! is allowed by our rules:
+\begin{lstlisting}[language=JavaScript,caption={~},label=lst:simpleGetCenter]
+function getCenter() {
+    return Point(
+            this.topLeft.x + this.width / 2,
+            this.topLeft.y + this.height / 2
+    );
+}
+\end{lstlisting}
+Because the method has only a {\tt return} statement, 
+Babelsberg can solve the constraint involving
+this method multi-directionally, that is, it can modify any or all of the
+\verb!topLeft!, \verb!width!, and \verb!height! properties of the window to
+satisfy the constraint. 
+
+If a method has multiple statements, rather than a single {\tt return}
+statement, then it cannot be used in a multi-way manner.  Nonetheless,
+the method \emph{can} still be invoked within a constraint.  In that
+case, however, the method can only be used in the ``forward''
+direction.  That is, the method will simply be executed, and its
+result value can be used to constrain other variables in the
+constraint.  This is safe as long as there are no cyclic dependencies
+(e.g., the result of a method call constraining one of its inputs),
+which is checked during translation to the solver. \tdm{check this
+  please}
+
+\tdm{would be nice to have a useful example of a one-way constraint}
+
+It is possible to make our rules more lenient; for example, it is
+possible to translate the following version of \verb!getCenter! such
+that it can be used in a multi-way manner, even though our rules do
+not allow it:
+\begin{lstlisting}[language=JavaScript,caption={~},label=lst:otherGetCenter]
+function getCenter() {
+    var center = // ... previous code
+    if (this.isScaled) {
+        center.x = center.x / this.scale;
+        center.y = center.y / this.scale;
+    }
+    return center;
+}
+\end{lstlisting}
+However, in practice we have found that as methods become more complex
+than a single expression, they can lead to surprising solutions.  Even
+in this example, it is difficult to judge which fields the solver would modify to
+satisfy the constraint, and what effects that might have. 
+
+% We impose a simple rule that methods that contain more than a return
+% statement can only be used in the forward direction, which means that
+% the result from the method can be used to determine a variable, but
+% the variable cannot change any variables that participate in creating
+% said result. This includes methods with multiple assignments, which
+% removes the earlier rule that variables assigned to in constraints
+% must be used in \ac{ssa} form. Such methods can still be called in the
+% usual way, including passing parameters by value (with pointer
+% semantics for heap objects). Thus, the second implementation of
+% \verb!getCenter! will not work multi-directionally, and constraint
+% satisfaction will fail for \autoref{lst:window}, unless the constraint
+% is already satisfied.
+
+% In the semantics, to support methods that can be used
+% multi-directionally, we create an environment for the activation of
+% the method and inline
+% the returned expression with respect to that environment. The
+% parameters in that environment are constrained to be identical to
+% their respective argument expressions, and \verb|self| is constrained
+% to be identical to the receiver of the message. All constraints
+% created through this transformation are then passed to the solver
+% simultaneously.
+
 
 \section{Formalism}
 \label{sec:semantics}

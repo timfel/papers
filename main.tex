@@ -959,16 +959,18 @@ While seemingly restrictive, this approach allows a variety of useful
 programming idioms.  For example,
 suppose that we want to express the
 requirement that a window in a graphical application stay centered on
-a particular point.  This constraint can then be defined as follows:
+the mouse cursor (\eg during dragging).  This constraint can then be defined as follows:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:window]
 var window = new Window(0,0,100,100);
-always: { window.getCenter().equalsPoint(Point(150,150)) }
+always: { window.getCenter().equals($cursor.getPosition()) }
 \end{lstlisting}
 After running this code, the system will ensure that the window is
-centered on the point $(150,150)$. If it is resized or dragged by the
-title bar, the system will either adjust other parts of the window to
-keep the center at the desired position, or, if that is not possible,
-prevent the interaction. 
+centered on the global cursor. If the cursor moves, the system will
+adjust other parts of the window to keep the center at the desired
+position. If the window moves by some other means than following the
+cursor (\eg keyboard interaction), the system moves the mouse cursor
+to follow. In both cases, if the adjustment is not possible, the
+system prevents the interaction.
 
 It does not matter if \verb!getCenter!  is
 just an accessor or a calculated property; in either case, Babelsberg
@@ -977,10 +979,8 @@ actual parts of the window and the point.  For example, the following
 implementation of \verb!getCenter! is allowed by our rules:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:simpleGetCenter]
 function getCenter() {
-    return Point(
-            this.topLeft.x + this.width / 2,
-            this.topLeft.y + this.height / 2
-    );
+    return Point(this.topLeft.x + this.width / 2,
+                 this.topLeft.y + this.height / 2);
 }
 \end{lstlisting}
 Because the method has only a {\tt return} statement, 
@@ -995,15 +995,17 @@ the method \emph{can} still be invoked within a constraint.  In that
 case, however, the method can only be used in the ``forward''
 direction.  That is, the method will simply be executed, and its
 result value can be used to constrain other variables in the
-constraint.  This is safe as long as there are no cyclic dependencies
-(e.g., the result of a method call constraining one of its inputs),
-which is checked during translation to the solver. \tdm{check this
-  please}
-
-\tdm{would be nice to have a useful example of a one-way constraint}
-\tf{I'll change it so the center follows the mouse, with 'getCursor'
-  being a system call -- the window can follow the mouse, but not
-  vice-versa}
+constraint.  An example where such a one-way constraint is useful is
+the \verb!getPosition! method called on the cursor above. If
+interactions with the window use the mouse, we do not actually need to
+be able to solve for the mouse cursor (\ie move the mouse to follow in
+the window), and can use it only as input to the window center. This
+is safe as long as there are no cyclic dependencies (e.g., the result
+of a method call constraining one of its inputs), which is checked
+during translation to the solver. \tdm{check this please}\tf{hm, I
+  don't think we check this as in typecheck. Did we find a bug? Do we
+  need required stays on the arguments? Because we are using the
+  method result as a constant}
 
 It is possible to make our rules more lenient; for example, it is
 possible to translate the following version of \verb!getCenter! such
@@ -1022,7 +1024,10 @@ function getCenter() {
 However, in practice we have found that as methods become more complex
 than a single expression, they can lead to surprising solutions.  Even
 in this example, it is difficult to judge which fields the solver would modify to
-satisfy the constraint, and what effects that might have. 
+satisfy the constraint, and what effects that might have. Thus, if the definition of
+\verb!getCenter! is \autoref{lst:otherGetCenter} and we cannot solve for the
+cursor position, the constraint in \autoref{lst:window} can only be checked,
+but not solved.
 
 % We impose a simple rule that methods that contain more than a return
 % statement can only be used in the forward direction, which means that

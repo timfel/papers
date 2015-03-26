@@ -1840,10 +1840,10 @@ that illustrate various aspects of
 the semantics. We use these to validate that our semantics exhibits
 the characteristics we want. Of those 47 programs, three use
 constraints on strings, which are not supported in the version of Z3
-we used.  (A string theory exists for an old version of Z3, but does not
-work in recent versions \cite{zheng2013z3}.)  The remaining 44 all run
-and produce the expected results at each step of the
-execution\footnote{The entire executable semantics and the test
+we used.  (A string theory exists for an older version of Z3
+\cite{zheng2013z3}, but does not work in recent versions.)  The
+remaining 44 all run and produce the expected results at each step of
+the execution\footnote{The entire executable semantics and the test
   programs are available at:
   \url{https://github.com/babelsberg/babelsberg-rml}}.
 
@@ -1889,9 +1889,10 @@ some of the existing example programs.
 \subsubsection*{Modifications to the Implementation}
 \label{sec:modif-impl}
 First, we modified the code that translates \javascript expressions
-into constraints to not inline methods that have more than a simple
+into constraints to only inline methods that consist of a simple
 return expression. Methods that have any other statements in them are
-executed and their result returned, so they can only be used in the
+executed and their result returned, rather than being inlined,
+so they can only be used in the
 forward direction. We did not modify the translation to prohibit
 creating new objects --- as described in \autoref{sec:no-side-effects}, we
 allow these since \javascript does not include value classes, and
@@ -1929,25 +1930,26 @@ determined.
 \subsubsection*{Modifications to Existing Programs}
 \label{sec:exist-appl}
 
-A guiding principle for this work was to start with clear and simple
-rules that are understandable to the programmer and amenable for use
-in proofs. We recognize that these are currently more
-conservative than is convenient in some cases. To evaluate where the limitations
-are, we examined the programs included with
-Babelsberg/JS\footnote{These examples are part of a published artifact
-  \cite{FelgentreffECOOP14}, and are also available from the
-  Babelsberg/JS repository at
-  \url{https://github.com/babelsberg/babelsberg-js}. For our adaption,
-  we used the versions from the repository.} that no longer
-work. Below we generalize the problems we encountered frequently and
-consider possible avenues for amending our rules to be more
-convenient. In general, however, we need to balance simplicity and
-clarity with the needs for additional expressiveness, we do not want
-to introduce a large number of additional special cases or special
-forms, and we need to retain soundness.
+One of our strategies in this work has been to start with clear and
+simple rules that are understandable to the programmer and amenable
+for use in proofs, recognizing that some of these rules would likely
+be too conservative.  We next assess where the key limitations are by
+testing them with a set of typical programs\footnote{The examples we
+  used are part of a published artifact \cite{FelgentreffECOOP14}, and
+  are also available from the Babelsberg/JS repository at
+  \url{https://github.com/babelsberg/babelsberg-js}. For our
+  adaptation, we used the versions from the repository.}, finding
+which ones no longer work, and classifying the problems that arise
+frequently.  We now summarize the problems that we discovered, and
+also discuss possible directions for amending our rules to be more
+convenient. However, in considering such amendments, we need to
+balance simplicity and clarity with the needs for additional
+expressiveness.  In particular, we do not want to introduce a large
+number of additional special cases or forms, and in any case we need
+to retain soundness.
 
 The programs we examine were constructed using the LivelyKernel's
-direct manipulation Morphic interface and include a graphical
+direct manipulation Morphic interface, and include a graphical
 application for building and simulating electrical circuits, games, a
 GUI for a color picker, and tools for temperature conversion. They are
 about 200 lines of code each, with between \sfrac{1}{4} and
@@ -1977,7 +1979,7 @@ editing.  % Finally, the mobile application illustrates the use of
 % identical object) to connect the UI and the underlying model.
 
 We present each issue, its intended semantics, a workaround with our
-current semantics, and an intuition for future work that could address
+current semantics, and directions for future work that could address
 the issue.
 
 \paragraph{Argument Checking }
@@ -2003,9 +2005,9 @@ a point. Instead, the argument check should not be part of the
 constraint.
 
 As a workaround, although it is not semantically clean, the practical
-implementation allows such tests on arguments, because these checks
-are so pervasive that working around was very inconvenient. As part of
-future work, we consider adding assertions as constructs that can be
+implementation does allows such tests on arguments, because these checks
+are so pervasive that removing them was very inconvenient. As part of
+future work, we may want to support assertions as constructs that can be
 checked before handing the constraints to the solver. Assertions can
 then be used instead of branches and explicit exceptions.
 
@@ -2025,31 +2027,25 @@ function getPosition() {
     }
 }
 \end{lstlisting}
-\ab{I'm confused by the above example.  Can we give an example
-  call?  What is the desired semantics for the constraint involving
-  getPosition in that call?  It seems like we don't want to change
-  hasFixedPosition, just either the object's position or the value
-  that depends on it.  The discussion of Z3 and Cassowary seems like a
-  red herring --- we should be concerned with the desired semantics of
-  the constraint, not the solver.}
-\tf{is the text below clearer?}
-%
-The desired semantics is that the constraint modify the object's
-position, but allowing this method to be used multi-directionally
-allows the solver to change an object's \verb!FixedPosition!  boolean
-flag as well. Previously, the examples carefully chose the solver to
+The desired semantics is that we can use \verb!getPosition! in a
+constraint, either to access the current position or to modify the
+object's position, but not to modify the object's \verb!FixedPosition!
+flag.  However, the builtin \verb!getPosition! was not written
+anticipating its possible use in constraints, and so
+\verb!FixedPosition! is not annotated as read-only.  As an earlier
+workaround, the programmer was able to select a particular solver to
 get the desired behavior. Cassowary, for example, cannot reason about
-booleans and treats the flag as a constant as intended. Z3, on the
+booleans and treated the flag as a constant, as intended. Z3, on the
 other hand, would sometimes change \verb!FixedPosition!, leading to
 surprising solutions and graphical glitches.
 
 In our semantics, the specifics of the solver no longer influence the
 meaning of using \verb!getPosition! in a constraint --- it can only be
-used in the forward direction. As a workaround, the developer has to
-move the test outside of the method and add the constraint only for
-the branch that is chosen. In future work, we want to add a mechanism
-to recognize this pattern and automatically mark the branch condition
-as read-only to the solver.
+used in the forward direction.  As a workaround for using it
+multi-directionally, the developer can move the test outside of the
+method and add the constraint only for the branch that is chosen. In
+future work, we want to add a mechanism to recognize this pattern and
+automatically mark the branch condition as read-only to the solver.
 
 \paragraph{Benign Side Effects }
 \label{sec:benign-side-effects}
@@ -2091,15 +2087,6 @@ As future work, we want to introduce rules in the semantics to
 recognize cached values as benign side-effects, so the solver modifies
 the correct fields and invalidates or updates the cache appropriately.
 
-\ab{I'm confused by this example as well.  What is the desired
-  semantics?  It seems like maybe we should have some explicit
-  construct for caching, which the solver and runtime knows about,
-  rather than having it be implicit in the code as in the example.}
-\tf{The desired semantics is that this cannot be used
-  multi-directionally --- we simply don't allow caching. I feel that
-  having a special construct to allow it would needlessly complicate
-  things.}
-
 % A previous example directly uses lazy
 % initialization:
 % \begin{lstlisting}[language=JavaScript,caption={~},label=lst:getCelsius]
@@ -2140,18 +2127,6 @@ As a workaround, manual inlining of the split up calculation into the
 return expression was required. As an extension to our rules, when
 local variables are used only as names for constants, these should be
 inlined automatically.
-
-\ab{Is there a way to clean this issue up?  For example, maybe the
-  simple version is no local variables in methods used in multi-way
-  constraints.  But perhaps there is a way of annotating the variables
-  used to store temporary results as being just there for clarity, and
-  the semantics is of inlining their definitions.}
-\tf{There may be other ways to deal with this. I don't like the idea
-  of a special annotation. I feel more comfortable with allowing local
-  variables to be used in constraints, and simply saying they are
-  always read-only. Not sure I want to discuss this here, though, I
-  think I need to experiment with that a little.}
-\tf{removed paragraph on edit constraints for space}
 
 % \paragraph{Edit Constraints }
 % \label{sec:edit-constraints}

@@ -840,7 +840,7 @@ express a wide range of useful programs while remaining easily understood.
 % retaining clarity and precision.
 
 \subsubsection{Dynamic Dispatch}
-
+\label{sec:dynamic-dispatch}
 An immediate concern with allowing methods to be invoked in
 constraints is the fact that methods are dynamically dispatched:
 different method implementations can be invoked at a call site, depending on the
@@ -962,41 +962,52 @@ contrast, imperative code typically computes from a pre-determined set
 of inputs to a pre-determined output.  In general, imperative code is
 not ``reversible'' for many reasons, including complex arithmetic,
 recursion, and unbounded loops.
-
-Given a side-effect-free method, when can it be successfully used in a
-constraint in a multi-way fashion?  Prior versions of Babelsberg used
-a kind of ``best effort'' strategy, which made it difficult to know
-what would work when --- given the dynamic nature of the language, a
-method might be usable with one set of inputs but not others.  This
-made it hard for programmers to understand exactly when they could call
-a given method from a constraint.
-
-\ab{please check the above paragraph (commented out previous version
-  is below} \tf{I don't see how that explains why we chose to disallow
-  branches, for example. A method may not be usable with some
-  arguments even when it only has a return statement}
-\ab{OK.  How about if we restore the old version, then, but add a
-  phrase here:
-to type-check constraints (using the structural typechecking described
-in this paper)
-I'm trying to avoid a reaction on the part of a reviewer that this
-doesn't make sense in a dynamically typed language.}
-
-
-%% OLD VERSION:
-%% To ensure our other properties we need also to type-check constraints,
-%% which entails considering the possible results of methods. In the
-%% presence of branching and loops, this would entail inferring all
-%% possible types that could result (including tracing through further
-%% methods), and unifying these. It is difficult in general in dynamic
-%% languages, which we want to support, to find a type inference
-%% mechanism that works with branches and loops and that does not reject
-%% too many good programs. Prior versions of Babelsberg used a kind of
-%% ``best effort'' strategy which made it difficult to know what would
-%% work when. We argue that this makes understanding a program hard,
-%% because it is not clear when the system rejects a constraint because
-%% it is incorrect, and when it does so because it could not infer or
-%% unify the types through control structures.
+%% NEW VERSION
+% Given a side-effect-free method, when can it be successfully used in a
+% constraint in a multi-way fashion?  Prior versions of Babelsberg used
+% a kind of ``best effort'' strategy, which made it difficult to know
+% what would work when --- given the dynamic nature of the language, a
+% method might be usable with one set of inputs but not others.  This
+% made it hard for programmers to understand exactly when they could call
+% a given method from a constraint.
+%
+% \ab{please check the above paragraph (commented out previous version
+%   is below} \tf{I don't see how that explains why we chose to disallow
+%   branches, for example. A method may not be usable with some
+%   arguments even when it only has a return statement}
+% \ab{OK.  How about if we restore the old version, then, but add a
+%   phrase here:
+% to type-check constraints (using the structural typechecking described
+% in this paper)
+% I'm trying to avoid a reaction on the part of a reviewer that this
+% doesn't make sense in a dynamically typed language.}
+%% NEW NEW VERSION
+To correctly lookup methods in constraints, as described in
+\autoref{sec:dynamic-dispatch}, we also need to determine the
+identities of variables encountered in value constraints. For chained
+method calls, this includes having to determine the identity of method
+return values, which, in the presence of branching and loops, would
+entail considering the possible control flow paths. Here, prior
+versions of Babelsberg used a kind of ``best effort'' strategy which
+made it difficult to know what would work when. We argue that this
+makes understanding a program hard, because it is not clear when the
+system rejects a constraint because it is incorrect, and when it does
+so because it could not transform control flow structures to determine
+the identities of the returned objects.
+%% OLD VERSION that argues with typing rules
+% To ensure our other properties we need also to type-check constraints,
+% which entails considering the possible results of methods. In the
+% presence of branching and loops, this would entail inferring all
+% possible types that could result (including tracing through further
+% methods), and unifying these. It is difficult in general in dynamic
+% languages, which we want to support, to find a type inference
+% mechanism that works with branches and loops and that does not reject
+% too many good programs. Prior versions of Babelsberg used a kind of
+% ``best effort'' strategy which made it difficult to know what would
+% work when. We argue that this makes understanding a program hard,
+% because it is not clear when the system rejects a constraint because
+% it is incorrect, and when it does so because it could not infer or
+% unify the types through control structures.
 
 Our current rules instead rely simply on syntactic
 properties of the method called by a constraint.  If a method consists only
@@ -1006,36 +1017,40 @@ While seemingly restrictive, this approach supports a spectrum of useful
 programming idioms.  For example,
 suppose that we want to express the
 requirement that a window in a graphical application stay centered on
-the mouse cursor (\eg during dragging).  This constraint can then be defined as follows:
+the mouse position, which we keep in a variable \verb!mousePosition!. 
+This constraint can then be defined as follows:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:window]
-var window = new Window(0,0,100,100);
-always: { window.getCenter().equals($cursor.getPosition()) }
+var window = new Window(0,0,100,100),
+    mousePosition = $world.hand().getPosition();
+always: { window.getCenter().equals(mousePosition) }
 \end{lstlisting}
 %% unconfuse emacs in latex mode about the matching delimiter for $!
 After running this code, the system will ensure that the window is
-centered on the global cursor. If the cursor moves, the system will
-adjust other parts of the window to keep the center at the desired
-position. If the window moves by some other means than following the
-cursor (\eg keyboard interaction), the system moves the mouse cursor
-to follow. In both cases, if the adjustment is not possible, the
-system prevents the interaction.
+centered on the value of \verb!mousePosition!. If the variable is
+updated (\eg through a mechanism that fires when the cursor moves) the
+system will adjust other parts of the window to keep the center at the
+desired position. If the window moves by some other means, the system changes
+the \verb!mousePosition! variable to follow. If an adjustment is not
+possible, the system prevents the interaction.
 
-It does not matter if \verb!getCenter!  is
+In this example, it does not matter if \verb!getCenter!  is
 just an accessor or a calculated property; in either case, Babelsberg
 traces into the method and creates the correct relations between the
 actual parts of the window and the point.  For example, the following
 implementation of \verb!getCenter! is allowed by our rules:
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:simpleGetCenter]
 function getCenter() {
-    return Point(this.topLeft.x + this.width / 2,
-                 this.topLeft.y + this.height / 2);
+    return Point(
+        this.topLeft.x + this.width / 2,
+        this.topLeft.y + this.height / 2
+    );
 }
 \end{lstlisting}
-Because the method has only a {\tt return} statement, 
-Babelsberg can solve the constraint involving
-this method multi-directionally, that is, it can modify any or all of the
-\verb!topLeft!, \verb!width!, and \verb!height! properties of the window to
-satisfy the constraint. 
+Because the method has only a {\tt return} statement, Babelsberg can
+solve the constraint involving this method multi-directionally, that
+is, it can modify any or all of the \verb!topLeft!, \verb!width!, and
+\verb!height! properties of the window when the \verb!mousePosition!
+changes to satisfy the constraint.
 
 Given a side-effect-free method, if that method has multiple
 statements rather than a single {\tt return} statement, then we do
@@ -1044,29 +1059,33 @@ method \emph{can} still be invoked within a constraint,
 but can only be used in the ``forward''
 direction.  That is, the method will simply be executed, and its
 result value can be used to constrain other variables in the
-constraint.  An example where such a one-way constraint is useful is
-the \verb!getPosition! method called on the cursor above. If
-interactions with the window use the mouse, we do not actually need to
-be able to solve for the mouse cursor (\ie move the mouse to follow in
-the window), and can use it only as input to the window center. This
-is safe as long as there are no cyclic dependencies (e.g., the result
-of a method call constraining one of its inputs), which is checked
-during translation to the solver. \tdm{check this please}\tf{hm, I
-  don't think we check this as in typecheck. Did we find a bug? Do we
-  need required stays on the arguments? Because we are using the
-  method result as a constant}
-\ab{I don't like this example!  (Sorry ...)  I don't think we want to
-  use cursor.getPosition() in a constraint at all, since it doesn't
-  return the same value every call.  Instead, this would be handled
-  outside the constraint system (and fed in using e.g. an edit
-  constraint).  If we are feeding a cursor position into a constraint,
-  we would want to annotate that variable as read-only anyway,
-  assuming we want to avoid trying to change it.  Regarding circular
-  dependencies, I think actually this corresponds to a cycle through
-  read-only annotations, which is going to be too hard for most
-  solvers.  So it's the solver that would fail here.}
+constraint. This may be useful, for example, if we just want to track the 
+center of the window in a variable to display on the screen, and not allow
+changes to the variable that would affect the window.
+% An example where such a one-way constraint is useful is
+% the \verb!getPosition! method called on the cursor above. If
+% interactions with the window use the mouse, we do not actually need to
+% be able to solve for the mouse cursor (\ie move the mouse to follow in
+% the window), and can use it only as input to the window center. 
+Using methods in this way is safe as long as there are 
+no cyclic dependencies (e.g., the
+result of a method call constraining one of its inputs), which is
+checked during translation to the solver. % \tdm{check this
+  % please}\tf{hm, I don't think we check this as in typecheck. Did we
+  % find a bug? Do we need required stays on the arguments? Because we
+  % are using the method result as a constant}\tf{fixed in the semantics}
+% \ab{I don't like this example!  (Sorry ...)  I don't think we want to
+%   use cursor.getPosition() in a constraint at all, since it doesn't
+%   return the same value every call.  Instead, this would be handled
+%   outside the constraint system (and fed in using e.g. an edit
+%   constraint).  If we are feeding a cursor position into a constraint,
+%   we would want to annotate that variable as read-only anyway,
+%   assuming we want to avoid trying to change it.  Regarding circular
+%   dependencies, I think actually this corresponds to a cycle through
+%   read-only annotations, which is going to be too hard for most
+%   solvers.  So it's the solver that would fail here.}
 
-It is possible to make our rules more lenient; for example, it is
+It is possible to make our rules more lenient; for example, it would be
 possible to translate the following version of \verb!getCenter! such
 that it can be used in a multi-way manner, even though our rules do
 not allow it:
@@ -1081,12 +1100,14 @@ function getCenter() {
 }
 \end{lstlisting}
 However, in practice we have found that as methods become more complex
-than a single expression, they can lead to surprising solutions.  Even
-in this example, it is difficult to judge which fields the solver would modify to
-satisfy the constraint, and what effects that might have. Thus, if the definition of
-\verb!getCenter! is \autoref{lst:otherGetCenter} and we cannot solve for the
-cursor position, the constraint in \autoref{lst:window} can only be checked,
-but not solved.
+than a single expression, translating them can lead to surprising
+solutions.  Even in this simple example, it is difficult to judge if
+the solver might also modify the \verb!isScaled! or \verb!scale!
+fields to satisfy the constraint, and what effects that might
+have.% Thus, if the definition of
+% \verb!getCenter! is \autoref{lst:otherGetCenter} and we cannot solve for the
+% , the constraint in \autoref{lst:window} can only be checked,
+% but not solved.
 
 % We impose a simple rule that methods that contain more than a return
 % statement can only be used in the forward direction, which means that

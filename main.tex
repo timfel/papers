@@ -241,17 +241,19 @@ flying faster or ricocheting more often.
 \end{figure}
 
 The finished game is shown in \autoref{fig:game}. From our experience
-with both ContextJS and Babelsberg/JS, we realized there are multiple
-opportunities to use constraints and layer-based behavioral
-adaption. Power-ups change the behavior of bullets, and, during
-development, alternative drawing modes are desirable for introspection
-and editing. These can be conveniently encapsulated using
-layers. Additionally, there are UI elements that have constraints on
-them, such as the target following the mouse, or that a tank cannot
-drive into a wall or over a hole. We encapsulated these using
-constraints.
+with both \gls{cop}~\cite{costanza:2005:language, hirschfeld:2008:cop}
+and \gls{ocp}~\cite{FelgentreffJOT14,FelgentreffECOOP14}, we realized
+there are multiple opportunities to use constraints and layer-based
+behavioral adaption. Power-ups change the behavior of bullets, and,
+during development, alternative drawing modes are desirable for
+introspection and editing. These can be conveniently encapsulated
+using layers. Additionally, there are UI elements that have
+constraints on them, such as the target following the mouse, or that a
+tank cannot drive into a wall or over a hole. We encapsulated these
+using constraints.
 
 \subsection{Desired Form of Layer Activation}
+\label{sec:desir-layer-acts}
 
 Consider the use of layers for non-permanent power-ups, which are
 collected and activated in the game and should be deactivated after
@@ -344,57 +346,22 @@ if the current game state is playing, and have the activation
 mechanism take care of adding and removing them at appropriate times.
 
 
-\section{Solution}
-\label{sec:solution}
+\section{Layer Activators}
 
-\todo{work over solution}
+Games frequently involve dynamic changes of the system's behavior
+depending on various conditions. Certain functionality can be
+restricted to a specific game mode, e.g. velocities are only rendered
+in debug mode.  We want to specify the relation between the behavior
+adaption and the condition explicitly. To do so, we introduce the
+concept of \emph{Layer Activators}.
 
-\subsection{Layer Activators}
-
-Games frequently involve dynamic changes of the system's behavior depending on various conditions. Certain functionality can be restricted to a specific game mode, e.g. velocities are only rendered in debug mode.
-%example
-%- debugmode
-%- editor or game mode
-%- timer -> power up
-As with trigger constraints, we want to specify the relation between the behavior adaption and the condition explicitly.
-So, we introduce the concept of \emph{activator constraints}.
-Using activator constraints one can specify that a certain adaption in behavior applies as long as a given condition holds.
-
-%\paragraph{Explain cop + why cop for the job?}
-Note, that activator constraints rely on an additional concept to
-dynamically adapt behavior. The concept of
-\acrlong{cop}~\cite{costanza:2005:language, hirschfeld:2008:cop}
-provides such a mechanism.  \gls{cop} provides means to associate
-partial behavior definitions with explicit context objects,
-\emph{layers}.  Layers can be activated or deactivated during the
-execution of a program, usually based on the control flow.  When a
-layer is activated, the partial behavior definitions become part of
-the respective objects and classes until the deactivation of the
-layer.  \gls{cop} enables dynamic adaption and variation in behavior
-based on the current context.  To illustrate this, consider the spring
-power up described in \autoref{sec:application-description}. The
-spring power up causes all bullets of the affected tank to bounce off
-walls once more.  This functionality can easily be expressed using
-layers as in \autoref{lst:design-coplayerexample}. Line 1 creates a
-layer and associates a partial object definition to this layer. Lines
-2 to 4 augment the method \texttt{getBulletRicochets} of the
-\texttt{tank} object by incrementing the result of the original
-function by one.  In addition to the definition of the layer and the
-partial behavior, one has to activate the layer in order for the
-adaption to take place.  A layer is typically de-/activated globally
-or for the dynamic extent of a function invocation. Such mechanisms
-only allow control flow-specific scoping. However, adaptions can also
-depend on scopes other than control flow, such as conditions on the
-current state of the program.
-%However, contexts are often bound to certain conditions that hold.
-%However, these acvivation methods are control flow-based ...
-As with trigger constraints, we want to treat the condition associated
-with a context explicitly. We imagine activator constraints to
-activate a given layer as long as the associated constraint expression
-is fulfilled, as illustrated by \autoref{fig:design_activate}. Once we
-reach a state in which the constraint expression is fulfilled, the
-layer is activated until the constraint expression evaluates to
-false. Then, we deactivate the respective layer again.
+Activators activate a given layer as long as the associated constraint
+expression is fulfilled, as illustrated by
+\autoref{fig:design_activate}. Note that the activation and
+deactivation is \emph{immediate}. There is no time where any part of
+the program could observe a state where the condition is satisfied,
+but the layer is not active. We deactivate the respective layer again
+when the condition becomes false.
 
 \begin{figure}
 \centering
@@ -403,61 +370,77 @@ false. Then, we deactivate the respective layer again.
 \label{fig:design_activate}
 \end{figure}
 
-\begin{lstlisting}[label=lst:design-coplayerexample,caption={Constructing a \gls{cop} layer with partial behavior}]
+In order to implement this, we extend the existing Babelsberg
+library. Babelsberg is built to use use multiple solvers, and let them
+cooperate to solve constraints.  We can view the condition to activate
+a layer as a constraint of the form
+|\[
+  booleanExpression? = isActive(Layer)
+\]
+The questionmark means that the solver is not allowed to change the
+condition, and thus must change the activation state of the layer when
+the condition changes. Accordingly, we implement a special
+\texttt{ReactiveSolver}, which re-uses the Babelsberg framework for
+interpreting the condition expression, but has special knowledge to
+solve constraints involving the active state of a ContextJS
+layer. Whenever a variable that participates in the boolean expression
+changes, the framework asks our solver to \verb!solve! the constraint.
+To do so, our custom solver checks whether the evaluation result of
+the condition coincides with the layer activation status and if not,
+activates or deactivates the layer as necessary.
+
+Using this special solver embedded in Babelsberg/JS, a Layer Activator
+may look as follows:
+\begin{lstlisting}
+always: { solver: new ReactiveSolver()
+  my.condition == aLayer.isActive()
+}
+\end{lstlisting}
+
+In practice, we found that syntactic sugar is useful for these kinds
+of constraints. The right-hand side of the constraint will always be
+an equation to the result of calling \verb!isActive! on a layer. To
+make this clearer, we adopted a more convenient syntax. Using this
+syntax, we can use one of our power-up layers
+(\autoref{sec:desir-layer-acts}) as follows:
+\begin{lstlisting}[label=lst:design-coplayerexample,caption={~}]
 var powerUpLayer = new Layer().refineObject(tank, {
   getBulletRicochets: function() {
     return cop.proceed() + 1;
   }
 });
-\end{lstlisting}
+powerUpLayer.timeout = 6000;
 
-As continuation of the spring power up example, suppose the benefit of the power up is of limited duration. So, the power up is only active until its time is running out. We use a dedicated \texttt{Timer} class to keep track of time in our example. Using activator constraints we can connect an instance of this class with the previously defined \texttt{powerUpLayer}, as shown in \autoref{lst:design-activatorexample}. In line 2 we define the condition that the \texttt{remainingTime} attribute of the \texttt{timer} is greater than zero. Next, we connect this condition with the \texttt{powerUpLayer} and, thereby, create the desired relation in line 3.
-
-\begin{lstlisting}[label=lst:design-activatorexample,caption={Activator constraint to activate a power up for a specific amount of time}]
 predicate(function() {
-  return timer.remainingTime > 0;
+  return timer.time > player.powerUpCollectionTime +
+                      powerUpLayer.timeout;
 }).activate(powerUpLayer);
 \end{lstlisting}
+Lines 1--6 define a layer for a particular power-up. Lines 8--11
+define a Layer Activator. It references the global timer and the
+player, and declares that when the predicate evaluates to true, the
+\verb!powerUpLayer! should be active.
 
-We use layers as units of dynamic behavior adaption because of the
-following reasons:
-\begin{itemize}
-\item \gls{cop} treats context objects, layers, explicitly.  These
-  context objects can easily be activated based on a condition. \item
-  \gls{cop} is no special solution dedicated to JavaScript, but has
-  been implemented in many other languages such as Lisp, Smalltalk,
-  Python, Java, and Ruby. So, Babelsberg implementations in languages
-  other than JavaScript can also base on the very concept of
-  \gls{cop}.
-%, not special-library solution
-\item Aside partial object and class definitions \gls{cop} layer can
-  act as units of scoping for constraints as well, as described in
-  \autoref{sec:design-scopedconstraints}. Being able to use
-  constraints to activate layers and layers to scope constraints
-  provides additional synergy effects between both concepts.
-\end{itemize}
-
-\subsubsection*{Implementation}
-In order to implement the above concept, we extend the existing
-Babelsberg library. Babelsberg is built to use use multiple solvers,
-and let them cooperate to solve constraints.  We can view the
-condition to activate a layer as a constraint of the form
-\[
-  booleanExpression? = isActive(Layer)
-\]
-The questionmark means that the solver is not allowed to change the
-condition, and thus must change the activation state of the layer when
-the condition changes. Accordingly, we implement a
-\texttt{ReactiveSolver}, which re-uses the Babelsberg framework for
-interpreting the condition expression. Whenever a variable that
-participates in the boolean expression changes, the framework asks our
-solver to \verb!solve! the constraint.  To do so, our custom solver
-checks whether the evaluation result of the condition coincides with
-the layer activation status and if not, activates or deactivates the
-layer as necessary (see \autoref{lst:implementation-activator}).
+% We use layers as units of dynamic behavior adaption because of the
+% following reasons:
+% \begin{itemize}
+% \item \gls{cop} treats context objects, layers, explicitly.  These
+%   context objects can easily be activated based on a condition. \item
+%   \gls{cop} is no special solution dedicated to JavaScript, but has
+%   been implemented in many other languages such as Lisp, Smalltalk,
+%   Python, Java, and Ruby. So, Babelsberg implementations in languages
+%   other than JavaScript can also base on the very concept of
+%   \gls{cop}.
+% %, not special-library solution
+% \item Aside partial object and class definitions \gls{cop} layer can
+%   act as units of scoping for constraints as well, as described in
+%   \autoref{sec:design-scopedconstraints}. Being able to use
+%   constraints to activate layers and layers to scope constraints
+%   provides additional synergy effects between both concepts.
+% \end{itemize}
 
 
-\subsection{Constraint Layers}
+\section{Constraint Layers}
 
 As stated in \autoref{sec:motivation-problem-statement}, \gls{cp}
 typically revolves around describing a global system state. In

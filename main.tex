@@ -411,10 +411,10 @@ var powerUpLayer = new Layer().refineObject(tank, {
 });
 powerUpLayer.timeout = 6000;
 
-predicate(function() {
+activator(function() {
   return timer.time > player.powerUpCollectionTime +
                       powerUpLayer.timeout;
-}).activate(powerUpLayer);
+}).activates(powerUpLayer);
 \end{lstlisting}
 Lines 1--6 define a layer for a particular power-up. Lines 8--11
 define a Layer Activator. It references the global timer and the
@@ -442,95 +442,64 @@ player, and declares that when the predicate evaluates to true, the
 
 \section{Constraint Layers}
 
-As stated in \autoref{sec:motivation-problem-statement}, \gls{cp}
-typically revolves around describing a global system state. In
-contrast to \gls{cp}, \gls{oop} revolves modularization of system
-state and dynamic adaption.
-%
-Babelsberg already provides means to dynamically adapt
-constraints. Still, these means are limited to the low-level methods
-\texttt{enable} and \texttt{disable}.  As explained in
-\autoref{sec:motivation-problem-statement}, manipulating constraints
-using such low-level techniques is unfeasible for larger systems.  In
-case of Babelsberg/R one can activate constraints dynamic extent of a
-code block. Yet, this mechanism is control flow-specific.  In
-\autoref{sec:design-activators} we introduced activator constraints as
-a mechanism to activate \gls{cop} layers based on arbitrary
-conditions. So far, layers have been used as convenient units of
-scoping to adapt behavior.
-%
-%We extend the concept of layers to scope constraints of all kinds as well.
-%
-However, as we integrate constraints and \gls{oo} concepts, the
-requirements of an \gls{oo} environment start to apply to constraints
-as well. Constraints should be able to adapt dynamically as behavior
-does.
-%constraints are also adaptions in behavior. Such an adaption need sometimes to vary.
-So, similar to partial class and object behavior, we introduce
-\emph{scoped constraints}, i.e. constraints associated with a
-\gls{cop} layer.
-%
-%how does this work?:
-%constraints can be added to a layer
+\gls{cp} typically revolves around describing a global system state,
+which is why \verb!always! and \verb!once! constraints are often
+sufficient. In contrast, \gls{oop} revolves modularization of system
+state and dynamic adaption. Babelsberg provides means to globally
+enable or disable constraints using the meta-level methods
+\texttt{enable} and \texttt{disable}, defined on the
+\verb!Constraint!. As a limited scoping mechanism, constraints can be
+activated for the dynamic extent of a code block. This mechanism,
+however, is control flow-specific. Instead, we want to re-use the
+declarative form of activating layers for constraints.
+
+As we integrate constraints and \gls{oo} concepts, the requirements of
+an \gls{oo} environment start to apply to constraints as
+well. Constraints should be able to adapt dynamically as behavior
+does. So, analogous to partial classes and their behavior in
+behavioral layers, we introduce scoped constraints in \emph{Constraint
+  Layers}.
+
 One can associate layers with constraints as one would do with partial
-behavior.
-%We propose the concept to associate layers with constraints as  layers are associated with partial behavior.
-Similar to partial behavior definitions, scoped constraints take
-effect as soon as the associated layer becomes active.  Deactivating
-the layer again causes the constraints to be disabled.  That way, the
-constraint is enabled as long as the associated layer is active.
+behavior. Similar to partial behavior definitions, scoped constraints
+take effect as soon as the associated layer becomes active.
+Deactivating the layer again causes the constraints to be disabled.
+That way, the constraint is enabled as long as the associated layer is
+active.
 
 To exemplify the concept of scoped constraints, suppose the following
-functionality of our game example for the tile-based cursor in the
-editor mode: as long as the game is in editor mode, this cursor should
-always refer to the \texttt{Tile} under the mouse.  To cleanly
-separate the editor mode from the rest of the game, the editor mode is
-represented by a dedicated layer, the \texttt{EditorLayer}. This layer
-cross-cuts all relevant modules to implement the editor mode including
-the constraint described
-above. \autoref{lst:design-scopedconstraintexample} shows the
-definition of this constraint. First, line 1 states that the following
-predicate is associated with the \texttt{EditorLayer}. Then, line 2
-specifies that the \texttt{tileIndex} of the editor mode
-\texttt{cursor}, and so its position, should be equal to the mouse
-position converted to tile-based coordinates. Finally, lines 3 to 5
-ensure that this constraint expression will be fulfilled using an
-instance of the DeltaBlue constraint solver. The whole definition
-causes the desired behavior to only take place in editor mode.
-
+functionality of our game in the editor mode: as long as the game is
+in editor mode, the players cursor should always correspond to the
+\texttt{Tile} under the mouse.  To cleanly separate the editor mode
+from the rest of the game, the editor mode is represented by a
+dedicated layer, the \texttt{EditorLayer}. This layer cross-cuts all
+relevant modules to implement the editor mode including the constraint
+described above. \autoref{lst:design-scopedconstraintexample} shows
+the definition of this constraint:
 \begin{lstlisting}[label=lst:design-scopedconstraintexample,caption={Scoped constraint to make the cursor graphic hover over the tile under the mouse while in editor mode}]
-EditorLayer.predicate(function() {
-  return cursor.tileIndex.equals(map.positionToCoordinates(input.position));
-}).always({
-  solver: new DBPlanner()
-});
+EditorLayer.addConstraint(
+  {solver: new DBPlanner()},
+  function() {
+    return cursor.tileIndex.equals(
+      map.positionToCoordinates(input.position)
+    );
+  }
+);
 \end{lstlisting}
+Line 1 adds a constraint to the \verb!EditorLayer! using a
+\verb!addConstraint! method, which we have defined. This method takes a
+configuration object (Line 2), which in this case specifies that the
+predicate, if activated as a constraint, should be solved using the
+DeltaBlue planning solver. As second argument we pass the predicate
+function, which tests that the \texttt{tileIndex} field of the
+\texttt{cursor} is equal to the mouse position when converted to
+tile-based coordinates. When the EditorLayer is activated, this
+predicate is transformed into a constraint and solved for.
 
-As an additional advantage, layers can group multiple constraints due to their cross-cutting aspect. So, one can structurally en-/disable multiple constraints related to the same context.
-%Not only allows this concept to dynamically scope constraints as one can do with partial behavior ...
-%Use scope for grouping constraints; structured switching on/off GROUPs of constraints. <- due to the cross-cutting aspect of layers
-%Another advantage of using \gls{cop} layers as units of scoping is that layers can be associated with an arbitrary number of constraint. So, layer allow grouping constraints and
-%
-In conclusion, \gls{cop} provides constraints the variability needed in an \gls{oo} environment.
-
-%---
-
-%relation to assert-during in Babelsberg/R
-%[refer to jot paper: Babelsberg/R had assert-during, only because Kaleidoscope also had this. Was never used in a single example. So, it was not brought over to other implementations of Babelsberg. But assert-during is only local, no possibility to formulate for example a condition on which the scope is active. But state that one sort of scoping already existed, and was just not used and not that powerful. --> maybe mention this only in related work. ]
-
-%possible motivation for scoped constraints
-%Certain conditions should only hold for a specific duration, like effects of power-ups. The always statement does not support this kind of feature. As one way to deal with this issue, the programmer could manually manage the constraints. A constraint can be enabled at the start of a certain section and disabled at its end. However, this is error-prune and could be handled automatically by defining a scope for this constraint. ...
-
-%small motivation
-%As with behavioral variations covered by the concept of \gls{cop}, certain desired properties of a system also vary.
-
-%motivation using goto analogy
-%Scoping from design point of view means enable some constraint, run something, and disable constraints again. We could also use try-finally for this, but would look ugly and is equivalent to unstructured programming because f.e. there are no branches but gotos. But an \gls{oo} programmer wants a structure for this, similar to the with-statement in JavaScript.
-
-%advantage of scoped constraints using \gls{cp}
-%using cop as explicit context objects: better integration with other newly defined constructs as cop layers can already be activated by constraints using activators.
-\subsubsection*{Implementation}
-\todo{write it}
+Using the \verb!addConstraint! function, multiple constraints can be
+added to a layer. Thus, layers can group multiple constraints to
+atomically en-/disable multiple constraints related to the same
+context.
 
 \section{Related Work}
 \label{sec:related-work}

@@ -33,7 +33,7 @@
     % {==}{=\slightspace{}=}{1}%
     {visible?}{visible?}{1},%
     showstringspaces=false,%
-    columns=flexible,%
+    columns=fullflexible,%
     frame=tb,%
     rulecolor=\color{lightgray},
     % xleftmargin=\parindent,%
@@ -244,8 +244,8 @@ The finished game is shown in \autoref{fig:game}. From our experience
 with both ContextJS and Babelsberg/JS, we realized there are multiple
 opportunities to use constraints and layer-based behavioral
 adaption. Power-ups change the behavior of bullets, and, during
-development, an alternative drawing mode is desirable for
-introspection. These can be conveniently encapsulated using
+development, alternative drawing modes are desirable for introspection
+and editing. These can be conveniently encapsulated using
 layers. Additionally, there are UI elements that have constraints on
 them, such as the target following the mouse, or that a tank cannot
 drive into a wall or over a hole. We encapsulated these using
@@ -254,7 +254,7 @@ constraints.
 \subsection{Desired Form of Layer Activation}
 
 Consider the use of layers for non-permanent power-ups, which are
-collected and activated in the game, and should be deactivated after
+collected and activated in the game and should be deactivated after
 some time. Activating the layers imperatively is straightforward: when
 the player drives the tank over the power-up, the corresponding layer
 becomes active. The case for deactivating the constraint, however, is
@@ -270,14 +270,12 @@ extended the timeout. Alternatively, we could use a variable that
 remembers the last time the player found a power-up, and find a
 convenient place in the game loop to insert a check if the layer
 should be deactivated, with the drawback that we mingle different
-concerns into our game loop.
-
-Instead, we would like to re-use the existing game loop time and
-decide if a layer is active based on the time difference between the
-last collected power-up and the current game time. Intuitively, we
-might have a declarative definition of when the layer should be
-active, given a variable $lastCollectionTime$ which holds the last
-time the player collected a power-up:
+concerns into our game loop. Instead, we would like to re-use the
+existing game loop time and decide if a layer is active based on the
+time difference between the last collected power-up and the current
+game time. Intuitively, we might have a declarative definition of when
+the layer should be active, given a variable $lastCollectionTime$
+which holds the last time the player collected a power-up:
 \[
    lastCollectionTime + timeOut \leq gameTime
 \]
@@ -290,103 +288,66 @@ will become false and implicitly, the layer is deactivated.
 \subsection{Desired Form of Constraint Scoping}
 \label{sec:implementation-babelsberg-ccm}
 
-Consider the constraint that the target should follow the mouse
-cursor. The constraint can be expressed in Babelsberg/JS as:
-% \begin{lstlisting}[label=lst:implementation-cassowaryexample,caption={~},]
-% always: { solver: new DBPlanner(),
-%     player.turretDirection.equals(input.position, input.position.x, input.position.y, player.position, player.position.x, player.position.y], function(mousePosition, mousePositionX, mousePositionY, playerPosition, playerPositionX, playerPositionY) {
-%                     return mousePosition.sub(playerPosition);
-%                 });
-%             } }, function() {
-%                 return player.turretDirection.equals((input.mouse).sub(player.position));
-% 		});
-
-
-% \begin{lstlisting}[label=lst:implementation-cassowaryexample,caption={~},]
-% bbb.always({
-%             solver: new DBPlanner(),
-%             ctx: {
-%                 player: player,
-%                 input: input
-%             },
-%             methods: function() {
-%                 player.turretDirection.formula([input.position, input.position.x, input.position.y, player.position, player.position.x, player.position.y], function(mousePosition, mousePositionX, mousePositionY, playerPosition, playerPositionX, playerPositionY) {
-%                     return mousePosition.sub(playerPosition);
-%                 });
-%             } }, function() {
-%                 return player.turretDirection.equals((input.mouse).sub(player.position));
-% 		});
-
-% always: { solver: new ClSimplexSolver()
-%           pt.x * 2 == pt.y }
-% \end{lstlisting}
-
+In our game, consider that the turret of the tank should follow the
+mouse cursor controlled by the player. The constraint can be expressed
+in Babelsberg/JS as:
+\begin{lstlisting}[label=lst:implementation-cassowaryexample,caption={~},]
+always: { solver: new DBPlanner()
+  player.turretDirection.equals(input.mouse.sub(player.position))
+}
+\end{lstlisting}
 
 Constraints in Babelsberg/JS are ordinary JavaScript expressions that
 are introduced using the keywords \verb!always! or \verb!once!, the
-constraint being that the expression evaluates to true. A translation
-mechanism executes constraint expressions while keeping track of the
-dependencies between encountered variables and fields. Babelsberg
-abstracts from the details of the underlying solvers and can translate
-constraints in different ways to hand to different solvers.
+constraint being that the expression evaluates to true. Line 1 in the
+above listing specifies that we want to use the DeltaBlue planning
+solver to satisfy this constraint. Line 2 is the boolean expression
+that will be converted by the framework to be solved. Although this
+code is valid JavaScript, no constraints are be created if executed
+directly. Instead, a translation mechanism interprets the expression
+while keeping track of the dependencies between encountered variables
+and fields~\cite{FelgentreffJOT14}. Besides allowing for a more
+convenient syntax, the source code transformation creates a context
+object that contains all variables that are directly referenced by the
+function~\cite{FelgentreffECOOP14}. The framework requires this
+context object in order to interpret and transform the constraint
+expression. The transformed code for
+\autoref{lst:implementation-cassowaryexample} is:
+\begin{lstlisting}[label=lst:transformed,caption={~},]
+bbb.always(
+  {solver: new DBPlanner(),
+   ctx: { player: player, input: input }},
+  function() {
+    return player.turretDirection.equals(
+      input.mouse.sub(player.position)
+    );
+  }
+);
+\end{lstlisting}
 
 As long as a constraint is active, the system keeps track of the
 objects that relate to it and, if the constraint becomes invalidated
 through modifications to those objects, triggers the solver to find a
-solution that satisfies them. If no solution can be found, the
-modification that invalidated the constraints is rejected and an
-exception is generated. Constraints in Babelsberg/JS are thus useful
-to encapsulate \emph{system maintained assumptions}, and ensure that
-these assumptions cannot be quietly invalidated.
+solution that satisfies them. This constraint will ensure that the
+turret direction will always be towards the mouse cursor. However, in
+the game we only want this to be the case as long as we are actually
+\emph{playing}, not if the game is paused or we are editing the
+playing field. Yet, deactivating a constraint is currently only
+possible using meta-level access to constraints, and may be considered
+the equivalent of a \verb!goto! in \gls{ocp}. Instead, we need a
+scoping mechanism with which we can group, activate, and deactivate
+constraints.
 
-\todo{can we use a constraint that makes sense in the game?}
-As a simple example, suppose we want to specify that the \texttt{y}
-coordinate of a point object \texttt{pt} is twice as big as its
-\texttt{x} coordinate:
-\begin{lstlisting}[label=lst:implementation-cassowaryexample,caption={~},]
-always: { solver: new ClSimplexSolver()
-          pt.x * 2 == pt.y }
-\end{lstlisting}
+Using layers in combination with our Activators, we can declare that
+play related constraints such as the one above should only be active
+if the current game state is playing, and have the activation
+mechanism take care of adding and removing them at appropriate times.
 
-Line 1 specifies that we want to use the Cassowary solver to satisfy
-this constraint. Line 2 is the boolean expression that will be
-converted by the framework to be solved. Although this code is valid
-JavaScript, if executed directly, no constraints will be
-created. Babelsberg/JS uses a source-to-source transformation to
-convert the above constraint expression into the following JavaScript:
-\begin{lstlisting}[label=lst:implementation-cassowaryexamplesourcetransformed,caption={~},]
-bbb.always({
-  solver: new ClSimplexSolver() 
-  ctx: {
-    pt: pt
-  }
-}, function() {
-  return pt.x * 2 == pt.y
-});
-\end{lstlisting}
-
-Besides allowing for a more convenient syntax, the source code
-transformation creates a context object that contains all variables
-that are directly referenced by the function. The framework requires
-this context object in order to interpret and transform the constraint
-expression.
-
-In order to maintain constraint, Babelsberg intercepts accesses and
-assignments to relevant variables while the constraint is active. As
-part of the transformation, each constraint expression is interpreted
-using a modified pure-JavaScript interpreter which wraps all object
-fields with \emph{property accessors}. From then onward, to get the
-value of a field the accessors returns the appropriate value from the
-constraint solver. When a field is written, the update is passed to
-the constraint solver as a temporary new constraint, triggering the
-solving process. If the constraints can still be satisfied using the
-new value, the constraint system is updated, otherwise the update is
-rejected.
-
-\todo{write about the limitations of constraint scoping}
 
 \section{Solution}
 \label{sec:solution}
+
+\todo{work over solution}
 
 \subsection{Layer Activators}
 

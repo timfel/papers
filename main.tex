@@ -1,6 +1,6 @@
 \documentclass[preprint,draft,10pt]{sigplanconf}
 
-\usepackage{amsmath}
+\usepackage{amsmath,amssymb}
 \usepackage[final]{listings}
 \lstdefinelanguage{JavaScript}{
   keywords={typeof, new, true, false, catch, return, null, catch, switch, var, if, in, while, do, else, case, break, this, throw},
@@ -195,7 +195,7 @@ may affect the objects created by its caller.
 
 To alleviate this problem and provide control over when constraints
 are active, we use \gls{cop} to provide a convenient scoping mechanism
-to add, remove, or suppress constraints using layers. We call such
+to add, modify, or suppress constraints using layers. We call such
 layers that adapt declarative constraints in addition to behavior
 \emph{Constraint Layers}.
 \begin{center}
@@ -216,25 +216,115 @@ and future work in that direction (\autoref{sec:conclusion}).
 \section{Motivation and Problems}
 \label{sec:game}
 
-\todo{game description and where constraints and layers are useful abstractly}
+We set out to create a clone of the game \emph{Wii
+  Play/Tanks!}\footnote{\textcopyright 2007 by
+  Nintendo\textregistered,
+  \url{http://www.nintendo.com/sites/software_wiiplay.jsp}, accessed
+  March 30, 2015} that runs in the browser. The game is top-down, with
+the players controlling toy-tanks that shoot rubber bullets at each
+other. The tanks can move about the field and turn their turrets
+independently. The field contains obstacles such as walls and holes in
+the ground which the tanks cannot cross, but bullets can ricochet off
+walls and fly over holes. As an extension to the original, we added
+power-ups which give the tanks' bullets additional behavior such as
+flying faster or ricocheting more often.
 
-\subsection{Limitations of Layer Activation}
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{game}
+  \caption{WePlayTanks with Babelsberg and ContextJS}
+  \label{fig:game}
+\end{figure}
 
-\todo{a use case for layers}
+The finished game is shown in \autoref{fig:game}. From our experience
+with both ContextJS and Babelsberg/JS, we realized there are multiple
+opportunities to use constraints and layer-based behavioral
+adaption. Power-ups change the behavior of bullets, and, during
+development, an alternative drawing mode is desirable for
+introspection. These can be conveniently encapsulated using
+layers. Additionally, there are UI elements that have constraints on
+them, such as the target following the mouse, or that a tank cannot
+drive into a wall or over a hole. We encapsulated these using
+constraints.
 
-\todo{a limitation for layer activation}
+\subsection{Desired Form of Layer Activation}
 
-\subsection{Limitations of Constraint Scoping}
+Consider the use of layers for non-permanent power-ups, which are
+collected and activated in the game, and should be deactivated after
+some time. Activating the layers imperatively is straightforward: when
+the player drives the tank over the power-up, the corresponding layer
+becomes active. The case for deactivating the constraint, however, is
+not as clear.
+
+To later deactivate the constraint, we could create a timeout which
+fires later to deactivate the layer
+\cite[App.B]{taeumel2014applying}. This, however, makes the
+implementation to accumulate the times for multiple power-ups more
+difficult, as each timeout would have to check if the layer should
+indeed be deactivated or if more power-ups of the same type have
+extended the timeout. Alternatively, we could use a variable that
+remembers the last time the player found a power-up, and find a
+convenient place in the game loop to insert a check if the layer
+should be deactivated, with the drawback that we mingle different
+concerns into our game loop.
+
+Instead, we would like to re-use the existing game loop time and
+decide if a layer is active based on the time difference between the
+last collected power-up and the current game time. Intuitively, we
+might have a declarative definition of when the layer should be
+active, given a variable $lastCollectionTime$ which holds the last
+time the player collected a power-up:
+\[
+   lastCollectionTime + timeOut \leq gameTime
+\]
+Given this definition, we can control both activation and deactivation
+of the layer. When the player drives over the power-up, we set
+$lastCollectionTime$ to $gameTime$, which, for a non-zero $timeOut$,
+implicitly activates the layer. As time progresses, the inequality
+will become false and implicitly, the layer is deactivated.
+
+\subsection{Desired Form of Constraint Scoping}
 \label{sec:implementation-babelsberg-ccm}
-Babelsberg/JS extends and integrates both semantically and
-syntactically with JavaScript. Constraints are ordinary JavaScript
-expressions that are introduced using the keywords \verb!always! or
-\verb!once!, the constraint being that the expression evaluates to
-true. A translation mechanism executes constraint expressions while
-keeping track of the dependencies between encountered variables and
-fields. Babelsberg abstracts from the details of the underlying
-solvers and can translate constraints in different ways to hand to
-different solvers. 
+
+Consider the constraint that the target should follow the mouse
+cursor. The constraint can be expressed in Babelsberg/JS as:
+% \begin{lstlisting}[label=lst:implementation-cassowaryexample,caption={~},]
+% always: { solver: new DBPlanner(),
+%     player.turretDirection.equals(input.position, input.position.x, input.position.y, player.position, player.position.x, player.position.y], function(mousePosition, mousePositionX, mousePositionY, playerPosition, playerPositionX, playerPositionY) {
+%                     return mousePosition.sub(playerPosition);
+%                 });
+%             } }, function() {
+%                 return player.turretDirection.equals((input.mouse).sub(player.position));
+% 		});
+
+
+% \begin{lstlisting}[label=lst:implementation-cassowaryexample,caption={~},]
+% bbb.always({
+%             solver: new DBPlanner(),
+%             ctx: {
+%                 player: player,
+%                 input: input
+%             },
+%             methods: function() {
+%                 player.turretDirection.formula([input.position, input.position.x, input.position.y, player.position, player.position.x, player.position.y], function(mousePosition, mousePositionX, mousePositionY, playerPosition, playerPositionX, playerPositionY) {
+%                     return mousePosition.sub(playerPosition);
+%                 });
+%             } }, function() {
+%                 return player.turretDirection.equals((input.mouse).sub(player.position));
+% 		});
+
+% always: { solver: new ClSimplexSolver()
+%           pt.x * 2 == pt.y }
+% \end{lstlisting}
+
+
+Constraints in Babelsberg/JS are ordinary JavaScript expressions that
+are introduced using the keywords \verb!always! or \verb!once!, the
+constraint being that the expression evaluates to true. A translation
+mechanism executes constraint expressions while keeping track of the
+dependencies between encountered variables and fields. Babelsberg
+abstracts from the details of the underlying solvers and can translate
+constraints in different ways to hand to different solvers.
 
 As long as a constraint is active, the system keeps track of the
 objects that relate to it and, if the constraint becomes invalidated
@@ -306,22 +396,44 @@ So, we introduce the concept of \emph{activator constraints}.
 Using activator constraints one can specify that a certain adaption in behavior applies as long as a given condition holds.
 
 %\paragraph{Explain cop + why cop for the job?}
-Note, that activator constraints rely on an additional concept to dynamically adapt behavior. The concept of \acrlong{cop}~\cite{costanza:2005:language, hirschfeld:2008:cop} provides such a mechanism.
-\gls{cop} provides means to associate partial behavior definitions with explicit context objects, \emph{layers}.
-Layers can be activated or deactivated during the execution of a program, usually based on the control flow.
-When a layer is activated, the partial behavior definitions become part of the respective objects and classes until the deactivation of the layer.
-\gls{cop} enables dynamic adaption and variation in behavior based on the current context.
-To illustrate this, consider the spring power up described in \autoref{sec:application-description}. The spring power up causes all bullets of the affected tank to bounce off walls once more.
-This functionality can easily be expressed using layers as in \autoref{lst:design-coplayerexample}. Line 1 creates a layer and associates a partial object definition to this layer. Lines 2 to 4 augment the method \texttt{getBulletRicochets} of the \texttt{tank} object by incrementing the result of the original function by one.
-In addition to the definition of the layer and the partial behavior, one has to activate the layer in order for the adaption to take place.
-A layer is typically de-/activated globally or for the dynamic extent of a function invocation. Such mechanisms only allow control flow-specific scoping. However, adaptions can also depend on scopes other than control flow, such as conditions on the current state of the program.
+Note, that activator constraints rely on an additional concept to
+dynamically adapt behavior. The concept of
+\acrlong{cop}~\cite{costanza:2005:language, hirschfeld:2008:cop}
+provides such a mechanism.  \gls{cop} provides means to associate
+partial behavior definitions with explicit context objects,
+\emph{layers}.  Layers can be activated or deactivated during the
+execution of a program, usually based on the control flow.  When a
+layer is activated, the partial behavior definitions become part of
+the respective objects and classes until the deactivation of the
+layer.  \gls{cop} enables dynamic adaption and variation in behavior
+based on the current context.  To illustrate this, consider the spring
+power up described in \autoref{sec:application-description}. The
+spring power up causes all bullets of the affected tank to bounce off
+walls once more.  This functionality can easily be expressed using
+layers as in \autoref{lst:design-coplayerexample}. Line 1 creates a
+layer and associates a partial object definition to this layer. Lines
+2 to 4 augment the method \texttt{getBulletRicochets} of the
+\texttt{tank} object by incrementing the result of the original
+function by one.  In addition to the definition of the layer and the
+partial behavior, one has to activate the layer in order for the
+adaption to take place.  A layer is typically de-/activated globally
+or for the dynamic extent of a function invocation. Such mechanisms
+only allow control flow-specific scoping. However, adaptions can also
+depend on scopes other than control flow, such as conditions on the
+current state of the program.
 %However, contexts are often bound to certain conditions that hold.
 %However, these acvivation methods are control flow-based ...
-As with trigger constraints, we want to treat the condition associated with a context explicitly. We imagine activator constraints to activate a given layer as long as the associated constraint expression is fulfilled, as illustrated by \autoref{fig:design_activate}. Once we reach a state in which the constraint expression is fulfilled, the layer is activated until the constraint expression evaluates to false. Then, we deactivate the respective layer again.
+As with trigger constraints, we want to treat the condition associated
+with a context explicitly. We imagine activator constraints to
+activate a given layer as long as the associated constraint expression
+is fulfilled, as illustrated by \autoref{fig:design_activate}. Once we
+reach a state in which the constraint expression is fulfilled, the
+layer is activated until the constraint expression evaluates to
+false. Then, we deactivate the respective layer again.
 
 \begin{figure}
 \centering
-\includegraphics[width=.45\linewidth]{ppt/design_activate.png}
+\includegraphics[width=\linewidth]{ppt/design_activate.png}
 \caption{System state trajectory augmented by an activator constraint}
 \label{fig:design_activate}
 \end{figure}
@@ -475,61 +587,96 @@ In conclusion, \gls{cop} provides constraints the variability needed in an \gls{
 \section{Related Work}
 \label{sec:related-work}
 
-Reactive Constraints
+We discuss work related to our layer activation mechanism. To our
+knowledge, there is no previous work related to our second
+contribution, to allow \gls{cop} layers to add, modify, or suppress
+constraints using layers. Neither do we know of related work that
+combines \gls{cop} and \acrlong{cp}.
 
-PyContext
+\emph{EventCJ}~\cite{kamina:2011:eventcj} separates the control of
+layer activation and the execution of context-dependent behavior using
+two language constructs, \emph{event declarations} and \emph{layer
+  transition rules}. An event declaration specifies a named event,
+when the event is triggered, and to which objects the event is sent. A
+layer transition rule specifies the activation and deactivation of
+layers in a declarative manner. EventCJ events rely on a subset of
+AspectJ~\cite{kiczales:2001:aspectj} pointcuts. However, the pointcut
+has to be specified explicitly. In contrast, our Layer Activators
+allow to specify an arbitrary condition and, thereby, abstract from
+concrete point of execution to activate the layer.  A benefit of
+EventCJ is that it provides instance-specific layer activation, while
+our work activates layers globally.
+
+\emph{PyContext}~\cite{vonLoewis:2007:implicitactivation} introduces
+implicit layer activation, to address the issue that, similar to our
+observations, layers are often activated depending on a condition. If
+this condition changes frequently, the condition and activation may be
+scattered across the code. Each PyContext layer may define the
+\texttt{active} method and, if this method evaluates to true, the
+layer is active.  Whenever a layered method is called, PyContext first
+determines which layers are active using those methods. In contrast,
+our work determines the composition when the condition
+changes. Depending on the frequency, one or the other implementation
+may incur more overhead.
+
+\emph{ServalCJ}~\cite{kamina:2015:servalcj} attempts to unify
+different layer activation methods by introducing two concepts:
+\emph{contexts} specify the duration of a layer activation and
+\emph{subscribers} specify which computations are affected by the
+layer activation.  The unified model allows to represent all
+previously existing \gls{cop} activation mechanisms.
+
 
 \section{Discussion and Conclusion}
 \label{sec:conclusion}
 
-Appeltauer et al. compare several \gls{cop} implementations as well as
-their activation means~\cite{Appeltauer:2009:comparison}. We argue
-that constraint expressions represent a new form deals with the
-comparison between activator constraints and event-based layer
-activation techniques.
+We have presented a novel \gls{cop} layer activation mechanism related
+to reactive and event-based layer activation techniques, and a novel
+use of layers as a scoping and control mechanism for constraints in
+\gls{ocp} languages. These mechanisms resulted from our experience in
+creating an interactive game using both constraints and layers.
 
-\subsection{Open Issues}
-Integrating the concepts of \gls{cop} and \gls{cp} leads to several issues about their semantics. Each question allows for multiple valid answers as the expectation of the programmer depends on the concrete use case. None of the following three issues is relevant to our game use case.\todo{SHOULD THIS BE IN FUTURE WORK?}
+This work is practical, and open issues remain regarding semantics
+that were not relevant for our use-case.
 
-The first issue is concerned with what happens when two activator constraints refer to the same layer. This question can be solved in multiple ways:
-%Another issue is what are the semantics when two activator constraints refer to the same layer.
-\begin{itemize}
-\item[1) ] The layer is active if one or more of the activator constraints evaluate to true.
-\item[2) ] The layer is only active if all associated activator constraints evaluate to true.
-\item[3) ] Treat an activator constraint as an equivalent always constraint as in \autoref{lst:design-openissueexample}. Line 2 ensures that Babelsberg keeps the layer active if the constraint expression becomes true. When a second activator constraint is defined, the value of \texttt{layer.isActive()} as well as both activator constraints is maintained to be equal by Babelsberg.
-%see it as \texttt{always: layer.active == const.fulfilled} and \texttt{always: layer.active == constr2.fulfilled} and let Babelsberg try to solve both constraints
-\item[4) ] Trying to define an activator constraint for a layer that is already associated with an activator constraint raises an error.
-\end{itemize}
-%
-\begin{lstlisting}[label=lst:design-openissueexample,caption={An activator constraint modelled as an always constraint}]
-predicate(function() {
-  return layer.isActive() == activatorConstraint.isFulfilled();
-}).always();
-\end{lstlisting}
-%
-The second issue regards the integration of activator constraints and control flow-based activations of a layer. As a concrete question: what happens if a layer that is associated with an activator constraint is activated manually?
-%Especially the integration with previous control flow-based means to activate layers are difficult: a layer associated with an activator constraint (currently evaluates to false) is activated using layer.beGlobal.
-\begin{itemize}
-\item[1) ] Trying to manually activate a layer that is associated with an activator constraint raises an error.
-\item[2) ] The manual layer activation fails silently.
-\item[3) ] The activator constraint is modelled as an always constraint. The manual activation causes Babelsberg to solve the constraint expression of the activator constraint.
-\end{itemize}
-%
-Note, that the semantics of both issues are clear when using the layer activation semantics of ContextJ~\cite{appeltauer:2011:contextj}. In this implementation of \gls{cop} activating a layer multiple times causes the variation in behavior to be applied multiple times.
-So, activating a layer twice, regardless whether the activation is manual or by the means of activator constraints, applies the behavior adaption twice.
+First, it is currently not clear what happens when two conflicting
+Layer Activators refer to the same layer. The layer may active if one
+or more of the activator constraints evaluate to true, or only if all
+associated activator constraints evaluate to true. Alternatively, we
+may detect a conflict when trying to define an Activator for a layer
+that already has one. As a final option, we could ask the system to
+solve for all Activator expressions to be equal, when multiple
+expressions are defined.\footnote{The semantics of the first two
+  issues are clear when using the layer activation semantics of
+  ContextJ~\cite{appeltauer:2011:contextj}. In this implementation,
+  multiple activations cause the behavioral variations to be applied
+  multiple times.  This, activating a layer twice through manual
+  activation or multiple Layer Activators simply applies the behavior
+  adaption twice.}
 
-For the third issue, suppose an activator constraint refers to a layer. The constraint expression of the activator constraint evaluates to true and, therefore, the layer is active. What should happen when the activator constraint is now disabled?
-\begin{itemize}
-\item[1) ] Disabling an activator constraint deactivates the layer.
-\item[2) ] Disabling the activator constraint has no effect on the layer. The layer holds its current state and stays active even if the constraint expression of the activator constraint becomes false, because the activator is disabled.
-\end{itemize}
-Currently, our implementation holds the last state of the layer until the layer is adjusted manually or by the means of another activator constraint as in the first option.
-%\texttt{layer.isActive}: so, when a layer was active due to an activator constraint, and this constraint becomes disabled, the layer stays active.
+Second, how do Layer Activators and control flow-based activations of
+a layer interact? If a layer that is associated with an activator
+constraint is activated manually, we may raise an error or just fail
+silently if the activator expression is not true (the latter option
+being the practical expression of an assumed artifically small time
+between the imperative activation and the time when the Activator
+deactivates the layer). Alternatively, we may propagate the layer
+activation and prompt the framework to solve for the Activator
+expression to be true.\footnotemark[\value{footnote}]
 
+Third, consider a Layer Activator that is part of a Constraint Layer,
+and both are active. What happens if the Constraint Layer is
+deactivated, and thus the Layer Activator as well. We see two options:
+1) disabling the Activator deactivates the layer regardless of the
+current value of the Activator expression, or 2) disabling the
+Activator leaves its layer active.
 
-Open Issues / Future Work
-
-Useful addition
+Despite these open questions, our practical implementation of these
+mechanisms enabled us to construct a usable game. We were able to use
+our mechanisms to make use of \gls{ocp} constraints and \gls{cop}
+layers in a way which improved the clarity and conciseness of our
+code, and believe that further work in this direction may benefit
+other application domains.
 
 \bibliographystyle{abbrvnat}
 \bibliography{constraints.bib}

@@ -39,22 +39,26 @@ exchanged without having to adapt the constraint declarations. Some
 problems can be naturally expressed using constraints, and the code is
 thus a close to the problem domain. Finally, constraint solvers have a
 clean semantics when it comes to combining multiple and possibly
-competing constraints.
+competing constraints. Due to these advantages, many
+constraint-programming systems have been proposed over the years,
+notable systems include Sketchpad \cite{sutherland-ifips-1963} in
+1963, ThingLab \cite{borning-toplas-1981} in 1981, and 
 
 There have been numerous attempts to provide these advantages as part
-of general purpose object-oriented programming languages. These
-attempts usually chose one of two main alternatives for incorporating
-constraints into object-oriented programs: The most common way is as a
-library, which has the advantage that no changes are required to the
-underlying programming language and that the ways in which the solving
-process can affect the imperative runtime are trivially
-known. However, this kind of integration leaves it up to the
-programmer to translate the relations between objects into constraints
-for the solver and back at appropriate times in the program. The
-alternative technique is to integrate constraints directly into the
-underlying programming language, and provide either an extended syntax
-or a \gls{dsl} for specifying them. In this case, there is the cost of
-having to support a new or extended programming language.
+of general purpose object-oriented programming
+languages\todo{cite}. These attempts usually chose one of two main
+alternatives for incorporating constraints into object-oriented
+programs: The most common way is as a library, which has the advantage
+that no changes are required to the underlying programming language
+and that the ways in which the solving process can affect the
+imperative runtime are trivially known. However, this kind of
+integration leaves it up to the programmer to translate the relations
+between objects into constraints for the solver and back at
+appropriate times in the program. The alternative technique is to
+integrate constraints directly into the underlying programming
+language, and provide either an extended syntax or a \gls{dsl} for
+specifying them. In this case, there is the cost of having to support
+a new or extended programming language.
 
 Despite these advantages, we see multiple reasons why constraints have
 failed to become a commonly used tool in the utility belt of
@@ -168,7 +172,7 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
 The aforementioned goals of this work present a number of
 challenges.
 
-\subsection{Be Backwards Compatible}
+\subsection*{Be Backwards Compatible}
 \label{sec:be-backw-comp}
 
 Considering the most popular languages according to \todo{needed},
@@ -213,12 +217,12 @@ inherently object-oriented in its use of abstraction mechanisms, and
 have a minimal impact on the host language, as to not require learning
 a new, separate language to use constraints.
 
-\subsection{Avoiding Surprising Solutions}
+\subsection*{Avoiding Surprising Solutions}
 \label{sec:avoid-surpr-solut}
 
 A major challenge for constraint systems has been to find functions to
-choose good solutions\todo{note}. The glorious theory\todo{cite} is
-that using constraint programming is the holy grail: the user states a
+choose good solutions\todo{note}. The theory\todo{cite} is that using
+constraint programming is the holy grail\todo{cite}: the user states a
 problem, and the computer solves it. In practice, humans use a lot
 more implicit context when searching for solutions to
 problems\todo{icte?}. This context is not only implicit, it is in
@@ -244,18 +248,23 @@ that satisfies the constraints? Which constraints should lead to a
 run-time error when they are violated, and which constraints can be
 safely ignored?
 
-\subsection{Introspection and Understanding}
+\subsection*{Introspection and Understanding}
 \label{sec:intr-underst}
 
 Another challenge for constraint systems, and declarative systems in
-general, has been their poor support for debugging\todo{cite}. Prolog
-famously
+general, has been their poor support for debugging\todo{cite}. While
+imperative execution encodes the order of operations in its semantics,
+declarative programming semantics is more or less independent of the
+actual order of execution. While this has a number of advantages (for
+example, declarative languages can generally more easily make scale to
+use multiple threads of execution\todo{cite}), if something does not
+work as intended the gap between actual execution and user code is
+vast.
 
-solver specific features
+\todo[inline]{solver specific features}
+\todo[inline]{dynamic activation and deactivation of constraints}
 
-dynamic activation and deactivation of constraints
-
-\subsection{Achieving Good Performance}
+\subsection*{Achieving Good Performance}
 \label{sec:achi-good-perf}
 Dynamic, object-oriented languages achieve good performance mostly due
 to advanced \ac{jit} techniques. Most \acp{vm} abstract from the
@@ -282,7 +291,7 @@ used in a constraint, they need more structure and are thus further
 removed from a machine friendly representation that the \ac{jit} can
 map to the stack.
 
-\subsection{Solvers Are Specific}
+\subsection*{Solvers Are Specific}
 \label{sec:solvers-are-specific}
 
 Solvers can achieve good performance when used in the right way, but
@@ -299,7 +308,7 @@ desirable, and, in addition, the language should aid the programmer in
 choosing the right solver and the correct way to invoke it to achieve
 optimal performance.
 
-\subsection{Limited Knowledge About Specific Solver Techniques}
+\subsection*{Limited Knowledge About Specific Solver Techniques}
 \label{sec:limit-knowl-about}
 
 In \ac{oop}, developers do not usually have to consider the lookup
@@ -463,29 +472,145 @@ use differs between those two types of applications.
 \chapter{State of the Art}
 \label{sec:relev-theory}
 
-~1 page
+This chapter first gives an overview of the current state of the art
+in using constraints from imperative languages, and we elaborate on
+relevant theory.
+
+Consider a graphical application that draws a window on a virtual
+desktop. The window is rectangular, and implemented as a pair of
+points \verb!origin! and \verb!extent!. Suppose furthermore, that the
+window is implemented in Ruby, and has methods to calculate the
+visible area and to check whether the window is on screen. The code
+may look as follows:
+\begin{lstlisting}
+class Window
+  attr_accessor :origin, :extent
+
+  def visible?
+    origin.x >= 0 and origin.y >= 0
+  end
+
+  def area
+    extent.x * extent.y
+  end
+end
+\end{lstlisting}
+
+Suppose that this window is showing some important information that
+should remain visible on the screen and fit within the area of the
+window. The constraints may be that the area of the window should be
+$\geq$ 100, and the predicate method \verb!visible?! should return
+true.
+
+In a standard imperative language without constraint solving, the
+standard approach to dealing with this is to leave it up to the
+programmer to find some means to maintain the constraints. This may
+involve determining through which code-paths the constraints may
+become invalidated and instrumenting those paths. The programmer may
+have to re-define the setters for origin and extent to check that the
+newly assigned points do not violate the constraints. If there are any
+other methods in the window that manipulate origin and extent without
+going through the instrumented setters, or if the points themselves
+are mutable, this quickly becomes cumbersome and error-prone. If the
+code-base is sufficiently large, a future developer may add a method
+that invalidates the constraints without realizing.
+
+Beyond having to ensure that all possible code-paths are covered, a
+purely imperative approach at maintaining the constraints has two
+other problems. First, the validity of the constraints must be checked
+through conditional statements and branches. If there are multiple
+ways in which the constraints can be invalidated, nested branching
+ensues, which can quickly become hard to understand\todo{cite
+  complexity measure paper}. Second, although the above constraints
+seem fairly trivial, there are multiple ways to satisfy them. In
+imperative code, which solution is taken is encoded in a non-obvious
+way. Without a declarative specification, it is often not clear if the
+code finds an optimal solution, or just \emph{a} solution (for
+example, a window with area 200 would also satisfy the minimum area
+constraint if a user tries to resize the window to be smaller than 100
+square pixels).
 
 \section{Constraint Solving Strategies}
 \label{sec:constr-solv-strat}
 
-~12 pages
+To address the problems that arise from imperative, ad-hoc solving of
+constraints, another approach is to use a constraint solving
+library. There is a large number of such libraries that employ vastly
+different constraint solving techniques. Most solvers restrict
+themselves to a particular class of problems for which optimized
+solving strategies exist, to side-step that constraint satisfaction in
+general is NP-hard.
 
-- Survey of different solvers
+One way of classifying solvers is by the \emph{type domain} of the
+constraints (\eg if they can solve for booleans, reals, finite domains
+of arbitrary objects, \dots). Another way is to distinguish solvers
+that are \emph{complete} for a particular domain (whether they can
+solve any constraint in a particular class in a general way) from
+solvers that can only select from a given set of functions (\eg given
+an equation $a+b=c$, can the solver solve only for $c$ given $a$ and
+$b$, or can it solve for several variables simultaneously). A third
+classification that is interesting for our work is by whether the
+solver supports some particular feature, such as incremental solving,
+constraint hierarchies, or multiple outputs.
 
-- we have Cassowary (simplex), DeltaBlue (local propagation), \gls{z3}
-(SMT), Sutherland (Relaxation), BackTalk (finite domain backtracking)
+In the rest of this section, we present and compare solvers that are
+of particular interest to or that we have used directly with
+Babelsberg. This is not a completely arbitrary selection, but for each
+of the presented solvers, a number of other solvers exist with similar
+features that could also have been chosen\footnote{See, for example,
+  this catalog of solvers:
+  \url{http://openjvm.jvmhost.net/CPSolvers/sssss}, accessed March 9,
+  2015}.
 
-- mention van Overveld (Relaxation)
+\subsection{Z3}
+\label{sec:z3}
+We present here Z3 \cite{de2008z3}, a fast and comprehensive SMT
+solver from Microsoft Research designed for theorem proving, and with
+support for a wide range of type domains, including constraints over
+booleans, integers, reals, and finite domains of symbols.
 
-- mention SkyBlue (Local Propagation with multiple outputs)
+\subsection{Cassowary}
+\label{sec:cassowary}
+Cassowary \cite{badros2001cassowary} is an efficient solver for
+simultaneous linear equations using the simplex method, and is used in
+particular in interactive graphical applications due to its support
+for fast incremental resolving and non-required (\ie preferential)
+constraints.
 
-- each type gets a page explanation
+mention also auckland layout editor
 
-- all types get a comparison for some set of features and use-cases,
+\subsection{DeltaBlue}
+\label{sec:deltablue}
+DeltaBlue \cite{freeman1989deltablue} is a local propagation solver
+with support for cyclic constraints that uses user-defined functions
+to propagate values.
+
+Mention also SkyBlue
+
+\subsection{Sutherland's Relaxation}
+\label{sec:sutherland}
+Ivan Sutherland's Sketchpad system \cite{sutherland-ifips-1963} used
+three different solving strategies --- propagation of degrees of
+freedom, local propagation, and relaxation. The relaxation algorithm
+is a fast solver for constraints of reals.
+
+mention van Overveld
+
+\subsection{BackTalk}
+\label{sec:backtalk}
+BackTalk \todo{cite} is a finite domain constraint solving library
+that uses backtracking and arc-consistency optimizations to search for
+solutions in a finite space.
+
+mention Kaplan, SMT abilities from Z3, Prolog
+
+\todo[inline]{all types get a comparison for some set of features and use-cases,
 with special mention of their utilization (as libraries or DSLs) in
-imperative languages
+imperative languages}
 
-- present a few performance results
+\todo[inline]{comparison table}
+
+\todo[inline]{a few performance results}
 
 \section{Constraint Hierarchies}
 \label{sec:constr-hier}
@@ -535,6 +660,8 @@ accomodate change
 - no unexpected drops in performance (steady-state performance)
 
 - conservative system (only do what I tell you to...)
+
+- soundness
 
 \section{Performance of Constraint Solving}
 \label{sec:perf-constr-solv}
@@ -1054,10 +1181,7 @@ arrays, or sets).
 
 - solvers support a subset of the available operations of the host language
 
-\section{Constraints on Complex Objects and Messages}
-\label{sec:complex-objects}
-
-~7 pages
+- solvers mustn't be allowed to change object structure
 
 - trees of objects
 
@@ -1065,7 +1189,16 @@ arrays, or sets).
 
 - mutable objects -> we must pass all constraints to the solver all the time
 
+\section{Constraints on Messages}
+\label{sec:complex-objects}
+
+~7 pages
+
 - optimization: only re-transform the constraints for objects that have changed
+
+- lookup must work => identities must be fixed
+
+- we need our transformation to be sound, but not necessarily complete
 
 \section{Constraints on Collections of Objects}
 \label{sec:collections}
@@ -1087,23 +1220,23 @@ complex objects problem
 \label{sec:semantics}
 
 Our formal semantics provides a complete semantics of the Babelsberg
-design that can be used to guide practical implementations. It is
-meant to as simple as possible, while still encompassing the major
-aspects of \gls{ocp} and the important design decisions in its
-Babelsberg form. Because Babelsberg integrates constraints in an
-existing object-constraint host language, the semantics omits
-constructs such as exception handling for constraint solver failures,
-class and method definitions, and syntactic sugar, that are intended
-to be inherited from the host language. Our semantics instead focuses
-on the expression of standard object-oriented constructs that need to
-be modified to support the Babelsberg design. We present the semantics
-in the same increments as we did the design:
-\autoref{sec:primitive-types} presents the semantics of a simple
-imperative language that has only primitive reals, integers, and
-booleans. \autoref{sec:constr-with-mess} adds the rules for method
-lookup and dispatch, identity constraints, and the interaction with
-the heap. \autoref{sec:records-with-ident} presents the rules for
-constraints over collections.
+design that can be used to guide practical implementations \todo{and
+  have been published in}. It is meant to as simple as possible, while
+still encompassing the major aspects of \gls{ocp} and the important
+design decisions in its Babelsberg form. Because Babelsberg integrates
+constraints in an existing object-constraint host language, the
+semantics omits constructs such as exception handling for constraint
+solver failures, class and method definitions, and syntactic sugar,
+that are intended to be inherited from the host language. Our
+semantics instead focuses on the expression of standard
+object-oriented constructs that need to be modified to support the
+Babelsberg design. We present the semantics in the same increments as
+we did the design: \autoref{sec:primitive-types} presents the
+semantics of a simple imperative language that has only primitive
+reals, integers, and booleans. \autoref{sec:constr-with-mess} adds the
+rules for method lookup and dispatch, identity constraints, and the
+interaction with the heap. \autoref{sec:records-with-ident} presents
+the rules for constraints over collections.
 
 In addition to our semantic rules, we also present an executable form
 of the complete semantics that passes a language test suite in

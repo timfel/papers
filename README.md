@@ -1,3 +1,14 @@
+### Usage
+
+To clone the paper you want, and not pull down everything, use the following:
+```bash
+REPO=paper
+git clone --single-branch --branch $PAPER
+cd $PAPER
+git config --local --replace-all remote.origin.fetch +refs/heads/${PAPER}:refs/remotes/origin/${PAPER}
+```
+
+### About
 My Papers. Older papers are on the many-together branch, newers have
 their own (orphan) branch. Some papers are shared in other repos.
 

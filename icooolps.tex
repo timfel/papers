@@ -125,12 +125,12 @@ Virtual Machines (VMs). As the popularity of VM based languages has
 increased, VM implementation techniques have evolved to the point
 where most mature VMs utilize some form of just-in-time (JIT)
 compilation, with two main technologies contending at the moment:
-method JITs, which generally compile methods at a time into machine
-code, and utilize techniques such as inlining and branch pruning to
-simplify the code or merge multiple methods; and tracing JITs, which
-record the actions of the program including branches taken and methods
-dispatched into a specific \emph{trace} and compile it into machine
-code.
+method JITs\cite{}, which generally compile methods at a time into
+machine code, and utilize techniques such as inlining and branch
+pruning to simplify the code or merge multiple methods; and tracing
+JITs\cite{}, which record the actions of the program including
+branches taken and methods dispatched into a specific \emph{trace} and
+compile it into machine code.
 
 A large part of VMs are basic behavioral blocks of the implemented
 language, so called \emph{primitives}. Some of these primitives are
@@ -143,17 +143,18 @@ primitives implemented in the lower-level language are often faster
 than if they were implemented in the client language. We discuss this
 in more detail in \autoref{sec:prim-build-blocks}.
 
-Many dynamic languages have more than one implementation. Some of
-those language implementations are not (only) source compatible, but
-may also share a bytecode set or a standard library. As a result,
-every primitive in the reference implementation has to be
-re-implemented in all the other implementations. Furthermore, the
-primitive implementations cannot usually be debugged from the
-high-level language --- if a bug is suspected in a primitive
-implementation, the debugging process has to cross language boundaries
-and thus becomes more cumbersome. Thus, we argue, it is desirable to
-reduce the number of primitives to ease VM development and
-maintenance.
+Many VM-based languages have more than one
+implementation\footnote{Python, JPython, and PyPy; Ruby, JRuby, and
+  Topaz; HotSpot, IKVM.NET, and Jikes RVM; \ldots}. Some of those
+language implementations are not (only) source compatible, but may
+also share a bytecode set or a standard library. As a result, every
+primitive in the reference implementation has to be re-implemented in
+all the other implementations. Furthermore, the primitive
+implementations cannot usually be debugged from the high-level
+language --- if a bug is suspected in a primitive implementation, the
+debugging process has to cross language boundaries and thus becomes
+more cumbersome. Thus, we argue, it is desirable to reduce the number
+of primitives to ease VM development and maintenance.
 
 In this work we investigate the trade-offs around implementations of
 algorithmic primitives. Our investigation was prompted by a trend that
@@ -173,41 +174,43 @@ implemented as part of the VM into the client language
 
 \section{Primitive Building Blocks in Virtual Machines}
 \label{sec:prim-build-blocks}
-When invoking behavior in languages implemented as VM, there are ways
-to call functions which are not implemented in the client
-language. Some of those functions are grouped into libraries and
-called using a Foreign Function Interface (FFI). Other functions,
-commonly called primitives, are a fixed part of the VM.
+Virtual machines implement, besides the runtime for one or more client
+languages, certain pieces of code that can be invoked from the client
+language, either as bytecodes or as primitive functions. The most
+common primitive behaviors are often available as bytecodes,
+e.g. integer addition on the Java Virtual Machine (JVM). Primitive
+functions often emulate the same calling interface as hosted
+functions, i.e. primitive invocation is transparent. Depending on the
+language, primitive functions are sometimes more selective regarding
+what arguments they can handle and cannot be inspected in the same way
+as ordinary methods (if such reflective facilities exist in the
+language).
 
-The most common primitive behaviors are often available as
-bytecodes. This reduces the number of function names to be saved near
-the call site, and may elide the lookup of the function name, thus
-saving space and time. Depending on the language implementation, such
-bytecodes might be the only way to achieve some behavior, e.g. integer
-addition on the Java Virtual Machine (JVM).
+In languages including Python, Ruby, Java, and JavaScript, calling
+primitives is like calling any imported function, the only different
+being that the source is not in the hosted language. Primitives in
+such languages are usually documented in text form, explaining their
+purpose, signature, and peculiarities such as possible
+side-effects. In Self, primitives are indicated by their selectors ---
+methods whose slot name starts with underscore (\_) call a primitive
+function.
 
-In most languages, there is no difference between calling a primitive
-or calling a hosted function, i.e. primitive invocation is
-transparent. In this work, we use R/SqueakVM, an
+In this work, we use R/SqueakVM, an
 open-source\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak}}
-implementation of Squeak/Smalltalk in RPython. It is a
-reimplementation of the Squeak Interpreter
-VM~\cite{BackToTheFutureInOneWeek}, which in turn is a
-reimplementation of the Smalltalk-80 VM~\cite{BackToTheFuture}.
-RSqueak/VM uses the RPython tracing JIT generation tool chain which
-also powers PyPy~\cite{PyPy}. PyPy translates an interpreter implemented in
-RPython to C, and offers the possibility to also generate a tracing
-JIT for said interpreter. As a result, RSqueak/VM offers three levels
-of abstraction for implementing primitives. From high to low
-abstraction, those are Smalltalk, the hosted language, RPython, the
-VM-implementation language, and C, accessible via RPython FFI.
+implementation of Squeak/Smalltalk in RPython. In Squeak/Smalltalk, a
+method can have an annotation, called pragma, which can be used to
+indicate a primitive call by number or name. When the interpreter
+encounters a method with a primitive pragma, it dispatches to the
+primitive function instead of running the method source. Only if the
+primitive fails, either because it does not exist or because primitive
+code indicates a failure, the VM invokes the method's body. In some
+cases the body may just generate a run-time exception.
 
-The original Squeak VM is written in a static subset of Smalltalk
-called \emph{Slang}. This code is statically translated into C and
-compiled to create the virtual machine. In addition, many methods in
-Squeak that invoke primitive behavior have so-called \emph{fallback
-  code} that is executed when the primitive fails. Consider the method
-verb!bitXor:!, which takes an integer argument \verb!n!:
+In the below example, whenever the method \verb!bitXor:! is called,
+the primitive function \verb!primDigitBitXor! from the
+\verb!LargeIntegers! module should be called. If that primitive fails,
+the Smalltalk code implements the same behavior as the primitive ---
+the primitive call is only a performance optimization.
 \begin{lstlisting}
 bitXor: n 
   | norm |
@@ -219,47 +222,42 @@ bitXor: n
       length: (self digitLength max: norm digitLength)
 \end{lstlisting}
 
-In Squeak/Smalltalk, a method can have an annotation, called pragma
-(line 3). The pragma can indicate a primitive by number or name. In
-the above example, the primitive behavior is implemented as
-\verb!primDigitBitXor! in the \verb!LargeIntegers! module. When the
-interpreter encounters a method with such a pragma, it dispatches to
-the primitive instead of running the method source. Only if the
-primitive fails, either because it is not implemented in the executing
-VM, or because the primitive codes assumptions about its arguments
-fail, the VM invokes the method's body. In some cases the body may
-just generate a run-time exception. In the above snippet, however, the
-code implements the same behavior as the primitive --- the
-\verb!primDigitBitXor! function being only a performance optimization.
+The original Squeak VM\cite{BackToTheFuture} is written in a static
+subset of Smalltalk called \emph{Slang}. This code is statically
+translated into C and compiled to create the virtual machine. In
+addition, many methods such as \verb!bitXor:! have \emph{fallback
+  code} that implements the same behavior. The
+RSqueak/VM\cite{BackToTheFutureInOneWeek} is a reimplementation of the
+Squeak VM and uses the RPython tracing JIT generation tool chain which
+also powers PyPy\cite{PyPy}. PyPy translates the interpreter
+implemented in RPython to C, and also generates a tracing JIT for it.
 
-In file-organized languages such as Python, calling primitives is
-like calling any imported function. The only difference is that the
-imported function is not implemented in the hosted
-language. Primitives in such languages are usually documented in text
-form, explaining a functions signature, arguments, side-effects, and
-return value.
+RSqueak/VM automatically shares the fallback code, because it runs the
+same images. However, if the fallback code is too slow or none exists
+the RSqueak/VM has to reimplement the primitive function in
+RPython. There are many ways to group primitives into those that
+require reimplementation and those that do not --- we present here a
+grouping that we have found useful to make that decision while
+implementing this VM.
 
-In Self, primitives are indicated by their selectors (slot
-names). Every access to a slot whose name starts with underscore (\_)
-should call a primitive function. If that function fails, the VM
-raises an error to be caught by the caller.
+% As a result, RSqueak/VM offers three levels of
+% abstraction for implementing primitives. From high to low abstraction,
+% those are Smalltalk, the hosted language, RPython, the
+% VM-implementation language, and C, accessible via RPython FFI.
 
-There are many ways to group primitives by necessity, behavior, or
-other metrics. We present here a grouping that we found useful for our
-work in deciding which primitives to put into the VM, and which to
-implement in the client language.
 
 \paragraph{Memory Primitives}
 \label{sec:memory-primitives}
 This set of primitives is closely related to the memory design of the
 programming language. In object-oriented languages, memory primitives
-provide means to create new objects, access their fields, their size,
-and trigger garbage collection. The behavior supplied by these
-primitives might be implemented as bytecodes, because they are used
-frequently. 
+may be used to create new objects, reflectively access their fields or
+their size, trigger garbage collection, or manipulate their
+pointers. Depending on the language, not all of these are available as
+primitives, and their function may only be accessible through
+bytecodes.
 
 \paragraph{Mathematical Primitives}
-While arithmetics and boolean operations can be implemented using
+In theory, arithmetics and boolean operations can be implemented using
 memory access, branching, and constants, they are used often and have
 a magnitudes faster implementation in the actual machine.  This group
 of primitives consists of basic arithmetic operations such as

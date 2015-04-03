@@ -102,7 +102,7 @@
 
   In this work, we investigate the trade-offs when creating
   primitives, and in particular how large a difference remains between
-  primitive and hosted function run times in VMs with tracing
+  primitive and client function run times in VMs with tracing
   just-in-time compiler. To that end, we extended the R/SqueakVM, a VM
   for Squeak/Smalltalk written in RPython. We compare primitive
   implementations in C, RPython, and Smalltalk, showing that due to
@@ -164,11 +164,11 @@ implemented as part of the VM into the client language
 \begin{itemize}
 % Classification
 \item We discuss possible trade-offs when implementing behavior as
-  primitive in contrast to in the hosted language in
+  primitive in contrast to in the client language in
   \autoref{sec:trade-offs-between}.
 % Measurements
 \item We quantify the performance gap between functionality
-  implemented as primitive in contrast to in the hosted language in
+  implemented as primitive in contrast to in the client language in
   \autoref{sec:measurements}.
 \end{itemize}
 
@@ -179,7 +179,7 @@ languages, certain pieces of code that can be invoked from the client
 language, either as bytecodes or as primitive functions. The most
 common primitive behaviors are often available as bytecodes,
 e.g. integer addition on the Java Virtual Machine (JVM). Primitive
-functions often emulate the same calling interface as hosted
+functions often emulate the same calling interface as client
 functions, i.e. primitive invocation is transparent. Depending on the
 language, primitive functions are sometimes more selective regarding
 what arguments they can handle and cannot be inspected in the same way
@@ -188,7 +188,7 @@ language).
 
 In languages including Python, Ruby, Java, and JavaScript, calling
 primitives is like calling any imported function, the only different
-being that the source is not in the hosted language. Primitives in
+being that the source is not in the client language. Primitives in
 such languages are usually documented in text form, explaining their
 purpose, signature, and peculiarities such as possible
 side-effects. In Self, primitives are indicated by their selectors ---
@@ -243,7 +243,7 @@ implementing this VM.
 
 % As a result, RSqueak/VM offers three levels of
 % abstraction for implementing primitives. From high to low abstraction,
-% those are Smalltalk, the hosted language, RPython, the
+% those are Smalltalk, the client language, RPython, the
 % VM-implementation language, and C, accessible via RPython FFI.
 
 
@@ -308,103 +308,102 @@ improve the execution speed of pure Smalltalk to the point where some
 algorithmic primitives may be replaced with client language
 implementations with acceptable performance.
 
-\section{Trade-Offs Between Implementation Locations}
+\section{Trade-Offs Between Implementation Locations For Language Algorithms}
 \label{sec:trade-offs-between}
 
-Whenever programmers make the decision to implement a function as a
-primitive, they have to weigh the behavior, speed, and security
-against changeability, reuse, and ease of implementation.
+Implementing behavior in the client language rather than as an
+primitive promises ease of implementation and debugging, better code
+reuse, and changeability --- short all the benefits that the client
+language itself promises to have over more low-level
+languages. However, doing so may adversely affect speed, security, and
+behavior, which can be a concern for often used functions.
 
-\subsection{Primitive Behavior}
-\label{sec:primitive-behavior}
-Some behavior cannot be expressed in the hosted language. Therefore,
-such behavior has to be implemented as part of the VM. Among others,
-this may be as primitive, as bytecode, or as node in an abstract
-syntax tree.  For example, starting the garbage collection of the VM
-the program is hosted on is behavior which is part of the VM. And
-because of its low frequency of being called, it is likely implemented
-as primitive.
+\paragraph{Ease of Implementation}
+In general, VMs implement higher-level programming languages in
+lower-level languages. They incur a performance overhead for the
+promise of easier implementations through better abstractions and
+tools. In general, implementing an algorithm in a higher level
+language requires less code, provides for shorter round-trip times
+than in a statically compiled language, and allows using advanced
+debugging tools that take advantage of the language abstraction and
+the introspection capabilities of the VM. In contrast, implementing
+behavior as algorithmic primitive requires rebuilding the VM during
+development. To debug algorithmic primitives, developers have to debug
+both in the client language as well as the VM implementation language,
+likely using different tools at different abstraction levels that are
+not built to be used in conjunction.
 
-\subsection{Speed}
-The goal of reduced execution time is the main reason for creating
-primitives which could be implemented in the hosted language. The
-reasoning behind the reduced runtime is that every method call needs a
-new frame. Even if that does not mean creating a heap object, it means
-saving frame and stack pointer, copying the arguments (including the
-receiver, for object oriented languages) to the new frame, and
-initializing local variables. Depending on language semantics,
-implementing behavior primitive may also remove costly method lookups,
-repeated access boundary checks, and repeated boxing / unboxing of
-basic values such as integers, floats, or strings.
+\paragraph{Reuse}
+Different VMs that implement the same language can share all code
+implemented in the client language. This means not only that
+re-implementations of an existing VM need to re-implement fewer
+primitives and thus be running quicker, but also that improvements
+made to the standard library can be shared directly across different
+VMs without additional effort to adapt the code in each VM. Code reuse
+also prohibits subtle bugs creeping into the different implementations
+of the same functionality. In Squeak, for example, some primitives are
+optional -- while they are implemented in the standard VM, fallback
+code in Smalltalk implements that same behavior. This was useful to
+get alternative implementations working quickly, but is also a source
+of hard to track bugs when code changes in the primitive
+implementation are not adequately reflected in the fallback code. A
+similar situation arises in JavaScript, where not all VMs implement
+the same set of features and pure-JavaScript libraries, so-call
+\emph{polyfills}, were built to support older or non-compliant
+browsers.
 
-Speed concerns can also be a reason to not implement behavior as
-primitive. Tracing JITs record every operation in the hosted language,
-but operations done by the VM in primitives may not be
-visible. Implementing behavior outside of the visibility of the
-optimization machinery forbids it to take those operations into
-account, forcing it to create safe borders whenever leaving traces for
-primitives. On traces exits, the VM has to create a valid frame for
-the primitive to operate in, and, if applicable, box the arguments and
-intermediate results. If a VM utilizes tracing optimizations, it needs
-to be able to trace primitives. The easiest way to make a primitive
-visible to the tracing machinery is not having it, i.e. implementing
-it in the hosted language.
-
-\subsection{Programming Process}
-Developing a VM has different properties regarding the development
-process and the ease of debugging, relative to the hosted language.
-First, the round-trip times may differ. The round-rip time is measured
-between editing the code and seeing changed behavior. The round-trip
-time depends on features such as incremental compilation, and the
-general speed of the VM. In order to see the results of a VM change,
-the VM has to be recompiled, and then, the program needs to run again
-to the point of failure. If the source of the hosted program changes,
-the VM only has to rerun, skipping the compilation step.  During
-debugging, if the VM is developed in a language which itself
-translates to C, it might have the problem of translucent
-abstractions. Even though programmers writes code on one abstraction
-level, they need to be aware of specifics of lower abstraction
-levels. And when they debug on that lower level, they might have to
-match the translated sources with their own code, further increasing
-the effort required, and thus impeding the ability to debug.  Last,
-the steps taken within a primitive are usually hidden from the hosted
-language. This has two implications. First, this means a step-wise
-debugger can but step over the primitive, since it has no intermediate
-representation to step through. Second, the primitives source code is
-hidden in the VM sources, and usually also in a different programming
-language. Thus, they require explicit documentation, and are not
-easily understandable.
-
-\subsection{Reuse}
-Most widely used languages have more than one implementation. Examples
-are PyPy, CPython~\cite{}, IronPython~\cite{} for Python; MRI~\cite{},
-JRuby~\cite{}, Rubinius~\cite{}, and Topaz~\cite{} for Ruby; or
-Cog~\cite{}, RoarVM~\cite{}, and R/SqueakVM~\cite{} for
-Squeak/Smalltalk. These different VMs may not be compatible at the
-level of intermediate representation, but all language behavior not
-implemented in the language itself needs to be supplied by the
-VM. Subsequently, any code which is not part of the original VM
-increases the amount of work needed to reimplement that language.
-
-\subsection{Changeability}
+\paragraph{Changeability}
 When behavior is implemented as primitive, changing it usually
 requires recompiling the VM, or the according extension. Since
 rebuilding requires additional sources and a build environment, this
-not only affects the round- trip times, but also encumbers changing
-primitives at all.  On the other hand, there might be behavior which
-should not be subject to change. By fixing that behavior in form of a
-primitive, it is possible to assert a certain behavior by controlling
-the VM binary.
+discourages improving primitives in general and negatively affects the
+round-trip times between editing the code and seeing the changed
+behavior. In order to see the results of a VM change, the VM has to be
+recompiled and a program needs to be run to test the change. If the
+source is edited in the client language, the VM can recompile that
+code and the primitive can be tested more quickly.
 
-\subsection{Code Duplication}
-In Squeak, some primitives are optional -- while they are implemented
-in the standard VM, fallback code in Smalltalk exists that implements
-the VM behavior. This is useful to get an alternative implementation
-working quickly, but is also a source of subtle and hard to track
-bugs, when code changes in the VM are not adequately reflected in the
-fallback code. A similar situation arises in JavaScript, where not all
-VMs implement the same set of features, and pure-JavaScript fallback
-code was built to support, for example, older browsers.
+\paragraph{Speed}
+Reduced execution time is the main reason for creating primitives
+which could also be implemented in the client language. The reasoning
+is that every method call needs a new frame, which (depending on the
+language) may mean costly method lookups, saving frame and stack
+pointer, copying the arguments to the new frame, initializing local
+variables, or repeated boundary checking, boxing, and unboxing of
+basic values used in the computation of the algorithm. On the other
+hand, inlining JITs with escape analysis can omit many of those
+operations if they can look into the implementation of the algorithm,
+which is not possible if the algorithm is implemented as a
+primitive. Thus algorithmic primitive prohibit these kinds of
+optimizations across their boundaries.
+
+\paragraph{Security}
+Many dynamic languages allow \emph{monkey-patching}, a practice by
+which behavior in other libraries including the language's standard
+library can be overwritten by user code. Fixing the behavior in form
+of a primitive may prohibit maliciously monkey-patched code from
+affecting security critical algorithms.  The computation within a
+primitive is usually hidden from the client language: it cannot be
+reflectively inspected, and usually a thread cannot be interrupted
+within a primitive method. In a closed source VM, the behavior of the
+primitive is documented only in writing. In certain cases, this may
+make it harder to exploit security issues in the algorithm, although
+this security is by obscurity at best. The benefit may be undone
+because the lower-level VM implementation language may be prone to
+more security critical issues such as buffer overflows and
+out-of-bounds memory accesses which cannot occur within the managed VM
+runtime.
+
+\paragraph{Behavior}
+Some behavior cannot be easily expressed in the client language or its
+semantics differ from an implementation as primitive. Properties and
+behavior such as endianess and overflow, bit-wise operations, or
+string encoding, that are naturally platform specific in a low-level
+language such as C, have to be explicitly implemented to behave in the
+way that is correct for the given platform if they are implemented in
+the client language. In this case, the client implementation may be
+more complex and thus more prone to errors than an implementation as a
+primitive.
 
 \section{Measuring the Performance Gap}
 \label{sec:measurements}
@@ -798,15 +797,17 @@ VMs.
 \subsection{JavaScript DOM-Operations}\label{sec:JSDOM}
 JavaScript is a dynamically typed programming language used in
 web-browsers. All JavaScript runtimes used in major browsers use some
-version of dynamic compilation. Most of the browser vendors have
-already, reimplemented their DOM operations in JavaScript, or plan to
-do so. There have been few publications about this particular change,
-and none with performance results.
+version of dynamic compilation. Some browser vendors have recently
+reimplemented at least some parts of their DOM operations in
+JavaScript to make them visible to the JIT, or plan to do
+so. Unfortunately, there have been few publications about this
+particular change, and none with performance results.
 
-Mozillas JavaScript JIT, TraceMonkey~\cite{GalTypeSpecialization}, also
-traces DOM-operations. Either, the primitives were reimplemented in
-JavaScript, or otherwise added into the view of their tracing
-JIT\footnote{\url{https://brendaneich.com/2008/08/tracemonkey-javascript-lightspeed/}
+The JavaScript JIT used in Firefox,
+TraceMonkey~\cite{GalTypeSpecialization}, also traces DOM-operations
+that were reimplemented in JavaScript, and others were otherwise added
+into the view of the JITs
+trace\footnote{\url{https://brendaneich.com/2008/08/tracemonkey-javascript-lightspeed/}
   (retrieved March 2, 2015)}. Internet Explorer 10 supposedly executes
 DOM operations in
 JavaScript\footnote{\url{http://www.chromium.org/blink\#architectural-changes}
@@ -814,17 +815,16 @@ JavaScript\footnote{\url{http://www.chromium.org/blink\#architectural-changes}
   2015)}\addtocounter{footnote}{-1}\addtocounter{Hfootnote}{-1} and
 for Chromium, there are plans to reimplement the DOM-API in pure
 JavaScript\footnotemark so the V8 engine can compile methods including
-DOM operations as one. With the DOM-API implemented in C++, every call
-to DOM functions result in a runtime switch. Unfortunately, neither
-performance measurements nor details for these specific optimizations
-were published.
+DOM operations as one. For all these browsers, implementing the
+DOM-API in C++ meant that every call to DOM functions resulted in a
+runtime switch.
 
-In contrast to the work presented here, the reimplementation of
-browser specific DOM libraries in JavaScript improves the overall
-performance. Reimplementing those libraries allows the tracing
-machinery to inline DOM operations, instead of exiting the traces and
-escaping all arguments. Those reimplementations are not done because
-of increased code understandability, or reuse.
+The reimplementation of browser specific DOM libraries in JavaScript
+improves the overall performance because it makes them visible to the
+JIT, as we described in \autoref{sec:trade-offs-between}. It allows
+the inlining of DOM operations instead of exiting just-in-time
+compiled code and having to assume that all arguments can escape. The
+reimplementations were not done for increased code clarity or reuse.
 
 \subsection{PyPy Python Interpreter}
 The general way to introduce new primitives to Python are
@@ -855,10 +855,10 @@ but they lack data.
 \subsection{Lessons learned}
 
 Through this work we have gained insights into some of the trade-offs
-mentioned in Section \ref{sec:trade-offs-between} regarding
-Programming Process, Reuse and Changeability. The points raised here
-are not limited to implementing algorithmic primitives, but some are
-specific to meta-tracing JITs or PyPy.
+mentioned in \autoref{sec:trade-offs-between} regarding ease of
+implementation, reuse, and changeability. The points raised here are
+not limited to implementing algorithmic primitives, but some are
+specific to meta-tracing JITs.
 
 \paragraph{Programming Process}
 Developing and debugging primitives for the research VM RSqueak/VM has

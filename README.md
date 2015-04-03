@@ -2,7 +2,7 @@
 
 To clone the paper you want, and not pull down everything, use the following:
 ```bash
-REPO=paper
+PAPER=paper
 git clone --single-branch --branch $PAPER git@github.com:timfel/papers.git $PAPER
 cd $PAPER
 git config --local --replace-all remote.origin.fetch +refs/heads/${PAPER}:refs/remotes/origin/${PAPER}

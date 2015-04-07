@@ -445,9 +445,9 @@ DSA key, filling an array with a constant value, filling a string with
 a constant character, generating the SHA1 of a long string, rendering
 true-type fonts, and compositing the screen. These are meant to show
 real-world usage of primitives that RSqueak/VM executes in pure
-Smalltalk: large integer arithmetic, filling arrays and strings with
-constant values, string operations, rendering graphics with bezier
-shapes, and compositing 32-bit graphics including transparency.
+Smalltalk: large integer arithmetic, preparing memory with constant
+values, string operations, rendering graphics with bezier shapes, and
+compositing 32-bit graphics including transparency.
 
 \subsection{Large Integer Arithmetic}
 Most dynamic, VM-based languages have a way of transparently
@@ -475,12 +475,13 @@ In our considerations of trade-offs, most important to consider are
 possibly changeability and performance. The implementation in Squeak
 is based on byte-wise operations. There are a number of different
 large integer libraries, each with their own balance between speed and
-implementation complexity. Calculating with large integers within
-Squeak allows to easily evolve the algorithms. At the same time, we
-observe that truly large integers are rarely used in Squeak, and the
-Slang code is not well optimized to deal with them. Given this, we
-consider an implementation that is sufficiently fast for word-sized or
-double-word sized integers to be acceptable.
+implementation complexity. We observed that very large integers are
+currently rarely used in Squeak, and the Slang code is not well
+optimized for them. Given this, we consider an implementation that is
+sufficiently fast for word-sized to double-word sized integers to be
+acceptable. Omitting large integer primitives also allows to easily
+evolve the algorithms or change the representation of large integers,
+should performance for larger numbers be an issue.
 
 \subsection{Filling an Array}
 Squeak has a number of primitives to quickly fill collections with the
@@ -510,12 +511,37 @@ of implementation. Squeak has specialized arrays for words, bytes, and
 characters, besides arrays that hold pointers to arbitrary
 objects. These all implement the same interface with respect to
 element access, and thus can share the Smalltalk
-implementation. However, in Slang, for example, this primitive has to
-explicitly handle each possible array type, because polymorphic
+implementation. However, both in Slang and RPython this primitive has
+to explicitly handle each possible array type, because polymorphic
 dispatch is not allowed, making the primitive implementation more
-cumbersome. The performance impact 
+cumbersome.
 
-\subsection{String Operations}
+\subsection{SHA Algorithm}
+
+Squeak implements the Secure Hash Algorithm (SHA) from the
+U.S. government's Secure Hash Standard (SHS) \cite{pub1995secure},
+based on an implementation by Bruce Schneier
+\cite{schneier1996applied}. The secure hash standard was created with
+32-bit hardware in mind, so all arithmetic in the hash computation
+must be done modulo $2^{32}$. The Squeak implementation was originally
+created as pure-Smalltalk and uses objects to simulate 32-bit hardware
+registers. It could have used large integers, but due to the known
+size limit on the numbers, specially crafted objects were faster
+(strengthening our previous argument that large integer arithmetic can
+be left in Smalltalk to be optimized based on the properties of the
+integers used in the algorithm). Current Squeak VMs include a set of
+primitives to process each 64-byte buffer, which translates into three
+orders of magnitude speedup.
+
+Implementing this algorithm as a primitive made sense to get the
+significant speedup. However, we argue that the performance of running
+the pure Smalltalk code is much improved with the tracing JIT of
+RSqueak/VM. Another consideration may be that changeability is not
+required, since the algorithm is fixed, and that it may even be
+beneficial to hide the algorithm in a primitive. On the other hand, we
+argue that it is easier to study in Smalltalk, and that the
+algorithm's security does not depend on hiding in a primitive
+implementation, since its function is publicly known.
 
 \subsection{Font Rendering}
 

@@ -471,6 +471,7 @@ compositing 32-bit graphics including transparency.
 \label{sec:algor-prim-sque}
 
 \subsubsection{Large Integer Arithmetic}
+\label{sec:large-integ-arithm}
 Most dynamic, VM-based languages have a way of transparently
 overflowing from the machine word size to a larger integer type and so
 does Squeak. The \verb!SmallInteger! class represents 32-bit tagged
@@ -602,7 +603,7 @@ rendering TrueType glyphs.
 \begin{figure}
 \centering
 \includegraphics[width=\linewidth]{images/bluebook_bitblt_example.png}
-\caption{BitBlt transfers rectangular areas from one array to the other, accurate to the bit. In this image, a paragraph is composed from letters copied from the font form~\cite[pg.~335]{BlueBook}.}
+\caption{BitBlt transfers rectangular areas from one array to the other. In this image, a paragraph is composed from letters copied from the font form~\cite[pg.~335]{BlueBook}.}
 \label{img:bitblt}
 \end{figure}
 
@@ -642,45 +643,32 @@ blending modes are introduced. However, it is also crucial that the
 BitBlt operations run fast enough to provide a smooth user interface.
 
 \subsection{Running Primitives}
-We measured the speed of execution for both primitives shown in the
-previous chapter on an idle 64-bit Ubuntu 12.04 with an 3.2.0 Linux
-kernel. The translation toolchain is PyPy bleeding edge revision
-66005:858acb7c946f from August 8, 2013, building on GCC 4.6.3 in a
-32\, bit chroot. The machine has an Intel Core i7-3520M 2.9 GHz CPU
-and 7.53 GiB RAM. The VMs all run single-threaded. We used RSqueak/VM
-in revision 513:9db538bbab54. All Benchmarks run in a modified Squeak
-2.2
-mini-image\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak/blob/174c964/images/minibluebookdebug.image}}.
-\todo{Maybe we can just re-run in 4.5?}
+We ran our benchmarks on a 64-bit Ubuntu 14.10, running a 3.16.0 Linux
+kernel. For translation, we used PyPy revision 75996:223e8c97aec from
+February 19, 2015, and 32-bit GCC 4.8.2. The revision of RSqueak/VM
+was 23cce37, the version of the Cog VM was 4.0-2585, and the version
+of the Squeak Interpreter VM was 4.10.2-2614. The benchmark machine
+has an Intel Core i7-4650U 1.7 GHz CPU and 3.94 GiB RAM. The VMs all
+run single-threaded, and all but the font rendering benchmark run
+headless. The benchmarking script and image is available at
+\url{https://github.com/HPI-SWA-Lab/RSqueak-Benchmarking}. The Squeak
+image version is 4.6-14318.
 
 We measure wall times using the Smalltalk method
-\lstinline|Time class>>#millisecondsToRun:|. We measure both with and without
-JIT warmup~\cite{Bolz2013}. Additionally, although Smalltalk uses
-green-threading with at least a UI thread always running, for our measurements,
-we start the normal VM and then stop UI thread by injecting a higher priority
-benchmark process and switching to it.
+\verb|Time class>>#millisecondsToRun:|. We remove the impact of
+JIT warm-up from our measurements by running each benchmark 200 times
+in a freshly booted image, and using the last 20 results
+\cite{Bolz2013}. Except for the font rendering benchmark, all
+benchmarks run headless.
 
-\todo{write the next bits a new}
-% All measured primitives evaluate fast. Usually, they evaluate faster
-% than one millisecond, the measurement resolution. Therefore, we
-% measure the time of execution in a loop. The loop for both our
-% benchmarks contains only the call to the primitive, because general
-% interpretation of Smalltalk might be a magnitude slower, especially
-% when creating new objects. In case of BitBlt, we trigger several
-% different BitBlt operations. Because every call to the according
-% primitive is so fast, the overhead of maintaining the loop is also
-% part of the measured time. Nevertheless, the influence should be
-% minimal since the JIT dynamically optimizes the loop in all cases. The
-% measure n gives the number of times the loop is repeated.
-
-% In order to have a baseline, we took measure in both, a classic
-% Smalltalk Interpreter VM version 3.7-7, the newest Interpreter VM
-% which still can run the 2.2 image, and a recent version of the Cog VM,
-% which has a method JIT and generally is the fastest VM for Squeak
-% Smalltalk around. Because current Cog versions do not run Squeak 2.2,
-% the benchmarks were run in a modified Squeak 4.4 image.
-
-\todo{Explain the numbers}
+\autoref{tab:all} gives the raw benchmark results and
+\autoref{fig:results} gives the results in terms of relative speed
+against the standard Interpreter VM. We can see from the benchmarks
+that RSqueak/VM has a larger variance in general, as compared to the
+other two VMs. The last column of \autoref{fig:results} also shows
+that the mean slowdown of RSqueak/VM over all benchmarks is just under
+a factor of 8, and thus within an order of magnitude. RSqueak/VM
+achieves by far the worst performance in the Balloon benchmark.
 
 \begin{table*}[t]
   \centering
@@ -820,45 +808,64 @@ benchmark process and switching to it.
 
 \subsection{Explaining the Gap}
 
-RSqueak/VM is still in development. While some of the simple, but effective
-changes explained by Bolz and Tratt~\cite{Bolz2013} have been applied, there is
-still room for improvement. This can be seen by the base lines in Table
-\ref{ComparisonTable}. Unexpectedly, the RPython implementation performs rather
-badly. One reason might be problems with repeatedly accessing memory and
-checking bounds every time. Additionally, the RSqueak/VM is still missing type
-specialized arrays, which were implemented in other PyPy VMs at considerable
-effort.
+The time differences between Interpreter VM and Cog are likely a
+result of Cogs method JIT. Cogs method JIT is very simple: it compiles
+each method separately and has only very limited support for advanced
+features such as method inlining or escape analysis.
 
-The time differences between Interpreter VM and Cog are likely a result of Cogs
-method JIT. It compiles the benchmarking loop, although the overhead for this
-loop is negligible compared to the compilation time.
+\paragraph{arrayFillArray and arrayFillString}
+The first benchmark shows that the overhead of filling large chunks of
+memory with the same value is small. The overhead is mostly due to
+additional guards in the compiled code from RSqueak/VM. In contrast to
+the C code, the JIT cannot rely on the Smalltalk methods used in the
+primitive implementation not changing. Furthermore, another,
+higher-priority thread could interrupt the benchmark and exchange the
+array or string that is filled using the \verb!become:! method to
+exchange pointers, whereas a VM primitive on Cog and the Interpreter
+VM cannot be interrupted. It may be possible to further minimize the
+number of guards with structural changes to RSqueak/VM.
 
-Figure \ref{BitBltLinImg} shows that after an initial increase for further
-optimizations, the overhead for compilation is a more or less constant cost.
-For the first two data points, the dynamic compilation takes longer than the
-actual execution, nevertheless, without compilation, the resulting times would
-hardly fit in this graphs range. Figure \ref{BitBltLinImg} also shows that
-after an initial compilation, once the traces are all there, any more tracing
-information gives no additional speed-up. While the dynamic compilation
-overhead seems quite large for these numbers, it is in all cases less than
-5\,s.
+\paragraph{mandala and renderFont}
+These benchmarks have very different overheads, but mostly suffer from
+the same types of overhead. All three tested VMs allocate Smalltalk
+frames initially on the stack and only copy them to the heap if they
+are accessed reflectively from Smalltalk. In these benchmarks, this
+happens only for RSqueak/VM, because each primitive call to BitBlt in
+the \verb!mandala! benchmark or to Balloon in the \verb!renderFont!
+benchmark sets the Slang code up for simulation by copying arguments
+from the sender context into an \verb!InterpreterProxy! object, which
+is the Slang interface to various Smalltalk facilities. Thus, every
+call into the method that sets up the Slang code is slow. Second, both
+of these benchmarks rely on fast arithmetic. Although the tracing JIT
+can generally remove allocations of integer objects so that few object
+allocations are needed, allocations remain around entering inner loops
+and Slang code. Thus, besides the impact of simulating arithmetic for
+some large integers, RSqueak/VM suffers additional overhead and GC
+pressure from allocating numeric objects. Third, the Slang code was
+written with the intention of being translated to C. It uses special
+arrays and bit-operations that simulate C semantics in Smalltalk,
+incurring additional overhead.
 
-During the BitBlt Benchmark for n\,=\,1000 in Figure \ref{BitBltBarChart}, the
-relative running times seem to favor the RPython implementations. But, just
-like the Smalltalk implementations, the RSqueak/VM JIT also optimizes the
-benchmarking loop. This additional overhead increases the runtime by the
-compilation time, thus decreasing the ratios.
+The reason why \verb!mandala! is only about a factor of two slower
+than the standard VM, whereas \verb!renderFont! is three orders of
+magnitude slower, is that one BitBlt operation corresponds to only one
+call to the Slang code which then does all the work. One Balloon
+operation, in contrast, comprises dozens of very short calls into
+Slang code, each of which forces a few stack frames to the heap and a
+few numeric objects to be fully allocated. However, these problems may
+be greatly diminished if the primitive were not \emph{simulated} in
+Smalltalk, but rather written in pure Smalltalk, without the overhead
+of an \verb!InterpreterProxy! or simulating C semantics for array
+access and bit-wise operations.
 
-Filling an array is a simple primitive in that it does not span multiple
-functions. While the expectation was that it would yield similar results for
-method and tracing JIT, the difference is one magnitude. The reason is that Cog
-cannot yet inline code, let alone primitives. As a result, the Cog code is only
-slightly faster than the naive interpreter. The magnitude between the
-Interpreter VM's C implementation and RSqueak/VM's traces can be explained by
-repeated guards, checking the array's bounds. In C, those bounds are checked
-only if the programmer specifically asks for it, and not in the loop, but
-rather before. Those repeated guards are not an inherent problem of PyPy, but a
-sign for missing hints or structural changes in RSqueak/VM.
+\paragraph{dsaGen and shaLongString}
+Both of these benchmarks suffer primarily from missing large integer
+primitives. Although the values used generally do not overflow into
+more than 32-bits, the fallback implementations for missing primitives
+use byte-wise and bit-wise access. As mentioned in
+\autoref{sec:large-integ-arithm}, RSqueak/VM internally stores 32-bit
+positive numbers as unsigned integers and simulates byte access. In
+this case, however, this incurs additional overhead.
 
 \subsubsection{Threats to Validity}
 One problem with PyPy is that you cannot deactivate the garbage collection.

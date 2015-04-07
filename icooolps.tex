@@ -41,6 +41,8 @@
 }
 
 \lstset{
+  % prebreak=\raisebox{0.5ex}[0ex][0ex]{\tiny\ensuremath{\swarrow}},
+  postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookrightarrow\space}},
   defaultdialect=[80]{Smalltalk},
   language=Smalltalk,
   basicstyle=\footnotesize\ttfamily,%
@@ -48,9 +50,10 @@
   numbersep=5pt,%
   numberstyle=\tiny\color{gray},%
   emphstyle=\bfseries,%
-  breakatwhitespace=false,%
+  breaklines=true,
+  breakatwhitespace=true,%
   showstringspaces=false,%
-  columns=flexible,%
+  columns=fullflexible,%
   frame=b,%
   rulecolor=\color{lightgray} }
 
@@ -436,38 +439,85 @@ primitive.
 \section{Measuring the Performance Gap}
 \label{sec:measurements}
 
-\todo{coole benchmarks}
-
 We explore the performance impact of running common algorithmic
 primitives in pure Smalltalk. We present 6 benchmarks: generating a
 DSA key, filling an array with a constant value, filling a string with
 a constant character, generating the SHA1 of a long string, rendering
 true-type fonts, and compositing the screen. These are meant to show
 real-world usage of primitives that RSqueak/VM executes in pure
-Smalltalk: large integer arithmetic, filling arrays with constant
-values, string operations, rendering graphics with bezier shapes, and
-compositing 32-bit graphics including transparency.
+Smalltalk: large integer arithmetic, filling arrays and strings with
+constant values, string operations, rendering graphics with bezier
+shapes, and compositing 32-bit graphics including transparency.
+
+\subsection{Large Integer Arithmetic}
+Most dynamic, VM-based languages have a way of transparently
+overflowing from the machine word size to a larger integer type and so
+does Squeak. The \verb!SmallInteger! class represents 32-bit tagged
+integers --- operations that exceed the tagged range return a
+\verb!LargePositiveInteger! or \verb!LargeNegativeInteger!. The
+arithmetic on small integers is handled using \emph{arithmetic
+  primitives}. Large integers are represented as lists of bytes and
+arithmetic on them is handled using specially crafted primitive
+functions. However, the algorithms for byte-wise operation are also
+available in Squeak.
+
+In the RSqueak/VM, we avoid having to implement large integer
+primitives in two ways: first, we use an optimized internal
+representation for large positive integers that fit into an unsigned
+32-bit number. Byte-wise access is simulated, but arithmetic is done
+on the unsigned value. Second, we optimistically call the small
+integer primitives even for large integers that can fit into a
+long. Quite many do, and thus we pay only the price of converting from
+the unsigned int or the byte representation to a long value. For the
+remaining operations, we run the fallback code.
+
+In our considerations of trade-offs, most important to consider are
+possibly changeability and performance. The implementation in Squeak
+is based on byte-wise operations. There are a number of different
+large integer libraries, each with their own balance between speed and
+implementation complexity. Calculating with large integers within
+Squeak allows to easily evolve the algorithms. At the same time, we
+observe that truly large integers are rarely used in Squeak, and the
+Slang code is not well optimized to deal with them. Given this, we
+consider an implementation that is sufficiently fast for word-sized or
+double-word sized integers to be acceptable.
 
 \subsection{Filling an Array}
-The fill primitive (number 145) sets every element of an array to a
-constant value. The array may be an array containing words, or
-bytes. It is a simple representative for the group of algorithmic
-primitives. Listing \ref{FillST} illustrates how a primitive-calling
-method looks, and what the alternative Smalltalk implementation with
-identical behavior is.
-
-\begin{lstlisting}[language=Smalltalk, caption={[The Smalltalk primitive caller of fill]The Smalltalk declaration of primitive fill field in SequenceableCollection, together with a correct implementation in case the primitive fails}, label=FillST, float=htb]
-atAllPut: aNumber 
-    <primitive: 145>
-    1 to: self size do: [:index | self at: index put: aNumber]
+Squeak has a number of primitives to quickly fill collections with the
+same value. One such primitive is number 105, which for \verb!Array!
+has the following definition:
+\begin{lstlisting}
+replaceFrom: start to: stop with: replacement startingAt: repStart 
+    <primitive: 105>
+    super replaceFrom: start to: stop
+          with: replacement startingAt: repStart
 \end{lstlisting}
 
-This primitive can only be called on byte- and word-arrays, therefore
-the receiver types are limited. The argument is always an integer. If
-the receiver is a byte array, the argument needs to fit in one
-byte. As a result, the arguments types and range are bounded. The
-implementation in the VM [Listing \ref{FillRP}] has to check these
-assumptions, because the VM{}-language requires type-safety.
+The superclass of \verb!Array!, \verb!SequenceableCollection!, has a
+generic implementation in Smalltalk:
+\begin{lstlisting}
+replaceFrom: start to: stop with: replacement startingAt: repStart 
+    | index repOff |
+    repOff := repStart - start.
+    index := start - 1.
+    [(index := index + 1) <= stop] whileTrue: [
+      self at: index
+           put: (replacement at: repOff + index)]
+\end{lstlisting}
+
+Regarding our trade-offs, omitting this primitive comes down to ease
+of implementation. Squeak has specialized arrays for words, bytes, and
+characters, besides arrays that hold pointers to arbitrary
+objects. These all implement the same interface with respect to
+element access, and thus can share the Smalltalk
+implementation. However, in Slang, for example, this primitive has to
+explicitly handle each possible array type, because polymorphic
+dispatch is not allowed, making the primitive implementation more
+cumbersome. The performance impact 
+
+\subsection{String Operations}
+
+\subsection{Font Rendering}
 
 \subsection{Transferring Bits to the Screen}
 

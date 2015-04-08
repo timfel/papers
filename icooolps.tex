@@ -146,12 +146,12 @@ Virtual Machines (VMs). As the popularity of VM based languages has
 increased, VM implementation techniques have evolved to the point
 where most mature VMs utilize some form of just-in-time (JIT)
 compilation, with two main technologies contending at the moment:
-method JITs\cite{}, which generally compile methods at a time into
-machine code, and utilize techniques such as inlining and branch
-pruning to simplify the code or merge multiple methods; and tracing
-JITs\cite{}, which record the actions of the program including
-branches taken and methods dispatched into a specific \emph{trace} and
-compile it into machine code.
+method JITs\cite{holzle1995adaptive}, which generally compile methods
+at a time into machine code, and utilize techniques such as inlining
+and branch pruning to simplify the code or merge multiple methods; and
+tracing JITs\cite{bala2000dynamo}, which record the actions of the
+program including branches taken and methods dispatched into a
+specific \emph{trace} and compile it into machine code.
 
 A large part of VMs are basic behavioral blocks of the implemented
 language, so called \emph{primitives}. Some of these primitives are
@@ -948,178 +948,82 @@ collection implementation specific details. CPython uses a reference
 counting garbage collector. Since PyPy does not, the counters have to
 be emulated, which can impact performance.
 
-\section{Conclusions}
+\section{Conclusions and Lessons Learned}
 \label{sec:conclusions}
-\todo{do below}
-
-\subsection{Lessons learned}
 
 Through this work we have gained insights into some of the trade-offs
-mentioned in \autoref{sec:trade-offs-between} regarding ease of
-implementation, reuse, and changeability. The points raised here are
-not limited to implementing algorithmic primitives, but some are
-specific to meta-tracing JITs.
+mentioned in \autoref{sec:trade-offs-between}. The points raised here
+are not limited to implementing algorithmic primitives, but some are
+specific to meta-tracing JITs and PyPy.
 
-\paragraph{Programming Process}
-Developing and debugging primitives for the research VM RSqueak/VM has
-three major problems. First, Python is slow compared to the translated
-artifact. Even when using the PyPy Python interpreter, reaching the
-defect might take several minutes. In case of BitBlt, the basic case
-of drawing the initial windows takes several minutes when using both
-primitive and non-primitive implementation. As a result, the
-programmer either retranslates the VM, or waits for interpretation, in
-order to observe a code change.
+Regarding the development process, we found that debugging primitives
+at the Smalltalk level generally works well. BitBlt presented the most
+problems. Debugging Smalltalk requires the Smalltalk debugger to be
+rendered, but all rendering depends on the BitBlt primitive. Once we
+had a working version, however, we were able to incrementally tweak
+the BitBlt implementation from within Smalltalk, easily reverting
+changes if they broke code path. Overall, the Smalltalk
+BitBlt-implementation was both hardest and easiest to debug.
 
-When deciding to retranslate, there is a second problem. PyPy so far
-does not support incremental translation, and due to its structure is
-unlikely to support it any time soon~\cite{PyPyParallel}. Any source
-changes require retranslation of the whole VM sources. For small VMs
-like RSqueak/VM, this takes about seven minutes. But translating the
-PyPy Python interpreter takes about 45 minutes in the setup described
-above.
-
-Third, and most problematically, behavior differs between the levels
-of computation. If a primitive works when interpreted as Python, it
-may not work when translated. Additionally, there might be problems
-only when using dynamic compilation, which leads to different behavior
-when translating the VM with and without JIT. While some of those
-problems are bugs in the PyPy toolchain, there is an inherent problem
-with changed number semantics. In Python, overflowing arithmetic
-operations yield results of different types, while in RPython,
-potentially overflowing operations have to be checked
-explicitly. Additionally, changed number types might propagate through
-the flow analysis and extend types far from the problem source.
-
-With regard to the two example primitives, the Fill primitive suffered
-only from the translation round-trip problem. But as the code shows
-(see Figure \ref{FillRP} for the code), the primitive implementation
-is simple and did not require debugging. On the other hand,
-implementing BitBlt illustrated some interesting problems around the
-different abstraction levels.
-
-The BitBlt implementation in C was the easiest to debug, because we
-could use traditional C tools, and the debug symbols mapped to our
-source artifacts quite well. This unfortunately stopped at the bridge
-to RPython, namely the InterpreterProxy. There are still memory
-problems which only occur during dynamic compilation. Debugging these
-with C-tools means working with debugging symbols for the generated
-sources. The mapping back to RPython is non-trivial, impeding any
-attempts at understanding what the infects might have been.
-
-The Smalltalk BitBlt was the first among the
-implementations. Debugging Smalltalk requires the Smalltalk debugger
-to be rendered. But rendering depends on the BitBlt primitive. As a
-result, we developed using an existing Smalltalk VM and just reopened
-the image in RSqueak/VM for every increment. As a result, the
-round-trip times were the shortest compared to the other
-implementations, because we did not need to recompile the VM. Now,
-that we have an alternative, improving upon the current Smalltalk
-BitBlt using one of the alternatives is possible, using different
-BitBlt classes, or using different copyBits-methods. As a side effect,
-the Smalltalk BitBlt-implementation is both hardest and easiest to
-debug. Hardest, because the image does not just stop on error, but
-rather tries to create a debugger window, which might fail and obscure
-the actual error source, and easiest, because we can use the Squeak
-IDE. Switching might swap between an in-image Smalltalk version and a
-primitive implementation, or between two Smalltalk implementations.
-
-Since Smalltalk compiles method-wise and allows to change classes in a
-running system, the round-trip time is the method compilation time: a
-few hundred milliseconds.
-
-\paragraph{Reuse}
-While we show two examples of behavior implemented as primitive here,
-the code for the Smalltalk comparison existed and has been used for a
-long time. The BitBlt code used here originates from the Smalltalk
-Bluebook~\cite{BlueBook}, published in 1983. The `\#atPutAll'-Method
-is too old to have a correct timestamp.
-
-More interestingly, there exist several primitives in Squeak, which
+Reusing Smalltalk code to replace primitives has made development of
+the RSqueak/VM easier. There are several primitives in Squeak that
 have a correct Smalltalk implementation in case the primitive
-fails. This allows us to open newer images in older VMs, which might
-be missing those primitives. Also, there exists a plugin for named
-primitives, called MiscPlugin, which does not have to be present for
-the image to run. Of the primitives having an alternative
-implementations, only one has an implementation in the RSqueak/VM:
-\#replaceFrom:to:with:startingAt:, which replaces a continuous block
-of values from one collection with values from a second collection. In
-a minimized image, this primitive is used to alter immutable symbols
-after creation. The alternative implementation would require several
-private methods, which have been removed in the minimized image.
+fails. The Smalltalk code for the primitives we presented has been in
+development for a long time --- the BitBlt code originated with
+Smalltalk-80 \cite{BlueBook}, the
+\verb!replaceFrom:to:with:startingAt:! method is too old to have a
+correct timestamp, and the large integer operations and hashing code
+are each more than 20 years old. Even in a community as small
+(compared to more mainstream languages like Ruby and Python) as
+Squeak/Smalltalk, there exist multiple different VM-implementations
+besides the one we already presented: the Roar VM \cite{RoarVM} for
+running on multiprocessor systems, SqueakJS \cite{SqueakJS} which runs
+in the browser,
+Potato\footnote{\url{http://sourceforge.net/projects/potatovm/}} for
+running on the JVM. To keep them compatible with the standard
+implementation as it evolves requires considerable effort from the VM
+maintainers, and thus most VMs have fallen behind. This effort can be
+lowered by replacing VM primitives with pure Smalltalk code.
 
-Even in a community as small as Squeak/Pharo Smalltalk, there exist
-multiple different VM-implementations, all but one of which would
-benefit from a small set of primitives. The Cog VM is an improvement
-of the Interpreter VM, adding the JIT. As such, there is one main VM
-in two variants for Squeak Smalltalk. But then there are the Roar
-VM~\cite{RoarVM}, which explored primitives for parallel computation
-for VMs, the SqueakJS VM~\cite{SqueakJS}, running on the JVM, and now
-RSqueak/VM, as a research vessel built with PyPy.
-
-\paragraph{Changeability}
-All arguments against primitive behavior given in Section
-\ref{sec:trade-offs-between} apply. Changing the RPython primitives
-required a current checkout of the PyPy and RSqueak/VM sources, and
-the correct command line arguments to initiate translation. Being able
-to change the primitives requires superficial knowledge of the general
-VM structure, and knowledge of the decorator used for registering
-primitives. The PyPy translation works out of the box, if done in a
-32\,bit-environment.
-
-The additional part needed for the C implementation are the external
-named plugins compiled for the Interpreter or Cog VM. Setting up an
-environment to do that is more
-involved~\cite{SmalltalkVMBuilding}. But once the VM compiles, you
-only need to change two configuration files to compile plugins to
-shared libraries.
-
-The Smalltalk implementations on the other hand can be changed within
-seconds, without requiring any tools or sources other than those
-coming with a standard Squeak image.
-
-\subsection{Future Work and Conclusion}
+Being able to change the primitives in Smalltalk also lowered the
+barrier to inspecting and thinking about improvements to the
+implementation. In contrast, changing the RSqueak/VM primitives
+requires a current checkout of the PyPy and RSqueak/VM sources, and
+build environment set-up for 32-bit compilation.  Similarly, changing
+the Interpreter VM requires an SVN checkout of the C sources and the
+Slang code \cite{SmalltalkVMBuilding}. In either case, changing the
+primitives requires superficial knowledge of the general VM structure
+and some familiarity with C or RPython.
+\begin{center}
+***  
+\end{center}
 
 In this work, we studied the impact dynamic trace compilation has on
-the decision to implement behavior as primitive. When implementing
-behavior as primitive, programmers trade changeability, reuse, and
-ease of implementation for speed, and security. And due to the advent
-of tracing JITs, the speed argument has lost weight.
+the decision to implement behavior as primitive. When deciding whether
+to implement behavior as primitive, programmers weigh ease of
+implementation, reuse, and changeability against speed, security, and
+platform behavior. Our results show that due to the advances of
+tracing JITs and VM implementation techniques, the speed argument has
+lost some of its weight, but there is still about one magnitude of
+speed difference remaining. However, we are confident that for some
+primitives this difference can be removed almost entirely, and we
+argue that the costs of implementing behavior primitive are palpable
+and not increasing the primitive count, or even actively reducing it,
+is worth considering.
 
-We discussed which ahead-of-time optimizations are particularly well
-suited for tracing JITs in general, and for former primitives in
-particular. We showed that for the two primitives fill and BitBlt, the
-runtime gap has closed by one magnitude.
-
-There is still one magnitude of speed difference remaining, to be
-closed by future work. However, we argue that the costs of
-implementing behavior primitive are palpable and not increasing the
-primitive count, or even actively reducing it, is worth considering.
-
-\todo{Make this future work pave the way for rstrategies} 
-Future work on
-primitives, VMs with tracing JIT, and RSqueak/VM can go into several
-directions. None of the JavaScript-projects have published any data. Gathering
-and discussing that data may be fruitful task, even if it just strengthens the
-arguments against primitives.
-
-RSqueak/VM offers some points of improvement with high
-potential. Neither the fact that objects cannot change in size after
-creation, nor that there might be a set of objects, which can be
-assumed constant during trace generation are exploited by the VM so
-far.
-
-The current Squeak/Pharo libraries are build with the assumption that
-SmallInteger have a range of 31\,bit. Neither is this exploited in
-RSqueak/VM, nor is known to us where the image will break when
-deciding to change that range make use of the fact that we use full
-32-bit boxed integers.
-
-Finally, we are working to apply \emph{strategies}\todo{cite} to
+Future work can go in several directions. RSqueak/VM itself has some
+potential for improvement. First, neither the fact that objects cannot
+change in size after creation, nor that there are some objects and
+methods which can be assumed constant during tracing are exploited by
+the VM so far. Second, although the standard Squeak VM is limited to
+31-bit integers due to tagging, RSqueak/VM is not. However, the wider
+range is not currently exploited nor do we know if the image will
+break when the small integer range range changes. Third, we are
+working to fully apply \emph{strategies} \cite{bolz2013storage} to
 RSqueak/VM. Many full objects used in primitive operations (such as
 forms, rectangles, and points) have only fields of the same
 types. Using strategies, these may be stored unboxed and thus help the
 JIT eliminate more object allocations and improve performance.
-\todo{review the above paragraph}
 
 \bibliographystyle{abbrvnat}
 \bibliography{thesis}

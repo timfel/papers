@@ -591,29 +591,23 @@ backtracks if that is the case. The formulas or their negations
 or false) are then conjugated and passed to the respective theory
 solvers (based on the types in the formulas). The theory solvers
 determine any new facts about variables and return them to the
-core. The congruence engine again determines equivalences and if any
-new equalities arise from those equivalences over variables that are
-shared between different theories, then those equalities are added to
-the conjunctions and passed to all relevant theories, which again
-determine new facts based on that. The process continues until a model
-is found, or the core deems the formula unsatisfiable.
-% \[
-% a real
-% T_1: a + 0.1 = 5
-% T_2: a - 0.1 = 5
-% C: T_1 \vee T_2
-% \text{assert} T_1 = true
-% \text{guess} T_2 = true
-% \text{the core passes the following to the real theory plugin:}
-% a + 0.1 = 5 \wedge a - 0.1 = 5
-% \text{the real theory plugins returns the following new facts:}
-% false
-% \text{the core backtracks, because adding false to the set of facts
-%   makes the constraints unsatisfiable}
-% \text{assert} T_1 = true
-% \text{guess} T_2 = false
-% a + 0.1 = 5 \wedge a - 0.1 != 5
-% \]
+core. For example, consider the constraint
+$(a + 1 = 5) \vee (a - 1 = 5)$. The \gls{dpll} core guesses that both
+equalities can be satisfied, and passes $a + 1 = 5 \wedge a - 1 = 5$
+to the real theory solver. The real theory determines that this is
+unsatisfiable and returns $false$ as a new fact. The core adds this to
+the set of constraints, discovers that this fact makes the constraint
+system unsatisfiable, and backtracks to make the second equality
+unsatisfied. The new conjunction passed to the real solver is thus
+$a + 1 = 5 \wedge a - 1 != 5$. This has a solution, and the real
+solver returns it. If there are any additional constraints, the
+congruence engine determines if any new equalities arise (this would
+be the case if $a$ is shared between different theories), then those
+equalities are added to the conjunctions and passed to all relevant
+theories, which again determine new facts based on that. The process
+continues until a model is found, or the core exhausts the
+backtracking graph.
+
 \gls{z3}, through plugins, can be made to support a number of
 additional theories and model finding features, such as non-required
 constraints and optimization \cite{bjornernuz} or strings
@@ -645,12 +639,19 @@ replace the inequality with an equality. To support non-required
 constraints, Cassowary then adds error variables which take the
 difference from the optimal solution. Once the constraints are in this
 form, called a \emph{tableau}, they can already be solved or deemed
-unsatisfiable. To optimize this solution, Cassowary incrementally
-minimizes the sum of the squares of the error variables. For
-performant, incremental resolving the assumption is that the
+unsatisfiable. As an example, consider the constraint
+$x \leq y - 5 \leq 20$.  This is transformed first into
+$x + s_1 = y - 5$ and $x + s_2 = 20$, and then in simplex form becomes
+$x = 20 - s_2$ and $y = 20 - s_2 + s_1 + 5$. To optimize this
+solution, Cassowary incrementally minimizes the sum of the squares of
+the error and slack variables. In this case, setting both $s_1$ and
+$s_2$ to 0 gives the solution $x = y = 20$.
+
+For performant, incremental resolving the assumption is that the
 constraints are already known, and only a limited number of variables
-change. This allows the solver to re-use the existing tableau and
-simply replace the changed variables with new values and re-optimize.
+change. This allows the solver to re-use the existing equations in
+simplex form and simply replace the constants with new values and
+re-optimize.
 
 \subsection{DeltaBlue}
 \label{sec:deltablue}
@@ -662,24 +663,72 @@ performance as the complexity of the domains they handle increases,
 but that for some applications a less general but fast algorithm is
 preferable. Local propagation solvers are restricted in that they only
 handle equalities of variables in a general way, and require the user
-to supply a function with each constraint that satisfies it. Local
-propagation solvers model constraint systems as an acyclic directed
-graph of those functions that can be solved one after another. Since
-the algorithm has no cycles, this solving strategy is in linear time
-with respect to the number of functions.
+to supply a function with each constraint that satisfies it.
 
+Local propagation solvers model constraint systems as an acyclic
+directed graph of those functions that can be solved one after
+another. To add the constraint $a + b = 10$ to DeltaBlue, the
+programmer has to supply the functions $a = 10 -b$ and $b = 10 - a$.
+When $a$ is then set to 20, the solver determines that the functions
+it should execute are $a := 20$ and then $b := 10 - a$. Since the
+algorithm has no cycles, this solving strategy is in linear time with
+respect to the number of functions. DeltaBlue supports incremental
+resolving by separating the generation of the acyclic graph of solving
+functions from their execution. To incrementally supply multiple
+values to the same variable, the same execution graph can be re-used,
+and only the initially supplied value is updated.
 
-
-Mention also SkyBlue
+One restriction of local propagation solvers including DeltaBlue is
+that, in general, they cannot deal with constraints that have multiple
+outputs, as these could lead to cycles in the propagation graph. This
+case arises if we tried to model $a + b = c$ as a set of functions
+$a = 10 - b$, $b = 10 - a$, and $c = a + b$. When just one variable
+changes, DeltaBlue will refuse to decide whether to update $b$ or $c$
+in response. An extension of DeltaBlue, SkyBlue
+\cite{sannella1993skyblue}, does support multiple outputs, but at the
+cost of instability in the linearization of the graph and resulting
+non-determinism in the solutions.
 
 \subsection{Sutherland's Relaxation}
 \label{sec:sutherland}
 Ivan Sutherland's Sketchpad system \cite{sutherland-ifips-1963} used
 three different solving strategies --- propagation of degrees of
 freedom, local propagation, and relaxation. The relaxation algorithm
-is a fast solver for constraints of reals.
+is a fast solver for constraints over reals. It uses an incremental
+approximation technique, and is thus well suited to situations were
+the system is disturbed from a state in which all constraints are
+satisfied and the solver is expected to find a nearby state that
+satisfies them again.
 
-mention van Overveld
+Constraints in Sutherland's relaxation algorithm are expressed in
+terms of error functions. Each constraint has error functions for each
+degree of freedom it removes, that is, one error function for each
+variable it will determine. The error functions return a real value
+which indicates how far constraint is from being satisfied. For
+example, a constraint $2x = y^2$ would have the error function
+$2x - y^2$. Sketchpad solves constraints by iterating over variables
+one by one. For each variable, the errors for all its constraints are
+calculated. Then the variable is modified by a small $\delta$, and the
+errors are recalculated. The resulting two data points per constraint
+serve to approximate the constraints as linear equations. In our
+example, given that $x$ is initially 5 and $y$ is initially 3, the
+error is 1. We tweak $x$ by, for example, 0.001 and find the new error
+as 1.002. We determine the approximate coefficient to be 2, and thus
+subtract from $x$ half the error and get 4.5. Now the error is 0 and
+we are finished.
+
+When variables participate in multiple constraints, the sum of the
+squares of the errors for each variable is used. In any case, the
+system iterates until it converges or stops, if it does not after a
+number of iterations. An issue however, is that some modification will
+never let the system converge, and leave it oszillating. Furthermore,
+Sketchpad's relaxation will generally not find a solution that
+minimizes the sum of the squares of the errors, which is desirable
+especially in graphical applications. Van Overveld describes an
+alternative relaxation algorithm for geometric constraints
+\cite{van199330} that is better suited to find such solutions at the
+cost of making constraints harder to specify by using one displacement
+function per variable rather than one error function per constraint.
 
 \subsection{BackTalk}
 \label{sec:backtalk}

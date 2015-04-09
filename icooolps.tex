@@ -380,6 +380,9 @@ ought to have over more low-level languages. However, doing so may adversely
 affect speed, security, and subtle execution semantics, which can be a concern
 for often used functions.
 
+However, changeability and performance are probably of highest importance among
+the six.
+
 \paragraph{Ease of Implementation}
 Most \acp{VM} provide a high-level programming language implemented in a
 lower-level language. They incur a performance overhead for the promise of
@@ -467,56 +470,57 @@ implementation as a primitive.
 \label{sec:measurements}
 
 We explore the performance impact of running common algorithmic
-primitives in pure Smalltalk. We present 6 benchmarks: generating a
+primitives in pure Smalltalk and give explanations of our results.
+
+\subsection{Algorithmic Primitives in Squeak}
+\label{sec:algor-prim-sque}
+
+We present six benchmarks: generating a
 \acs{DSA} key, filling an array with a constant value, filling a string with
 a constant character, generating the \acs{SHA} of a long string, rendering
 TrueType fonts, and compositing the screen. These are meant to show
 real-world usage of primitives that RSqueak/VM executes in pure
 Smalltalk: large integer arithmetic, preparing memory with constant
 values, string operations, rendering graphics with bezier shapes, and
-compositing 32-bit graphics including transparency.
-
-\subsection{Algorithmic Primitives in Squeak}
-\label{sec:algor-prim-sque}
+compositing \SI{32}{\bit} graphics including transparency.
 
 \subsubsection{Large Integer Arithmetic}
 \label{sec:large-integ-arithm}
-Most dynamic, \ac{VM}-based languages have a way of transparently
-overflowing from the machine word size to a larger integer type and so
-does Squeak. The \verb!SmallInteger! class represents 32-bit tagged
-integers\---operations that exceed the tagged range return a
-\verb!LargePositiveInteger! or \verb!LargeNegativeInteger!. The
-arithmetic on small integers is handled using \emph{arithmetic
-  primitives}. Large integers are represented as lists of bytes and
-arithmetic on them is handled using specially crafted primitive
-functions. However, the algorithms for byte-wise operation are also
-available in Squeak.
+Most dynamic languages have a way of transparently overflowing from the machine
+word size to a larger integer type and so does Squeak. The \verb!SmallInteger!
+class represents \SI{32}{\bit} tagged integers\---operations that exceed the tagged
+range return a \verb!LargePositiveInteger! or \verb!LargeNegativeInteger!. The
+arithmetic on small integers is handled using \emph{arithmetic primitives}.
+Large integers are represented as lists of bytes and arithmetic on them is
+handled using specially crafted primitive functions. However, the algorithms
+for byte-wise operation are also available in Squeak.
 
-In the RSqueak/VM, we avoid having to implement large integer
-primitives in two ways: first, we use an optimized internal
-representation for large positive integers that fit into an unsigned
-32-bit number. Byte-wise access is simulated, but arithmetic is done
-on the unsigned value. Second, we optimistically call the small
-integer primitives even for large integers that can fit into a
-long. Quite many do, and thus we pay only the price of converting from
-the unsigned int or the byte representation to a long value. For the
-remaining operations, we run the fallback code.
+In the RSqueak/VM, we avoid having to implement large integer primitives in two
+ways: first, we use an optimized internal representation for large positive
+integers that fit into an unsigned \SI{32}{\bit} number. Byte-wise access is
+simulated, but arithmetic is done on the unsigned value. Second, we
+optimistically call the small integer primitives even for large integers that
+can fit into a \SI{64}{\bit} integer. Quite many do, and thus we pay only the
+price of converting from the unsigned \SI{32}{\bit} integer or the byte
+representation to a \SI{64}{\bit} value. For the remaining operations, we run
+the fallback code.
 
-In our considerations of trade-offs, most important to consider are possibly
-changeability and performance. The implementation in Squeak is based on
-byte-wise operations. There are a number of different large integer libraries,
-each with their own balance between speed and implementation complexity. We
-observed that very large integers are currently rarely used in Squeak, and the
-Slang code is not well optimized for them. Given this, we consider an
-implementation that is sufficiently fast for word-sized to double-word sized
-integers to be acceptable. Omitting large integer primitives also allows to
-easily evolve the algorithms or change the representation of large integers,
-should performance for larger numbers be an issue. As a benchmark for large
-integers, we generate keys according to the \acl{DSA}~\cite{NIST:2000:FPD}.
+The implementation in Squeak is based on byte-wise operations. There are a
+number of different large integer libraries, each with their own balance
+between speed and implementation complexity. We observed that very large
+integers are currently rarely used in Squeak, and the Slang code is not well
+optimized for them. Given this, we consider an implementation that is
+sufficiently fast for word-sized to double-word sized integers to be
+acceptable. Omitting large integer primitives also allows to easily evolve the
+algorithms or change the representation of large integers, should performance
+for larger numbers be an issue.
+
+As a benchmark for large integers, we generate keys according to the
+\acl{DSA}~\cite{NIST:2000:FPD}.
 
 \subsubsection{Filling an Array}
 Squeak has a number of primitives to quickly fill collections with the
-same value. One such primitive is number 105, which for arrays and
+same value. One such primitive is number~105, which for arrays and
 strings has the following definition:
 \begin{lstlisting}
 replaceFrom: start to: stop with: replacement startingAt: repStart 
@@ -537,25 +541,24 @@ replaceFrom: start to: stop with: replacement startingAt: repStart
            put: (replacement at: repOff + index)]
 \end{lstlisting}
 
-Regarding our trade-offs, omitting this primitive comes down to ease
-of implementation. Squeak has specialized arrays for words, bytes, and
-characters, besides arrays that hold pointers to arbitrary
-objects. These all implement the same interface with respect to
-element access, and thus can share the Smalltalk
-implementation. However, both in Slang and RPython this primitive has
-to explicitly handle each possible array type, because polymorphic
-dispatch is not allowed, making the primitive implementation more
-cumbersome. We measure the impact of omitting this implementation by
-filling variable sized arrays and strings with constant values.
+Regarding our trade-offs, omitting this primitive comes down to ease of
+implementation. Squeak has specialized arrays for words, bytes, and characters,
+besides arrays that hold pointers to arbitrary objects. These all implement the
+same interface with respect to element access, and thus can share the Smalltalk
+implementation. However, the primitive implementation has to explicitly handle
+each possible array type, because polymorphic dispatch is unavailable at that
+level, making the primitive implementation more cumbersome. We measure the
+impact of omitting this implementation by filling variable sized arrays and
+strings with constant values.
 
 \subsubsection{The SHA Algorithm}
 
 Squeak implements the \acf{SHA} from the U.S. government's
 \acf{SHS}~\cite{NIST:1995:FPSb}, based on an implementation by Bruce Schneier
-\cite{schneier1996applied}. The secure hash standard was created with 32-bit
+\cite{schneier1996applied}. The secure hash standard was created with \SI{32}{\bit}
 hardware in mind, so all arithmetic in the hash computation must be done modulo
 $2^{32}$. The Squeak implementation was originally created as pure-Smalltalk
-and uses objects to simulate 32-bit hardware registers. Squeak's \acs{SHA}
+and uses objects to simulate \SI{32}{\bit} hardware registers. Squeak's \acs{SHA}
 implementation explicitly avoids using large integers. Due to the known size
 limit on the numbers, specially crafted objects are faster than overflowing
 into large positive integers (strengthening our previous argument that large
@@ -570,38 +573,8 @@ the performance of running the pure Smalltalk code is much improved
 with the tracing \ac{JIT} of RSqueak/VM. Another consideration may be that
 ease of implementation and changeability is no argument for
 maintaining the implementation in Smalltalk: the algorithm is fixed
-and a canonical implementation exists in C. However, it is easier to
-study the code in Smalltalk. For security, it may be beneficial to
-hide the algorithm in a primitive, but since the algorithm is well
-known, its security does not depend on hiding in a primitive
-implementation.
-
-\subsubsection{Font Rendering}
-
-Squeak includes Balloon, a rendering engine for 2D and 3D
-graphics. The 2D engine provides anti-aliasing and vector graphics in
-software. It does most of its rendering using a contiguous chunk of
-memory and makes heavy use of matrix transformations to draw curves
-and polygons. Once it finishes rendering, it calls BitBlt to transfer
-the actual bits from the work buffer to the screen. Balloon is very
-flexible and provides 44 primitive functions that can be combined to
-load \textsc{svg} graphics, play Flash 3 animations, and render TrueType fonts.
-
-Implementing Balloon in the \ac{VM} or running it in Smalltalk must weigh
-performance against changeability. The algorithms used in the Balloon
-Engine are heavy on numeric operations and their performance benefits
-from being implemented in the \ac{VM}. At the same time, Balloon is a
-rather large module with more than 5000 lines of Slang code (for
-comparison, all large integer primitives comprise less than 1400
-lines, and the \acs{SHA} primitives comprise less than 250 lines of
-code). Re-implementing Balloon is thus a major burden on an
-alternative \ac{VM} implementation. As to changeability, although Balloon
-set out to support multimedia formats, progress on updating it for
-current format has stalled, with Flash support at version 3. One
-reason for this may be that the code is not in Smalltalk (and not even
-fallback code exists), and thus experimenting with extensions is
-difficult. To evaluate this trade-off, we measure the performance of
-rendering TrueType glyphs.
+and a canonical implementation exists in C. Then, again may easier to
+study and understand the code in Smalltalk.
 
 \subsubsection{Transferring Bits to the Screen}
 
@@ -613,64 +586,35 @@ rendering TrueType glyphs.
 \end{figure}
 
 BitBlt is an algorithm that combines one block of bits with another according
-to some rule, and was developed to speed up graphical operations for one bit
-displays~\cite{GuibasBitBlt}, but later extended to handle up to 32 bits of
-color~\cite{BackToTheFuture}. BitBlt has multiple rules for combining blocks of
-bits for blending or replacing, as well as combining forms of different color
-depth. The Squeak screen is entirely composed of \verb!Form! objects that are
-composited together using BitBlt and drawn to the screen. Drawing to the screen
-is the same as drawing to any other form. A primitive is used to designate a
-form as the display, and the \ac{VM} is expected to mirror it to the screen.
-Forms are \emph{word objects}, arrays which hold only unsigned integers. As an
-example (\autoref{img:bitblt}), to display a text paragraph, the required
-letters are copied from a form that has the entire rendered font (for example
-generated by Balloon), to a paragraph form. The letters are also used a mask
+to certain rules, and was developed to speed up graphical operations for one
+bit displays~\cite{GuibasBitBlt}, but later extended to handle up to
+\SI{32}{\bit} of color~\cite{BackToTheFuture}. BitBlt has several rules for
+combining blocks of bits for blending or replacing, as well as combining
+bit-areas of different color depths. The Squeak screen is entirely composed of
+\verb!Form! objects that are composited together using BitBlt and drawn to the
+screen. Drawing to the screen is the same as drawing to any other form. A
+primitive is used to designate a form as the display, and the \ac{VM} is
+expected to mirror it to the screen. Forms are \emph{word objects}, arrays
+which hold only unsigned integers. As an example (\autoref{img:bitblt}), to
+display a text paragraph, the required letters are copied from a form that has
+the entire pre-rendered font, to a paragraph form. The letters are also used a mask
 for syntax highlighting by blending with a uni-colored form. Finally, the
 paragraph form is then copied to the display form.
 
-BitBlt was originally published as Smalltalk~\cite{BlueBook}. It is
-now mostly in Slang code, but some fast path optimizations were only
-done in C, with the Slang code having only stubs that delegate to the
-slow code paths. Furthermore, the Slang code for BitBlt uses custom
-\verb!CArray! objects that simulate C array semantics\---these allow
-fast access to arrays when translated to C, but incur additional
-overhead during simulation in Smalltalk. Finally, although word
-objects contain unsigned 32-bit integers, reading from them in
-Smalltalk returns either SmallIntegers or LargePositiveIntegers,
+BitBlt was originally published as Smalltalk code~\cite{BlueBook}. It is now
+mostly in Slang code, but some fast path optimizations were only done in C,
+with the Slang code having only stubs that delegate to the slow code paths.
+Furthermore, the Slang code for BitBlt uses custom \verb!CArray! objects that
+simulate C array semantics\---these allow fast access to arrays when translated
+to C, but incur additional overhead during simulation in Smalltalk. Finally,
+although word objects contain unsigned \SI{32}{\bit} integers, reading from
+them in Smalltalk returns either SmallIntegers or LargePositiveIntegers,
 depending on their size. This increases the type variety and thus puts
-additional pressure on the optimizing \ac{JIT}. Concerning our trade-offs,
-the version history of BitBlt demonstrates that indeed this is a
-primitive that changes relatively often, as new optimizations or
-blending modes are introduced. However, it is also crucial that the
-BitBlt operations run fast enough to provide a smooth user interface.
-
-\subsection{Running Primitives}
-We ran our benchmarks on a 64-bit Ubuntu 14.10, running a 3.16.0 Linux kernel.
-For translation, we used PyPy revision 75996:223e8c97aec from February 19,
-2015, and 32-bit GCC 4.8.2. The revision of RSqueak/VM was e235be9, the version
-of the Cog \ac{VM} was 4.0-2585, and the version of the Squeak Interpreter
-\ac{VM} was 4.10.2-2614. The benchmark machine has an Intel Core i7-4650U 1.7
-GHz CPU and 3.94 GiB RAM. The \acp{VM} all run single-threaded, and all but the
-font rendering benchmark run headless. The benchmarking script and image is
-publicly available
-online\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak-Benchmarking}}. The
-Squeak image version is 4.6-14318.
-
-We measure wall times using the Smalltalk method
-\verb|Time class>>#millisecondsToRun:|. We remove the impact of
-\ac{JIT} warm-up from our measurements by running each benchmark 200 times
-in a freshly booted image, and using the last 20 results
-\cite{Bolz2013}. Except for the font rendering benchmark, all
-benchmarks run headless.
-
-\autoref{tab:all} gives the raw benchmark results and
-\autoref{fig:results} gives the results in terms of relative speed
-against the standard Interpreter \ac{VM}. We can see from the benchmarks
-that RSqueak/VM has a larger variance in general, as compared to the
-other two \acp{VM}. The last column of \autoref{fig:results} also shows
-that the mean slowdown of RSqueak/VM over all benchmarks is just under
-a factor of 6, and thus within an order of magnitude. RSqueak/VM
-achieves by far the worst performance in the Balloon benchmark.
+additional pressure on the optimizing \ac{JIT}. Concerning our trade-offs, the
+version history of BitBlt demonstrates that indeed this is a primitive that
+changes relatively often, as new optimizations or blending modes are
+introduced. However, it is also crucial that the BitBlt operations run fast
+enough to provide a smooth user interface.
 
 \begin{table*}[t]
   \centering
@@ -679,13 +623,70 @@ achieves by far the worst performance in the Balloon benchmark.
   \label{tab:all}
 \end{table*}
 
-\begin{figure*}
+\subsubsection{Font Rendering}
+
+Squeak includes Balloon, a rendering engine for 2D and 3D
+graphics. The 2D engine provides anti-aliasing and vector graphics in
+software. It does most of its rendering using a contiguous chunk of
+memory and makes heavy use of matrix transformations to draw curves
+and polygons. Once it finishes rendering, it calls BitBlt to transfer
+the actual bits from the work buffer to the screen. Balloon is very
+flexible and provides 44 primitive functions that can be combined to
+load \textsc{svg}s, play Flash 3 animations, and render Bézier curves.
+
+Implementing Balloon in the \ac{VM} or running it in Smalltalk must weigh
+performance against changeability. The algorithms used in the Balloon
+Engine are heavy on numeric operations and their performance benefits
+from being implemented in the \ac{VM}. At the same time, Balloon is a
+rather large module with more than 5\,000 lines of Slang code (for
+comparison, all large integer primitives comprise less than 1\,400
+lines, and the \acs{SHA} primitives comprise less than 250 lines of
+code). Re-implementing Balloon is thus a major burden on an
+alternative \ac{VM} implementation. As to changeability, although Balloon
+set out to support multimedia formats, progress on updating it for
+current format has stalled, with Flash support at version 3. One
+reason for this may be that the code is not in Smalltalk (and not even
+fallback code exists), and thus experimenting with extensions is
+difficult. To evaluate this trade-off, we measure the performance of
+rendering TrueType glyphs.
+
+
+\begin{figure*}[t]
   \centering
   \includegraphics[width=\linewidth]{benchmarks}
   \caption{Relative speeds of Interpreter Squeak \ac{VM}, Cog, and
     RSqueak/VM, with Squeak as baseline}
   \label{fig:results}
 \end{figure*}
+
+\subsubsection*{Running Primitives}
+We ran our benchmarks on a \SI{64}{\bit} Ubuntu 14.10, running a 3.16.0 Linux kernel.
+For translation, we used PyPy revision 75996:223e8c97aec from February 19,
+2015, and \SI{32}{\bit} GCC 4.8.2. The revision of RSqueak/VM was e235be9, the version
+of the Cog \ac{VM} was 4.0-2585, and the version of the Squeak Interpreter
+\ac{VM} was 4.10.2-2614. The benchmark machine has an Intel Core i7-4650U 1.7
+GHz CPU and \SI{3.94}{\gibi\byte} RAM. The \acp{VM} all run single-threaded, and all but the
+font rendering benchmark run headless. The benchmarking script and image is
+publicly available
+online\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak-Benchmarking}}. The
+Squeak image version is 4.6-14318.
+
+We measure wall times using the Smalltalk method
+\verb|Time class>>#millisecondsToRun:|. We remove the impact of \ac{JIT}
+warm-up from our measurements by running each benchmark 200 times in a freshly
+booted image, and using the last 20 results~\cite{Bolz2013}. Except for the
+font rendering benchmark, all benchmarks run headless.
+
+\autoref{tab:all} gives the raw benchmark results and \autoref{fig:results}
+gives the results in terms of relative speed against the standard Interpreter
+\ac{VM}. We can see from the benchmarks that RSqueak/VM has a larger variance
+in general, as compared to the other two \acp{VM}. The last column of
+\autoref{fig:results} also shows that the mean slowdown of RSqueak/VM over all
+benchmarks is just under a factor of six, and thus within an order of
+magnitude. RSqueak/VM achieves by far the worst performance in the Balloon
+benchmark.
+
+
 
 % \begin{table*}[tbp]
 % \centering
@@ -811,42 +812,41 @@ achieves by far the worst performance in the Balloon benchmark.
 \subsection{Explaining the Gap}
 
 The time differences between Interpreter \ac{VM} and Cog are likely a
-result of Cogs method \ac{JIT}, which is very simple: it compiles
+result of Cog's method \ac{JIT}, which is very simple: it compiles
 each method separately and has only very limited support for advanced
 features such as method inlining or escape analysis.
 
 \paragraph{arrayFillArray and arrayFillString}
-The filling benchmark shows that the overhead of filling large chunks of
-memory with the same value is small. The overhead is mostly due to
-additional guards in the compiled code from RSqueak/VM. In contrast to
-the C code, the \ac{JIT} cannot rely on the Smalltalk methods used in the
-primitive implementation not changing. Furthermore, another,
-higher-priority thread could interrupt the benchmark and exchange the
-array or string that is filled using the \verb!become:! method to
-exchange pointers, whereas a \ac{VM} primitive on Cog and the Interpreter
-\ac{VM} cannot be interrupted. It may be possible to further minimize the
-number of guards with structural changes to RSqueak/VM.
+These two benchmarks shows that the overhead of filling large chunks of memory
+with the same value is small. The overhead is mostly due to additional guards
+in the compiled code from RSqueak/VM. In contrast to the C~code, the \ac{JIT}
+cannot rely on the fact that the Smalltalk methods used in the primitive
+implementation would not change. Furthermore, another, higher-priority thread
+could interrupt the benchmark and exchange the array or string that is filled
+using the \verb!become:! method to exchange pointers, whereas a \ac{VM}
+primitive on Cog and the Interpreter \ac{VM} cannot be interrupted. It may be
+possible to further minimize the number of guards with structural changes to
+RSqueak/VM.
 
 \paragraph{mandala and renderFont}
-These benchmarks have very different overheads, but mostly suffer from
-the same types of overhead. All three tested \acp{VM} allocate Smalltalk
-frames initially on the stack and only copy them to the heap if they
-are accessed reflectively from Smalltalk. In these benchmarks, this
-happens only for RSqueak/VM, because each primitive call to BitBlt in
-the \verb!mandala! benchmark or to Balloon in the \verb!renderFont!
-benchmark sets the Slang code up for simulation by copying arguments
-from the sender context into an \verb!InterpreterProxy! object, which
-is the Slang interface to various Smalltalk facilities. Thus, every
-call into the method that sets up the Slang code is slow. Second, both
-of these benchmarks rely on fast arithmetic. Although the tracing\ac{JIT}
-can generally remove allocations of integer objects so that few object
-allocations are needed, allocations remain around entering inner loops
-and Slang code. Thus, besides the impact of simulating arithmetic for
-some large integers, RSqueak/VM suffers additional overhead and GC
-pressure from allocating numeric objects. Third, the Slang code was
-written with the intention of being translated to C. It uses special
-arrays and bit-operations that simulate C semantics in Smalltalk,
-incurring additional overhead.
+These benchmarks have very different overheads, but mostly suffer from the same
+types of overhead. All three tested \acp{VM} allocate Smalltalk frames
+initially on the stack and only copy them to the heap if they are accessed
+reflectively from Smalltalk. In these benchmarks, this happens only for
+RSqueak/VM, because each primitive call to BitBlt in the \verb!mandala!
+benchmark or to Balloon in the \verb!renderFont! benchmark sets up the Slang
+code for simulation by copying arguments from the sender context into an
+\verb!InterpreterProxy! object, the Slang interface to various Smalltalk
+facilities. Thus, every call into the method that sets up the Slang code is
+slow, currently. Second, both of these benchmarks rely on fast arithmetic.
+Although the tracing\ac{JIT} can generally remove allocations of integer
+objects so that few object allocations are needed, allocations remain around
+entering inner loops and Slang code. Thus, besides the impact of simulating
+arithmetic for some large integers, RSqueak/VM suffers additional overhead and
+GC pressure from allocating numeric objects. Third, the Slang code was written
+with the intention of being translated to C. It uses special arrays and
+bit-operations that simulate C semantics in Smalltalk, incurring additional
+overhead.
 
 The reason why \verb!mandala! is only about a factor of two slower
 than the standard \ac{VM}, whereas \verb!renderFont! is three orders of
@@ -863,32 +863,33 @@ access and bit-wise operations.
 \paragraph{dsaGen and shaLongString}
 Both of these benchmarks suffer primarily from missing large integer
 primitives. Although the values used generally do not overflow into
-more than 32-bits, the fallback implementations for missing primitives
+more than \SI{32}{\bit}, the fallback implementations for missing primitives
 use byte-wise and bit-wise access. As mentioned in
-\autoref{sec:large-integ-arithm}, RSqueak/VM internally stores 32-bit
+\autoref{sec:large-integ-arithm}, RSqueak/VM internally stores \SI{32}{\bit}
 positive numbers as unsigned integers and simulates byte access. In
 this case, however, this incurs additional overhead.
 
 \subsubsection{Threats to Validity}
-One problem with running the primitive code in Smalltalk is that in
-RSqueak/VM we cannot deactivate garbage collection.  This might
-increase running times for re-implemented primitives, because all
-basic types, including integers, are boxed, and arithmetic operations
-repeatedly create those. On the other hand, if objects are created
-within a trace and not referenced from outside, the tracing\ac{JIT}
-removes those unnecessary heap allocations.  Therefore, the number of
-created objects after warm-up should be quite low. On Cog and the
-Interpreter \ac{VM}, integers that fit within 31-bit are tagged and thus do
-not create pressure for the garbage collector.
 
-A second ambiguity arises from the early stage of the RSqueak/VM
-implementation. Squeak defines a model of green threading, including
-interrupts triggered outside the \ac{VM}, e.g. by mouse movements across
-the window, or due to timing. While Cog and the Interpreter \ac{VM} support
-those, there are still bugs in RSqueak/VM's implementation. We prevent
-the biggest of those scheduling related performance deteriorations by
-running headless, but the heartbeats used for timing are still active
-in all three \acp{VM}.
+Re-implementing former primitves in in Smalltalk exposes them to the regime of
+the garbage collects, which, for the RSqueak/VM, we cannot currently disable
+selectively, This might increase running times for re-implemented primitives,
+because all basic types, including integers, are boxed, and arithmetic
+operations repeatedly create those. On the other hand, if objects are created
+within a trace and not referenced from outside, the tracing\ac{JIT} removes
+those unnecessary heap allocations. Therefore, the number of created objects
+after warm-up should be quite low. On Cog and the Interpreter \ac{VM}, integers
+that fit within \SI{31}{bit} are tagged and thus do not create pressure on
+garbage collector.
+
+The RSqueak/VM is far from being a mature Squeak implementation and several
+features of the standard \ac{VM} are still missing. Squeak defines a model of
+green threading, including interrupts triggered outside the \ac{VM}, e.g. by
+mouse movements across the window, or due to timing. While Cog and the
+Interpreter \ac{VM} support those, the implementation in the RSqueak/VM is
+still under current development. We prevent the biggest of those scheduling
+related performance deteriorations by running headless, but the heartbeats used
+for timing are still active in all three \acp{VM}.
 
 \section{Related Work}
 \label{sec:related-work}
@@ -991,7 +992,7 @@ Being able to change the primitives in Smalltalk also lowered the
 barrier to inspecting and thinking about improvements to the
 implementation. In contrast, changing the RSqueak/VM primitives
 requires a current checkout of the PyPy and RSqueak/VM sources, and
-build environment set-up for 32-bit compilation.  Similarly, changing
+build environment set-up for \SI{32}{\bit} compilation.  Similarly, changing
 the Interpreter \ac{VM} requires an SVN checkout of the C sources and the
 Slang
 code\footnote{\url{http://marianopeck.wordpress.com/2011/04/10/building-the-vm-from-scratch-using-git-and-cmakevmmaker/}
@@ -1020,7 +1021,7 @@ potential for improvement. First, neither the fact that objects cannot
 change in size after creation, nor that there are some objects and
 methods which can be assumed constant during tracing are exploited by
 the \ac{VM} so far. Second, although the standard Squeak \ac{VM} is limited to
-31-bit integers due to tagging, RSqueak/VM is not. However, the wider
+\SI{31}{\bit} integers due to tagging, RSqueak/VM is not. However, the wider
 range is not currently exploited nor do we know if the image will
 break when the small integer range range changes. Third, we are
 working to fully apply \emph{strategies}~\cite{bolz2013storage} to

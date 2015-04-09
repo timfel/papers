@@ -47,6 +47,7 @@
 \newacronym{VM}{vm}{virtual machine}
 \newacronym{JVM}{jvm}{Java virtual machine}
 \newacronym{JIT}{jit}{just-in-time compiler}
+\newacronym{AOT}{aot}{ahead-of-time}
 \newacronym{FFI}{ffi}{foreign function interface}
 \newacronym{SHA}{sha}{Secure Hash Algorithm}
 \newacronym{SHS}{shs}{Secure Hash Standard}
@@ -372,57 +373,55 @@ implementations with acceptable performance.
 \section{Trade-Offs Between Implementation Locations For Language Algorithms}
 \label{sec:trade-offs-between}
 
-Implementing behavior in the client language rather than as an
-primitive promises ease of implementation and debugging, better code
-reuse, and changeability\---short all the benefits that the client
-language itself promises to have over more low-level
-languages. However, doing so may adversely affect speed, security, and
-behavior, which can be a concern for often used functions.
+Implementing behavior in the client language rather than as a primitive can
+allow easier implementation and debugging, better code reuse, and
+changeability\---short all the benefits that the high-level client language
+ought to have over more low-level languages. However, doing so may adversely
+affect speed, security, and subtle execution semantics, which can be a concern
+for often used functions.
 
 \paragraph{Ease of Implementation}
-In general, \acp{VM} implement higher-level programming languages in
-lower-level languages. They incur a performance overhead for the
-promise of easier implementations through better abstractions and
-tools. In general, implementing an algorithm in a higher level
-language requires less code, provides for shorter round-trip times
-than in a statically compiled language, and allows using advanced
-debugging tools that take advantage of the language abstraction and
-the introspection capabilities of the \ac{VM}. In contrast, implementing
+Most \acp{VM} provide a high-level programming language implemented in a
+lower-level language. They incur a performance overhead for the promise of
+easier implementations through higher expressiveness, better abstractions and
+more powerful tools. Likewise, implementing an algorithm in a higher-level,
+\ac{VM}-based language typically requires less code, has shorter
+round-trip times than in a lower-level, \ac{AOT}-compiled language, and allows
+using advanced debugging tools that take advantage of the language abstraction
+and the introspection capabilities of the \ac{VM}. In contrast, implementing
 behavior as algorithmic primitive requires rebuilding the \ac{VM} during
-development. To debug algorithmic primitives, developers have to debug
-both in the client language as well as the \ac{VM} implementation language,
-likely using different tools at different abstraction levels that are
-not built to be used in conjunction.
+development. To debug algorithmic primitives, developers have to debug both in
+the client language as well as the host language, likely using different tools
+at different abstraction levels that may not be built to be used in
+conjunction.
 
 \paragraph{Reuse}
 Different \acp{VM} that implement the same language can share all code
-implemented in the client language. This means not only that
-re-implementations of an existing \ac{VM} need to re-implement fewer
-primitives and thus be running quicker, but also that improvements
-made to the standard library can be shared directly across different
-\acp{VM} without additional effort to adapt the code in each \ac{VM}. Code reuse
-also prohibits subtle bugs creeping into the different implementations
-of the same functionality. In Squeak, for example, some primitives are
-optional\---while they are implemented in the standard \ac{VM}, fallback
-code in Smalltalk implements that same behavior. This was useful to
-get alternative implementations working quickly, but is also a source
-of hard to track bugs when code changes in the primitive
-implementation are not adequately reflected in the fallback code. A
-similar situation arises in JavaScript, where not all \acp{VM} implement
-the same set of features and pure-JavaScript libraries, so-call
-\emph{polyfills}, were built to support older or non-compliant
-browsers.
+implemented in the client language. This means not only that re-implementations
+of an existing \ac{VM} need to re-implement fewer primitives but also that
+improvements made to the standard library can be shared directly across
+different \acp{VM} without additional adaptions for each \ac{VM}.
+
+Code reuse can also prevent subtle bugs from creeping into different
+implementations of the same functionality. In Squeak, for example, some
+primitives are optional\---while implemented in the standard \ac{VM},
+fallback code in Smalltalk implements that same behavior. This is useful to
+get alternative implementations working quickly, but is also a source of hard
+to track bugs when code changes in the primitive implementation are not
+adequately reflected in the fallback code. A similar situation arises in
+JavaScript, where not all \acp{VM} implement the same set of features and
+pure-JavaScript libraries, so-call \emph{polyfills}, were built to support
+older or non-compliant browsers.
 
 \paragraph{Changeability}
-When behavior is implemented as primitive, changing it usually
-requires recompiling the \ac{VM}, or the according extension. Since
-rebuilding requires additional sources and a build environment, this
-discourages improving primitives in general and negatively affects the
-round-trip times between editing the code and seeing the changed
-behavior. In order to see the results of a \ac{VM} change, the \ac{VM} has to be
-recompiled and a program needs to be run to test the change. If the
-source is edited in the client language, the \ac{VM} can recompile that
-code and the primitive can be tested more quickly.
+Changing behavior implemented as a primitive usually requires recompiling of
+the \ac{VM}. Since rebuilding requires additional sources and a build
+environment, this discourages improving primitives in general and negatively
+affects the round-trip times between editing the code and seeing the changed
+behavior. In order to see the results of a \ac{VM} change, it has to be
+recompiled and exteranlly tested. If the source is edited in the client
+language, the \ac{VM} can recompile that code and the primitive can be tested
+more quickly.
 
 \paragraph{Speed}
 Reduced execution time is the main reason for creating primitives
@@ -431,40 +430,38 @@ is that every method call needs a new frame, which (depending on the
 language) may mean costly method lookups, saving frame and stack
 pointer, copying the arguments to the new frame, initializing local
 variables, or repeated boundary checking, boxing, and unboxing of
-basic values used in the computation of the algorithm. On the other
-hand, inlining \acp{JIT} with escape analysis can omit many of those
-operations if they can look into the implementation of the algorithm,
-which is not possible if the algorithm is implemented as a
-primitive. Thus algorithmic primitive prohibit these kinds of
-optimizations across their boundaries.
+basic values used in the computation of the algorithm.
+
+On the other hand, inlining \acp{JIT} with escape analysis can omit many of
+those operations if they can look into the implementation of the algorithm,
+which is not possible if the algorithm is implemented as a primitive. Thus
+algorithmic primitive prohibit these kinds of optimizations across their
+boundaries.
 
 \paragraph{Security}
-Many dynamic languages allow \emph{monkey-patching}, a practice by
-which behavior in other libraries including the language's standard
-library can be overwritten by user code. Fixing the behavior in form
-of a primitive may prohibit maliciously monkey-patched code from
-affecting security critical algorithms.  The computation within a
-primitive is usually hidden from the client language: it cannot be
-reflectively inspected, and usually a thread cannot be interrupted
-within a primitive method. In a closed source \ac{VM}, the behavior of the
-primitive is documented only in writing. In certain cases, this may
-make it harder to exploit security issues in the algorithm, although
-this security is by obscurity at best. The benefit may be undone
-because the lower-level \ac{VM} implementation language may be prone to
-more security critical issues such as buffer overflows and
-out-of-bounds memory accesses which cannot occur within the managed \ac{VM}
-runtime.
+Many dynamic languages allow \emph{monkey-patching}, a practice by which
+behavior in other libraries including the language's standard library can be
+overwritten by user code. Fixing the behavior in form of a primitive may
+prohibit maliciously monkey-patched code from affecting security critical
+algorithms. The computation within a primitive is usually hidden from the
+client language: it cannot be reflectively inspected, and usually a thread
+cannot be interrupted within a primitive method. In a closed source \ac{VM},
+the behavior of the primitive can be documented only externally, not as part of
+the code. This may make it harder to exploit security issues in the algorithm,
+but is unlikely to. The benefit may be undone because the lower-level \ac{VM}
+implementation language may be prone to different, potentially more security
+critical issues such as buffer overflows and out-of-bounds memory accesses
+which are harder to occur within a managed \ac{VM} runtime.
 
 \paragraph{Behavior}
 Some behavior cannot be easily expressed in the client language or its
-semantics differ from an implementation as primitive. Properties and
-behavior such as endianess and overflow, bit-wise operations, or
-string encoding, that are naturally platform specific in a low-level
-language such as C, have to be explicitly implemented to behave in the
-way that is correct for the given platform if they are implemented in
-the client language. In this case, the client implementation may be
-more complex and thus more prone to errors than an implementation as a
-primitive.
+semantics differ from an implementation as primitive. Properties or behavior
+such as endianess and overflow, bit-wise operations, or string encoding, that
+are naturally platform specific in a low-level language such as C, have to be
+explicitly implemented to behave in the way that is correct for the given
+platform if they are implemented in the client language. In this case, the
+client implementation may be more complex and thus more error-prone than an
+implementation as a primitive.
 
 \section{Measuring the Performance Gap}
 \label{sec:measurements}

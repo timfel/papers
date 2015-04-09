@@ -35,7 +35,21 @@
   }
 
 
-\usepackage[acronym]{glossaries}
+\usepackage[hyperfirst=false,acronym,shortcuts]{glossaries}
+\glsunsetall[main]
+\GlsDeclareNoHyperList{acronym}
+\setacronymstyle{long-sc-short}
+
+\newacronym{API}{api}{application programmin interface}
+\newacronym{VM}{vm}{virtual machine}
+\newacronym{JVM}{jvm}{Java virtual machine}
+\newacronym{JIT}{jit}{just-in-time compiler}
+\newacronym{FFI}{ffi}{foreign function interface}
+\newacronym{SHA}{sha}{Secure Hash Algorithm}
+\newacronym{SHS}{shs}{Secure Hash Standard}
+\newacronym{DSA}{dsa}{Digital Signature Algorithm}
+\newacronym{DOM}{dom}{Document Object Model}
+
 \providecommand*\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
 \providecommand*\eg{e.\hairspace{}g.\xspace}
 \providecommand*\Eg{E.\hairspace{}g.\xspace}
@@ -110,11 +124,11 @@
   functions that the client language can use. Some of these implement
   truly primitive behavior, such as arithmetic operations. Other
   primitive functions, which we call \emph{algorithmic primitives},
-  are expressible in the client language, but are implemented in the VM
+  are expressible in the client language, but are implemented in the \acs{VM}
   to improve performance.
 
-  However, having many primitives in the VM makes it harder to
-  maintain them, or re-use them in alternative VM implementations for
+  However, having many primitives in the \acs{VM} makes it harder to
+  maintain them, or re-use them in alternative \acs{VM} implementations for
   the same language. With the advent of efficient tracing just-in-time
   compilers we believe the need for algorithmic primitives to be much
   diminished, allowing more of them to be implemented in the client
@@ -122,11 +136,11 @@
 
   In this work, we investigate the trade-offs when creating
   primitives, and in particular how large a difference remains between
-  primitive and client function run times in VMs with tracing
-  just-in-time compiler. To that end, we extended the RSqueak/VM, a VM
-  for Squeak/Smalltalk written in RPython. We compare primitive
+  primitive and client function run times in \acsp{VM} with tracing
+  just-in-time compiler. To that end, we extended the RSqueak/VM, a \acs{VM}
+  for Squeak/\hspace{0pt}Smalltalk written in RPython. We compare primitive
   implementations in C, RPython, and Smalltalk, showing that due to
-  the tracing JIT the performance gap can be significantly reduced.
+  the tracing \acs{JIT} the performance gap can be significantly reduced.
 \end{abstract}
 
 \category{CR-number}{subcategory}{third-level}
@@ -147,28 +161,28 @@ keyword1, keyword2
 
 \section{Introduction}
 Dynamically typed programming languages are traditionally implemented as
-Virtual Machines (VMs). As the popularity of VM based languages has
-increased, VM implementation techniques have evolved to the point
-where most mature VMs utilize some form of just-in-time (JIT)
+\acp{VM}. As the popularity of \ac{VM}-based languages has
+increased, \ac{VM} implementation techniques have evolved to the point
+where most mature \acp{VM} utilize some form of just-in-time (\acs{JIT})
 compilation, with two main technologies contending at the moment:
-method JITs\cite{holzle1995adaptive}, which generally compile methods
+method \acsp{JIT}~\cite{holzle1995adaptive}, which generally compile methods
 at a time into machine code, and utilize techniques such as inlining
 and branch pruning to simplify the code or merge multiple methods; and
-tracing JITs\cite{bala2000dynamo}, which record the actions of the
+tracing \acsp{JIT}\cite{bala2000dynamo}, which record the actions of the
 program including branches taken and methods dispatched into a
 specific \emph{trace} and compile it into machine code.
 
-A large part of VMs are basic behavioral blocks of the implemented
+A large part of \acp{VM} are basic behavioral blocks of the implemented
 language, called \emph{primitives}, naitives, or builtins. Some of these primitives are
 inherently required, because their behavior cannot adequately be expressed in
 the implemented (\emph{client}) language. But some primitives, which we call
 \emph{algorithmic primitives}, exist only for performance reasons\---since the implementation (\emph{host}) language is usually lower-level and easier to
-optimize than the client language of the VM, it is assumed that
+optimize than the client language of the \ac{VM}, it is assumed that
 primitives implemented in the lower-level host language are often faster
 than if they were implemented in the client language. We discuss this
 in more detail in \autoref{sec:prim-build-blocks}.
 
-Many VM-based languages have more than one VM 
+Many \ac{VM}-based languages have more than one \ac{VM} 
 implementation\footnote{Python, Jython, and PyPy; Ruby, JRuby, and
   Topaz; HotSpot, Dalvik, and Jikes; \ldots}. Some of those
 language implementations are not (only) source compatible, but may
@@ -181,12 +195,12 @@ debugging process has to cross language boundaries and can become
 more cumbersome.
 
 Thus, we argue that it is desirable to reduce the number
-of primitives to ease VM development and maintenance.
+of primitives to ease \ac{VM} development and maintenance.
 
 In this work we investigate the trade-offs around implementations of
 algorithmic primitives. Our investigation was prompted by a trend that
 we have seen in other work to move behavior that used to be
-implemented as part of the VM into the client language
+implemented as part of the \ac{VM} into the client language
 (\autoref{sec:related-work}) and makes the following contributions:
 \begin{itemize}
 % Classification
@@ -205,7 +219,7 @@ Virtual machines primarily provide a runtime for a client language. In addition
 to that, they typically provide certain pieces of code that are to be invoked
 from the client language. The most common primitive behaviors are often
 available as part of the instruction set, \eg the integer addition bytecode on
-the Java Virtual Machine (JVM). Primitives often expose the same calling
+the \ac{JVM}. Primitives often expose the same calling
 interface as functions of the client langue; primitive invocation is hence
 typically transparent to user code. Depending on the language, primitives are
 sometimes more selective regarding what arguments they can handle and cannot be
@@ -220,20 +234,20 @@ such as possible side-effects. In Self~\cite{MapsInSelf}, primitives are
 indicated by their selectors\---methods whose slot name starts with underscore
 (\verb!_!) call a primitive function.
 
-To explore and evaluate the trade-offs for implementing primitive
-functions, we use Squeak/Smalltalk running on top of the
-RSqueak/VM\cite{BackToTheFutureInOneWeek}, an
+To explore and evaluate the trade-offs for implementing primitive functions, we
+use Squeak/Smalltalk running on top of the
+RSqueak/VM~\cite{BackToTheFutureInOneWeek}, an
 open-source\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak}}
-implementation of that uses the RPython meta-tracing JIT toolchain
-which also powers PyPy\cite{PyPy}.
+implementation of that uses the RPython meta-tracing \ac{JIT} toolchain which also
+powers PyPy~\cite{PyPy}.
 
-In Squeak/Smalltalk, a method can have an annotation, which can be used to
-indicate a primitive call by number or name. When a method is to be executed
-that is denoted as primitive, the VM dispatches to the primitive function
-instead of running the method's code. Only if the primitive fails, either
-because it is not provided by the or because primitive code indicates a
-failure, the VM invokes the method's code. Commonly, this code just generates a
-runtime exception or emulates the primitive's behavior.
+In Squeak/Smalltalk, a method can have an annotation that indicates a primitive
+call by number or name. When a method is to be executed that is denoted as
+primitive, the \ac{VM} dispatches to the primitive function instead of running the
+method's code. Only if the primitive fails, either because it is not provided
+by the or because primitive code indicates a failure, the \ac{VM} invokes the
+method's code. Commonly, this code just generates a runtime exception or
+emulates the primitive's behavior.
 
 In the example below, whenever the method \verb!bitXor:! is called, line 3
 declares that the primitive function \verb!primDigitBitXor! from the
@@ -252,48 +266,43 @@ bitXor: n
       length: (self digitLength max: norm digitLength)
 \end{lstlisting}
 
-The original Squeak VM\cite{BackToTheFuture} is written in a subset of
-Smalltalk called \emph{Slang}. This code is statically translated into
-C and compiled to create the virtual machine. We chose Squeak to
-evaluate the trade-offs of implementing primitives in the VM or not,
-because, with Slang being a subset of Smalltalk, the code for most
-algorithmic primitives already exists in a form that executable in the
-client language. 
+The original Squeak \ac{VM}~\cite{BackToTheFuture} is written in a subset of
+Smalltalk called \emph{Slang}. This code is statically translated into C and
+compiled to create the virtual machine. We chose Squeak to evaluate the
+trade-offs of implementing primitives in the \ac{VM}, becausethe code for most
+algorithmic primitives already exists in a form that executable in the client
+language, since Slang is a subset of Smalltalk.
 
-The motivation behind Slang was for Smalltalk developers to be able to
-develop the VM in using a familiar language and tools. However, in
-practice the limits of Slang against full Smalltalk can get in the way
-of this ideal: for example, Slang does not support polymorphism (or
-even instances, for that matter), it supports only primitive uses of
-block closures for branching, and its semantics for array access and
-bit operations are subtly different, since they are mapped to those of
-C. Furthermore, although the Slang code is executable, to distribute
-changes to the VM it still needs to be recompiled for different
-platforms. For changes in pure Smalltalk, on the other hand, a
-convenient update mechanism exists in-image. It would thus be useful
-to move algorithmic primitives out of the VM, since development
-already happens at the Smalltalk level, and cutting out the
-translation to C not only removes compilation and makes distribution
-of the changes easier, it also serves to remove the restrictions of
-Slang when implementing the algorithms. Removing algorithmic
-primitives from the VM would also serve to reduce code-duplication in
-Squeak. Many methods (such as the above \verb!bitXor:!)  have
-\emph{fallback code} that implements the same behavior as the Slang
-code (but often in more idiomatic
-Smalltalk).
+The motivation of Slang is enabling Smalltalk developers to develop the \ac{VM}
+using a familiar language and familiar tools. However, in practice the limits
+of Slang compared with Smalltalk proper can get in the way of this ideal; Slang
+does not support polymorphism\---or even instances, for that matter\---it
+supports only primitive uses of block closures for branching, and its semantics
+for array access and bit operations are subtly different, since they are mapped
+to those of C. Furthermore, although the Slang code is executable, to
+distribute changes to the \ac{VM} it still needs to be translated to C and compiled
+for different platforms. For changes in pure Smalltalk, on the other hand, a
+convenient update mechanism exists in-image. It would thus be useful to move
+algorithmic primitives out of the \ac{VM}, since development already happens at the
+Smalltalk level, and cutting out the translation to C not only removes
+compilation and makes distribution of the changes easier, it also serves to
+remove the restrictions of Slang when implementing the algorithms.
 
-RSqueak/VM and other alternative VMs could automatically share the
-fallback and the Slang code. Only if none exists or it is for some
-reason prohibitive to not have the primitive in the VM would
-RSqueak/VM have to re-implement the primitive function. There are many
-ways to group primitives into those that require re-implementation and
-those that do not\---we present here a grouping that we have found
-useful to make that decision while implementing this VM.
+Removing algorithmic primitives from the \ac{VM} would also serve to reduce
+code-duplication in Squeak. Many methods (such as \verb!bitXor:! above) already
+have \emph{fallback code} that implements the same behavior as the Slang code,
+often written in more idiomatic Smalltalk. The RSqueak/VM and other alternative
+\acp{VM} could automatically share the fallback and the Slang code. Only if none
+exists or it is inherently neccessay to provide a primitive on the \ac{VM} level,
+the RSqueak/VM would have to re-implement the primitive function. There are
+many ways to group primitives into those that require re-implementation and
+those that do not\---we present here a grouping that we have found useful to
+make that decision while implementing the RSqueak/VM.
 
 % As a result, RSqueak/VM offers three levels of
 % abstraction for implementing primitives. From high to low abstraction,
 % those are Smalltalk, the client language, RPython, the
-% VM-implementation language, and C, accessible via RPython FFI.
+% \ac{VM}-implementation language, and C, accessible via RPython FFI.
 
 
 \paragraph{Memory Primitives}
@@ -307,33 +316,32 @@ primitives, and their function may only be accessible through
 bytecodes.
 
 \paragraph{Mathematical Primitives}
-We count to this group of primitives arithmetic operations (including
-addition and multiplication, trigonometric and exponential functions,
-equality and inequality), as well as binary operations including or,
-xor, bit-shift, and bit-invert. These are implemented directly on the
-CPU and can be accessed through machine instructions.
+We count to this group of primitives arithmetic operations (including addition
+and multiplication, trigonometric and exponential functions, and numeric
+equality and inequality), as well as binary operations including or, xor,
+bit-shift, and bit-invert. These are implemented directly on the CPU and can be
+accessed through machine instructions.
 
 \paragraph{System Call Primitives}
-Most VMs provide access to system resources such as IO devices, the
-system clock, or a random number generator to the client
-language. Some unify similar APIs of different operating systems to
-allow operating system independent access to system resources. These
-functions are usually implemented in the standard library of the
-operating system and the VM only needs to convert arguments and return
-values appropriately.
+Most \acp{VM} provide access to system resources such as I/O devices, the
+system clock, or a random number generator to the client language. These
+\acp{VM} typically abstract \acp{API} of different operating systems to allow
+operating system independent access to system resources. These functions are
+usually implemented in the standard library of the operating system and the
+\ac{VM} only needs to convert arguments and return values appropriately.
 
-\paragraph{Foreign Function Interface (FFI)}
-Most VMs offer a way to interface with existing libraries. The
-greatest common denominator among FFIs are C calling conventions. A
-FFI usually requires explicit naming of the library to find the
-functions in, and marshalling for function arguments and demarshalling
-of return values. While in primitives, the callee is responsible for
-type conversions, in FFI, the caller has to explicitly convert types.
+\paragraph{Foreign Function Interface}
+Most \acp{VM} offer a way to interface with existing libraries. The greatest
+common denominator among \acp{FFI} are C calling conventions. A \ac{FFI}
+usually requires explicit naming of the library to find the functions in, and
+marshalling for function arguments and demarshalling of return values. While in
+primitives, the callee is responsible for type conversions, in a \ac{FFI} call,
+the caller has to explicitly convert types.
 
 \paragraph{VM Specific Primitives}
-Depending on the implementation, the VM might offer additional entry
+Depending on the implementation, the \ac{VM} might offer additional entry
 points, for example to register callbacks for mouse and keyboard
-handling, for green threading, timed behavior, or reflection on VM
+handling, for green threading, timed behavior, or reflection on \ac{VM}
 internals such as garbage collection information.
 
 \paragraph{Algorithmic Primitives}
@@ -347,13 +355,13 @@ or sorting, searching, and cryptographic algorithms.
 \end{center}
 
 The last group of primitive is of particular interest to implementers
-of an alternative VM, because it may be possible to omit them and
+of an alternative \ac{VM}, because it may be possible to omit them and
 still get a functional implementation of the language. Primitive
 functions are generally considered to be faster than the same function
-implemented in the client language, but one common goal of VM
+implemented in the client language, but one common goal of \ac{VM}
 re-implementations is to use current optimization techniques to
 improve the execution speed of the client language. In this work, we
-use the RSqueak/VM to explore if current tracing JIT techniques
+use the RSqueak/VM to explore if current tracing \ac{JIT} techniques
 improve the execution speed of pure Smalltalk to the point where some
 algorithmic primitives may be replaced with client language
 implementations with acceptable performance.
@@ -369,48 +377,48 @@ languages. However, doing so may adversely affect speed, security, and
 behavior, which can be a concern for often used functions.
 
 \paragraph{Ease of Implementation}
-In general, VMs implement higher-level programming languages in
+In general, \acp{VM} implement higher-level programming languages in
 lower-level languages. They incur a performance overhead for the
 promise of easier implementations through better abstractions and
 tools. In general, implementing an algorithm in a higher level
 language requires less code, provides for shorter round-trip times
 than in a statically compiled language, and allows using advanced
 debugging tools that take advantage of the language abstraction and
-the introspection capabilities of the VM. In contrast, implementing
-behavior as algorithmic primitive requires rebuilding the VM during
+the introspection capabilities of the \ac{VM}. In contrast, implementing
+behavior as algorithmic primitive requires rebuilding the \ac{VM} during
 development. To debug algorithmic primitives, developers have to debug
-both in the client language as well as the VM implementation language,
+both in the client language as well as the \ac{VM} implementation language,
 likely using different tools at different abstraction levels that are
 not built to be used in conjunction.
 
 \paragraph{Reuse}
-Different VMs that implement the same language can share all code
+Different \acp{VM} that implement the same language can share all code
 implemented in the client language. This means not only that
-re-implementations of an existing VM need to re-implement fewer
+re-implementations of an existing \ac{VM} need to re-implement fewer
 primitives and thus be running quicker, but also that improvements
 made to the standard library can be shared directly across different
-VMs without additional effort to adapt the code in each VM. Code reuse
+\acp{VM} without additional effort to adapt the code in each \ac{VM}. Code reuse
 also prohibits subtle bugs creeping into the different implementations
 of the same functionality. In Squeak, for example, some primitives are
-optional -- while they are implemented in the standard VM, fallback
+optional\---while they are implemented in the standard \ac{VM}, fallback
 code in Smalltalk implements that same behavior. This was useful to
 get alternative implementations working quickly, but is also a source
 of hard to track bugs when code changes in the primitive
 implementation are not adequately reflected in the fallback code. A
-similar situation arises in JavaScript, where not all VMs implement
+similar situation arises in JavaScript, where not all \acp{VM} implement
 the same set of features and pure-JavaScript libraries, so-call
 \emph{polyfills}, were built to support older or non-compliant
 browsers.
 
 \paragraph{Changeability}
 When behavior is implemented as primitive, changing it usually
-requires recompiling the VM, or the according extension. Since
+requires recompiling the \ac{VM}, or the according extension. Since
 rebuilding requires additional sources and a build environment, this
 discourages improving primitives in general and negatively affects the
 round-trip times between editing the code and seeing the changed
-behavior. In order to see the results of a VM change, the VM has to be
+behavior. In order to see the results of a \ac{VM} change, the \ac{VM} has to be
 recompiled and a program needs to be run to test the change. If the
-source is edited in the client language, the VM can recompile that
+source is edited in the client language, the \ac{VM} can recompile that
 code and the primitive can be tested more quickly.
 
 \paragraph{Speed}
@@ -421,7 +429,7 @@ language) may mean costly method lookups, saving frame and stack
 pointer, copying the arguments to the new frame, initializing local
 variables, or repeated boundary checking, boxing, and unboxing of
 basic values used in the computation of the algorithm. On the other
-hand, inlining JITs with escape analysis can omit many of those
+hand, inlining \acp{JIT} with escape analysis can omit many of those
 operations if they can look into the implementation of the algorithm,
 which is not possible if the algorithm is implemented as a
 primitive. Thus algorithmic primitive prohibit these kinds of
@@ -435,13 +443,13 @@ of a primitive may prohibit maliciously monkey-patched code from
 affecting security critical algorithms.  The computation within a
 primitive is usually hidden from the client language: it cannot be
 reflectively inspected, and usually a thread cannot be interrupted
-within a primitive method. In a closed source VM, the behavior of the
+within a primitive method. In a closed source \ac{VM}, the behavior of the
 primitive is documented only in writing. In certain cases, this may
 make it harder to exploit security issues in the algorithm, although
 this security is by obscurity at best. The benefit may be undone
-because the lower-level VM implementation language may be prone to
+because the lower-level \ac{VM} implementation language may be prone to
 more security critical issues such as buffer overflows and
-out-of-bounds memory accesses which cannot occur within the managed VM
+out-of-bounds memory accesses which cannot occur within the managed \ac{VM}
 runtime.
 
 \paragraph{Behavior}
@@ -460,8 +468,8 @@ primitive.
 
 We explore the performance impact of running common algorithmic
 primitives in pure Smalltalk. We present 6 benchmarks: generating a
-DSA key, filling an array with a constant value, filling a string with
-a constant character, generating the SHA1 of a long string, rendering
+\acs{DSA} key, filling an array with a constant value, filling a string with
+a constant character, generating the \acs{SHA} of a long string, rendering
 TrueType fonts, and compositing the screen. These are meant to show
 real-world usage of primitives that RSqueak/VM executes in pure
 Smalltalk: large integer arithmetic, preparing memory with constant
@@ -473,7 +481,7 @@ compositing 32-bit graphics including transparency.
 
 \subsubsection{Large Integer Arithmetic}
 \label{sec:large-integ-arithm}
-Most dynamic, VM-based languages have a way of transparently
+Most dynamic, \ac{VM}-based languages have a way of transparently
 overflowing from the machine word size to a larger integer type and so
 does Squeak. The \verb!SmallInteger! class represents 32-bit tagged
 integers\---operations that exceed the tagged range return a
@@ -494,19 +502,17 @@ long. Quite many do, and thus we pay only the price of converting from
 the unsigned int or the byte representation to a long value. For the
 remaining operations, we run the fallback code.
 
-In our considerations of trade-offs, most important to consider are
-possibly changeability and performance. The implementation in Squeak
-is based on byte-wise operations. There are a number of different
-large integer libraries, each with their own balance between speed and
-implementation complexity. We observed that very large integers are
-currently rarely used in Squeak, and the Slang code is not well
-optimized for them. Given this, we consider an implementation that is
-sufficiently fast for word-sized to double-word sized integers to be
-acceptable. Omitting large integer primitives also allows to easily
-evolve the algorithms or change the representation of large integers,
-should performance for larger numbers be an issue. As a benchmark for
-large integers, we generate keys according to the Digital Signature
-Algorithm~\cite{NIST:2000:FPD}.
+In our considerations of trade-offs, most important to consider are possibly
+changeability and performance. The implementation in Squeak is based on
+byte-wise operations. There are a number of different large integer libraries,
+each with their own balance between speed and implementation complexity. We
+observed that very large integers are currently rarely used in Squeak, and the
+Slang code is not well optimized for them. Given this, we consider an
+implementation that is sufficiently fast for word-sized to double-word sized
+integers to be acceptable. Omitting large integer primitives also allows to
+easily evolve the algorithms or change the representation of large integers,
+should performance for larger numbers be an issue. As a benchmark for large
+integers, we generate keys according to the \acl{DSA}~\cite{NIST:2000:FPD}.
 
 \subsubsection{Filling an Array}
 Squeak has a number of primitives to quickly fill collections with the
@@ -544,26 +550,24 @@ filling variable sized arrays and strings with constant values.
 
 \subsubsection{The SHA Algorithm}
 
-Squeak implements the Secure Hash Algorithm (SHA) from the
-U.S. government's Secure Hash Standard (SHS)~\cite{NIST:1995:FPSb},
-based on an implementation by Bruce Schneier
-\cite{schneier1996applied}. The secure hash standard was created with
-32-bit hardware in mind, so all arithmetic in the hash computation
-must be done modulo $2^{32}$. The Squeak implementation was originally
-created as pure-Smalltalk and uses objects to simulate 32-bit hardware
-registers. Squeak's SHA implementation explicitly avoids using large
-integers. Due to the known size limit on the numbers, specially
-crafted objects are faster than overflowing into large positive
-integers (strengthening our previous argument that large integer
-arithmetic, if left in Smalltalk, could be optimized based on the
-use-cases of developers). The default Squeak VM includes a set of
-primitives to directly generate the hash in C, which translates into a
-three orders of magnitude speedup.
+Squeak implements the \acf{SHA} from the U.S. government's
+\acf{SHS}~\cite{NIST:1995:FPSb}, based on an implementation by Bruce Schneier
+\cite{schneier1996applied}. The secure hash standard was created with 32-bit
+hardware in mind, so all arithmetic in the hash computation must be done modulo
+$2^{32}$. The Squeak implementation was originally created as pure-Smalltalk
+and uses objects to simulate 32-bit hardware registers. Squeak's \acs{SHA}
+implementation explicitly avoids using large integers. Due to the known size
+limit on the numbers, specially crafted objects are faster than overflowing
+into large positive integers (strengthening our previous argument that large
+integer arithmetic, if left in Smalltalk, could be optimized based on the
+use-cases of developers). The default Squeak \ac{VM} includes a set of
+primitives to directly generate the hash in C, which translates into a three
+orders of magnitude speedup.
 
 Implementing this algorithm as a primitive made sense to get the
-significant speedup on the original Squeak VM. However, we argue that
+significant speedup on the original Squeak \ac{VM}. However, we argue that
 the performance of running the pure Smalltalk code is much improved
-with the tracing JIT of RSqueak/VM. Another consideration may be that
+with the tracing \ac{JIT} of RSqueak/VM. Another consideration may be that
 ease of implementation and changeability is no argument for
 maintaining the implementation in Smalltalk: the algorithm is fixed
 and a canonical implementation exists in C. However, it is easier to
@@ -581,17 +585,17 @@ memory and makes heavy use of matrix transformations to draw curves
 and polygons. Once it finishes rendering, it calls BitBlt to transfer
 the actual bits from the work buffer to the screen. Balloon is very
 flexible and provides 44 primitive functions that can be combined to
-load SVG graphics, play Flash 3 animations, and render TrueType fonts.
+load \textsc{svg} graphics, play Flash 3 animations, and render TrueType fonts.
 
-Implementing Balloon in the VM or running it in Smalltalk must weigh
+Implementing Balloon in the \ac{VM} or running it in Smalltalk must weigh
 performance against changeability. The algorithms used in the Balloon
 Engine are heavy on numeric operations and their performance benefits
-from being implemented in the VM. At the same time, Balloon is a
+from being implemented in the \ac{VM}. At the same time, Balloon is a
 rather large module with more than 5000 lines of Slang code (for
 comparison, all large integer primitives comprise less than 1400
-lines, and the SHA primitives comprise less than 250 lines of
+lines, and the \acs{SHA} primitives comprise less than 250 lines of
 code). Re-implementing Balloon is thus a major burden on an
-alternative VM implementation. As to changeability, although Balloon
+alternative \ac{VM} implementation. As to changeability, although Balloon
 set out to support multimedia formats, progress on updating it for
 current format has stalled, with Flash support at version 3. One
 reason for this may be that the code is not in Smalltalk (and not even
@@ -608,26 +612,23 @@ rendering TrueType glyphs.
 \label{img:bitblt}
 \end{figure}
 
-BitBlt is an algorithm that combines one block of bits with another
-according to some rule, and was developed to speed up graphical
-operations for one bit displays \cite{GuibasBitBlt}, but later
-extended to handle up to 32 bits of color
-\cite{BackToTheFuture}. BitBlt has multiple rules for combining blocks
-of bits for blending or replacing, as well as combining forms of
-different color depth. The Squeak screen is entirely composed of
-\verb!Form! objects that are composited together using BitBlt and
-drawn to the screen. Drawing to the screen is the same as drawing to
-any other form. A primitive is used to designate a form as the
-display, and the VM is expected to mirror it to the screen. Forms are
-\emph{word objects}, arrays which hold only unsigned integers. As an
-example (\autoref{img:bitblt}), to display a text paragraph, the
-required letters are copied from a form that has the entire rendered
-font (for example generated by Balloon), to a paragraph form. The
-letters are also used a mask for syntax highlighting by blending with
-a uni-colored form. Finally, the paragraph form is then copied to the
-display form.
+BitBlt is an algorithm that combines one block of bits with another according
+to some rule, and was developed to speed up graphical operations for one bit
+displays~\cite{GuibasBitBlt}, but later extended to handle up to 32 bits of
+color~\cite{BackToTheFuture}. BitBlt has multiple rules for combining blocks of
+bits for blending or replacing, as well as combining forms of different color
+depth. The Squeak screen is entirely composed of \verb!Form! objects that are
+composited together using BitBlt and drawn to the screen. Drawing to the screen
+is the same as drawing to any other form. A primitive is used to designate a
+form as the display, and the \ac{VM} is expected to mirror it to the screen.
+Forms are \emph{word objects}, arrays which hold only unsigned integers. As an
+example (\autoref{img:bitblt}), to display a text paragraph, the required
+letters are copied from a form that has the entire rendered font (for example
+generated by Balloon), to a paragraph form. The letters are also used a mask
+for syntax highlighting by blending with a uni-colored form. Finally, the
+paragraph form is then copied to the display form.
 
-BitBlt was originally published as Smalltalk \cite{BlueBook}. It is
+BitBlt was originally published as Smalltalk~\cite{BlueBook}. It is
 now mostly in Slang code, but some fast path optimizations were only
 done in C, with the Slang code having only stubs that delegate to the
 slow code paths. Furthermore, the Slang code for BitBlt uses custom
@@ -637,38 +638,38 @@ overhead during simulation in Smalltalk. Finally, although word
 objects contain unsigned 32-bit integers, reading from them in
 Smalltalk returns either SmallIntegers or LargePositiveIntegers,
 depending on their size. This increases the type variety and thus puts
-additional pressure on the optimizing JIT. Concerning our trade-offs,
+additional pressure on the optimizing \ac{JIT}. Concerning our trade-offs,
 the version history of BitBlt demonstrates that indeed this is a
 primitive that changes relatively often, as new optimizations or
 blending modes are introduced. However, it is also crucial that the
 BitBlt operations run fast enough to provide a smooth user interface.
 
 \subsection{Running Primitives}
-We ran our benchmarks on a 64-bit Ubuntu 14.10, running a 3.16.0 Linux
-kernel. For translation, we used PyPy revision 75996:223e8c97aec from
-February 19, 2015, and 32-bit GCC 4.8.2. The revision of RSqueak/VM
-was e235be9, the version of the Cog VM was 4.0-2585, and the version
-of the Squeak Interpreter VM was 4.10.2-2614. The benchmark machine
-has an Intel Core i7-4650U 1.7 GHz CPU and 3.94 GiB RAM. The VMs all
-run single-threaded, and all but the font rendering benchmark run
-headless. The benchmarking script and image is available at
-\url{https://github.com/HPI-SWA-Lab/RSqueak-Benchmarking}. The Squeak
-image version is 4.6-14318.
+We ran our benchmarks on a 64-bit Ubuntu 14.10, running a 3.16.0 Linux kernel.
+For translation, we used PyPy revision 75996:223e8c97aec from February 19,
+2015, and 32-bit GCC 4.8.2. The revision of RSqueak/VM was e235be9, the version
+of the Cog \ac{VM} was 4.0-2585, and the version of the Squeak Interpreter
+\ac{VM} was 4.10.2-2614. The benchmark machine has an Intel Core i7-4650U 1.7
+GHz CPU and 3.94 GiB RAM. The \acp{VM} all run single-threaded, and all but the
+font rendering benchmark run headless. The benchmarking script and image is
+publicly available
+online\footnote{\url{https://github.com/HPI-SWA-Lab/RSqueak-Benchmarking}}. The
+Squeak image version is 4.6-14318.
 
 We measure wall times using the Smalltalk method
 \verb|Time class>>#millisecondsToRun:|. We remove the impact of
-JIT warm-up from our measurements by running each benchmark 200 times
+\ac{JIT} warm-up from our measurements by running each benchmark 200 times
 in a freshly booted image, and using the last 20 results
 \cite{Bolz2013}. Except for the font rendering benchmark, all
 benchmarks run headless.
 
 \autoref{tab:all} gives the raw benchmark results and
 \autoref{fig:results} gives the results in terms of relative speed
-against the standard Interpreter VM. We can see from the benchmarks
+against the standard Interpreter \ac{VM}. We can see from the benchmarks
 that RSqueak/VM has a larger variance in general, as compared to the
-other two VMs. The last column of \autoref{fig:results} also shows
+other two \acp{VM}. The last column of \autoref{fig:results} also shows
 that the mean slowdown of RSqueak/VM over all benchmarks is just under
-a factor of 8, and thus within an order of magnitude. RSqueak/VM
+a factor of 6, and thus within an order of magnitude. RSqueak/VM
 achieves by far the worst performance in the Balloon benchmark.
 
 \begin{table*}[t]
@@ -681,7 +682,7 @@ achieves by far the worst performance in the Balloon benchmark.
 \begin{figure*}
   \centering
   \includegraphics[width=\linewidth]{benchmarks}
-  \caption{Relative speeds of Interpreter Squeak VM, Cog, and
+  \caption{Relative speeds of Interpreter Squeak \ac{VM}, Cog, and
     RSqueak/VM, with Squeak as baseline}
   \label{fig:results}
 \end{figure*}
@@ -729,7 +730,7 @@ achieves by far the worst performance in the Balloon benchmark.
 
 % Table \ref{TimesTable} and Figure \ref{BitBltLinImg} both show the
 % same data, the minimum wall time to n times loop through some BitBlt
-% operations. If we switch off the JIT in RSqueak/VM, just computing the
+% operations. If we switch off the \ac{JIT} in RSqueak/VM, just computing the
 % first data point takes 24.8\,s, 370 times longer than the RPython run
 % time. Therefore, we did not collect those.
 
@@ -751,8 +752,8 @@ achieves by far the worst performance in the Balloon benchmark.
 % \begin{figure}[tbp]
 %     \centering
 %     \includegraphics[width=\linewidth]{statistics/comparision.png}
-%     \caption{Comparison of relative run times when implementing behavior as primitive for the Interpreter VM, the Cog VM, and the RSqueak/VM (less is better)}
-%     \label{VMComparison}
+%     \caption{Comparison of relative run times when implementing behavior as primitive for the Interpreter \ac{VM}, the Cog \ac{VM}, and the RSqueak/VM (less is better)}
+%     \label{\ac{VM}Comparison}
 
 %     %             C Smalltalk
 %     % BitBlt RSqueak/VM  1    22.98
@@ -766,7 +767,7 @@ achieves by far the worst performance in the Balloon benchmark.
 % [%
 % pos=btp,
 % cap={Running times for primitive functions},
-% caption={Absolute and relative running times for the Interpreter VM, the Cog VM, and the RSqueak/VM for the two example primitives (in ms). The RSqueak/VM Fill running times are relative to the Cog Fill C time.},
+% caption={Absolute and relative running times for the Interpreter \ac{VM}, the Cog \ac{VM}, and the RSqueak/VM for the two example primitives (in ms). The RSqueak/VM Fill running times are relative to the Cog Fill C time.},
 % label=ComparisonTable,
 % ]{rrrr}%
 % {}%
@@ -787,7 +788,7 @@ achieves by far the worst performance in the Balloon benchmark.
 % \LL}
 
 % Figure \ref{VMComparison} and Table \ref{ComparisonTable} show the
-% relative running times for the Interpreter VM, the Cog VM, and the
+% relative running times for the Interpreter \ac{VM}, the Cog \ac{VM}, and the
 % RSqueak/VM. The numbers are based on the minimal wall times within the
 % 30 samples for the largest n. The base times are the C-reference
 % times, except for the RSqueak/VM Fill data point, because we have only
@@ -796,12 +797,12 @@ achieves by far the worst performance in the Balloon benchmark.
 % closest to actual running times, with minimal time spent on garbage
 % collection or scheduling.
 
-% Figures \ref{BitBltBarChart} and \ref{VMComparison} display a wide
+% Figures \ref{BitBltBarChart} and \ref{\ac{VM}Comparison} display a wide
 % value range. We decided to cut the x-axis at 33 and 65 respectively in
 % order to get a good enough resolution for the smaller values. The
 % added numbers give the exact height of the cut bars.
 
-% The comparison Figure \ref{VMComparison} shows that the relative speed
+% The comparison Figure \ref{\ac{VM}Comparison} shows that the relative speed
 % improved from 63 and 57 to two, or 599 and 417 to 25 respectively,
 % resulting in a speed up between 31 and 18.
 
@@ -809,26 +810,26 @@ achieves by far the worst performance in the Balloon benchmark.
 
 \subsection{Explaining the Gap}
 
-The time differences between Interpreter VM and Cog are likely a
-result of Cogs method JIT. Cogs method JIT is very simple: it compiles
+The time differences between Interpreter \ac{VM} and Cog are likely a
+result of Cogs method \ac{JIT}, which is very simple: it compiles
 each method separately and has only very limited support for advanced
 features such as method inlining or escape analysis.
 
 \paragraph{arrayFillArray and arrayFillString}
-The first benchmark shows that the overhead of filling large chunks of
+The filling benchmark shows that the overhead of filling large chunks of
 memory with the same value is small. The overhead is mostly due to
 additional guards in the compiled code from RSqueak/VM. In contrast to
-the C code, the JIT cannot rely on the Smalltalk methods used in the
+the C code, the \ac{JIT} cannot rely on the Smalltalk methods used in the
 primitive implementation not changing. Furthermore, another,
 higher-priority thread could interrupt the benchmark and exchange the
 array or string that is filled using the \verb!become:! method to
-exchange pointers, whereas a VM primitive on Cog and the Interpreter
-VM cannot be interrupted. It may be possible to further minimize the
+exchange pointers, whereas a \ac{VM} primitive on Cog and the Interpreter
+\ac{VM} cannot be interrupted. It may be possible to further minimize the
 number of guards with structural changes to RSqueak/VM.
 
 \paragraph{mandala and renderFont}
 These benchmarks have very different overheads, but mostly suffer from
-the same types of overhead. All three tested VMs allocate Smalltalk
+the same types of overhead. All three tested \acp{VM} allocate Smalltalk
 frames initially on the stack and only copy them to the heap if they
 are accessed reflectively from Smalltalk. In these benchmarks, this
 happens only for RSqueak/VM, because each primitive call to BitBlt in
@@ -837,7 +838,7 @@ benchmark sets the Slang code up for simulation by copying arguments
 from the sender context into an \verb!InterpreterProxy! object, which
 is the Slang interface to various Smalltalk facilities. Thus, every
 call into the method that sets up the Slang code is slow. Second, both
-of these benchmarks rely on fast arithmetic. Although the tracing JIT
+of these benchmarks rely on fast arithmetic. Although the tracing\ac{JIT}
 can generally remove allocations of integer objects so that few object
 allocations are needed, allocations remain around entering inner loops
 and Slang code. Thus, besides the impact of simulating arithmetic for
@@ -848,7 +849,7 @@ arrays and bit-operations that simulate C semantics in Smalltalk,
 incurring additional overhead.
 
 The reason why \verb!mandala! is only about a factor of two slower
-than the standard VM, whereas \verb!renderFont! is three orders of
+than the standard \ac{VM}, whereas \verb!renderFont! is three orders of
 magnitude slower, is that one BitBlt operation corresponds to only one
 call to the Slang code which then does all the work. One Balloon
 operation, in contrast, comprises dozens of very short calls into
@@ -874,26 +875,26 @@ RSqueak/VM we cannot deactivate garbage collection.  This might
 increase running times for re-implemented primitives, because all
 basic types, including integers, are boxed, and arithmetic operations
 repeatedly create those. On the other hand, if objects are created
-within a trace and not referenced from outside, the tracing JIT
+within a trace and not referenced from outside, the tracing\ac{JIT}
 removes those unnecessary heap allocations.  Therefore, the number of
 created objects after warm-up should be quite low. On Cog and the
-Interpreter VM, integers that fit within 31-bit are tagged and thus do
+Interpreter \ac{VM}, integers that fit within 31-bit are tagged and thus do
 not create pressure for the garbage collector.
 
 A second ambiguity arises from the early stage of the RSqueak/VM
 implementation. Squeak defines a model of green threading, including
-interrupts triggered outside the VM, e.g. by mouse movements across
-the window, or due to timing. While Cog and the Interpreter VM support
+interrupts triggered outside the \ac{VM}, e.g. by mouse movements across
+the window, or due to timing. While Cog and the Interpreter \ac{VM} support
 those, there are still bugs in RSqueak/VM's implementation. We prevent
 the biggest of those scheduling related performance deteriorations by
 running headless, but the heartbeats used for timing are still active
-in all three VMs.
+in all three \acp{VM}.
 
 \section{Related Work}
 \label{sec:related-work}
 
-Other modern VMs with JIT have moved algorithmic primitives have been
-moved out of the VM and into the client language. The reasons given
+Other modern \acp{VM} with\ac{JIT} have moved algorithmic primitives have been
+moved out of the \ac{VM} and into the client language. The reasons given
 are mostly due to performance, but the benefits to ease of
 implementation and debugging that we have mentioned also apply.
 
@@ -901,50 +902,50 @@ implementation and debugging that we have mentioned also apply.
 JavaScript is a dynamically typed programming language used in
 web-browsers. All JavaScript runtimes used in major browsers use some
 version of dynamic compilation. Some browser vendors have recently
-re-implemented at least some parts of their DOM operations in
-JavaScript to make them visible to the JIT, or plan to do
+re-implemented at least some parts of their \ac{DOM} operations in
+JavaScript to make them visible to the\ac{JIT}, or plan to do
 so. Unfortunately, there have been few publications about this
 particular change, and none with performance results.
 
-The former JavaScript JIT used in Firefox,
-TraceMonkey~\cite{GalTypeSpecialization}, also traces DOM-operations
+The former JavaScript\ac{JIT} used in Firefox,
+TraceMonkey~\cite{GalTypeSpecialization}, also traces \ac{DOM}-operations
 that were re-implemented in JavaScript, and others were otherwise added
-into the view of the JITs
+into the view of the \acp{JIT}
 trace\footnote{\url{https://brendaneich.com/2008/08/tracemonkey-javascript-lightspeed/}
   (retrieved March 2, 2015)}. Internet Explorer 10 supposedly executes
-DOM operations in
+\ac{DOM} operations in
 JavaScript\footnote{\url{http://www.chromium.org/blink\#architectural-changes}
   (retrieved March 1,
   2015)}\addtocounter{footnote}{-1}\addtocounter{Hfootnote}{-1} and
-for Chromium, there are plans to re-implement the DOM-API in pure
+for Chromium, there are plans to re-implement the \ac{DOM}-\ac{API} in pure
 JavaScript\footnotemark so the V8 engine can compile methods including
-DOM operations as one. For all these browsers, implementing the
-DOM-API in C++ meant that every call to DOM functions resulted in a
+\ac{DOM} operations as one. For all these browsers, implementing the
+\ac{DOM}-\ac{API} in C++ meant that every call to \ac{DOM} functions resulted in a
 runtime switch.
 
-The re-implementation of browser specific DOM libraries in JavaScript
+The re-implementation of browser specific \ac{DOM} libraries in JavaScript
 improves the overall performance because it makes them visible to the
-JIT, as we described in \autoref{sec:trade-offs-between}. It allows
-the inlining of DOM operations instead of exiting just-in-time
+\ac{JIT}, as we described in \autoref{sec:trade-offs-between}. It allows
+the inlining of \ac{DOM} operations instead of exiting just-in-time
 compiled code and having to assume that all arguments can escape. The
 re-implementations were not done for increased code clarity or reuse.
 
 \subsection{PyPy Python Interpreter}
 The general way to introduce primitive behavior to Python outside of
-the VM are C-extensions. While the PyPy Python interpreter tries to
+the \ac{VM} are C-extensions. While the PyPy Python interpreter tries to
 maintain C-extension compatibility, they explicitly recommend
 re-implementing extensions in
 Python\footnote{\url{http://doc.PyPy.org/en/latest/faq.html\#do-cpython-extension-modules-work-with-PyPy}
   (retrieved March 3, 2015)}. The RPython-based Topaz Ruby
 implementation mirrors this sentiment in their recommendations when to
 implement functionality in Ruby and when in the
-VM\footnote{https://github.com/topazproject/topaz/issues/486
+\ac{VM}\footnote{https://github.com/topazproject/topaz/issues/486
   (retrieved April 7, 2015}, but lacks data.
 
 The reasons for re-implementation the PyPy project gives are
 twofold. First, a missing visibility to the tracing infrastructure
 results in dropping out of traces for any calls to C-extension
-functions. Second, the Python C-extension API allows access to garbage
+functions. Second, the Python C-extension \ac{API} allows access to garbage
 collection implementation specific details. CPython uses a reference
 counting garbage collector. Since PyPy does not, the counters have to
 be emulated, which can impact performance.
@@ -955,7 +956,7 @@ be emulated, which can impact performance.
 Through this work we have gained insights into some of the trade-offs
 mentioned in \autoref{sec:trade-offs-between}. The points raised here
 are not limited to implementing algorithmic primitives, but some are
-specific to meta-tracing JITs and PyPy.
+specific to meta-tracing \acp{JIT} and PyPy.
 
 Regarding the development process, we found that debugging primitives
 at the Smalltalk level generally works well. BitBlt presented the most
@@ -971,31 +972,31 @@ the RSqueak/VM easier. There are several primitives in Squeak that
 have a correct Smalltalk implementation in case the primitive
 fails. The Smalltalk code for the primitives we presented has been in
 development for a long time --- the BitBlt code originated with
-Smalltalk-80 \cite{BlueBook}, the
+Smalltalk-80~\cite{BlueBook}, the
 \verb!replaceFrom:to:with:startingAt:! method is too old to have a
 correct timestamp, and the large integer operations and hashing code
 are each more than 20 years old. Even in a community as small
 (compared to more mainstream languages like Ruby and Python) as
-Squeak/Smalltalk, there exist multiple different VM-implementations
-besides the one we already presented: the Roar VM \cite{RoarVM} for
-running on multiprocessor systems, SqueakJS \cite{SqueakJS} which runs
+Squeak/Smalltalk, there exist multiple different \ac{VM}-implementations
+besides the one we already presented: the RoarVM~\cite{RoarVM} for
+running on multiprocessor systems, SqueakJS~\cite{SqueakJS} which runs
 in the browser,
 Potato\footnote{\url{http://sourceforge.net/projects/potatovm/}} for
-running on the JVM. To keep them compatible with the standard
-implementation as it evolves requires considerable effort from the VM
-maintainers, and thus most VMs have fallen behind. This effort can be
-lowered by replacing VM primitives with pure Smalltalk code.
+running on the \ac{JVM}. To keep them compatible with the standard
+implementation as it evolves requires considerable effort from the \ac{VM}
+maintainers, and thus most \acp{VM} have fallen behind. This effort can be
+lowered by replacing \ac{VM} primitives with pure Smalltalk code.
 
 Being able to change the primitives in Smalltalk also lowered the
 barrier to inspecting and thinking about improvements to the
 implementation. In contrast, changing the RSqueak/VM primitives
 requires a current checkout of the PyPy and RSqueak/VM sources, and
 build environment set-up for 32-bit compilation.  Similarly, changing
-the Interpreter VM requires an SVN checkout of the C sources and the
+the Interpreter \ac{VM} requires an SVN checkout of the C sources and the
 Slang
 code\footnote{\url{http://marianopeck.wordpress.com/2011/04/10/building-the-vm-from-scratch-using-git-and-cmakevmmaker/}
   (retrieved March 29, 2015)}. In either case, changing the primitives
-requires superficial knowledge of the general VM structure and some
+requires superficial knowledge of the general \ac{VM} structure and some
 familiarity with C or RPython.
 \begin{center}
 ***  
@@ -1006,7 +1007,7 @@ the decision to implement behavior as primitive. When deciding whether
 to implement behavior as primitive, programmers weigh ease of
 implementation, reuse, and changeability against speed, security, and
 platform behavior. Our results show that due to the advances of
-tracing JITs and VM implementation techniques, the speed argument has
+tracing\acp{JIT} and \ac{VM} implementation techniques, the speed argument has
 lost some of its weight, but there is still about one magnitude of
 speed difference remaining. However, we are confident that for some
 primitives this difference can be removed almost entirely, and we
@@ -1018,15 +1019,15 @@ Future work can go in several directions. RSqueak/VM itself has some
 potential for improvement. First, neither the fact that objects cannot
 change in size after creation, nor that there are some objects and
 methods which can be assumed constant during tracing are exploited by
-the VM so far. Second, although the standard Squeak VM is limited to
+the \ac{VM} so far. Second, although the standard Squeak \ac{VM} is limited to
 31-bit integers due to tagging, RSqueak/VM is not. However, the wider
 range is not currently exploited nor do we know if the image will
 break when the small integer range range changes. Third, we are
-working to fully apply \emph{strategies} \cite{bolz2013storage} to
+working to fully apply \emph{strategies}~\cite{bolz2013storage} to
 RSqueak/VM. Many full objects used in primitive operations (such as
 forms, rectangles, and points) have only fields of the same
 types. Using strategies, these may be stored unboxed and thus help the
-JIT eliminate more object allocations and improve performance.
+\ac{JIT} eliminate more object allocations and improve performance.
 
 \bibliographystyle{abbrvnat}
 \bibliography{thesis}

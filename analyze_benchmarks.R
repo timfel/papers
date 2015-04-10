@@ -227,11 +227,13 @@ bench.summary.overall <- merge(bench.summary.overall, data.frame(stdev=1, err095
 # bench.summary.graph <- rbind(bench.summary.graph, bench.summary.overall) 
 bench.summary.graph <- rbind(bench.summary, bench.summary.overall) 
 
-bench.summary.graph$isCapped <- ""
-bench.summary.graph[!is.na(bench.summary.graph$mean.norm) & bench.summary.graph$mean.norm > CAPPING,]$isCapped <-
-  paste0("> ", format(bench.summary.graph[!is.na(bench.summary.graph$mean.norm) & bench.summary.graph$mean.norm > CAPPING,]$mean.norm,
-                      digits=0))
-bench.summary.graph[!is.na(bench.summary.graph$mean.norm) & bench.summary.graph$mean.norm > CAPPING,]$mean.norm <- CAPPING
+bench.summary.graph$isCapped <- " "
+.needs.cap <- bench.summary.graph[!is.na(bench.summary.graph$mean.norm) & bench.summary.graph$mean.norm > CAPPING,]
+if (nrow(.needs.cap) > 0) {
+  bench.summary.graph[!is.na(bench.summary.graph$mean.norm) & bench.summary.graph$mean.norm > CAPPING,]$isCapped <-
+    paste0("> ", format(.needs.cap$mean.norm,digits=0))
+  bench.summary.graph[!is.na(bench.summary.graph$mean.norm) & bench.summary.graph$mean.norm > CAPPING,]$mean.norm <- CAPPING
+}
 
 
 
@@ -264,7 +266,6 @@ p <- ggplot(data=bench.summary.graph,
 ) +
   geom_bar(stat="identity", position=dodge, width=.6, aes(fill = vm))+
   geom_point(position=dodge,aes(y=0.5, ymax=ymax, shape=vm),size=2, color="grey90",stat="identity") +
-  geom_text(position=dodge,aes(y=(CAPPING * .95), ymax=ymax,label=isCapped), size=3) +
   ylab("Relative Runtime") +
   theme_bw(base_size=6, base_family="Helvetica") +
   theme(
@@ -284,6 +285,9 @@ p <- ggplot(data=bench.summary.graph,
     legend.key=element_rect(fill="white"),
     legend.key.size=unit(3,"mm")
   )
+if (.needs.cap) {
+  p <- p + geom_text(position=dodge,aes(y=(CAPPING * .95), ymax=ymax,label=isCapped), size=3) 
+}
 p <- p +
   scale_y_continuous(breaks=seq(0,ymax,1), limits=c(0,ymax),expand=c(0,0)) +
   scale_fill_brewer(name = "Virtual Machine", type="qual", palette="Set1") + 

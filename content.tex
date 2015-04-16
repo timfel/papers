@@ -540,17 +540,26 @@ is a large number of such libraries that restrict themselves to a
 particular class of problems for which they implement optimized
 solving strategies.
 
+Constraint problems can be regarded as a graph, with n-ary operations
+connecting variables and constraints. Solving the constraint problem
+can be achieved by considering variables as inputs and outputs of the
+operations and traversing the graph to manipulate them, bit also by
+considering the operations themselves and solving multiple or all
+operations in the graph simultaneously. For the latter, the solving
+process needs a built-in understanding of the operations and the types
+of variables involved.
+
 One way of classifying solvers is by the \emph{type domain} of the
 constraints (\eg if they can solve for booleans, reals, finite domains
 of arbitrary objects, \dots). Another way is to distinguish solvers
 that are \emph{complete} for a particular domain (whether they can
-solve any constraint in a particular class in a general way) from
-solvers that can only select from a given set of functions (\eg given
-an equation $a+b=c$, can the solver solve only for $c$ given $a$ and
-$b$, or can it solve for several variables simultaneously). A third
-classification that is interesting for our work is by whether the
-solver supports some particular feature, such as incremental solving,
-constraint hierarchies, or multiple outputs.
+solve any constraint involving a particular class of operations in a
+general way) from solvers that can only select from a given set of
+functions (\eg given an equation $a+b=c$, can the solver solve only
+for $c$ given $a$ and $b$, or can it solve for several variables at
+the same time). A third classification that is interesting for our
+work is by whether the solver supports some particular feature, such
+as incremental solving, constraint hierarchies, or multiple outputs.
 
 In the rest of this section, we present and compare solvers and
 relevant theory that are of particular importance to or that we have
@@ -561,61 +570,48 @@ chosen\footnote{See, for example, this catalog of solvers:
   \url{http://openjvm.jvmhost.net/CPSolvers/sssss}, accessed March 9,
   2015}.
 
-\subsection{Z3}
-\label{sec:z3}
-\gls{z3} \cite{de2008z3} is a fast and comprehensive \gls{smt} solver
-from Microsoft Research designed for theorem proving, and with support
-for a wide range of type domains, including constraints over booleans,
-integers, reals, and finite domains of symbols. In recent years,
-\gls{smt} solvers have seen significant use for program analysis,
-verification, and testing \cite{bjornernuz}. Their popularity stems
-from advances in the performance of the search algorithms, and the
-ability to include and combine theories that are frequently used in
-those applications, including theories for the aforementioned
-primitive types, but also theories for containers such as arrays,
-sets, and bit-vectors. Though in many applications the main purpose of
-\gls{smt} solvers is to \emph{check} the satisfiability of a logical
-formula, they also include the facility to generate a model, that is,
-a set of assignments for free variables in a formula.
+\subsection{Local Propagation}
+\label{sec:deltablue}
+The simplest algorithm to solve constraints is local propagation.
+DeltaBlue \cite{freeman1989deltablue} is a local propagation solver
+with support for cyclic constraints that uses user-defined functions
+to propagate values. Local propagation is one of the simplest
+techniques to solve constraints, but it is restricted in restricted in
+that it only handles equalities of variables in a general way. For
+more complex relations, local propagation solvers require the user or
+library builder to supply propagation functions for each direction in
+which they wish to satisfy the relation. In contrast to general
+solving strategies, which suffer from increasing complexity and
+decreasing performance as the complexity of the domains they handle
+increases, local propagation solvers like DeltaBlue are especially
+useful for applications where a less general but fast algorithm is
+preferable.
 
-Roughly, \gls{z3} solves constraints using two core modules, a
-congruence engine, which determines if two formulas are equivalent and
-thus should be equal, and a \gls{sat} \gls{dpll}
-\cite{Davis:1962:MPT:368273.368557} algorithm. The role of the latter
-is to incrementally build a model for the constraints by either
-deducing the truth value of a formula, or, if that is not possible at
-any step, guessing it. The algorithm also checks if the input
-constraints become unsatisfiable given the current model and
-backtracks if that is the case. The formulas or their negations
-(depending on whether the \gls{dpll} algorithm guessed them to be true
-or false) are then conjugated and passed to the respective theory
-solvers (based on the types in the formulas). The theory solvers
-determine any new facts about variables and return them to the
-core. For example, consider the constraint
-$(a + 1 = 5) \vee (a - 1 = 5)$. The \gls{dpll} core guesses that both
-equalities can be satisfied, and passes $a + 1 = 5 \wedge a - 1 = 5$
-to the real theory solver. The real theory determines that this is
-unsatisfiable and returns $false$ as a new fact. The core adds this to
-the set of constraints, discovers that this fact makes the constraint
-system unsatisfiable, and backtracks to make the second equality
-unsatisfied. The new conjunction passed to the real solver is thus
-$a + 1 = 5 \wedge a - 1 != 5$. This has a solution, and the real
-solver returns it. If there are any additional constraints, the
-congruence engine determines if any new equalities arise (this would
-be the case if $a$ is shared between different theories), then those
-equalities are added to the conjunctions and passed to all relevant
-theories, which again determine new facts based on that. The process
-continues until a model is found, or the core exhausts the
-backtracking graph.
+Local propagation solvers model constraint systems as an acyclic
+directed graph of those functions that can be solved one after
+another. To add the constraint $a + b = 10$ to DeltaBlue, the
+programmer has to supply the functions $a = 10 -b$ and $b = 10 - a$.
+When $a$ is then set to 20, the solver determines that the functions
+it should execute are $a := 20$ and then $b := 10 - a$. Since the
+algorithm has no cycles, this solving strategy is in linear time with
+respect to the number of functions. DeltaBlue supports incremental
+resolving by separating the generation of the acyclic graph of solving
+functions from their execution. To incrementally supply multiple
+values to the same variable, the same execution graph can be re-used,
+and only the initially supplied value is updated.
 
-\gls{z3}, through plugins, can be made to support a number of
-additional theories and model finding features, such as non-required
-constraints and optimization \cite{bjornernuz} or strings
-\cite{zheng2013z3}. This makes \gls{z3} useful for a wide-variety of
-problems that involve multiple types with required and non-required
-constraints.
+One restriction of local propagation solvers including DeltaBlue is
+that, in general, they cannot deal with constraints that have multiple
+outputs, as these could lead to cycles in the propagation graph. This
+case arises if we tried to model $a + b = c$ as a set of functions
+$a = 10 - b$, $b = 10 - a$, and $c = a + b$. When just one variable
+changes, DeltaBlue will refuse to decide whether to update $b$ or $c$
+in response. An extension of DeltaBlue, SkyBlue
+\cite{sannella1993skyblue}, does support multiple outputs, but at the
+cost of instability in the linearization of the graph and resulting
+non-determinism in the solutions.
 
-\subsection{Cassowary}
+\subsection{The Simplex Method}
 \label{sec:cassowary}
 Cassowary \cite{badros2001cassowary} is an efficient solver for
 simultaneous linear equations using the simplex method with support
@@ -653,43 +649,7 @@ change. This allows the solver to re-use the existing equations in
 simplex form and simply replace the constants with new values and
 re-optimize.
 
-\subsection{DeltaBlue}
-\label{sec:deltablue}
-DeltaBlue \cite{freeman1989deltablue} is a local propagation solver
-with support for cyclic constraints that uses user-defined functions
-to propagate values. Local propagation solvers are motivated by the
-observation that more general solving strategies suffer from decreased
-performance as the complexity of the domains they handle increases,
-but that for some applications a less general but fast algorithm is
-preferable. Local propagation solvers are restricted in that they only
-handle equalities of variables in a general way, and require the user
-to supply a function with each constraint that satisfies it.
-
-Local propagation solvers model constraint systems as an acyclic
-directed graph of those functions that can be solved one after
-another. To add the constraint $a + b = 10$ to DeltaBlue, the
-programmer has to supply the functions $a = 10 -b$ and $b = 10 - a$.
-When $a$ is then set to 20, the solver determines that the functions
-it should execute are $a := 20$ and then $b := 10 - a$. Since the
-algorithm has no cycles, this solving strategy is in linear time with
-respect to the number of functions. DeltaBlue supports incremental
-resolving by separating the generation of the acyclic graph of solving
-functions from their execution. To incrementally supply multiple
-values to the same variable, the same execution graph can be re-used,
-and only the initially supplied value is updated.
-
-One restriction of local propagation solvers including DeltaBlue is
-that, in general, they cannot deal with constraints that have multiple
-outputs, as these could lead to cycles in the propagation graph. This
-case arises if we tried to model $a + b = c$ as a set of functions
-$a = 10 - b$, $b = 10 - a$, and $c = a + b$. When just one variable
-changes, DeltaBlue will refuse to decide whether to update $b$ or $c$
-in response. An extension of DeltaBlue, SkyBlue
-\cite{sannella1993skyblue}, does support multiple outputs, but at the
-cost of instability in the linearization of the graph and resulting
-non-determinism in the solutions.
-
-\subsection{Sutherland's Relaxation}
+\subsection{Relaxation}
 \label{sec:sutherland}
 Ivan Sutherland's Sketchpad system \cite{sutherland-ifips-1963} used
 three different solving strategies --- propagation of degrees of
@@ -730,7 +690,7 @@ alternative relaxation algorithm for geometric constraints
 cost of making constraints harder to specify by using one displacement
 function per variable rather than one error function per constraint.
 
-\subsection{BackTalk}
+\subsection{Backtracking}
 \label{sec:backtalk}
 BackTalk \cite{pachet1995} is a finite domain constraint solving
 library that uses backtracking and arc-consistency optimizations to
@@ -754,7 +714,83 @@ before and during the enumeration of values
 each constraint separately and opportunistically removing values from
 the domain that do not satisfy that constraint. As domains shrink this
 process can be used repeatedly to converge on the set of possible
-solutions quickly.
+solutions quickly. As an example, consider the problem of map
+coloring, where the task is to assign one of four colors to countries
+on a map such that no neighboring countries have the same color. A
+na{\"i}ive backtracking algorithm would try to assign a color to each
+country in turn, and only upon finishing all assignments would it test
+the solution. On the other hand, when BackTalk assigns a color to a
+country, it immediately removes that color from the domains of the
+countries neighbors, before continuing the selection process. This
+quickly reduces the tree of choices that BackTalk has to traverse to
+find a valid solution.
+
+\subsection{Satisfiability Modulo Theories}
+\label{sec:z3}
+\gls{z3} \cite{de2008z3} is a fast and comprehensive \gls{smt} solver
+from Microsoft Research designed for theorem proving, and with support
+for a wide range of type domains, including constraints over booleans,
+integers, reals, and finite domains. In recent years, \gls{smt}
+solvers have seen significant use for program analysis, verification,
+and testing \cite{bjornernuz}. Their popularity stems from advances in
+the performance of the search algorithms, and the ability to include
+and combine theories that are frequently used in those applications,
+including theories for the aforementioned primitive types, but also
+theories for containers such as arrays, sets, and bit-vectors. Though
+in many applications the main purpose of \gls{smt} solvers is to
+\emph{check} the satisfiability of a logical formula, they also
+include the facility to generate a model, that is, a set of
+assignments for free variables in a formula.
+
+Roughly, \gls{z3} solves constraints using two core modules, a
+congruence engine, which determines if two formulas are equivalent and
+thus should be equal, and a \gls{sat} \gls{dpll}
+\cite{Davis:1962:MPT:368273.368557} algorithm. The role of the latter
+is to incrementally build a model for the constraints by either
+deducing the truth value of a formula, or, if that is not possible at
+any step, guessing it. The algorithm also checks if the input
+constraints become unsatisfiable given the current model and
+backtracks if that is the case. The formulas or their negations
+(depending on whether the \gls{dpll} algorithm guessed them to be true
+or false) are then conjugated and passed to the respective theory
+solvers (based on the types in the formulas). The theory solvers
+determine any new facts about variables and return them to the
+core. For example, consider the constraint
+$(a + 1 = 5) \vee (a - 1 = 5)$. The \gls{dpll} core guesses that both
+equalities can be satisfied, and passes $a + 1 = 5 \wedge a - 1 = 5$
+to the real theory solver. The real theory determines that this is
+unsatisfiable and returns $false$ as a new fact. The core adds this to
+the set of constraints, discovers that this fact makes the constraint
+system unsatisfiable, and backtracks to make the second equality
+unsatisfied. The new conjunction passed to the real solver is thus
+$a + 1 = 5 \wedge a - 1 \neq 5$. This has a solution, and the real
+solver returns it. If there are any additional constraints, the
+congruence engine determines if any new equalities arise (this would
+be the case if $a$ is shared between different theories), then those
+equalities are added to the conjunctions and passed to all relevant
+theories, which again determine new facts based on that. The process
+continues until a model is found, or the core exhausts the
+backtracking graph.
+
+\gls{z3}, through plugins, can be made to support a number of
+additional theories and model finding features, such as non-required
+constraints and optimization \cite{bjornernuz} or strings
+\cite{zheng2013z3}. This makes \gls{z3} useful for a wide-variety of
+problems that involve multiple types with required and non-required
+constraints.
+
+\begin{sidewaystable}
+  \begin{longtable}{r|p{.08\linewidth} p{.08\linewidth} p{.08\linewidth}%
+      p{.08\linewidth} p{.08\linewidth} p{.08\linewidth} p{.08\linewidth}%
+      p{.08\linewidth} p{.08\linewidth}}
+    & Type Domains & Operations & Multiple Outputs & Constraint Hierarchies & Nearby Solutions & Optimal Solutions & Edit Constraints & Complexity & Terminates & Common Usage\\
+    \hline
+    DeltaBlue & Arbitrary values & User-defined functions, equality & single-output & No & locally-predicate better & Yes & Yes & $O(N), N = \text{number of variables}$ & Data-Flow Programming, Library\\
+    Relaxation & Reals & All operations on Reals & Yes & No & Yes & No & No & ?? & Graphical systems, Library\\
+  \end{longtable}
+  \caption{Overview of Relevant Constraint Solvers}
+  \label{tab:constraint-solvers-overview}
+\end{sidewaystable}
 
 \todo[inline]{all types get a comparison for some set of features and use-cases,
 with special mention of their utilization (as libraries or DSLs) in

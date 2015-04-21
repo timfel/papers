@@ -6,7 +6,7 @@
 %%
 %% hpitr.dtx  (with options: `class')
 %% Copyright (c) Daniel Richter, Uwe Hentschel 2013-2014
-%% Copyright (c) Tobias Pape, 2014
+%% Copyright (c) Tobias Pape, 2014-2015
 %% 
 %% This file was generated from file(s) of hpitr distribution.
 %% ----------------------------------------------------------------------
@@ -28,7 +28,7 @@
 \NeedsTeXFormat{LaTeX2e}[1995/12/01]
 \ProvidesClass{hpitr}%
 [%
-  2014/09/30 v0.9a
+  2015/03/26 v1.1b
 ^^J
   A unified class for Technical Reports at the HPI
 ]
@@ -140,6 +140,9 @@
 \booltrue{TR@chapters}
 \TRnewifStd{chapterbib}
 \TRStdOption{chapterbib}{chapterbib=true}
+\TRnewifStd{copyrightmark}
+\TRStdOption{copyrightmark}{copyrightmark=true}
+\TRStdOption{nocopyrightmark}{copyrightmark=false}
 \TRKey{trtype}{
   \TRsetnumc{trtype}{@tempa}{%
     {singlearticle}{0},{article}{0},%
@@ -197,6 +200,7 @@
 %% execute the standard options
 \TRExecuteOptions{
   trtype=singlereport,%
+  copyrightmark=true,%
 }
 
 \FamilyProcessOptions{hpitr}\relax
@@ -216,16 +220,18 @@
 
 \KOMAoptions{
   twocolumn=false,
-  fontsize=12pt,
+  fontsize=11pt,
   footinclude=false,
   headinclude=false,
 }
 \KOMAoptions{%
   pagesize=auto,
   paper=a4,
-  DIV=11,
+  DIV=9,
   twoside=semi,
 }
+\areaset[current]{\textwidth}{1.61803399\textwidth}
+
 \AtEndPreamble{\recalctypearea}
 \ifthenelse{\boolean{TR@proceedings}\AND\boolean{TR@chapters}}{
   \KOMAoption{open}{right}
@@ -355,7 +361,7 @@
   }
   \let\@papernumber\@empty
 
-  \RequirePackage{ragged2e}
+  \RequirePackage{ragged2e,trimspaces}
   \ifthenelse{\boolean{TR@inproceedings}}{}{%
     \AtEndPreamble{%
       \RequirePackage{biblatex}}
@@ -366,14 +372,19 @@
     \configureContributions%
   }
   \newcommand*{\TR@preamble}[1]{%
-    \InputIfFileExists {#1/preamble}{}{}}
+      \InputIfFileExists {#1/preamble}{}{}%
+      \ifthenelse{\boolean{TR@chapterbib}}{}{%
+        \addbibresource{#1/references.bib}
+      }}
 
   \newcommand*{\configureContributions}{%
     \def\doit{}%
     \@for\next:=\TR@contributions\do{%
-      \ifx\@empty\next\relax\else%
+      \expandafter\edef\expandafter\@tempa\expandafter%
+      {\expandafter\trim@spaces\expandafter{\next}}
+      \ifx\@empty\@tempa\relax\else%
       \expandafter\appto\expandafter\doit\expandafter%
-      {\expandafter\TR@preamble\expandafter{\next}}%
+      {\expandafter\TR@preamble\expandafter{\@tempa}}%
       \fi%
     }%
     \doit{}%
@@ -381,9 +392,11 @@
   \newcommand*{\includeContributionContents}{%
     \def\doit{}%
     \@for\next:=\TR@contributions\do{%
-      \ifx\@empty\next\else%
+      \expandafter\edef\expandafter\@tempa\expandafter%
+      {\expandafter\trim@spaces\expandafter{\next}}
+      \ifx\@empty\@tempa\else%
       \expandafter\appto\expandafter\doit\expandafter%
-      {\expandafter\TR@includedir\expandafter{\next}}%
+      {\expandafter\TR@includedir\expandafter{\@tempa}}%
       \fi%
     }%
     \doit{}%
@@ -391,8 +404,16 @@
   \newcommand*{\TR@includedir}[1]{%
     \global\let\TR@saved@include\include
     \global\let\TR@saved@input\input
-    \gdef\include##1{\TR@saved@include{#1/##1}}
-    \gdef\input##1{\TR@saved@input{#1/##1}}
+    \gdef\include##1{%
+      \IfFileExists{#1/##1}{%
+        \TR@saved@include{#1/##1}
+      }{%
+        \TR@saved@include{##1}}}
+    \gdef\input##1{%
+      \IfFileExists{#1/##1}{%
+        \TR@saved@input{#1/##1}%
+      }{%
+        \TR@saved@input{##1}}}
     \graphicspath{{#1/}}
     \TR@includedir@{#1}
     \global\let\include\TR@saved@include%
@@ -440,6 +461,7 @@
     \newcounter{@auth}
     \newcounter{auco}
     \newbox\headrun
+    \newbox\authrun
     \newtoks\authorrunning
     \newtoks\tocauthor
     \newtoks\titlerunning
@@ -508,6 +530,22 @@
     \providecommand*{\toclevel@author}{999}
     %%% to make title-entry parent of section-entries
     \providecommand*{\toclevel@title}{0}
+    \ifthenelse{\boolean{TR@inproceedings}}{%
+      \AtEndDocument{%
+        \begingroup
+          \def\and{\noexpand\protect\noexpand\and}%
+          \addtocontents{prc}{\protect\title{\@title}}
+          \addtocontents{prc}{\protect\author{\@author}}
+          \addtocontents{prc}{\protect\event{\@eventtitle}}
+          \addtocontents{prc}{\protect\papernumber{\@papernumber}}
+          \addtocontents{prc}{\protect\file{\jobname.pdf}}
+        \endgroup
+        \if@filesw
+          \expandafter\newwrite\csname tf@prc\endcsname
+          \immediate\openout \csname tf@prc\endcsname \jobname.prc\relax
+        \fi
+      }
+    }{}
 %%% /if proceedings
   }{}
   \newbool{TR@firsttitleseen}
@@ -554,7 +592,7 @@
       \else
         \unskip \lastandname\
       \fi}%
-    \def\and{\stepcounter{@auth}\relax
+    \def\and{\csname\endcsname\stepcounter{@auth}\relax
       \ifnum\value{@auth}=\value{auco}%
         \lastand
       \else
@@ -615,10 +653,10 @@
         \else
           \edef\@author{\the\authorrunning}%
         \fi
-
-        \xdef\@runninghead{\unskip\ignorespaces\@author: \@title}
+        \gdef\@runninghead{\unskip\ignorespaces\@author: \@title}
       \fi
 
+      \global\setbox\authrun=\hbox{\usekomafont{pagehead}\@author}%
       \global\setbox\headrun=\hbox{\usekomafont{pagehead}\@runninghead}%
       \ifdim\wd\headrun>\hsize
         \TR@warn{Title and author names too long for running head. Please supply
@@ -626,6 +664,8 @@
           \string\authorrunning\space prior to \string\maketitle}%
         \xdef\@runninghead{Authors/Title Suppressed Due to Excessive Length}%
       \fi
+      \xdef\@runninghead{\copy\headrun}
+      \xdef\@author{\copy\authrun}
       \ifthenelse{\boolean{TR@chapters}}{%
         \addchapmark{\@runninghead}%
       }{%
@@ -671,10 +711,13 @@
        \end{center}%
      }
 
+     % \providecaptionname{english}{\keywordname}{Keywords}
+     % \providecaptionname{german,ngerman}{\keywordname}{Schlagworte}
      \newcommand*\TR@contrib@author[1]{\gdef\@author{#1}}
-     \newcommand*{\TR@contrib@keywords}[1]{%
-       \par\addvspace\baselineskip%
-       \noindent\keywordname\enspace\ignorespaces#1}%
+     % \newcommand*{\TR@contrib@keywords}[1]{%
+     %   \par\addvspace\baselineskip%
+     %   \noindent\keywordname\enspace\ignorespaces#1}%
+     \newcommand*\TR@contrib@keywords[1]{}
 
    \ifthenelse{\boolean{TR@chapters}}{%
      \renewcommand*\thesection{\@arabic\c@section}
@@ -745,11 +788,12 @@
           \setlength{\listparindent}{\parindent}%
           \setlength{\itemindent}{\parindent}%
           \setlength{\parsep}{\parskip}%
-          \usekomafont{abstract}
+          \usekomafont{abstract}%
           }\item[]\noindent\ignorespaces%
       }{%
         \TR@error{Proceedings should not have \MessageBreak
-          abstracts. Please remove it.}}
+          abstracts. Please remove it.}%
+      }%
     }%
     {\ifthenelse{\boolean{TR@firsttitleseen}}{\endlist}{}}
 
@@ -830,31 +874,38 @@
 }
 \RequirePackage[T1]{fontenc}
 \ifthenelse{\boolean{luatex} \or \boolean{xetex}}{%
-  \RequirePackage{fontspec}[2014/06/21]
+  \RequirePackage{fontspec}[2013/05/20]
 }{}
-
-\RequirePackage[euler-digits,T1]{eulervm}
-\let\mathbf\mathbold
+\RequirePackage[osf,sc]{mathpazo}
 \ifthenelse{\boolean{luatex} \or \boolean{xetex}}{%
-  \setmainfont{texgyrepagella}[ExternalLocation,%
-      Numbers={Proportional,OldStyle},%
-      UprightFont= *-regular,%
-      BoldFont=*-bold,%
-      ItalicFont=*-italic,%
-      BoldItalicFont=*-bolditalic,%
-      Ligatures={Common,TeX},%
-      ]
+  \@ifpackagelater{fontspec}{2014/06/01}{%
+    \setmainfont{texgyrepagella}[ExternalLocation,%
+        Numbers={Proportional,OldStyle},%
+        UprightFont= *-regular,%
+        BoldFont=*-bold,%
+        ItalicFont=*-italic,%
+        BoldItalicFont=*-bolditalic,%
+        ]
+  }{%
+    \setmainfont[ExternalLocation,%
+        Numbers={Proportional,OldStyle},%
+        UprightFont= *-regular,%
+        BoldFont=*-bold,%
+        ItalicFont=*-italic,%
+        BoldItalicFont=*-bolditalic,%
+        Ligatures={Common,TeX},%
+        ]{texgyrepagella}
+  }
   \RequirePackage[scale=MatchLowercase,semibold]{sourcecodepro}
   \RequirePackage[scale=MatchLowercase,semibold,osf]{sourcesanspro}
 }{
   \RequirePackage[scale=.9,semibold]{sourcecodepro}
   \RequirePackage[scale=.9,semibold,osf]{sourcesanspro}
-  \RequirePackage[osf,sc]{mathpazo}
 }
 \linespread{1.05} % a bit more for Palatino
-
+\RequirePackage[euler-digits,T1]{eulervm}
+\let\mathbf\mathbold
 \let\footnotesize\small
-
 \ifthenelse{\boolean{xetex}\OR\boolean{luatex}}{
   \microtypesetup{stretch=9,shrink=15,step=3}
 }{
@@ -866,6 +917,7 @@
 \addtokomafont{descriptionlabel}{\rmfamily}
 \renewcommand*\labelitemii{\normalfont\textendash}
 \setfootnoterule{4cc}
+\setlength{\skip\footins}{2\baselineskip}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Text companion fonts
@@ -954,16 +1006,32 @@
   \renewcommand*{\chapterheadstartvskip}{\vspace*{3\baselineskip}}
   \renewcommand*{\chapterheadendvskip}{\vspace*{2\baselineskip}}
 }{}
-\def\TR@patchw{\TR@warn{Cannot patch sectioning command.\MessageBreak This is
-    not severe.}}
-\patchcmd{\section}{-3.5ex \@plus -1ex \@minus -.2ex}{-2\baselineskip}{}{\TR@patchw}
-\patchcmd{\section}{2.3ex \@plus.2ex}{\baselineskip}{}{\TR@patchw}
-\patchcmd{\subsection}{-3.25ex\@plus -1ex \@minus -.2ex}{-\baselineskip}{}{\TR@patchw}
-\patchcmd{\subsection}{1.5ex \@plus .2ex}{\baselineskip}{}{\TR@patchw}
-\patchcmd{\subsubsection}{-3.25ex\@plus -1ex \@minus -.2ex}{-\baselineskip}{}{\TR@patchw}
-\patchcmd{\subsubsection}{1.5ex \@plus .2ex}{1sp \@plus 1sp \@minus 1sp}{}{\TR@patchw}
-\patchcmd{\paragraph}{3.25ex \@plus1ex \@minus .2ex}{\baselineskip}{}{\TR@patchw}
-\patchcmd{\subparagraph}{3.25ex \@plus1ex \@minus .2ex}{\baselineskip}{}{\TR@patchw}
+\@ifpackagelater{scrbase}{2014/10/28}{%
+  \AtEndPreamble{%
+  \RedeclareSectionCommand[%
+    beforeskip=-2\baselineskip,afterskip=\baselineskip]{section}
+  \RedeclareSectionCommand[%
+    beforeskip=-1\baselineskip,afterskip=\baselineskip]{subsection}
+  \RedeclareSectionCommand[%
+    beforeskip=-1\baselineskip,afterskip=1sp plus -1sp minus 1sp]{subsubsection}
+  \RedeclareSectionCommand[%
+    beforeskip=\baselineskip]{paragraph}
+  \RedeclareSectionCommand[%
+    beforeskip=\baselineskip]{subparagraph}
+    }
+}{
+  % for sections, not so easy.
+  \def\TR@patchw{\TR@warn{Cannot patch sectioning command.\MessageBreak This is
+      not severe.}}
+  \patchcmd{\section}{-3.5ex \@plus -1ex \@minus -.2ex}{-2\baselineskip}{}{\TR@patchw}
+  \patchcmd{\section}{2.3ex \@plus.2ex}{\baselineskip}{}{\TR@patchw}
+  \patchcmd{\subsection}{-3.25ex\@plus -1ex \@minus -.2ex}{-\baselineskip}{}{\TR@patchw}
+  \patchcmd{\subsection}{1.5ex \@plus .2ex}{\baselineskip}{}{\TR@patchw}
+  \patchcmd{\subsubsection}{-3.25ex\@plus -1ex \@minus -.2ex}{-\baselineskip}{}{\TR@patchw}
+  \patchcmd{\subsubsection}{1.5ex \@plus .2ex}{1sp \@plus 1sp \@minus 1sp}{}{\TR@patchw}
+  \patchcmd{\paragraph}{3.25ex \@plus1ex \@minus .2ex}{\baselineskip}{}{\TR@patchw}
+  \patchcmd{\subparagraph}{3.25ex \@plus1ex \@minus .2ex}{\baselineskip}{}{\TR@patchw}
+}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% PDF links and bookmarks
@@ -988,13 +1056,14 @@
     pdfsubject = {Technical Report},
     pdfkeywords = {},
     pdfcreator = {HPI},
-    pdfcopyright = {Copyright (c) \the\year, HPI},
     pdfmetalang = {en},
     pdfproducer = {\TR@ClassName - Technical Reports at the HPI},
     pdflang = {\TR@lang},
     pdfdisplaydoctitle = false,
     pdfpagemode = UseOutlines,
   }
+  \ifthenelse{\boolean{TR@copyrightmark}}{%
+    \hypersetup{pdfcopyright = {Copyright (c) \the\year, HPI}}}{}
 }
 %%
 %%
@@ -1002,7 +1071,6 @@
 %%
 %% no protrusion there
 %% starts on own page.
-
 \RequirePackage{tocbasic}
 \setcounter{tocdepth}{1}
 \tocbasicautomode
@@ -1014,18 +1082,13 @@
 
 \ifthenelse{\boolean{TR@chapters}}{
   \renewcommand*\raggedchapterentry{\raggedright}
-}
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Abstract
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+}{}
 \ifthenelse{\boolean{TR@proceedings}\OR\boolean{TR@contribtools}}{}{
   \renewenvironment{abstract}{%
     \thispagestyle{plain.scrheadings}
     \null\vfil\leavevmode%
     \noindent%
-    \ignorespaces
+    \ignorespaces%
   }{%
     \par\vfil%
     \cleardoublepage%
@@ -1093,6 +1156,8 @@
     \floatplacement{figure}{htbp}
     \floatplacement{table}{htp}
   }
+  \setlength{\abovecaptionskip}{.5\baselineskip}
+  \setlength{\belowcaptionskip}{.5\baselineskip}
 }
 
 \AfterPackage{float}{
@@ -1126,8 +1191,8 @@
       basicstyle=\TR@listingfont,
       floatplacement=htbp,
       captionpos=t,
-      abovecaptionskip=0pt,
-      belowcaptionskip=0pt,
+      abovecaptionskip=.5\baselineskip,
+      belowcaptionskip=.5\baselineskip,
       upquote=true,
       showstringspaces=false,
       inputencoding=utf8,
@@ -1182,7 +1247,7 @@
   \RequirePackage{blindtext}
   \errorcontextlines=999
   \RequirePackage{eso-pic}
-  \newkomafont{draftline}{\sffamily}
+  \newkomafont{draftline}{\small\sffamily}
   \newsavebox{\TR@draftPageLine}
   \AddToShipoutPicture{%
     \AtPageUpperLeft{%
@@ -1215,10 +1280,10 @@
     }}
     \sbox{\TR@draftPageLine}{%
       \colorbox{black!10}{%
-        % enlarge box vertically by 2/3 lines
+        % enlarge box vertically by 1/6 lines
         \raisebox{0pt}%
-        [\dimexpr .33\baselineskip + \height]%
-        [\dimexpr .33\baselineskip + \depth]{%
+        [\dimexpr .166\baselineskip + \height]%
+        [\dimexpr .166\baselineskip + \depth]{%
           \makebox[\paperwidth]{\color{black!50}\TR@draftInfo}}}}
   }
   \ifthenelse{\boolean{TR@todotools}}{
@@ -1295,8 +1360,26 @@ Instead, use a sloppypar, when necessary:\MessageBreak
   \DeclareUTFcharacter[\UTFencname]{x201C}{\grqq}
   \DeclareUTFcharacter[\UTFencname]{x201E}{\glqq}
 }{}
-\PassOptionsToPackage{binary-units}{siunitx}
 \AtEndPreamble{\RequirePackage{siunitx}}
+\AfterPackage{siunitx}{%
+  \sisetup{
+    binary-units,
+    detect-all,
+    free-standing-units,
+    space-before-unit,
+    use-xspace,
+    unit-optional-argument,
+    parse-units = false,
+  }
+  \AtEndPreamble{
+    \@ifpackageloaded{pgf}{
+      \SendSettingsToPgf
+    }
+    \addto\extrasgerman{\sisetup{locale = DE}}
+    \addto\extrasngerman{\sisetup{locale = DE}}
+    \addto\extrasenglish{\sisetup{locale = US}}
+  }
+}
 
 \endinput
 %%

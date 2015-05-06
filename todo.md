@@ -1,0 +1,11 @@
+ - [ ] Szenario für Benchmark/Messung genauer beschreiben (Umfang, Zeitdauer, ...) und wiederholen
+ - [ ] Können Objekte/Collections ihre Storage-Strategies zur Laufzeit anpassen? (Wurde im Vortrag nicht deutlich...)
+ - [ ] Legenden zu Abbildungen (darauf passen wir dann im Paper auf)
+ - [x] ~~Zustandsübergänge mit 0.0%~~
+ - [ ] Wie kam es zur Auswahl der aktuellen Strategien? (Anforderungen, Heuristiken, ...)
+ - [x] Welche Strategien wäre noch denkbar? -> Umfang, Vollständigkeit, Praktikabilität, ...
+ - [x] ~~Benchmarks evtl. auch relativ zu Interpreter- und Cog-VMs (Praktikabilität, ...)~~
+ - [x] Infrastruktur (Framework?) zur Verwaltung der Strategien?
+ - [ ] Lebenszyklus von Strategien usw.
+ - [x] deutliche Herausstellung des eigenen Beitrags
+

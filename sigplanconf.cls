@@ -1307,4 +1307,3 @@
 %  2013.07.02   TU      2.8     More changes to permission/copyright notes.
 %                               Replaced ambiguous \authorpermission with
 %                               \exclusivelicense and \permissiontopublish
- 

@@ -125,11 +125,23 @@
 
 \maketitle
 
-\ifdraft{\tableofcontents}{}
+% \ifdraft{\tableofcontents}{}
 
 
 \begin{abstract}
-This is the text of the abstract.
+Storage strategies have been proposed as a run-time optimization
+for the PyPy Python implementation and with promising results
+for optimizing execution speed and memory requirements. However,
+it remained unclear whether
+their approach works equally well in other dynamic languages. Furthermore,
+while PyPy is based on RPython, a language to write VMs with reusable
+components such as a tracing just-in-time compiler and garbage collection,
+the strategies design was not generalized to be reusable across languages.
+
+In this paper, we present a general design and implementation for storage
+strategies and show how they can be re-used across different RPython-based
+languages. We evaluate their benefits for other dynamic languages besides
+Python and show that they can improve performance.
 \end{abstract}
 
 \category{CR-number}{subcategory}{third-level}
@@ -142,12 +154,16 @@ keyword1, keyword2
 Virtual Machines for dynamic programming languages depend on run-time
 optimizations to achieve appropriate performance.  One optimization
 that has been shown to work well in the PyPy VM for Python is called
-\emph{storage strategies}.
+\emph{storage strategies}~\cite{strategies}.
 
-Storage strategies try to optimize collection data types by
-transparently inlining their elements data, instead of holding
-references to actual objects, avoiding unnecessary object allocations.
-In contrast to virtual objects, this optimization is applicable to any
+Storage strategies optimize collection data types by
+transparently inlining elements data instead of holding
+references to actual objects. This avoids unnecessary object allocations,
+which conserves memory and can have major impacts on the performance of
+in just-in-time compiled code. Avoiding allocations on the heap
+is a major optimization of many JIT compilers, and is usually done by
+proving that an object does not escape a compiled loop. In contrast,
+storage strategies are applicable to any
 objects, not only those that don't escape the loop that is being
 optimized by the JIT.  Still, certain conditions have to be met in
 order to apply storage strategies.  These conditions are hard to
@@ -159,16 +175,18 @@ automatically provided by the RPython toolchain.
 \citeauthor{strategies} have shown that storage strategies are
 beneficial for the Python programming language\cite{strategies}.
 Since Python offers one generic list data type, optimizing it can have
-a big impact on program performance.  We argue that
-\citeauthor{strategies}'s approach can be generalized and applied to
-other programming languages like Smalltalk or Ruby, which have rich
-collection standard libraries.  In this paper we investigate how we
-can make the storage strategy approach generic and gain its
+a big impact on program performance. The initial paper on strategies concluded
+with the suspicion that storage strategies should be applicable to "virtually any"
+dynamic language. We set out to support that suspicion, and
+to provide a generic framework to make use of strategies in a variety of dynamic
+languages such as Smalltalk, Racket, or Ruby, which have other
+types of collections in their standard libraries.  In this paper we
+investigate how we can make the storage strategy approach generic and gain its
 performance benefits in other contexts than the Python programming
 language. Towards that goal, we make the following contributions:
 \begin{itemize}
-\item We present a generic, language-independent implementation of the storage
-  strategies optimization which can be reused in any VM implemented with the
+\item We present a generic, language-independent framework to include the storage
+  strategies optimization which in any VM implemented using the
   RPython toolchain.
 \item We show that storage strategies are indeed beneficial for many dynamic
   languages.
@@ -176,41 +194,20 @@ language. Towards that goal, we make the following contributions:
   implementations with regard to generality and performance.
 \end{itemize}
 
-
-
-%\todo{The initial paper on strategies concluded with the "suspicion" that storage
-%strategies are applicable to "virtually any" dynamic language, but that that'll
-%have to be determined, and that possibly other "exotic" strategies may be needed,
-%depending on the language semantics. We set out to support that suspicion, and
-%to provide a generic framework to make use of strategies in a variety of dynamic
-%languages easy}
-
-%\todo{Contributions ... need to think about those, below just suggestions}
-%\begin{itemize}
-%\item An application of strategies to object storage in RSqueak
-%\item A generic framework to add strategies to other PyPy-based languages
-%\item An evaluation of the strategies approach for a wider range of languages
-%\item Two-fold evaluation of presented approach: performance and generality
-%\end{itemize}
-
 \section{Background: Storage Strategies in PyPy}
 
-
-
-\subsection{Static Objects}
-\label{cha:staticObjects}
-
-\tim[inline]{Removed this section?}
-
-The most important optimization implemented by RPythons tracing JIT is
-an aggressive escape analysis \cite{escapeAnalysis}.  The escape
-analysis is conducted using a form of partial evaluation
-\cite{allocRemJIT}.  In short, it works by traversing the original
-trace, replacing object allocations with \emph{static objects}, and
-turning a static object back to a normal allocation when it is
-observed to escape the trace.  A static object is allocated directly
-on the stack, effectively avoiding the heap allocation.  This
-optimization is safe because the optimizer can prove that static
+The PyPy virtual machine is built using RPython, a restricted subset
+of Python that is amendable to static analysis and that can automatically
+generate a tracing just-in-time compiler. The most important optimization 
+implemented by RPythons tracing JIT is
+an aggressive escape analysis \cite{escapeAnalysis}. When a loop is detected
+it is \emph{traced}, that is, all operations in the loop are recorded.
+The recorded operations are then simplified using a form of partial
+evaluation \cite{allocRemJIT}. The original
+trace is traversed and object allocation are replaced with
+\emph{static objects} which are allocated on the stack. Only when an
+object is found to escape the trace it is actually allocated on the heap.
+This optimization is safe because the optimizer can prove that static
 objects don't affect the program state after the program exits the
 loop.
 

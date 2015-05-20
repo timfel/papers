@@ -484,44 +484,75 @@ and imperative programs.
 
 \section{Objects and Determinism in Constraints}
 \label{sec:expectations}
-, namely that imperative code usually mutates
-state and incorporates change over time, whereas constraints are most
-used to model a fixed set of desirable states and deals with state
-changes in a limited way.
 
-We discovered that Babelsberg would sometimes find unintuitive
-solutions that the human programmer did not even consider. Its design
-requires programmers to consider the solving as well as the
-translation process of the framework to use constraints effectively;
-even the small examples above contain the potential for surprising
-solutions.
+Object-oriented, imperative code usually mutates state explicitly over
+time. Any changes to objects and their structure is triggered by
+explicit programmer action. In contrast, constraints model a set of
+desirable states and and state changes arise from the solving of those
+constraints. The concrete changes are not necessarily deterministic:
+when multiple equally valid solutions are possible, different solvers
+may return any one or all of them. From the point of view of an
+object-oriented developer using constraints, this uncertainty about
+the selected solution may sometimes appear unintuitive when the solver
+picks a solution that the human programmer did not even consider.
 
-The Kaleidoscope language, particularly the early versions, was
-arguably too complex in part because it was too powerful in ways that
-were interesting, but not useful in practice. This made it difficult
-to understand what the result of a program might be and also difficult
-to implement efficiently. A heuristic for the present work is that
-when there is a choice, we favor simplicity over power.
+Using constraints in conjunction with imperative code often requires
+programmers to consider the solving process in order to use
+constraints effectively; even small examples contain the potential for
+surprising solutions. As an example, consider a bank account
+application in which we want to prevent changes that would make the
+account balance drop below a certain threshold. Additionally, we want
+to track the daily interest, but not allow it to rise above 10
+euros. We add a constraint to ensure this:
+\[
+account.balance \leq minimalBalance \wedge dailyInterest \leq 10
+\]
+We use another constraint to relate the dailyInterest to the account
+balance:
+\[
+dailyInterest = (account.balance \times 0.01) / 365.0
+\]
 
+This second constraint can conflict with the first when the account's
+balance becomes large---we define it so that the second constraint can
+be disregarded by the solver in that case. Already, this example
+contains the potential for surprising solutions. The programmer
+expects the constraints to affect the bank's balance as well as the
+daily interest.  However, in the absence of other restrictions, the
+solver is also allowed to change the minimalBalance, or set every
+variable to 0.
 
-~3 pages
-
-- system generally stays the same (minimal changes)
-
-- conservative system (only do what I tell you to...)
-
-- soundness
+Another issue arises from the fact that in this example, we assume
+that the solver knows how to access the \lstinline!balance! property
+on the account. But if another variable with a \lstinline!balance!
+field is known to the solver, can it change the value of the
+\lstinline!account! variable to point to it? And what if no such field
+exists? Some systems, such as Kaleidoscope or Turtle, would allow the
+solver to invent the field or change the account variable in that
+case. While one might argue that such behavior is desirable in this
+case, it is a slippery slope.  For example, consider a constraint of
+the form $p.x > 0 \vee p.y > 0$ on a point object \verb!p!.  There is
+inherent non-determinism here---the solver can choose which property
+to update if the constraint does not hold.  But if \verb!p!  lacks
+both properties which one should be invented? The Kaleidoscope
+language, particularly the early versions, was arguably too powerful
+in ways like this that were interesting, but not useful in
+practice. This made it difficult to understand what the result of a
+program might be and also difficult to implement
+efficiently\todo{cite}.
 
 \paragraph{Read-only Annotations}
-\todo{more detail}
-It is sometimes useful to make a variable in a constraint
-\emph{read-only}, that is, to prevent the solver from changing the
-value of the variable to satisfy the constraint. Reference
-\cite{borning-lisp-symbolic-computation-1992} presents a formal,
-declarative specification of read-only annotations, adapted from
-formalizations of read-only annotations in committed-choice logic
-languages \cite{maher-iclp-1987}---again we review here its intuition
-for reference.
+We can remove the first case of non-determinism from the above example
+using the concept of read-only
+annotations\cite{borning-lisp-symbolic-computation-1992}. Specifically,
+as \lstinline!minimalBalance! is supposed to be a constant in this
+case, we want a way to prevent the solver from changing the value of
+the variable to satisfy the
+constraint. \citeauthor{borning-lisp-symbolic-computation-1992}
+present a declarative specification of read-only annotations, adapted
+from formalizations of read-only annotations in committed-choice logic
+languages \cite{maher-iclp-1987}---we review here its intuition for
+reference.
 
 Intuitively, read-only annotations in a constraint mean that
 information can flow out of a variable, but not into it during the
@@ -552,8 +583,79 @@ The solution is $\{x \mapsto 0, y \mapsto 5\}$---the read-only
 annotation on the $x$ in the required constraint prevents the solver
 from satisfying the $y=20$ constraint instead of the $x=0$ one.
 
+\paragraph{Stay Constraints}
+\label{sec:stay-constraints}
+\emph{Stay constraints} can remove the surprising solutions in which
+the solver sets all variables to 0. When using constraints in
+interactive applications including mutable objects, the state of which
+can change over time, it is important to consider such change in the
+solving process. In particular, we want to express to the solver that,
+if left undisturbed, the system state should not change over time and
+if it is disturbed, the changes should be
+minimal. \citeauthor{lopez1994kaleidoscope} argue that it is important
+in such cases to provide the constraint equivalent of ``frame axioms''
+to specify that parts retain their old values as the system
+changes. The mechanism they propose builds on the theory of constraint
+hierarchies which allows the solver to disregard some constraints in
+preference to others (we discuss this concept in more detail in
+\autoref{sec:constr-hier}). These ``frame axioms'' work by adding
+implicit, low-priority \emph{stay constraints} on every variable in
+the system. As far as the theory of non-required constraints is
+concerned, a stay constraint is simply an equality constraint $v=c$
+for variable $v$ and constant $c$ with a low priority. Operationally,
+$c$ will be the value of $v$ at the time step just before calling the
+solver.
+
+Stay constraints are important in an integration of constraints into
+an imperative language, because a developer used to imperative
+programming does not expect values to change if there is not reason
+for them to do so---without them, we would often get counter-intuitive
+behavior. For example, many constraints on a quad-literal---such as
+that opposite sides should be parallel or that each side be
+perpendicular to its neighbors---can be trivially satisfied if we
+allow the figure to collapse to a single point. This, however, is not
+usually be what we expect, but a result of an under-constrained
+system. Stay constraints alleviate this problem by guiding the solver
+to find solutions that are close to the current state when the system
+is under-constrained.
+
+\paragraph{Identity Constraints}
+\label{sec:identity-constraints}
+Kaleidoscope'93 introduced the concept of \emph{identity
+  constraints}\cite{lopez-ecoop-1994}, which take into account a
+variables identity and, in conjunction with stay constraints, allow us
+to specify that the system is not allowed to change the value of the
+\lstinline!account! variable above. While this addresses this
+particular complication, the concept alone is insufficient to prevent
+non-determinism. As an example, suppose we add the following
+constraint to the constraints above:
+\[
+account = account2
+\]
+This constraint requires two variables to point to the same object.
+Here it is not clear whether the solution will require them both to
+point to the object stored in \verb!account! or that stored in
+\verb!account2!.  Further, if these objects have different structures
+that can lead to non-deterministic behavior in subsequent constraints
+that access their structure.  Finally, the solver can also satisfy the
+identity constraint by assigning both variables to yet a third object.
+
+
 \section{Uniformity for Imperative and Declarative Code}
 \label{sec:unif-imper-decl-1}
+
+Approaches to integrating constraints with imperative code require
+trade-offs between the declarative and imperative programming
+worlds. If the constraints are expressed explicitly in imperative
+code, the solving may be brittle; when using a constraint solver
+library, objects have to be converted to certain special types to be
+passed to the solver; in \acp{dsl}, constraints may refer to object
+state directly, violating the uniform access principle; and in
+\ac{cip} languages, constraints use special behavior definitions
+separate from methods, which violates the uniform access
+principle. These lead to problems as programs grow and implementations
+of objects change, because the constraints have to be kept up-to-date
+regarding the internal state of the domain objects.
 
 Consider a graphical application that draws a window on a virtual
 desktop. The window is rectangular, and implemented as a pair of
@@ -579,10 +681,7 @@ Suppose that this window is showing some important information that
 should remain visible on the screen and fit within the area of the
 window. The constraints may be that the area of the window should be
 $\geq$ 100, and the predicate method \verb!visible?! should return
-true. Various practical approaches to deal with constraints in
-imperative programs exist, and they differ in their trade-off
-regarding uniformity of accessing the constraint solving mechanism and
-how powerful and extensible said mechanism is.
+true.
 
 \paragraph{Imperative Solving}
 In a standard imperative language without constraint solving, the
@@ -737,42 +836,18 @@ interfaces of an object, depending on what they want to express.
 
 \section{General Constraint Solving}
 \label{sec:expect-imper-progr}
-
-It is easy to formulate a problem that is too hard for any one solver,
-and it is easy to specify a problem that allows the solver to find
-undesired solutions. To mitigate the first problem, Babelsberg/JS
-implements a design for cooperating constraint solvers
-\cite{FelgentreffECOOP14}. To address the second problem, we propose
-to restrict the solvers to favor solutions that are less surprising
-for imperative programmers.
-
-
-\ac{cip} languages come with a fixed set of embedded solvers. This
-precludes using constraints on objects that are not simply structures
-of primitive values, such as file or method objects. Furthermore,
-developers may want to use solvers that are better suited to the
-problem domain, that give better results or performance. In \ac{ocp},
-however, all solvers use the same interface to communicate with the
-\ac{vm} so developers can add new solvers and replace existing ones.
-
-
-The solvers embedded in the \acp{vm} of Kaleidoscope ignore
-encapsulation and manipulate the contents of variable storage
-directly. To include complex objects such as files in constraints, it
-may not be desirable to give the solver direct access to the file
-system. In \ac{ocp}, we require solvers call a hook method to set a
-new value on an object and only manipulate the object state directly
-if the object does not respond to the hook selector.
-
-\subsection{Constraint Solving Strategies}
 \label{sec:constr-solv-strat}
 
-To address the problems that arise from imperative, ad-hoc solving of
-constraints, another approach is to use a constraint solving
-library. Although constraint satisfaction in general is NP-hard, there
-is a large number of such libraries that restrict themselves to a
+% \subsection{Constraint Solving Strategies}
+Although constraint satisfaction in general is NP-hard, there is a
+large number of such libraries that restrict themselves to a
 particular class of problems for which they implement optimized
-solving strategies.
+solving strategies. It is easy to formulate a problem that is too hard
+for any one of such solvers. To mitigate this problem, most constraint
+programming systems include multiple solvers\todo{cite}, but they
+usually come with a fixed set that work on specific types. Developers
+usually choose different strategies based on the concrete problem to
+get the best results or the best performance.
 
 Constraint problems can be regarded as a graph, with n-ary operations
 connecting variables and constraints. Solving the constraint problem
@@ -804,7 +879,7 @@ chosen\footnote{See, for example, this catalog of solvers:
   \url{http://openjvm.jvmhost.net/CPSolvers/}, accessed March 9,
   2015}.
 
-\subsubsection{Local Propagation}
+\paragraph{Local Propagation}
 \label{sec:deltablue}
 The simplest algorithm to solve constraints is local propagation.
 DeltaBlue \cite{freeman1989deltablue} is a local propagation solver
@@ -845,7 +920,7 @@ in response. An extension of DeltaBlue, SkyBlue
 cost of instability in the linearization of the graph and resulting
 non-determinism in the solutions.
 
-\subsubsection{The Simplex Method}
+\paragraph{The Simplex Method}
 \label{sec:cassowary}
 Cassowary \cite{badros2001cassowary} is an efficient solver for
 simultaneous linear equations using the simplex method with support
@@ -883,7 +958,7 @@ change. This allows the solver to re-use the existing equations in
 simplex form and simply replace the constants with new values and
 re-optimize.
 
-\subsubsection{Relaxation}
+\paragraph{Relaxation}
 \label{sec:sutherland}
 Ivan Sutherland's Sketchpad system \cite{sutherland-ifips-1963} used
 three different solving strategies --- propagation of degrees of
@@ -924,7 +999,7 @@ alternative relaxation algorithm for geometric constraints
 cost of making constraints harder to specify by using one displacement
 function per variable rather than one error function per constraint.
 
-\subsubsection{Backtracking}
+\paragraph{Backtracking}
 \label{sec:backtalk}
 BackTalk \cite{pachet1995} is a finite domain constraint solving
 library that uses backtracking and arc-consistency optimizations to
@@ -959,7 +1034,7 @@ countries neighbors, before continuing the selection process. This
 quickly reduces the tree of choices that BackTalk has to traverse to
 find a valid solution.
 
-\subsubsection{Satisfiability Modulo Theories}
+\paragraph{Satisfiability Modulo Theories}
 \label{sec:z3}
 \gls{z3} \cite{de2008z3} is a fast and comprehensive \gls{smt} solver
 from Microsoft Research designed for theorem proving, and with support
@@ -1034,21 +1109,21 @@ imperative languages}
 
 \todo[inline]{a few performance results}
 
-\subsection{Constraint Hierarchies}
+\paragraph{Constraint Hierarchies}
 \label{sec:constr-hier}
-
-We noted in the introduction that constraint solvers offer clear
-semantics when dealing with multiple competing or even contradictory
-constraints. When such constraints are used, they are generally not
-all strictly required at the same time---if they are, the constraint
-system is simply unsatisfiable. Instead, in many application domains
-it is useful to introduce hierarchies of non-required or
-\emph{preferential} constraints that declare desirable properties, but
-for which it is no error condition if the solver cannot satisfy
-them. For reference, we informally review the semantics for trading
-off hierarchies of competing constraints, and refer to Borning
-et.al. for a complete formal
-treatise\cite{borning-lisp-symbolic-computation-1992}.
+Orthogonal to the solving strategies above is the theory for trading
+of competing, but non-required constraints. We noted in the
+introduction that constraint solvers offer clear semantics when
+dealing with multiple competing or contradictory constraints. When
+such constraints are used, they are generally not all strictly
+required at the same time---if they are, the constraint system is
+simply unsatisfiable. Instead, in many application domains it is
+useful to introduce hierarchies of non-required or \emph{preferential}
+constraints that declare desirable properties, but for which it is no
+error condition if the solver cannot satisfy them. For reference, we
+informally review the semantics for trading off hierarchies of
+competing constraints, and refer to Borning et.al. for a complete
+formal treatise\cite{borning-lisp-symbolic-computation-1992}.
 
 In a system with constraint hierarchies, each constraint has a
 priority, with a designated highest priority that is called
@@ -3064,6 +3139,25 @@ specific test cases
 to run these tests
 
 \chapter{An Architecture For Using Multiple Constraint Solvers}
+
+ In \ac{ocp}, however, all solvers use the same interface
+to communicate with the \ac{vm} so developers can add new solvers and
+replace existing ones.
+
+
+Furthermore, the solvers embedded in \ac{cip} languages such as
+Kaleidoscope ignore encapsulation and manipulate the contents of
+variable storage directly. To include complex objects such as files in
+constraints, it may not be desirable to give the solver direct access
+to the file system. 
+
+In \ac{ocp}, we require solvers call a hook method
+to set a new value on an object and only manipulate the object state
+directly if the object does not respond to the hook selector.
+
+This precludes using constraints on objects that
+are not simply structures of primitive values, such as file or method
+objects. 
 
 - define the common interface we use for solvers
 

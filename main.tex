@@ -205,8 +205,8 @@
 \exclusivelicense                % ACM gets exclusive license to publish, 
                                  % you retain copyright
 
-\titlebanner{\colorbox{Orange}{\textcolor{White}{Submitted to OOPSLA'15 --- DRAFT: Do not circulate}}}    % These are ignored unless
-\preprintfooter{\colorbox{Orange}{\textcolor{White}{\Large Submitted to OOPSLA'15 --- DRAFT: Do not circulate}}} % 'preprint' option specified.
+% \titlebanner{\colorbox{Orange}{\textcolor{White}{Submitted to OOPSLA'15 --- DRAFT: Do not circulate}}}    % These are ignored unless
+% \preprintfooter{\colorbox{Orange}{\textcolor{White}{\Large Submitted to OOPSLA'15 --- DRAFT: Do not circulate}}} % 'preprint' option specified.
 
 
 \title{Checks and Balances}
@@ -360,19 +360,20 @@ restrictions are as follows:
 \begin{itemize}
 \begin{sloppypar}
 \item {\em Structure preservation}: Asserted constraints cannot change
-  the structure of any objects.  This property is enforced through a
-  form of dynamic structural typechecking, along with extra constraints
-  that implement frame axioms.
+  the structure of any objects (meaning the number and names of its
+  fields).  This property is enforced through a form of dynamic
+  structural typechecking, along with implicitly generated extra
+  constraints that implement frame axioms.
 \end{sloppypar}
 
-\item {\em Identity preservation}: Similarly, adding a constraint
-  cannot change the identity of the object stored in a particular
-  variable.  This property is enforced by requiring
-  constraints on object identity to already be satisfied at the point where they are
-  asserted.
+\item {\em Identity preservation}: Similarly, initially adding a constraint
+  cannot change the reference to an object stored in a particular
+  variable or field (if identity is relevant for that object).  This
+  property is enforced by requiring constraints on object identity to
+  already be satisfied at the point where they are asserted.
 
 \item {\em Structural/identity determinism}:  The structure of objects
-  and the identities of objects stored in variables \emph{can}
+  and the references to objects stored in variables and fields \emph{can}
   change through imperative updates that cause existing constraints to
   be re-solved, but the results are deterministic.  This
   property is enforced through a novel two-phase solving process that first
@@ -432,7 +433,7 @@ our experience porting existing
 \label{sec:example-programs}
 
 This section motivates the problem we address with object-constraint
-languages and overviews our solution informally.  We will use
+languages and presents our solution informally.  We will use
 Babelsberg for our discussion, which is a family of
 object-constraint languages, with current instances being Babelsberg/R
 (a Ruby extension) \cite{FelgentreffJOT14}, Babelsberg/JS (a
@@ -483,7 +484,7 @@ The constraint on line 2 ensures that
 \verb!acc.balance! remains at least \verb!minBal!. If the constraint
 is already satisfied at that point, then nothing need be done;
 otherwise the solver will modify the values of variables and their
-properties in order to satisfy the constraint.  The
+fields in order to satisfy the constraint.  The
 read-only annotation on \verb!minBal! (indicated by the question mark)
 prevents the solver from changing it to satisfy the
 constraint. Because this is an \verb!always! constraint, it will be
@@ -556,50 +557,58 @@ as earlier systems that integrate constraints and objects would
 sometimes find unintuitive solutions that the programmer likely did not
 even consider, let alone intend. 
 
-Specifically, suppose the object \verb!acc! has no 
-\verb!balance! field.  In earlier versions of Babelsberg the solver
-could silently invent such a field and then constrain it.  While one
-might argue that such behavior is desirable in this case, it is a slippery slope.
-For example, consider a constraint of the form \verb!p.x > 0 || p.y > 0! on a point \verb!p!.
-There is inherent nondeterminism here --- the solver can choose which
-property to update if the constraint does not hold.  But if
-\verb!p! lacks an \verb!x! property should it be invented?  If
-\verb!p! lacks both properties which one should be invented?
+Specifically, suppose the object \verb!acc! has no \verb!balance!
+field.  In earlier versions of Babelsberg the solver could silently
+invent such a field to solve the constraint and that field would get
+added to the object when the solution is used to update the
+heap---after all, we did ask in our constraint that such a field exist
+and be equal to the minimal balance.  While one might argue that such
+behavior is desirable in this case, it is a slippery slope.  For
+example, consider a constraint of the form \verb!p.x > 0 || p.y > 0!
+on a point \verb!p!.  There is inherent nondeterminism here --- the
+solver can choose which field to update if the constraint does not
+hold.  But if \verb!p! lacks an \verb!x!  field should it be
+invented?  If \verb!p! lacks both fields which one should be
+invented?
 
 To avoid confusion, we employ a principle of \emph{structure
-  preservation}:  the solution to an asserted constraint will never
-change the structure of any objects.
+  preservation}: the solution to an asserted constraint will never
+change the structure of any objects, where we take \emph{structure} to
+include the names and number of an object's fields (and thus,
+implicitly also its size).
 %
 % These solutions are clearly undesired: imperative programmers do not
 % expect the identity or the object structure of the \verb!acc!
-% variable to change. Neither do they expect the property to change if
+% variable to change. Neither do they expect the field to change if
 % the constraint is already satisfied. Yet it is inconvenient to have to
 % add constraints to prohibit all these solutions. To avoid these
 % undesired solutions, we add the following restrictions to our design:
 % \begin{enumerate}[a)]
-We enforce this principle by employing a form of \emph{structural type-checking} at
-  run time, just before sending constraints to the solver. Our checks
-  ensure that all structural requirements of the given constraints are
-  already satisfied in the current environment and heap.  For example,
-  before solving the constraint in line 2 of our bank account example,
-  Babelsberg will check that \verb!acc! indeed has a \verb!balance!
-  property.  Violations of these checks are treated the same way as unsatisfiable
-  constraints.  Indeed, the constraints \emph{are} unsatisfiable if
-  structural changes are forbidden.
+We enforce this principle by employing a form of \emph{structural
+  type-checking} at run time, just before sending constraints to the
+solver. Our checks ensure that all structural requirements of the
+given constraints are already satisfied in the current environment and
+heap.  For example, before solving the constraint in line 2 of our
+bank account example, Babelsberg will check that \verb!acc! already
+has a \verb!balance! field.  Violations of these checks are treated
+the same way as unsatisfiable constraints.  Indeed, the constraints
+\emph{are} unsatisfiable if structural changes are forbidden.
 
-The above checks ensure that the solver will never need to add a
-property to an object in order to satisfy a constraint.  But we
-additionally would like to ensure that the solver will neither remove properties from an
-  object that are not
-  mentioned in the constraint nor add extraneous properties to an
-  object.  This is accomplished by extending the notion of ``stay''
-  constraints used in prior languages such as Kaleidoscope.  Those
-  languages provide {\tt weak} constraints to the solver specifying
-  that each variable keep its current value.
-Thus, a variable's value will only change if necessary to
-  satisfy a violated constraint.  We employ these same constraints and
-  additionally include ``stay'' constraints that each object retain
-  its exact structure.
+The above checks ensure that the solver will never solve for a
+field on an object that did not already exist in order to satisfy a
+constraint.  But we additionally would like to ensure that the system
+will not remove fields from an object that are not mentioned in
+the constraint (nor add extraneous fields to an object).  This is
+accomplished by extending the notion of ``stay'' constraints used in
+prior languages such as Kaleidoscope.  Those languages provide {\tt
+  weak} constraints to the solver specifying that each variable keep
+its current value.  Thus, a variable's value will only change if
+necessary to satisfy a violated constraint.  We employ these same
+constraints on variables and fields and additionally include ``stay''
+constraints that each object retain its exact structure. This way, the
+solver is required to include all existing fields in the solution and,
+when the system updates the heap from the solution, it can simply
+replace each variable and field with the corresponding value provided by the solver.
 
 %   current value, if possible. This satisfies the desire that the
 %   solver should not change a variable if no constraint on it is
@@ -636,11 +645,11 @@ tensions between these fundamental features \cite{lopez-ecoop-1994}.
 Surprisingly, this tension arises even in the simple bank account
 example shown earlier.  Consider the constraint on \verb!acc.balance!
 in line 2.  While the programmer expects the value of the account's
-\verb!balance! property to be updated as necessary to satisfy the
+\verb!balance! field to be updated as necessary to satisfy the
 constraint, earlier versions of Babelsberg and prior object-constraint
 languages could also choose to simply
 change \verb!acc! to point to another object whose \verb!balance!
-property satisfies the constraint.
+field satisfies the constraint.
 
 Additional complications arise in the presence of explicit
 constraints on object identity.  Such constraints are useful for
@@ -681,8 +690,8 @@ by assigning both variables to yet a third object.
 % program, making it harder to reason about.
 
 To address these problems, we employ a principle of \emph{identity
-  preservation}:  asserted constraints cannot change the identity of
-an object stored in a variable or property.  The principle is enforced
+  preservation}:  asserted constraints cannot change a reference to
+an object stored in a variable or field.  The principle is enforced
 in two ways.  First, we require all identity constraints to be
 \emph{already satisfied} at the point where they are asserted.  
 In our example above, the programmer must explicitly resolve the
@@ -691,7 +700,7 @@ the value of \verb!acc!, before asserting the identity constraint.
 If this check fails we treat the constraint as unsatisfiable.  
 Second,
 we provide additional ``stay'' constraints to the solver that require
-the identities of objects in variables and properties to remain unchanged.
+the identities of objects in variables and fields to remain unchanged.
 While
 this approach places a bit more burden on the programmer, we believe
 that the programmer effort is more than made up for by the strong guarantee that
@@ -702,7 +711,7 @@ constraint solving will never change identities.
 
 Of course, imperative programs do need to sometimes update the structures of
 objects as well as the identities of objects stored in variables and
-properties.  In Babelsberg we must therefore allow such updates.  The
+fields.  In Babelsberg we must therefore allow such updates.  The
 challenge, then, is to provide this expressiveness while at the same
 time avoiding the kinds of surprising behaviors described earlier when
 attempting to re-establish violated constraints.  
@@ -711,7 +720,7 @@ To that end, we allow arbitrary updates to objects and variables
 through ordinary assignment but impose a principle of \emph{structural
   and identity determinism}:  all solutions to the
 violated constraints must agree on the structures of all objects and
-the identities stored in all variables and properties.  The key
+the identities stored in all variables and fields.  The key
 observation is that changes to structure and identity can only occur through an
 assignment statement, and the inherent directionality of an assignment
 ensures a deterministic ``flow'' to other variables in order to
@@ -875,7 +884,9 @@ program).
 We use a simple syntactic rule to ensure that methods used in
 constraints have no side effects.  Such methods can only write to
 local variables and can only invoke other side-effect-free methods.
-This rule is checked dynamically before constraint solving.
+This rule is checked dynamically before constraint solving by
+interpreting the constraint expression and detecting invalid
+operations.
 
 % Our rules prevent the programmer from asserting constraints that have
 % non-benign side effects. We define ``non-benign'' here as side effects
@@ -1051,7 +1062,7 @@ function getCenter() {
 Because the method has only a {\tt return} statement, Babelsberg can
 solve the constraint involving this method multi-directionally, that
 is, it can modify any or all of the \verb!topLeft!, \verb!width!, and
-\verb!height! properties of the window when the \verb!mousePosition!
+\verb!height! fields of the window when the \verb!mousePosition!
 changes to satisfy the constraint.
 
 Given a side-effect-free method, if that method has multiple
@@ -1381,11 +1392,14 @@ formalize our notion of structure through a simple syntax of types:
 
 Our typechecking rules check expression structures dynamically just
 before constraint solving, so we typecheck in the context of a
-run-time environment. Requiring only structural checks allows our
-approach to work on top of both dynamically and statically typed
-languages. Note that we do not include type rules for identities. This
-ensures that constraints involving them do not typecheck, so identity
-checks cannot occur in ordinary constraints.
+run-time environment. Requiring only structural checks that can be
+performed at runtime allows our approach to work on top of both
+dynamically and statically typed languages. For the latter, these
+checks could also be done at compile time using the static types (and
+thus structural definition) for each variable. Note that we do not
+include type rules for identities. This ensures that constraints
+involving them do not typecheck, so identity checks cannot occur in
+ordinary constraints.
 
 \inferax{T-Constant}{
   \tcH{\E}{\H}{c}{PrimitiveType}
@@ -1599,7 +1613,12 @@ Implicitly, these rules get stuck if a) the identity constraints
 cannot be solved, b) the value constraints do not typecheck, 
 or c) the value constraints cannot be solved. A
 practical implementation would add explicit exceptions for these cases
-that the programmer could handle.
+that the programmer could handle.  \mbox{{\tt L} $\neq$ {\tt
+    x} $\Rightarrow$ \tcH{\E}{\H}{L}{T}} means that, if the left-hand
+side of the assignment is not simply a local variable but a field
+access, than the field name must exist in the record being accessed.
+We use our typing rule to ensure this by asserting that the field
+already has a type {\tt T}.
 
 \infrule[S-Asgn]{
   \mbox{
@@ -1624,12 +1643,7 @@ that the programmer could handle.
 }}
 
 In the next rule, we take \mbox{\H({\tt r})$\uparrow$} to mean that
-there is no binding for {\tt r} on the heap. \mbox{{\tt L} $\neq$ {\tt
-    x} $\Rightarrow$ \tcH{\E}{\H}{L}{T}} means that, if the left-hand
-side of the assignment is not simply a local variable but a field
-access, than the field name must exist in the record being accessed.
-We use our typing rule to ensure this by asserting that the field
-already has a type {\tt T}.
+there is no binding for {\tt r} on the heap.
 
 \infrule[S-AsgnNew]{
   \mbox{
@@ -2280,8 +2294,8 @@ property of these systems to allow actions that we prohibit in
 concrete identity of an object is not relevant. When declarative code
 interacts with imperative code, however, this may not be the case,
 especially in dynamic languages such as JavaScript, where libraries
-add and remove properties to specific instances at runtime and check
-for object identity rather than properties. Our structural type-checks
+add and remove fields to specific instances at runtime and check
+for object identity rather than fields. Our structural type-checks
 could be used to limit the amount of non-determinism in these systems
 by ensuring that all solutions to a constraint must have the same
 structure.

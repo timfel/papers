@@ -24,6 +24,7 @@
 % \usepackage[ngerman]{babel} % deutsch
 \usepackage[utf8x]{inputenc}
 \usepackage[T1]{fontenc} 
+\usepackage{relsize}
 \usepackage[final]{listings} % for sourcecode
 \usepackage{graphviz} % graphs
 \usepackage{array} % tables
@@ -384,8 +385,9 @@ restrictions are as follows:
   to determine whether and how a method can be used within constraints.
   In short, methods with side effects (writes other than to local
   variables) cannot be used in constraints.  Other methods whose
-  bodies simply compute and return an expression can be used
-  multi-directionally in constraints, while the remaining methods can
+  bodies simply compute and return a branch-free expression can be used
+  multi-directionally in constraints, provided any methods called as part
+  of that expression also follow this restriction. The remaining methods can
   be used just in the forward direction.
 \end{itemize}
 
@@ -461,7 +463,10 @@ constraint is required to hold for the rest of
 the execution; Babelsberg/JS therefore re-solves the constraint as
 part of the execution of each subsequent statement if it may have become invalidated.
 In contrast, a \verb!once!  constraint is
-solved once and then immediately redacted.
+solved once and then immediately redacted. While semantically, \verb!always! constraints
+persist for the rest of the execution, the practical implementation
+garbage collects constraints once all variables that they refer to
+can no longer be accessed.
 
 As a simple example, consider a bank account application in which we
 want to prevent changes that would make the account balance drop below
@@ -1032,9 +1037,10 @@ to determine the identities of the returned objects.
 % unify the types through control structures.
 
 Our current rules instead rely simply on syntactic
-properties of the method called by a constraint.  If a method consists only
-of a single {\tt return} statement, then it can be used in a
-constraint in a multi-way manner, just like any other constraint.
+properties of the methods called in a constraint.  If a method contains
+only a single, branch-free \texttt{return} statement, then it can be used in a
+constraint in a multi-way manner, provided any methods called as part
+of that statement (recursively) also follow this restriction.
 While seemingly restrictive, this approach supports a spectrum of useful
 programming idioms.  For example,
 suppose that we want to express the
@@ -1068,15 +1074,18 @@ function getCenter() {
     );
 }
 \end{lstlisting}
-Because the method has only a {\tt return} statement, Babelsberg can
+Because the method has only a branch-free {\tt return} statement, Babelsberg can
 solve the constraint involving this method multi-directionally, that
 is, it can modify any or all of the \verb!topLeft!, \verb!width!, and
 \verb!height! fields of the window when the \verb!mousePosition!
 changes to satisfy the constraint.
 
-Given a side-effect-free method, if that method has multiple
-statements rather than a single {\tt return} statement, then we do
-not allow it to be used in a multi-way manner.  The
+Given a side-effect-free method, if that method has branches or
+multiple statements rather than a single {\tt return} statement, then
+we do not allow it to be used in a multi-way manner (this will prevent
+the system from, for example, trying to reverse a one-way hash
+function that loops over its input blocks, even though such functions are
+side-effect free).  The
 method \emph{can} still be invoked within a constraint,
 but can only be used in the ``forward''
 direction.  That is, the method will simply be executed, and its
@@ -1216,30 +1225,29 @@ them.
 \subsection{Syntax}
 
 % \vskip\baselineskip\noindent
-We use the following syntax for Babelsberg/UID:
-\vskip0.5\baselineskip\noindent
+We use the following syntax for Babelsberg/UID:\\[.5\baselineskip]
 {\ttfamily
-\begin{tabular}{lrrl}
-{\rm Statement} & s & ::= & skip $\mid$ s;s \\
+\begin{supertabular}{@{}lrrl}
+\textrm{Statement} & s & ::= & skip $\mid$ s;s \\
   & & $\mid$ & L := e $\mid$ L := new o \\
   & & $\mid$ & always C $\mid$ once C \\
   & & $\mid$ & if e then s else s \\
   & & $\mid$ & while e do s \\
-{\rm Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
-{\rm Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e $\mid$ e $\olessthan$ e \\
+\textrm{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
+\textrm{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e $\mid$ e $\olessthan$ e \\
   & & $\mid$ & e $\ovee$ e $\mid$ I $\mid$ o $\mid$ D\\
-{\rm Identity} & I & ::= & L == L\\
-{\rm Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
-{\rm L-Value} & L & ::= & x $\mid$ L.l \\
-{\rm Constant} & c & ::= & true $\mid$ false $\mid$ nil \\
-  & & $\mid$ & {\rm base type constants}\\
-{\rm Variable} & x & ::= & {\rm variable names} \\
-{\rm Label} & l & ::= & {\rm record label names} \\
-{\rm Reference} & r & ::= & {\rm references to heap records} \\
-{\rm Dereference} & D & ::= & \H(e) \\
+\textrm{Identity} & I & ::= & L == L\\
+\textrm{Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
+\textrm{L-Value} & L & ::= & x $\mid$ L.l \\
+\textrm{Constant} & c & ::= & true $\mid$ false $\mid$ nil \\
+  & & $\mid$ & \textrm{base type constants}\\
+\textrm{Variable} & x & ::= & \textrm{variable names} \\
+\textrm{Label} & l & ::= & \textrm{record label names} \\
+\textrm{Reference} & r & ::= & \textrm{references to heap records} \\
+\textrm{Dereference} & D & ::= & \H(e) \\
 
-{\rm Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\} \\
-\end{tabular}
+\textrm{Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\} \\
+\end{supertabular}
 }\vskip0.5\baselineskip
 
 Metavariable {\tt c} ranges over the {\tt nil} value, booleans, and
@@ -2204,7 +2212,8 @@ inlined automatically.
 %%   dissatisfied with the way they are in the implementations, so I'd
 %%   like to take the chance to change that.}
 \noindent\begin{center}
-* * *
+% * * *
+\vskip-0.4\baselineskip
 \end{center}
 \vskip-0.4\baselineskip
 
@@ -2234,7 +2243,7 @@ that using a different solver does not introduce non-deterministic and
 surprising behaviors regarding the structure and identity of
 objects. A large number of constraint satisfaction libraries
 exist\footnote{See, for example, this catalog:
-  \url{http://openjvm.jvmhost.net/CPSolvers/sssss}, accessed March 9,
+  \url{http://openjvm.jvmhost.net/CPSolvers/}, accessed March 9,
   2015}, however, these systems do not integrate syntactically or
 semantically with the host language. They require explicit action by
 the developer to copy and convert variables between the imperative and

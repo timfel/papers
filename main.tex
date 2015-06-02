@@ -293,7 +293,7 @@
   key features of the approach, including constraints over mutable
   objects, constraints involving object identity, and constraints on
   the results of message sends. We present our solution concretely in
-  the context of the Babelsberg object-constraint language, providing
+  the context of the Babelsberg object-constraint language framework, providing
   both an informal description of
   the resulting language and a formal semantics for a core subset
   of it.  The full semantics is given in a companion technical
@@ -302,6 +302,9 @@
   they provide the same results as existing implementations of
   Babelsberg in JavaScript, Ruby, and Smalltalk.
 \end{abstract}
+
+\ab{TODO: changed the abstract to say Babelsberg language framework
+  rather than just language - OK?}
 
 \category{D.3.3}{Programming Languages}{Language Constructs and
   Features --- constraints, classes and objects}
@@ -351,7 +354,7 @@ field that does not exist on an object, should the solver be allowed
 to add it? If a constraint requires two variables to refer to the same
 object, which variable should be changed? Can methods be used in
 constraints?  If so, can they only be used in the ``forward''
-direction, to compute a result, or can the solver also use them as
+direction, to compute a result, or can the solver also use them to define
 multi-directional constraints?
 
 In this paper we propose a set of design principles to answer these
@@ -461,12 +464,13 @@ Babelsberg/JS augments JavaScript with new statements of the form
 \verb!e! is an ordinary JavaScript expression.  An \verb!always!
 constraint is required to hold for the rest of
 the execution; Babelsberg/JS therefore re-solves the constraint as
-part of the execution of each subsequent statement if it may have become invalidated.
-In contrast, a \verb!once!  constraint is
-solved once and then immediately redacted. While semantically, \verb!always! constraints
-persist for the rest of the execution, the practical implementation
-garbage collects constraints once all variables that they refer to
-can no longer be accessed.
+part of the execution of each subsequent statement if it may have 
+become invalidated.  In contrast, a \verb!once!  constraint is
+solved once and then immediately retracted. Semantically, \verb!always! 
+constraints
+persist for the rest of the execution.  Practical implementations will
+garbage collect constraints if all variables that they refer to
+are no longer accessible.
 
 As a simple example, consider a bank account application in which we
 want to prevent changes that would make the account balance drop below
@@ -479,36 +483,37 @@ Babelsberg/JS implementation of such an application.  %  (This example is
 % on variables.)
 \begin{lstlisting}[language=JavaScript,caption={~},label=lst:account]
 var acc = new Account(), plan = new SavingsPlan();
-always: { acc.balance >= plan.minimalBalance()? }
+always: { acc.balance >= plan.minimumBalance()? }
 always: { priority: "medium"
           plan.dailyInterest == (acc.balance? * 0.01) / 365.0 }
 always: { plan.dailyInterest <= 10 }
 \end{lstlisting}
 
 The constraint on line 2 ensures that 
-\verb!acc.balance! remains above the minimal balance required by the plan.
-Note that the plan's minimal balance is the result of a message call---it does
+\verb!acc.balance! remains above the minimum balance required by the plan.
+Note that the plan's minimum balance is the result of a message call---it does
 not matter if it is calculated or a field access. If the constraint
 is already satisfied at that point, then nothing need be done;
 otherwise the solver will modify the values of variables and their
-fields in order to satisfy the constraint.  The
-read-only annotation on \verb!minimalBalance()! (indicated by the question mark)
-prevents the solver from changing any variables that contribute to its result to satisfy the
-constraint. In this case the means only variables one the left-hand side of the
-inequality (\verb!acc! and verb!balance!) are available for the solver to modify.
+fields in order to satisfy the constraint.  The read-only annotation
+on \verb!minimumBalance()! (indicated by the question mark) prevents
+the solver from changing any variables that contribute to its result
+to satisfy the constraint. In this case, this means that only
+variables on the left-hand side of the inequality (\verb!acc! and
+\verb!balance!) are available for the solver to modify.
 Because this is an \verb!always! constraint, it will be
 re-checked, and if necessary re-solved, after each subsequent
-statement for the rest of the execution\footnote{%
+statement for the rest of the execution.\footnote{%
 Note that the
 constraint is active from the point at which it is executed. It 
-does not retroactively apply prior to the execution. In a graphical application,
-for example, the user may have already seen previous results.}.
- It is possible for the current set of constraints to be
-unsatisfiable.
-For example, if the minimal balance is statically 100, but a later constraint 
-requires that \verb!acc.balance! have the
-value 50, or if that value is directly assigned to \verb!acc.balance!,
-an exception will be generated.
+does not retroactively apply prior to the execution. 
+In a graphical application,
+for example, the user may have already seen previous results.}
+It is of course possible for the given constraints to be
+unsatisfiable.  For example, if there is a required constraint that
+the minimum balance is 100, but a subsequent constraint requires that
+\verb!acc.balance! be 50, or if that value is directly assigned to
+\verb!acc.balance!, an exception will be generated.
 
 Line 3 computes the daily interest and again uses a read-only
 annotation, now so that 
@@ -577,7 +582,7 @@ field.  In earlier versions of Babelsberg the solver could silently
 invent such a field to solve the constraint and that field would get
 added to the object when the solution is used to update the
 heap---after all, we did ask in our constraint that such a field exist
-and be equal to the minimal balance.  While one might argue that such
+and be equal to the minimum balance.  While one might argue that such
 behavior is desirable in this case, it is a slippery slope.  For
 example, consider a constraint of the form \verb!p.x > 0 || p.y > 0!
 on a point \verb!p!.  There is inherent nondeterminism here --- the
@@ -605,13 +610,16 @@ solver. Our checks ensure that all structural requirements of the
 given constraints are already satisfied in the current environment and
 heap.  For example, before solving the constraint in line 2 of our
 bank account example, Babelsberg will check that \verb!acc! already
-has a \verb!balance! field.  Violations of these checks are treated
-the same way as unsatisfiable constraints.  Indeed, the constraints
-\emph{are} unsatisfiable if structural changes are forbidden.
+has a \verb!balance! field.  
+
+\ab{TODO: deleted these sentences - to me they don't seem to add much}
+%% Violations of these checks are treated
+%% the same way as unsatisfiable constraints.  Indeed, the constraints
+%% \emph{are} unsatisfiable if structural changes are forbidden.
 
 The above checks ensure that the solver will never solve for a field
 on an object that did not already exist in order to satisfy a
-constraint.  But we additionally would like to ensure that the system
+constraint.  But we additionally want to ensure that the system
 will not remove fields from an object that are not mentioned in the
 constraint (nor add extraneous fields to an object).  This is
 accomplished by extending the notion of ``stay'' constraints used in
@@ -622,10 +630,11 @@ necessary to satisfy a violated constraint.  We employ these same
 constraints on variables and fields and additionally include ``stay''
 constraints that each object retain its exact structure. This way, the
 solver is required to include all existing fields in the solution and,
-when the system updates the heap from the solution, it can simply
+in the semantics, when the heap is updated
+from the solution we simply
 reconstruct the entire heap with the values provided by the solver,
 rather than having to take care to map everything back. This simplifies
-the semantics, although a practical implementation may optimize this
+the semantics.  A practical implementation, of course, will optimize this
 to only update variables as required.
 
 %   current value, if possible. This satisfies the desire that the
@@ -683,9 +692,9 @@ always: { acc === acc2 }
 This identity constraint requires two variables to point to the
 same object.  Here it is not clear whether the solution will require
 them both to point to the object stored in \verb!acc! or that stored
-in \verb!acc2!.  Further, if these objects have different structures
-that can lead to nondeterministic failures in subsequent structural
-checks.  Finally, the solver can also satisfy the identity constraint
+in \verb!acc2!.  Further, if these objects have different structures,
+this could lead to nondeterministic failures in subsequent structural
+checks.  Finally, the solver could also satisfy the identity constraint
 by assigning both variables to yet a third object.
 
 % This adds a constraint on line 2 that \verb!account1! and
@@ -760,13 +769,13 @@ way to re-satisfy the existing identity constraint is to re-assign
 
 Finally, an assignment statement may cause violations in both identity
 constraints as well as ordinary ``value'' constraints.  To provide a
-clean semantics for programmers, we introduce a two-phase approach to
+clean semantics, we introduce a two-phase approach to
 constraint solving as part of an assignment statement. 
- In the first phase all identity constraints are deterministically
- re-established as described above.  In the second phase, all value
- constraints are solved, with the structure and identities of all
- objects now fixed using the ``stay'' constraints described in the
- previous subsections. 
+In the first phase, all identity constraints are deterministically
+re-established as described above.  In the second phase, all value
+constraints are solved, with the structure and identities of all
+objects now fixed using the ``stay'' constraints described in the
+previous subsections. 
 
 % We
   % disallow non-required identity constraints, to avoid having to
@@ -1020,7 +1029,7 @@ method calls, this includes having to determine the identity of method
 return values, which, in the presence of branching and loops, would
 entail considering the possible control flow paths. Here, prior
 versions of Babelsberg used a kind of ``best effort'' strategy which
-made it difficult to know what would work when.  However, this
+made it difficult to know what would work when.  This
 presented debugging challenges, because if the system rejected a
 constraint it was not always clear whether this was because it was
 incorrect or whether the system was unable transform control flow structures
@@ -1040,11 +1049,13 @@ to determine the identities of the returned objects.
 % it is incorrect, and when it does so because it could not infer or
 % unify the types through control structures.
 
-Our current rules instead rely simply on syntactic
+Our current rules instead rely on simple, mostly syntactic,
 properties of the methods called in a constraint.  If a method contains
 only a single, branch-free \texttt{return} statement, then it can be used in a
 constraint in a multi-way manner, provided any methods called as part
-of that statement (recursively) also follow this restriction.
+of that statement (recursively) either themselves 
+follow this restriction as well, or are
+primitive methods flagged as multi-way.
 While seemingly restrictive, this approach supports a spectrum of useful
 programming idioms.  For example,
 suppose that we want to express the
@@ -1078,7 +1089,8 @@ function getCenter() {
     );
 }
 \end{lstlisting}
-Because the method has only a branch-free {\tt return} statement, Babelsberg can
+Because the method consists of only a branch-free {\tt return} statement, 
+Babelsberg can
 solve the constraint involving this method multi-directionally, that
 is, it can modify any or all of the \verb!topLeft!, \verb!width!, and
 \verb!height! fields of the window when the \verb!mousePosition!
@@ -1086,10 +1098,10 @@ changes to satisfy the constraint.
 
 Given a side-effect-free method, if that method has branches or
 multiple statements rather than a single {\tt return} statement, then
-we do not allow it to be used in a multi-way manner (this will prevent
+we do not allow it to be used in a multi-way manner.  (This will prevent
 the system from, for example, trying to reverse a one-way hash
 function that loops over its input blocks, even though such functions are
-side-effect free).  The
+side-effect free.)  The
 method \emph{can} still be invoked within a constraint,
 but can only be used in the ``forward''
 direction.  That is, the method will simply be executed, and its
@@ -1901,9 +1913,9 @@ constraints on strings, which are not supported in the version of Z3
 we used.  (A string theory exists for an older version of Z3
 \cite{zheng2013z3}, but does not work in recent versions.)  The
 remaining 44 all run and produce the expected results at each step of
-the execution\footnote{The entire executable semantics and the test
+the execution.\footnote{The entire executable semantics and the test
   programs are available at:
-  \url{https://github.com/babelsberg/babelsberg-rml}}.
+  \url{https://github.com/babelsberg/babelsberg-rml}}
 
 As an extension to the \rml implementation, we add a module to
 transform the example code into test cases for the various

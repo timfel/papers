@@ -346,9 +346,9 @@ fashion, within an object-oriented framework that respects standard
 object-oriented features such as messages, encapsulation, and
 inheritance.
 
-Experience with \ac{ocp} systems has shown that the solutions to a number of
+Experience with \ac{ocp} systems has shown that natural solutions to a number of
 important problems involve constraints that include mutable objects,
-object identity, and message sends. These have the potential for
+object identity, and message sends.  However, such constraints also have the potential for
 surprising solutions and non-determinism. If a constraint references a
 field that does not exist on an object, should the solver be allowed
 to add it? If a constraint requires two variables to refer to the same
@@ -359,43 +359,47 @@ multi-directional constraints?
 
 In this paper we propose a set of design principles to answer these
 questions, along with a set of restrictions on the behavior of
-\ac{ocp} systems that enforce these principles.  These principles and
+\ac{ocp} systems that enforce these principles.  The principles and
 restrictions are as follows:
 \begin{itemize}
 \begin{sloppypar}
 \item {\em Structure preservation}: Asserted constraints cannot change
-  the structure of any objects (meaning the number and names of its
+  the structure of any objects (meaning the number and names of their
   fields).  This property is enforced through a form of dynamic
   structural typechecking, along with implicitly generated extra
   constraints that implement frame axioms.
 \end{sloppypar}
 
-\item {\em Identity preservation}: Similarly, initially adding a constraint
-  cannot change the reference to an object stored in a particular
-  variable or field (if identity is relevant for that object).  This
+\item {\em Identity preservation}: Similarly, asserted constraints
+  cannot change what object a particular variable or field stores.  This
   property is enforced by requiring constraints on object identity to
   already be satisfied at the point where they are asserted.
 
 \item {\em Structural/identity determinism}:  The structure of objects
-  and the references to objects stored in variables and fields \emph{can}
-  change through imperative updates that cause existing constraints to
-  be re-solved, but the results are deterministic.  This
+  as well as the particular objects stored by variables and fields
+  must be allowed to change through imperative updates, and such
+  changes can in turn cause existing constraints to be re-solved.
+  However, the results of constraint solving are deterministic in
+  terms of the final structures of objects and the identities of objects
+  stored in each variable/field.  This
   property is enforced through a novel two-phase solving process that first
   deterministically solves identity constraints and then solves the remaining constraints in the
-  resulting environment and heap.
+  updated environment and heap.
 
 \item {\em Syntactic method rules}:  A simple syntactic check suffices
   to determine whether and how a method can be used within constraints.
   In short, methods with side effects (writes other than to local
   variables) cannot be used in constraints.  Other methods whose
-  bodies simply compute and return a branch-free expression can be used
-  multi-directionally in constraints, provided any methods called as part
+  bodies simply compute and return a expression can be used
+  {\em multi-directionally} in constraints --- any subset of their variables can be considered
+``unknowns'' and solved for in terms of the other variables --- provided any methods called as part
   of that expression also follow this restriction. The remaining methods can
-  be used just in the forward direction.
+  be used just in the ``forward'' direction, in
+  order to produce a result value which can participate within constraints.
 \end{itemize}
 
 We have instantiated our approach in the context of the Babelsberg
-object-constraint language, but the ideas are applicable to such
+language, but the ideas are applicable to object-constraint
 languages in general.  Indeed, Babelsberg
  inherits the described issues (as well as its overall approach) from the
 earlier Kaleidoscope \cite{lopez1994kaleidoscope} and Turtle
@@ -406,8 +410,7 @@ languages, and our approach is also useful for constraint systems such as BackTa
 
 We describe our approach informally (\autoref{sec:example-programs}) and have evaluated it in several
 ways.  First, we have formalized the approach in a
-core subset of Babelsberg and proven that it satisfies some key
-properties (\autoref{sec:semantics}).  Second, we have developed 
+core subset of Babelsberg (\autoref{sec:semantics}).  Second, we have developed 
 an executable version of our formal semantics to automatically verify a
   suite of example programs, including ones that illustrate the problems we address.
 On top of this executable semantics, we have also built a framework
@@ -437,8 +440,8 @@ our experience porting existing
 \section{Overview}
 \label{sec:example-programs}
 
-This section motivates the problem we address with object-constraint
-languages and presents our solution informally.  We will use
+This section motivates the problems we address with object-constraint
+languages and presents our solutions informally.  We will use
 Babelsberg for our discussion, which is a family of
 object-constraint languages, with current instances being Babelsberg/R
 (a Ruby extension) \cite{FelgentreffJOT14}, Babelsberg/JS (a
@@ -580,7 +583,7 @@ even consider, let alone intend.
 
 Specifically, suppose the object \verb!acc! has no \verb!balance!
 field.  In earlier versions of Babelsberg the solver could silently
-invent such a field to solve the constraint and that field would get
+invent such a field to solve the constraint on line 2, and that field would get
 added to the object when the solution is used to update the
 heap---after all, we did ask in our constraint that such a field exist
 and be equal to the minimum balance.  While one might argue that such
@@ -596,7 +599,7 @@ To avoid confusion, we employ a principle of \emph{structure
   preservation}: the solution to an asserted constraint will never
 change the structure of any objects, where we take \emph{structure} to
 include the names and number of an object's fields (and thus,
-implicitly also its size).
+implicitly also its size), recursively.
 %
 % These solutions are clearly undesired: imperative programmers do not
 % expect the identity or the object structure of the \verb!acc!
@@ -611,7 +614,8 @@ solver. Our checks ensure that all structural requirements of the
 given constraints are already satisfied in the current environment and
 heap.  For example, before solving the constraint in line 2 of our
 bank account example, Babelsberg will check that \verb!acc! already
-has a \verb!balance! field.  
+has a \verb!balance! field and will raise an exception if that is not
+the case.  
 
 \ab{TODO: deleted these sentences - to me they don't seem to add much}
 %% Violations of these checks are treated
@@ -668,7 +672,7 @@ interaction between constraints and object identity.  Object identity
 plays an essential role when using an object-oriented language to
 model aspects of the real world and so, in a language that integrates
 constraints with object-oriented features, we need to resolve the
-tensions between these fundamental features \cite{lopez-ecoop-1994}.
+tension between these fundamental features \cite{lopez-ecoop-1994}.
 
 Surprisingly, this tension arises even in the simple bank account
 example shown earlier.  Consider the constraint on \verb!acc.balance!
@@ -677,7 +681,7 @@ in line 2.  While the programmer expects the value of the account's
 constraint, earlier versions of Babelsberg and prior object-constraint
 languages could also choose to simply
 change \verb!acc! to point to another object whose \verb!balance!
-field satisfies the constraint.
+field satisfies the constraint!
 
 Additional complications arise in the presence of explicit
 constraints on object identity.  Such constraints are useful for
@@ -718,8 +722,8 @@ by assigning both variables to yet a third object.
 % program, making it harder to reason about.
 
 To address these problems, we employ a principle of \emph{identity
-  preservation}:  asserted constraints cannot change a reference to
-an object stored in a variable or field.  The principle is enforced
+  preservation}:  asserted constraints cannot change what object a
+particular variable or field stores.  The principle is enforced
 in two ways.  First, we require all identity constraints to be
 \emph{already satisfied} at the point where they are asserted.  
 In our example above, the programmer must explicitly resolve the
@@ -728,17 +732,17 @@ the value of \verb!acc!, before asserting the identity constraint.
 If this check fails we treat the constraint as unsatisfiable.  
 Second,
 we provide additional ``stay'' constraints to the solver that require
-the identities of objects in variables and fields to remain unchanged.
+the particular objects stored in variables and fields to remain unchanged.
 While
 this approach places a bit more burden on the programmer, we believe
-that the programmer effort is more than made up for by the strong guarantee that
-constraint solving will never change identities.  
+that the programmer effort is more than made up for by the strong
+guarantee provided by the language.
 
 \subsection{Structural/Identity Determinism}
 \label{sec:determinism}
 
 Of course, imperative programs do need to sometimes update the structures of
-objects as well as the identities of objects stored in variables and
+objects and change which objects are stored in particular variables and
 fields.  In Babelsberg we must therefore allow such updates.  The
 challenge, then, is to provide this expressiveness while at the same
 time avoiding the kinds of surprising behaviors described earlier when
@@ -769,13 +773,14 @@ way to re-satisfy the existing identity constraint is to re-assign
 \verb!acc! to point to {\tt o} as well.
 
 Finally, an assignment statement may cause violations in both identity
-constraints as well as ordinary ``value'' constraints.  To provide a
-clean semantics, we introduce a two-phase approach to
+constraints as well as ordinary ``value'' constraints.  To
+re-establish all constraints in a manner that adheres to all of our
+restrictions, we introduce a two-phase approach to
 constraint solving as part of an assignment statement. 
 In the first phase, all identity constraints are deterministically
 re-established as described above.  In the second phase, all value
 constraints are solved, with the structure and identities of all
-objects now fixed using the ``stay'' constraints described in the
+objects now fixed using the approach described in the
 previous subsections. 
 
 % We
@@ -814,7 +819,7 @@ This approach simplifies programming by avoiding the problems
 described above.  However, it also creates new semantic
 challenges.  The Babelsberg implementation must be able to translate
 method bodies into constraints.  However,  not all imperative code can
-be (easily) translated to declarative constraints.  In earlier
+be translated to declarative constraints.  In earlier
 versions of Babelsberg, the line between methods that could
 successfully be called from constraints and those that could not was
 not precise, and evolved alongside the implementations 
@@ -891,8 +896,9 @@ fixed.  At that point, the dynamic dispatch can be performed in order
 to identify the appropriate method implementation, which can then be
 translated to a constraint as part of the second, ``value'' phase of
 constraint solving.  The only new restriction we require to make this approach
-work is that methods called from constraints that are meant to work multi-way
-cannot include tests for identity that solver would need to solve for.
+work is that methods called from constraints cannot
+include identity constraints, as these would have needed to be solved in
+the first phase.
 
 \subsubsection{Side Effects}
 \label{sec:no-side-effects}
@@ -1028,7 +1034,7 @@ To correctly look up methods in constraints, as described in
 identities of variables encountered in value constraints. For chained
 method calls, this includes having to determine the identity of method
 return values, which, in the presence of branching and loops, would
-entail considering the possible control flow paths. Here, prior
+entail considering the possible control flow paths. Prior
 versions of Babelsberg used a kind of ``best effort'' strategy which
 made it difficult to know what would work when.  This
 presented debugging challenges, because if the system rejected a
@@ -1053,7 +1059,7 @@ to determine the identities of the returned objects.
 Our current rules instead rely on simple syntactic
 properties of the methods called in a constraint.  If a method
 consists solely of
-a single, branch-free \texttt{return} statement, then it can be used in a
+a single \texttt{return} statement, then it can be used in a
 constraint in a multi-way manner, provided any methods called as part
 of that statement (recursively) themselves 
 follow this restriction as well.
@@ -1090,27 +1096,28 @@ function getCenter() {
     );
 }
 \end{lstlisting}
-Because the method consists of only a branch-free {\tt return} statement, 
+Because the method consists of only a {\tt return} statement, 
 Babelsberg can
-solve the constraint involving this method multi-directionally, that
+solve the constraint involving this method multi-directionally; that
 is, it can modify any or all of the \verb!topLeft!, \verb!width!, and
-\verb!height! fields of the window when the \verb!mousePosition!
-changes to satisfy the constraint.
+\verb!height! fields of the window in order to satisfy the constraint whenever the \verb!mousePosition!
+changes.
 
 A method \verb|m| that is used in a multi-way constraint is ultimately
 exploded into a set of primitive constraints that correspond to the
-primitive methods called by \verb|m|, which are then handed to the solver.
-Whether the system can find a solution depends on whether the
-solver can handle that collection of constraints.  For example, a
-local propagation solver such as DeltaBlue could handle the integer
-\verb|+| constraints resulting from the \verb|getCenter| example,
-provided the overall constraint graph was acyclic, but could not
-handle a method that exploded into an integer inequality constraint.
+primitive operations performed by \verb|m| and its callees, which are then handed to the solver.
+However, if the resulting constraints are not supported by the solver,
+then the method call must be treated in a one-way manner, as described
+below.  For example, a
+local propagation solver such as DeltaBlue can handle the integer addition
+constraints resulting from the \verb|getCenter| example but cannot
+handle a method that involves integer inequalities.
 (Given a constraint $x \leq y$, a local propagation solver cannot find
 a unique value for $y$ given a value for $x$.)  On the other hand, a
 solver that can accommodate both linear equalities and inequalities
-\emph{would} be able to solve such a set of constraints. Finally,
-though, if we have a primitive method \verb|encrypt| called on a
+\emph{would} be able to solve such a set of constraints.  Finally,
+given a constraint
+that invokes a method \verb|encrypt| on a
 public key object, presumably no practical solver will be able to
 solve this in a multi-way manner.
 

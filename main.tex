@@ -1,0 +1,134 @@
+\documentclass[a4paper]{article}
+
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{listings}
+\usepackage{hyperref}
+
+\title{Using Babelsberg/RML -- An Executable Formal Semantics and Language Testing Tool}
+
+\author{Tim Felgentreff, Todd Millstein, Alan Borning, and Robert Hirschfeld}
+\lstset{basicstyle=\tt,columns=fullflexible}
+\date{\today}
+
+\begin{document}
+\sloppy
+\maketitle
+
+\section{Getting Started}
+
+This is an artifact to go with the paper "Checks and Balances - Constraint Solving without Surprises in Object-Constraint Programming Languages". It consists of this file and an \texttt{OVA} VM package. \texttt{OVA} is an open format to package virtual machines and is supported by virtualization software such as VMware Player or Oracle Virtual Box. This artifact was created and tested on Virtual Box. To get started, import the \texttt{OVA} into Virtual Box by clicking "File$\rightarrow$Import Appliance" and following the wizard. Once the VM is set up, start it. It will log in automatically, start a graphical window manager, and open a terminal.
+
+You are logged in as user \texttt{oopsla} (the user has sudo access should you need it, the password is \texttt{artifact}).
+
+The home directory includes the following 4 folders:
+\begin{itemize}
+\item \texttt{babelsberg-rml}---the executable semantics
+\item \texttt{babelsberg-js}---the JavaScript implementation of Babelsberg, including the changes required to make it more conformant with the semantics.
+\item \texttt{babelsberg-r}---the Ruby implementation of Babelsberg
+\item \texttt{babelsberg-s}---the Squeak/Smalltalk implementation of Babelsberg
+\end{itemize}
+
+To test that everything is working as it should, execute the following commands to enter the \texttt{babelsberg-rml} folder and run the basic test suite:
+\begin{lstlisting}
+cd babelsberg-rml
+rake objects:citest
+\end{lstlisting}
+
+This will run the tests that can be found in the companion technical report to the OOPSLA paper, and for each invocation of the solver it will print the translated constraints and the resulting environment. If all is well, this should exit with an exitcode of 0 (the prompt will show a green colon, not a red exclamation mark).
+
+\section{Step-By-Step Instructions}
+
+The VM includes a rudimentary graphical environment, the Chromium web browser, and the Emacs, VIM, and Nano editors. It does not require internet access; the web browser is only used to access a local server for Babelsberg/JS.
+
+\subsection{Babelsberg/RML Executable Semantics}
+
+\paragraph{Folder Layout}
+The \texttt{babelsberg-rml} folder contains the implementations of the different executable semantics for Babelsberg in the subfolders \texttt{reals}, \texttt{records}, \texttt{uid}, and \texttt{objects}. The \texttt{uid} folder implements the semantics as presented in the OOPSLA paper, the \texttt{reals} and \texttt{records} folders contain semantics with fewer features (only primitives and primitives+immutable records, respectively). The \texttt{objects} folder containts the semantics for the full object-oriented language with methods. All of these are described in detail in the companion technical report to the OOPSLA paper.
+
+The interesting file to look at in each of these subdirectories is \texttt{babelsberg.rml}. It contains the definition of the abstract syntax and the rules as presented in the paper and companion technical report. The relations are named after the judgments in the formal semantics, and the rules syntax closely matches the formal rules, with preconditions written first and the transformation rule given below the \texttt{----} line. For an introduction to RML, please see \cite{fritzson60314developing}.
+
+Each semantics subfolder furthermore includes an \texttt{examples} folder which contains the programs that are presented (file ending \texttt{txt}) in the technical report, the expected solutions to each invocation of the solver for each program (file ending \texttt{env}), and possibly a marker file that declares that a program is invalid (file ending \texttt{illegal}).
+
+Finally, the \texttt{babelsberg-rml} folder contains, besides the different semantics, the folders \texttt{javascript}, \texttt{ruby}, and \texttt{squeak}. These contain the framework (also implemented in RML) for transforming the tests in \texttt{spec/examples} into tests for each language implementation. The language specific transformations are defined in the language-specific RML files, and a language specific scaffold file is used to setup the test environment. Each folder already includes a generated testsuite file.
+
+\paragraph{Working with Babelsberg/RML}
+Babelsberg/RML is managed with \texttt{rake}. Execute the following commands to see the available tasks:
+\begin{lstlisting}
+cd && cd babelsberg-rml
+rake -T
+\end{lstlisting}
+
+Most tasks are available for each of the semantics. They are invoked using \verb!rake specname:taskname!.
+\begin{itemize}
+\item \texttt{specname:build}---compile the semantics \texttt{specname}. There should be no need to run this manually, as it is run automatically as needed.
+\item \texttt{specname:program}---this will execute the semantics on a program specified in the \texttt{specname/program.txt} file. This task is useful to quickly try different programs.
+\item \texttt{specname:review}---This will execute one or all examples in the \texttt{specname/examples} directory. The optional parameter is given in brackets directly after the invocation (e.g.\,\texttt{rake uid:review[12]}). This task will run the example and stop at each invocation of the solver to show the current set of constraints, and prompt the user to enter a valid solution to those constraints. This solution is then translated back into the updated environment (and heap, for the \texttt{uid} and \texttt{objects} semantics) and the program continues executing.
+\item \texttt{specname:test}---Like the previous task, this task will run the specified example and stop at each invocation of the solver to show the current set of constraints, but it will also show the solution that was specified as expected in the semantics (given in the \texttt{env} file for the example). The user can then review the constraints and solution to check for errors in the constraint generation or mistakes in the solution.
+\item \texttt{specname:z3}---This task will run the example and pass the constraints to the Z3 constraint solver. The solution can then be reviewed before continuing.
+\item \texttt{specname:z3ci}---This task will run the example and pass the constraints to the Z3 constraint solver. Each solution is checked against the \texttt{env} file for the example (as taken from the technical report) and the task aborts if the solutions do not agree. This task was mainly used to check the examples in the paper. A number of tests will fail here:
+\begin{itemize}
+  \item Due to a limitation of the Z3 optimizer, tests 1, 2, 33, 46, 47 are marked as incorrect when run in this manner. This is because the Z3 compiler will pick an empty record when it should pick a 0 for a variable that has only weak constraints on it. If we change the datatype declaration in the \texttt{babelsberg.rml} files, which reads
+\begin{lstlisting}[columns=fullflexible]
+(declare-datatypes () 
+        ((Value (Record (rec (Array Label Real)))
+                (Real (real Real))              
+                (Bool (bool Bool))
+                (Reference (ref Reference)))))
+\end{lstlisting}
+to instead say 
+\begin{lstlisting}[columns=fullflexible]
+(declare-datatypes () 
+        ((Value (Real (real Real))              
+                (Record (rec (Array Label Real)))
+                (Bool (bool Bool))
+                (Reference (ref Reference)))))
+\end{lstlisting}
+you will fix this issue, but then get the reverse issue in some other tests. To quickly switch between these two orders, the task \verb!specname:z3swap! is available as a workaround.
+  \item Tests 4, 15, 32, 32b, 32c, and 46 fail because there are multiple possible solutions, and Z3 does not pick the solution that we picked in the technical report. We do not consider this an issue, because either solution is equally valid, and the goal of determinism is still maintained (as the determinism is per solver only)
+  \item Tests 8, 9, 10, and 11 cannot be solved by the version of Z3 that we are using, because they involve strings.
+  \item Tests 34 and 35 fail, because our version of Z3 does not support read-only annotations on variables.
+\end{itemize}
+\item \texttt{specname:z3run}---This task will run an example and use Z3 for solving, but will not compare the solution against the expected solution.
+\end{itemize}
+
+To generate one test or the entire test suite for the languages, the tasks \texttt{javascript}, \texttt{ruby}, and \texttt{squeak} can be used. Without an argument, these transform the entire suite into the language specific code; otherwise just a single example is transformed. By default, the output is printed to the terminal. Redirect to the language specific file to run it.
+
+\subsection{Language Test suites}
+The VM provides global commands to start each of the implemented languages. The repositories are only provided for those interested in the implementation.
+
+\subsubsection*{Babelsberg/JS}
+The \texttt{babelsberg-js} folder contains the JavaScript implementation of Babelsberg. It can run in the Lively Kernel and as a standalone JavaScript project. To run tests generated from \texttt{babelsberg-rml}, copy the generated JS file into \texttt{babelsberg-js/babelsberg/testsuite.js}. Then run the following command:
+\begin{lstlisting}
+babelsbergjs
+\end{lstlisting}
+This will run the LivelyKernel server and start the Chromium web browser to view a Lively Kernel page with a test runner. The testsuite is already loaded and can be run directly. This is the modified version of Babelsberg/JS that passes most tests. As with the RML semantics, it cannot work with strings, which is why tests 9, 10, and 11 fail. Tests 15, 20, and 32 test properties of value classes. As we have described in the paper, these do not work in Javascript. The remaining two failures, tests 4 and 32b, simply produce other, but equally valid solutions.
+
+\subsubsection*{Babelsberg/R}
+The \texttt{babelsberg-r} directory contains the repository for Babelsberg/R, based on the Topaz Ruby VM. A precompiled binary is provided. The test suite can be run using the command:
+\begin{lstlisting}
+babelsbergr $HOME/babelsberg-rml/ruby/testsuite.rb
+\end{lstlisting}
+
+\subsubsection*{Babelsberg/S}
+The \texttt{babelsberg-s} directory contains the repository for Babelsberg/S, and a prepared Squeak Image. To start it, just run:
+\begin{lstlisting}
+babelsbergs
+\end{lstlisting}
+In the image, you can run the test suite using the open Test Runner, by scrolling the first pane to the very bottom and selecting "Babelsberg-Tests", and then in the second pane selecting "BabelsbergTestSuite". To load a new version of the test suite, use the "File List" window that is open in the lower left corner. It has the generated file already selected. Click the "filein" button to load the tests and re-execute them.
+
+\begin{thebibliography}{1}
+
+\bibitem{fritzson60314developing}
+Peter Fritzson.
+\newblock Developing efficient language implementations from structural and
+  natural semantics.
+\newblock Retrieved on 08-Jun-2015:
+  \url{http://www.ida.liu.se/\~{}pelab/rml/rml-ftp/papers/rmlguide-v22-pdf-060314.pdf}.
+
+\end{thebibliography}
+
+\end{document}

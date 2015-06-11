@@ -421,7 +421,11 @@ they don't present any particular issues for the formal semantics ---
 we would just pass them on to the constraint solver to handle.
 Therefore, for simplicity we've dropped the extra rules to handle them
 (since they were just copies of the rules for variables without the
-read-only annotation).
+read-only annotation).  Finally, programs are often more concise if we
+permit read-only annotations on expressions as well as on variables.
+To accommodate this, the practical languages do a simple rewrite to
+convert a read-only expression to a read-only variable by introducing
+a fresh variable as needed --- see Appendix \ref{sec:read-only-annotations}.
 
 \subsection{Conjunctions and Disjunctions of Constraints}
 
@@ -4461,20 +4465,20 @@ not modeled by this semantics.
 
 \section{Appendix}
 
-This appendix contains some observations that are potentially of
-interest but that are mostly orthogonal to the task at hand of
-providing a formal semantics for Babelsberg; and also descriptions of
-some alternatives that were considered and later dropped, but that
-seem promising enough that we might come back to them some day.  (In
-other words, it's a holding pen for material we probably should just
-have deleted but couldn't quite bear to.)
+Sections \ref{sec:warnings-and-debugging} -- \ref{sec:adding-solvers}
+of this appendix discuss some issues that are important in practical
+implementations of Babelsberg but that are mostly orthogonal to the
+task at hand of providing a formal semantics for Babelsberg.  The
+remaining sections include descriptions of some design alternatives
+that were considered and later dropped, but that seem promising enough
+that we might come back to them some day.
 
 \subsection{Warnings and Debugging}
 \label{sec:warnings-and-debugging}
 
 We don't deal with warnings and debugging in the formal semantics for
-Babelsberg.  In a practical, usable implementation, however, including
-such support will be key.
+Babelsberg.  In a production implementation, however, including such
+support would be key.
 
 First, all of the places where the formal semantics gets stuck to
 model an error state should have explicit, understandable error
@@ -4500,40 +4504,10 @@ system will not create a new (standard) object to satisfy constraints.
 There should be an appropriate error message in such a case if the
 unsatisfied constraints are required, and a warning if they are soft.
 
-\subsection{The Perturbation Model vs.\ the Refinement Model}
-\label{sec:perturbation-vs-refinement}
+\subsection{Read-Only Annotations}
+\label{sec:read-only-annotationsn}
 
-A key issue in integrating constraints with imperative programming is
-how to represent variables that change over time.  Earlier versions of
-Kaleidoscope
-\cite{freeman-benson-phd,freeman-benson-iccl-1992,freeman-benson-ecoop-1992}
-used a \emph{refinement model}, in which ordinary variables were
-represented as a stream of ``pellucid variables,'' each holding a
-value at a different time.  This was in turn adapted from Lucid
-\cite{ashcroft-cacm-1977}.  Later versions of Kaleidoscope
-\cite{lopez-ecoop-1994} used a \emph{perturbation model}, in which
-variables were represented conventionally.  Assignment perturbed the
-value of a variable, and then the constraints took over and adjusted
-the values of other variables so that they were re-satisfied if
-necessary.  The formal semantics described here uses a variation of
-the perturbation model, which we believe is cleaner.  (In particular,
-rather than just perturbing the value of a variable by changing it, we
-model assignment as a \verb|once| constraint between the variable and
-the value of the expression on the right hand side of an assignment
-statement.)
-
-The refinement model does provide additional capabilities --- for
-example syntax for referring to both the current and previous values
-of a variable --- but at a cost, both conceptually for the programmer
-and also for the language implementor.  At least for the common cases,
-we believe the refinement model and our current model provide the same
-answers.  
-
-The refinement model makes essential use of read-only annotations on
-variables to prevent the present from affecting the past.  So before
-launching into an example, we digress to discuss read-only
-annotations.
-
+First, here is some discussion of how read-only annotations work.
 Intuitively, when choosing a best solution to a set of constraints,
 constraints should not be allowed to affect the choice of values for
 their read-only variables, i.e., information can flow out of the
@@ -4584,7 +4558,105 @@ can't use $x=y?$ in determining a value for $y$.  (This is a so-called
 ``blocked'' set of constraints
 \cite{borning-lisp-symbolic-computation-1992}.)
 
-With those prelimaries out of the way, consider again the example in
+The constraint semantics presented in
+\cite{borning-lisp-symbolic-computation-1992} and as discussed so far
+accounts for read-only annotations on variables, but not expressions.
+In practical languages, programs are often more concise if we also
+permit read-only annotations on expressions.  To accommodate these,
+the implementations do a simple rewrite of a read-only expression $e?$
+by introducing a fresh variable $t$, replacing $e?$ in the original
+constraint with $t?$, and adding a new required constraint $t=e$\@.
+For example, given these constraints:
+
+\begin{tabular}{rl}
+strong   & $x=(y+z+5)?$ \\
+medium   & $x=3$ \\
+weak     & $y=0$ \\
+weak     & $z=0$
+\end{tabular}
+
+we would rewrite the first constraint using a new variable $t$:
+
+\begin{tabular}{rl}
+strong   & $x=t?$ \\
+required & $t=y+z+5$ \\
+medium   & $x=3$ \\
+weak     & $y=0$ \\
+weak     & $z=0$
+\end{tabular}
+
+The solution is $x \mapsto 5, y \mapsto 0, z \mapsto 0$, as desired.
+
+This extension is particularly useful for expressions involving method
+calls in Babelsberg/Objects, e.g., an expression like
+\verb|rect.center()?|, but works for the simpler Babelsbergs as well.
+
+\subsection{Adding New Solvers and Extending the Solver Language}
+\label{sec:adding-solvers}
+
+In a practical Babelsberg implementation, it is useful to be able to
+add new solvers, if necessary extending the solver language so that
+new kinds of constraints can be encoded and sent to the new solvers.
+This doesn't seem to create any issues for the formal semantics, so we
+note this only in this appendix.
+
+One useful extension of this sort would be useful to include a solver
+for geometric constraints, either in 2 or 3 dimensions.
+
+Some extensions that already exist in the practical languages are a
+solver (and constructs in the solver language) for finite domain
+constraints, as in the clpfd library for SWI Prolog.  Other additional
+solvers are available for strings and local propagation constraints, as
+solved for example by DeltaBlue.  Supporting the latter required adding a
+construct for declaring local propagation constraints (including the
+propagation methods) in the source language, and also adding local
+propagation constraints to the solver language.
+
+In Babelsberg/JS, when a DeltaBlue constraint is constructed, and an
+equality constraint is encountered with two variables of the same type
+on either side, when processing a constraint the interpreter doesn't
+descend further, but instead asserts the equality on those
+variables. So, for example, for two points the constraint expression
+does not desugar into multiple constraints on the x and y
+variables. This works even if the programmer does not specify a
+propagation function, because DeltaBlue has a default propagation
+method for equality (and some other relations, such as scaling.)
+
+Finally, we may be able to have a solver language and solver to encode
+Prolog-like goals, which would support backtracking and Prolog-style
+programming within Babelsberg.  A key observation here is that this
+would be in a separate set of constraints --- we wouldn't try to
+change the basic Babelsberg semantics to allow backtracking with
+Babelsberg \verb|if| statements.
+
+\subsection{The Perturbation Model vs.\ the Refinement Model}
+\label{sec:perturbation-vs-refinement}
+
+A key issue in integrating constraints with imperative programming is
+how to represent variables that change over time.  Earlier versions of
+Kaleidoscope
+\cite{freeman-benson-phd,freeman-benson-iccl-1992,freeman-benson-ecoop-1992}
+used a \emph{refinement model}, in which ordinary variables were
+represented as a stream of ``pellucid variables,'' each holding a
+value at a different time.  This was in turn adapted from Lucid
+\cite{ashcroft-cacm-1977}.  Later versions of Kaleidoscope
+\cite{lopez-ecoop-1994} used a \emph{perturbation model}, in which
+variables were represented conventionally.  Assignment perturbed the
+value of a variable, and then the constraints took over and adjusted
+the values of other variables so that they were re-satisfied if
+necessary.  The formal semantics described here uses a variation of
+the perturbation model, which we believe is cleaner.  (In particular,
+rather than just perturbing the value of a variable by changing it, we
+model assignment as a \verb|once| constraint between the variable and
+the value of the expression on the right hand side of an assignment
+statement.)
+
+The refinement model does provide additional capabilities --- for
+example syntax for referring to both the current and previous values
+of a variable --- but at a cost, both conceptually for the programmer
+and also for the language implementor.  At least for the common cases,
+we believe the refinement model and our current model provide the same
+answers.  Consider again the example in
 Section~\ref{sec:babelsberg-primitivetypes} of unsatisfiable
 constraints arising from the following program:
 
@@ -5023,44 +5095,6 @@ existing transformations don't work since \verb|q| might be either a
 work in this case, but the transformations become more complex and
 probably more fragile, and it's not clear that the complexity is worth
 the price.
-
-\subsection{Adding New Solvers and Extending the Solver Language}
-\label{sec:adding-solvers}
-
-In a practical Babelsberg implementation, it is useful to be able to
-add new solvers, if necessary extending the solver language so that
-new kinds of constraints can be encoded and sent to the new solvers.
-This doesn't seem to create any issues for the formal semantics, so we
-note this only in this appendix.
-
-One useful extension of this sort would be useful to include a solver
-for geometric constraints, either in 2 or 3 dimensions.
-
-Some extensions that already exist in the practical languages are a
-solver (and constructs in the solver language) for finite domain
-constraints, as in the clpfd library for SWI Prolog.  Other additional
-solvers are available for strings and local propagation constraints, as
-solved for example by DeltaBlue.  Supporting the latter required adding a
-construct for declaring local propagation constraints (including the
-propagation methods) in the source language, and also adding local
-propagation constraints to the solver language.
-
-In Babelsberg/JS, when a DeltaBlue constraint is constructed, and an
-equality constraint is encountered with two variables of the same type
-on either side, when processing a constraint the interpreter doesn't
-descend further, but instead asserts the equality on those
-variables. So, for example, for two points the constraint expression
-does not desugar into multiple constraints on the x and y
-variables. This works even if the programmer does not specify a
-propagation function, because DeltaBlue has a default propagation
-method for equality (and some other relations, such as scaling.)
-
-Finally, we may be able to have a solver language and solver to encode
-Prolog-like goals, which would support backtracking and Prolog-style
-programming within Babelsberg.  A key observation here is that this
-would be in a separate set of constraints --- we wouldn't try to
-change the basic Babelsberg semantics to allow backtracking with
-Babelsberg \verb|if| statements.
 
 \end{document}
 

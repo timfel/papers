@@ -7,7 +7,7 @@
 %
 \PassOptionsToPackage{final}{graphics}
 \PassOptionsToPackage{unicode,pdfencoding=auto}{hyperref}
-\documentclass[preprint,english,draft]{sigplanconf}
+\documentclass[english]{sigplanconf}
 
 \nocaptionrule
 \usepackage[utf8]{inputenx}
@@ -89,15 +89,15 @@
 \titlebanner{banner above paper title}        % These are ignored unless
 \preprintfooter{short description of paper}   % 'preprint' option specified.
 
-\title{Language Independent Storage Strategies}
+\title{Language Independent Storage Strategies for Tracing JIT based VM}
 %\subtitle{Subtitle Text, if any}
 
-% \authorinfo{Anton~Gulenko}
-%            {Technische Universit\"at Berlin}
-%            {anton.gulenko@tu-berlin.de}
-\authorinfo{Anton~Gulenko\and{}Tobias~Pape\and{}Tim~Felgentreff\and{}Robert~Hirschfeld}
-           {Hasso Plattner Institute, University of Potsdam}
-           {\{firstname.lastname\}@hpi.uni-potsdam.de}
+\authorinfo{Tobias~Pape\and{}Tim~Felgentreff\and{}Robert~Hirschfeld}
+           {Hasso Plattner Institute,\\University of Potsdam}
+           {\hbox to \linewidth{\{firstname.lastname\}@hpi.uni-potsdam.de \hfill}}
+\authorinfo{Anton~Gulenko}
+           {Technische Universit\"at Berlin}
+           {anton.gulenko@tu-berlin.de}
 \authorinfo{Carl~Friedrich~Bolz}
            {King's College, London}
            {cfbolz@gmx.de}
@@ -133,21 +133,25 @@ Storage strategies have been proposed as a run-time optimization
 for the PyPy Python implementation and with promising results
 for optimizing execution speed and memory requirements. However,
 it remained unclear whether
-their approach works equally well in other dynamic languages. Furthermore,
+the approach works equally well in other dynamic languages. Furthermore,
 while PyPy is based on RPython, a language to write VMs with reusable
 components such as a tracing just-in-time compiler and garbage collection,
-the strategies design was not generalized to be reusable across languages.
+the strategies design itself was not generalized to be reusable across languages
+implemented using that same toolchain.
 
 In this paper, we present a general design and implementation for storage
 strategies and show how they can be re-used across different RPython-based
-languages. We evaluate their benefits for other dynamic languages besides
-Python and show that they can improve performance.
+languages. We evaluate the performance of our implementation for RSqueak, an 
+RPython-based VM for Squeak/Smalltalk and show that storage strategies may
+indeed offer performance benefits for certain workloads in other dynamic programming 
+languages. We furthermore
+evaluate the generality of our implementation by applying it to Topaz, a
+Ruby VM, and Pycket, a Racket implementation.
 \end{abstract}
 
-\category{CR-number}{subcategory}{third-level}
-
+\category{D.3.4}{Programming Languages}{Processors—run-time environments, code generation, incremental compilers, interpreters}
 \keywords
-keyword1, keyword2
+Implementation, collection types, memory optimization, dynamic typing 
 
 \section{Introduction}
 
@@ -165,12 +169,17 @@ is a major optimization of many JIT compilers, and is usually done by
 proving that an object does not escape a compiled loop. In contrast,
 storage strategies are applicable to any
 objects, not only those that don't escape the loop that is being
-optimized by the JIT.  Still, certain conditions have to be met in
-order to apply storage strategies.  These conditions are hard to
-detect even with the information available to a tracing JIT.
-Therefore storage strategies have been implemented for PyPy
-\cite{strategies}, an RPython based Python interpreter, but are not
-automatically provided by the RPython toolchain.
+optimized by the JIT.
+
+One issue with storage strategies is that certain conditions have to be met in
+order to apply them.  These conditions are hard to
+detect in a general way. RPython, the framework that powers the PyPy Python implementation,
+provides many optimizations automatically to all languages that are built
+with it, such as garbage collection and a tracing JIT compiler.
+However, even with the information available to the tracing JIT compiler,
+storage strategies are hard to apply in a general way, and have so
+far been implemented for PyPy only\cite{strategies}, but are
+not automatically provided to all languages built with RPython.
 
 \citeauthor{strategies} have shown that storage strategies are
 beneficial for the Python programming language\cite{strategies}.
@@ -188,10 +197,12 @@ language. Towards that goal, we make the following contributions:
 \item We present a generic, language-independent framework to include the storage
   strategies optimization which in any VM implemented using the
   RPython toolchain.
-\item We show that storage strategies are indeed beneficial for many dynamic
-  languages.
-\item We evaluate the application of storage strategies to three
-  implementations with regard to generality and performance.
+\item We show that storage strategies can be beneficial for certain workloads in
+  other dynamic languages.
+\item To determine how reusable our implementation is, we evaluate the 
+  application of storage strategies to three RPython-based virtual machines:
+  RSqueakVM, a VM for Squeak/Smalltalk; Topaz, a Ruby VM; and Pycket,
+  a Racket implementation.
 \end{itemize}
 
 \section{Background: Storage Strategies in PyPy}
@@ -211,16 +222,16 @@ This optimization is safe because the optimizer can prove that static
 objects don't affect the program state after the program exits the
 loop.
 
-For an example, consider the \lstinline{SmallInteger} objects created
-inside the loop in listing \ref{lst:TraceExample1} on page
-\pageref{lst:TraceExample1}.  These \lstinline{SmallInteger} objects
-are not escaping the loop, because the only reference to each object
-is deleted at the end of each iteration.  Only the object allocated in
-the very last iteration persists after the loop ends.  Thus, all
-intermediate \lstinline{SmallInteger} instances don't need to be
-allocated; they are treated as static objects.  Their content is
-maintained on the stack instead of the heap, potentially even
-optimized into machine registers.
+% For an example, consider the \lstinline{SmallInteger} objects created
+% inside the loop in listing \ref{lst:TraceExample1} on page
+% \pageref{lst:TraceExample1}.  These \lstinline{SmallInteger} objects
+% are not escaping the loop, because the only reference to each object
+% is deleted at the end of each iteration.  Only the object allocated in
+% the very last iteration persists after the loop ends.  Thus, all
+% intermediate \lstinline{SmallInteger} instances don't need to be
+% allocated; they are treated as static objects.  Their content is
+% maintained on the stack instead of the heap, potentially even
+% optimized into machine registers.
 
 The drawback of static objects is a rather complex deoptimization.  As
 mentioned above, an optimized JIT trace must be left when a guard
@@ -386,15 +397,17 @@ flexible way.  We use the concept of mixins \cite{brachaMixins,
   mixins} to provide the required level of flexibility while allowing
 the VM to extend the provided functionality when needed.
 
+\begin{sloppypar}
 In the context of RPython, any regular class can be used as a mixin.
 The programmer must simply include a
-\lstinline{import_from_mixin(MixinClass)} clause into the body of the
+\verb!import_from_mixin(MixinClass)! clause into the body of the
 instantiating class.  All attributes and methods will then be copied
 over from \lstinline{MixinClass} to the target class, including all
 inherited methods.  A mixin is not intended to be used on its own.  It
 can require other mixins and fields or methods provided by the
 instantiating class itself.  This way the code inside a mixin can be
 written in an abstract way to promote modularity.
+\end{sloppypar}
 
 rstrategies supports two types of collections: variable sized and
 fixed sized lists.  These two abstract types of collections cover the
@@ -550,8 +563,7 @@ type in an optimized storage array, as described in section
 \ref{cha:storageStrategies}.  Certain conditions must be met in order
 to use this strategy.  Namely, the identity of the element objects
 must be determined only through their value, and element objects must
-be immutable.  These strict conditions are the same as for pooling
-objects (see section \ref{sec:pooling}) and are usually only met by
+be immutable.  These strict conditions are usually only met by
 primitive types like integer or float datatypes.  Therefore, the
 \lstinline{SingleTypeStrategy} can be used to implement optimized
 storage for collections of such primitive datatypes.  The VM has to
@@ -661,7 +673,7 @@ successfully adapted to using rstrategies.
 
 
 \subsection{Performance}
-\todo{Does the performance benefit reported in the PyPy paper carry over?}
+% \todo{Does the performance benefit reported in the PyPy paper carry over?}
 
 In this section we present the results of experiments measuring the
 execution time of benchmarks to evaluate the performance benefits of
@@ -726,9 +738,7 @@ based on The Computer Language Benchmarks Game
 For all experiments, entire benchmark suite is executed within the
 same VM instance.  This creates a more realistic setup, since a
 real-world application is likely to be long-running and to perform
-multiple different tasks.  Appendix \ref{app:benchmarksSeparateVMs}
-contains the benchmark results when every benchmark is executed in its
-own VM instance.
+multiple different tasks.
 
 \subsubsection{Results}
 
@@ -828,13 +838,20 @@ benchmarks with the highest focus on arithmetical operations.  Since
 there are not many object allocations happening here, we can measure
 the overhead of storage strategies as a slight performance drop.
 
+These results seem to indicate that the benefits of storage strategies 
+very much depend on the workload---Squeak,
+although it is a very object-oriented environment, has relatively
+few objects that include only the primitive types for which we have
+strategies. Although the benefits for some algorithms do look good,
+a Squeak VM also has to run the entire development environment, 
+including rendering to the screen and communicating over the network.
+The algorithms used there depend more on arithmetic performance and
+rarely use many homogeneous objects, diminishing the benefits of
+strategies. During development use, we thus have experienced little performance
+benefits of strategies.
 
-
-
-
-
-\subsection{Memory}
-\todo{Does the memory benefit carry over?}
+% \subsection{Memory}
+% \todo{Does the memory benefit carry over?}
 %\begin{figure}
 %\label{fig:memory}
 %\caption{Memory overhead...}
@@ -846,29 +863,43 @@ the overhead of storage strategies as a slight performance drop.
 
 
 \subsection{Generality}
-\todo{Can the framework be applied to other languages? Topaz, Pycket}
 
+An important goal of the rstrategies library was to be independence of the language executed by the VM. Neither the programming language nor indeed the class or family of programming languages should matter, and our work should be applicable to a range of dynamic language VMs. In order to evaluate this, we introduced rstrategies into three different RPython based VMs. As presented, in the RSqueak VM, nearly every object uses storage strategies. In the Topaz Ruby VM, we added strategies to the generic array datatype that is provided by the VM. Finally, in Pycket VM, we added strategies to the vector datatype. While it is not possible to prove that our design works for arbitrary programming languages, we believe that the three selected examples cover an interesting range of languages. Squeak and Ruby are both object-oriented and imperative languages; while Ruby is a scripting language, Squeak is image-based language and loads an entire live programming environment before executing the first bytecode. Racket belongs to the Lisp/Scheme programming language family. It is a multi-paradigm language including object-oriented features, but the syntax, control flow, and main data structures are typical for a functional programming language.
 
+We were able to integrate strategies in these RPython based VMs in largely the same way. To extend this evaluation, we use the two VMs RSqueak and Topaz to demonstrate how rstrategies works in the context of different programming languages. Our strategies library includes a logging facility which can output a diagram of all strategy related operations such as the creation of collections or switching between different strategies. We used this to create transition graphs for RSqueak and Topaz while executing different benchmark suites. For RSqueak we reused the benchmark suite from the previous chapter, for Topaz we used a benchmark suite consisting of the 5 benchmarks BinaryTrees, Dhrystone, Mandelbrot, Revcomp, and Richards. We have not selected two equal benchmark suites since we are not conducting a performance comparison between the two VMs.
 
+\begin{figure*}[ht]
+\centering
+\includegraphics[width=0.7\textwidth]{rsqueak-transitions}
+\caption{Strategy transitions of the RSqueak VM executing benchmarks}
+\label{fig:transitiongraph-rsqueak}
+\end{figure*}
 
+\autoref{fig:transitiongraph-topaz} show the resulting transition diagram for the RSqueak VM. Objects created at image loading time are directly instantiated with the best-fitting strategy, while objects created later always start off with the AllNilStrategy. The WeakListStrategy is a special case: weak objects never transition to any other strategy after creation. From the AllNilStrategy, objects transition to one of the specialized SmallIntegerOrNilStrategy or FloatOrNilStrategy, or directly to the generic ListStrategy. The percentage of objects remaining in any of the specialized strategies is a good indicator for how well the storage strategies perform. In the case of RSqueak, approximately 25\% of all objects never leave the AllNilStrategy. These objects are mainly MethodContext objects which are created automatically upon message sends. 97\% and 90\% of all objects arriving at the SmallIntegerOrNilStrategy or FloatOrNilStrategy, respectively, actually stay in these specialized strategies. These numbers indicate a high success rate of the heuristics behind choosing the storage strategies. The node at the bottom labeled Other summarizes a few rarely used strategies which are special to RSqueak.
 
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.49\textwidth]{topaz-transitions}
+\caption{Strategy transitions of the Topaz VM executing benchmarks}
+\label{fig:transitiongraph-topaz}
+\end{figure}
 
-\subsection{Transitions}
-\todo{Are the strategies we identified as most important really that?}
-%\begin{figure}
-%\label{fig:transitions}
-%\caption{Transitions...}
-%\missingfigure{\Huge Need the figure here!}
-%\end{figure}
+\autoref{fig:transitiongraph-topaz} shows an example transition graph for the Topaz VM. It has less nodes than the RSqueak diagram because in Topaz, strategies have only been added to the array datatype, not to every single object. The IntStrategy has a 100\% success rate, which is supposedly due to the nature of the benchmarks executed while capturing this data. The EmptyStrategy also has a rather high success rate, while the FloatStrategy only works one out of three times. Compared to the RSqueak VM, these numbers look less conclusive and more artificial. The main reason is the different nature of the two VMs: RSqueak loads an entire graphical programming environment, which means the VM executes some unrelated code even while running these benchmarks. Topaz, on the other hand, evaluates pure Ruby scripts, which results in a more deterministic and uncluttered execution.
+
+% \subsection{Transitions}
+% \todo{Are the strategies we identified as most important really that?}
+% %\begin{figure}
+% %\label{fig:transitions}
+% %\caption{Transitions...}
+% %\missingfigure{\Huge Need the figure here!}
+% %\end{figure}
 
 
 \section{Related Work}
 
-\todo{Strategies with Tracing JIT, PyPy}
-\todo{Strategies with Method JIT (Truffle, V8)}
-\todo{Pointer tagging}
-
-\subsection{Graal and Truffle}
+% \todo{Strategies with Tracing JIT, PyPy}
+% \todo{Strategies with Method JIT (Truffle, V8)}
+% \todo{Pointer tagging}
 
 The Graal/Truffle project is a VM building framework similar to
 RPython in its main design goal.  An interpreter written in a
@@ -901,6 +932,8 @@ written in Java which uses the Graal/Truffle infrastructure.
 JRuby+Truffle includes storage strategy optimizations
 \cite{smallDataStructures}, but not in form of a reusable library like
 rstrategies.
+
+A common VM optimization, for some time, is to use pointer tagging to store some immediate values, such as integers, floats, or characters directly. This reduces the number of bytes available for the immediate values, but often provides significant performance benefits, as specialized CPU instructions can be used to perform arithmetic. However, compared to storage strategies, this increases the complexity of the interpreter, as each pointer has to be checked for tags, and only a very limited set of tagged types can be provided.
 
 \section{Discussion}
 \label{sec:discussion}
@@ -1080,9 +1113,29 @@ rstrategies.
 
 \section{Conclusion}
 
+We have presented a generic implementation of storage strategies
+that can be used by different virtual machines implemented using the 
+RPython
+toolchain. We have shown that storage strategies can be applied to
+different dynamic languages and that they provide benefits for some workloads, 
+while inducing only small overhead for others.
+
+Since we have not experienced significant performance gains while using 
+RSqueakVM for development, but only in select benchmarks, we can
+not conclusively recommend storage strategies for every dynamic language
+workload. We have left a command
+line switch to deactivate storage strategies in place for now,
+so that users can deactivate them depending on the
+workload. In addition, our results indicate
+that the added implementation complexity may not be worth 
+the performance benefit if storage strategies have to be implemented
+separately for every VM. Thus we feel that storage strategies should
+be a generic feature provided by VM toolchains such as RPython or Truffle,
+so that the tradeoff between performance and code complexity is not an issue.
+
 \acks
-We gratefully acknowledge the financial support of HPI's Research School and
-the Hasso Plattner Design Thinking Research Program (HPDTRP). Carl Friedrich
+We acknowledge the support of HPI's Research School and
+the Hasso Plattner Design Thinking Research Program. Carl Friedrich
 Bolz is supported by the EPSRC \emph{Cooler} grant EP/K01790X/1.
 
 

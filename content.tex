@@ -3201,14 +3201,53 @@ constraints. A third implementation in Squeak/Smalltalk\cite{}, called
 Babelsberg/S, provides \ac{ocp} as a library without requiring source
 transformation and including debugging support.
 
-
 \chapter{Object-Constraint Programming as Language Extension}
 \label{part:babelsb-object-const}
 
 \section{Goals}
 \label{sec:goals-babelsbergr}
 
-Performance, Full Integration
+A full implementation of object-constraint programming requires deep
+integration with the underlying language to support all features of
+the host language, including different kinds of variables and full
+access to closure scopes to correctly construct constraints from
+constraint expressions. We present a technique for implementing
+Babelsberg in the \ac{vm} that adds a primitive to switch the
+interpreter between imperative evaluation, constraint construction,
+and constraint solving modes. In constraint construction mode, the
+expression that defines the constraint is evaluated, not for its
+value, but rather to build up a network of primitive constraints that
+represent the constraint being added by using the \ac{vm} internal
+representations of objects and scopes to access variables directly
+while ignoring encapsulation in the \ac{vm}. The interpreter keeps
+track of dependencies in the process, so that, as needed, the solver
+can be activated or the code to construct the constraint can be
+re-evaluated.
+
+Furthermore, while the design specifies that constraints are handed to
+the solver and solved at each step of the execution, prior work on
+Kaleidoscope and Turtle has shown that this is detrimental to
+performance.  Thus, another goal of a practical implementation of
+Babelsberg is to provide performance close to the unmodified language
+runtime if no constraints are used, and minimize the performance
+impact if they are. We present an extension to the imperative
+evaluation mode of the underlying language, the interpreter operates
+in the standard fashion, except that \textsc{Load} and \textsc{Store}
+operations on variables check for constraints, and if present, obtain
+the variable's value from the constraint solver or send the new value
+to the solver (which may trigger a cascade of other changes to satisfy
+the constraints). Thus, if no constraints dynamically relate variables
+in a particular piece of code and that code is optimized by the
+\ac{jit}, it can then be executed without calling out to the solver,
+eliminating any overhead.
+
+Finally, since our design for cooperating solvers enables a wider
+range of applications by combining specialized solvers, a third goal
+of a practical implementation is to make it easy to add multiple
+constraint solvers. We describe an architecture that makes it
+straightforward to add new solvers and which does not privilege the
+solvers provided with the basic implementation (they are simply the
+solvers that are in the initial library).
 
 \section{Implementation}
 \label{sec:implementation}
@@ -3277,13 +3316,17 @@ only be garbage collected if no more active constraints refer to them.
 \subsection{Execution Contexts}
 \label{sec:constraint-construction-impl}
 
-To implement the different execution modes --- \emph{imperative
-  execution}, and \emph{constraint construction} --- we extended the
-default interpreter, and added \lstinline{ConstraintInterpreter} as a
-subclass. The \lstinline{ConstraintInterpreter} changes how locals,
-instance variables, and class variables are accessed.
+To implement the interpretation of constraint expressions we use two
+different execution modes: \emph{imperative execution}, and
+\emph{constraint construction}. The first is the normal Ruby execution
+mode and for the latter, we created a subclass of the default
+interpreter, \lstinline{ConstraintInterpreter}. The
+\lstinline{ConstraintInterpreter} class changes how locals, instance
+variables, and class variables are accessed so operations on them can
+be tracked as the constraint expression is evaluated to create the
+constraint.
 
-\subsubsection{Imperative Execution}
+\paragraph{Imperative Execution}
 This is the normal execution mode, as implemented in the Topaz
 interpreter. We have extended the \textsc{Store} and \textsc{Load}
 bytecode methods with an additional check whether a variable refers
@@ -3308,7 +3351,7 @@ solver is triggered, and all assignments are undone if an exception is
 raised during solving. This way, if the exception is caught, the
 program is not in violation of any constraints.
 
-\subsubsection{Constraint Construction}
+\paragraph{Constraint Construction}
 The initializer for constraint objects --- usually called through
 \lstinline{always} --- activates an execution context for constraint
 construction. In this mode, variable values are replaced with their
@@ -3415,13 +3458,79 @@ times during the run-time of the program.  (This is one reason why any
 side-effects in constraints should be benign, as noted in
 {\autoref{sec:constraint-restrictions}}.)
 
-\subsection{Implementing Edit Constraints}
+\subsection{Providing for Performance}
+
+\paragraph{Fast Execution without Constraints}
+Ideally, users of Babelsberg/R do not pay a performance penalty for
+constraint support in code that does uses only unconstrained Ruby
+objects. To achieve this in Babelsberg/R, we interface with the
+RPython meta-tracing \ac{jit} compiler framework.
+
+The first step to achieve better performance is the distinction
+between constrained variables and ordinary variables
+(\cf{\ref{sec:constrained-variables-impl}}). This way, the interpreter
+first checks if a variable is dynamically related to a constraint. If
+not, it can skip the calls to the solver and simply return the value
+stored at the memory location of that variable. However, this check is
+performed at every variable access, which still represents a
+performance issue.
+
+In vanilla Topaz, reading a variable is translated into the following
+\ac{jit} code:
+\begin{lstlisting}[language=pypytrace]
+guard_nonnull_class(p1, 12345, descr=<Guard0xcaffee123456>)
+p2 = getfield_gc(p1, descr=<FieldP Cell.inst_w_value>)
+\end{lstlisting}
+The first line checks that pointer \verb!p1! is not null and of type
+\verb!Cell!.
+
+In Babelsberg/R, converting an ordinary variable to a constrained
+variable was initially implemented by adding a field to the
+\verb!Cell! class that stores the constrained variable \ac{vm}
+object. Just referencing a variable triggered the check if the
+variable has been used in a constraint, and the \ac{jit} compiler
+generated the following intermediate code:
+\begin{lstlisting}[language=pypytrace]
+guard_nonnull_class(p1, 12345, descr=<Guard0xcaffee123456>)
+p2 = getfield_gc(p1, descr=<FieldP Cell.inst_w_constraint>)
+guard_value(p2, ConstPtr(null), descr=<Guard0xcaffee234567>)
+p3 = getfield_gc(p1, descr=<FieldP Cell.inst_w_value>)
+\end{lstlisting}
+
+The first line checks that the pointer variable \verb!p57! is of the
+cell class. The second line reads the constraint field of the cell,
+which holds a reference to a constrained variable object, if the
+variable has been used in a constraint. The third line checks that
+this field is \verb!null!, meaning the variable has not been converted
+into a constrained variable. Only then is the variable value read.
+
+As an optimization, instead of setting a field on a \verb!Cell!, we
+introduced a new subclass of \verb!Cell! for variables that have been
+used in a constraint. This unifies the class check with the constraint
+check, and the resulting \ac{jit} code requires one fewer guard:
+\begin{lstlisting}[language=pypytrace]
+guard_nonnull_class(p1, 12345, descr=<Guard0xcaffee123456>)
+p2 = getfield_gc(p1, descr=<FieldP Cell.inst_w_value>)
+\end{lstlisting}
+
+For a constrained variable, the \ac{jit} codes would look as follows:
+\begin{lstlisting}[language=pypytrace]
+guard_nonnull_class(p1, 12345, descr=<Guard0xcaffee123456>)
+p2 = getfield_gc(p1, descr=<FieldP ConstraintCell.inst_w_constraint>)
+[... code to call into solver ...]
+\end{lstlisting}
+
+Thus, access to variables that do not use constraints is, after it is
+\ac{jit} compiled, just as fast as in the base language without
+constraints.
+
+\paragraph{Fast Constraint Solving}
 \label{sec:implementing-edit-constraints}
 Edit constraints are used to support incremental constraint
 satisfaction, and are important for achieving good performance in
-interactive applications.  The \lstinline{edit} method provided as
-part of Babelsberg/R's Cassowary library adds edit constraints and
-repeatedly updates them with values from a stream.
+interactive applications that use constraints.  The \lstinline{edit}
+method provided as part of Babelsberg/R's Cassowary library adds edit
+constraints and repeatedly updates them with values from a stream.
 
 Cassowary as shipped in the Babelsberg/R standard library allows the
 variables and stream to hold user-defined objects as well as primitive

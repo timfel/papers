@@ -3313,7 +3313,7 @@ also referenced from  one or more constraints.  Because solver objects
 can also be implemented in the host language, this means that they may
 only be garbage collected if no more active constraints refer to them.
 
-\subsection{Execution Contexts}
+\subsection{Imperative and Declarative Execution}
 \label{sec:constraint-construction-impl}
 
 To implement the interpretation of constraint expressions we use two
@@ -3326,7 +3326,7 @@ variables, and class variables are accessed so operations on them can
 be tracked as the constraint expression is evaluated to create the
 constraint.
 
-\paragraph{Imperative Execution}
+\subsubsection*{Imperative Execution}
 This  is  the normal  execution  mode,  as  implemented in  the  Topaz
 interpreter.  We  have extended  the \textsc{Store}  and \textsc{Load}
 bytecode methods  with an additional  check whether a  variable refers
@@ -3352,7 +3352,7 @@ solver is triggered, and all assignments are undone if an exception is
 raised during solving. This way, if the exception is caught, the
 program is not in violation of any constraints.
 
-\paragraph{Constraint Construction}
+\subsubsection*{Constraint Construction}
 The initializer for constraint objects --- usually called through
 \lstinline{always} --- activates an execution context for constraint
 construction. In this mode, variable values are replaced with their
@@ -3382,29 +3382,16 @@ language should be subclasses of \lstinline{ConstraintObject}.  This
 class serves as a marker to leave constraint execution mode when we
 enter solver code.
 
-\paragraph{Constraint Solving}
-This mode is simply a flag that is active whenever code runs in the
-dynamic extent of a method of a \lstinline{ConstraintObject}. It
-prevents nested sends of \lstinline{suggest_value} from causing
-recursive calls to 
-the solver. This is necessary to support solvers written in
-Ruby, but implies that solvers themselves cannot use constraints in
-their implementation.\footnote{If we wanted to support other
-  cooperating paradigms in addition to constraint-oriented
-  programming, we would generalize this technique to support additional
-  execution contexts.}
-
-\subsubsection*{Constraint Construction Example}
+\paragraph*{Constraint Construction Example}
 \label{sec:constraint-construction-example}
-To illustrate how our implementation supports the combination of
-objects and constraints, consider the rectangle example in Babelsberg
-from \autoref{sec:object-constraint-programming}.  The code
-asserts that the area of the rectangle \lstinline{rect} should always
-be greater than or equal to 100. The assertion is expressed by sending the
-\lstinline{area} method to \lstinline{rect}, and then sending 
-the \lstinline{>=} method to the
-result. The only variable named explicitly in the constraint is 
-\lstinline{rect}, but there are other variables that play a role in it.
+To  illustrate  how our  implementation  supports  the combination  of
+objects  and constraints,  consider the  Window example  in Babelsberg
+from \label{sec:unif-imper-decl-1}.  The code asserts that the area of
+the  Window should  always  be  greater than  or  equal  to 100.   The
+assertion  is expressed  by sending  the \lstinline{area}  method, and
+then  sending  the \lstinline{>=}  method  to  the result.   The  only
+variable named  explicitly in the constraint  is \lstinline{rect}, but
+there are other variables that play a role in it.
 
 In constraint construction mode, the \lstinline{rect} variable is
 replaced with a generic solver object, since the class
@@ -3459,7 +3446,19 @@ times during the run-time of the program.  (This is one reason why any
 side-effects in constraints should be benign, as noted in
 {\autoref{sec:constraint-restrictions}}.)
 
-\subsection{Providing for Performance}
+\subsubsection*{Constraint Solving}
+This mode is simply a flag that is active whenever code runs in the
+dynamic extent of a method of a \lstinline{ConstraintObject}. It
+prevents nested sends of \lstinline{suggest_value} from causing
+recursive calls to 
+the solver. This is necessary to support solvers written in
+Ruby, but implies that solvers themselves cannot use constraints in
+their implementation.\footnote{If we wanted to support other
+  cooperating paradigms in addition to constraint-oriented
+  programming, we would generalize this technique to support additional
+  execution contexts.}
+
+\subsection{Performance}
 \label{sec:ruby-performance}
 
 \paragraph{Fast Execution without Constraints}
@@ -3537,7 +3536,7 @@ Thus, access to variables that do  not use constraints is, after it is
 \ac{jit}  compiled, just  as  fast  as in  the  base language  without
 constraints.
 
-\paragraph{Fast Constraint Solving}
+\paragraph{Fast Incremental Constraint Solving}
 \label{sec:implementing-edit-constraints}
 Besides providing  fast read access  to both ordinary  and constrained
 variables,  solver performance  is  also important.   As described  in
@@ -3693,256 +3692,30 @@ environment, we provide a source transformation that makes writing
 constraints in the Object Explorer \cite{lively-partsbin-2012} more
 convenient.
 
-\subsection{Assignment}
-\label{sec:assignment}
+\subsection{Babelsberg/S}
+\label{sec:babelsbergs}
 
-Assignment to objects that are constrained in Babelsberg/JS is the core
-concept that binds the declarative constraints and imperative code
-together. Whereas in standard imperative code an assignment writes a value
-to a memory location, assignments in Babelsberg add equality
-constraints on constrained objects and trigger re-satisfaction. The new
-equality constraint may be unsatisfiable, in which case the assignment
-is not executed and a runtime exception is generated.
+\subsection{Imperative and Declarative Execution}
+Like the  \ac{vm}-based approach, the library  approach uses different
+modes of execution  to interpret and solve  constraints. A consequence
+of  implementing   Babelsberg  as  a   library  in  a   language  like
+\javascript, which does not provide language-level access to the local
+scope, is that local variables cannot be solved for in constraints.
 
-%% As we discussed, omitting the formal description for now - we can
-%% work this out later.
-%% 
-%% Given the following definitions
-%% \begin{equation*}
-%% \begin{array}{l@{\qquad}l}
-%%   L & \text{variable locations}\\
-%%   V & \text{values in the language (objects or primitive)}\\
-%%   E & \text{value expressions}\\
-%%   S = \left\{s|s: L\rightarrow V\right\} & \text{system states mapping variables to
-%%     values}\\
-%%   K(e) = \left\{s|\langle e,s\rangle \rightarrow \text{true}\right\} & \text{the constraint
-%%     function }K: E\rightarrow \mathcal{P}(S)\\
-%%   s[K(e)] & s\text{ is a state that satisfies the constraint }K(e)
-%% \end{array}
-%% \end{equation*}
+\subsubsection*{Imperative Execution}
+Without modifying  the \acrlong{vm},  the normal  imperative execution
+mode  is unchanged.   To support  reading and  writing to  constrained
+variables, variables are wrapped  during constraint construction using
+accessors that call into the  solver as needed.  This trivially avoids
+any performance  impact when constraints  are not used, but  relies on
+the underlying  \ac{jit} to optimize access  to constrained variables.
+As  in  Babelsberg/R,  reading  a   variable  from  the  solver  calls
+\verb!value! on  the solver object  instead of returning  the original
+variable. Writing calls \verb!suggestValue!, which raises an exception
+if an assignment would make existing constraints unsatisfiable.
 
-%% The following describes normal unconstrained assignment in operational
-%% semantics:
-%% \begin{equation*}
-%% \frac{\langle e\in E,s\rangle\rightarrow v\in V}{\langle l:=e,s\rangle\rightarrow s^{'}}\;\text{where }s^{'}(l) = v  
-%% \end{equation*}
-%% Read, if an expression $e$ in a state $s$ produces a value $v$, than
-%% assigning that expression to a variable location $l$ produces a new
-%% system state $s^{'}$ where $l$ now points to $v$.
 
-%% However, constrained assignment has two possible outcomes:
-%% \begin{equation*}
-%%   \dfrac{
-%%     \langle e\in E,s[e_0]\rangle\rightarrow v\in V
-%%   }{\langle l:=e,s\rangle\rightarrow
-%%     \Bigg\{\begin{array}{l@{\quad}l}
-%%       s^{'}[K(e_0)\cap K(l=e)] & \text{iff } K(e_0)\cap K(l=e)\neq\emptyset \\
-%%       s^{'}[K(e_0)] & \text{otherwise}
-%%     \end{array}
-%%   }
-%% \end{equation*}
-%% Read, if an expression $e$ in a state $s$ that satisfies the
-%% constraint expression $e_0$ produces a value $v$, assigning that
-%% expression to a variable location $l$ produces a new system state that
-%% satisfies both $e_0$ and the equality $l = e$ if such a state exists,
-%% or a state that satisfies only $e_0$ (this may be the old state $s$ or
-%% a new one that also satisfies $e_0$).
-
-As in Babelsberg/R, the Babelsberg/JS runtime informs the developer of a
-failed assignment by generating a runtime exception.   To
-support the cooperating solvers design, assignment in Babelsberg/JS is
-a 3-step process:
-
-\paragraph{Set Value}
-If the new value is the same as the old, we simply return.  Otherwise,
-we convert all read-only constraints on the assigned variable either
-to required edit constraints (for solvers that support them) or to
-equality constraints.
-
-If the assigned value has an external variable, \ie it is constrained
-by a solver that can handle its type (for example a real in
-Cassowary), the new value is input into the furthest upstream solver
-using an equality constraint and this solver is then called.
-Afterwards, the equality constraint for assignment is removed.  
-However, if the solver cannot satisfy its constraints with the new value,
-an exception is raised.
-
-\paragraph{Update Downstream Variables}
-For all external variables except the primary one (the one in the most
-upstream solver), the new value is input into the solver. If any of
-the solvers fail to satisfy their constraints with the new value, an
-exception is generated and all read-only constraints are re-enabled as
-above.
-
-All remaining constraints are in solvers that cannot handle the type
-of that variable. Consequently, its value was treated as a constant in
-their constraint expressions. With the new value, these have to be
-recalculated. The old variable value is remembered and the new value
-is stored. These constraints are disabled, their expressions
-re-evaluated in constraint construction mode, and then the constraints
-are re-enabled. If any constraint in this set fails to run its
-expression or cannot be satisfied with the new value, the old value is
-restored and an exception is generated.
-
-\paragraph{Update Connected Variables}
-Finally, we have to update the variables connected to the assigned
-variable. To do so, we create the transitive closure of all variables
-connected to the assignee through constraints. For all these
-variables, a new value has already been created for all solvers that
-already ran, but their downstream read-only constraints still have to
-be updated. These variables have to go through the first two steps of
-the assignment process, returning early if their values have not
-changed.
-
-At this point, assignment can only fail for variables that
-are in solvers that have not run yet. These are only solvers that the
-primary assignee is not part of. If any one of these solvers cannot
-satisfy their constraints with the new value, we restore the old
-value, re-satisfy the constraints, and raise an exception. While this
-may leave the system in a different state than it was in before
-assignment (depending on the implementation of the participating
-solvers, they may not deterministically find the same solution to the
-same set of constraints) the system will still be in a state that
-satisfies all previous constraints.
-
-\paragraph{Deferred Assignment of Connected Variables}
-\label{sec:deferred-assignment}
-Babelsberg/R included an optimization to defer copying the values from
-a solver to the object-oriented variable location after
-assignment. Instead of copying the values for
-all affected variables immediately, the
-variable's values would be copied when they are next used in imperative
-code. This optimization cannot be used with our cooperating constraint
-solver architecture. Consider the following contrived example:
-\begin{lstlisting}
-var obj = {a: 10, b: 10, c: true};
-always: { solver: cassowary
-    obj.a + obj.b == 20
-}
-always: { solver: deltablue
-  obj.c.formula([obj.b], function (b) {
-    if (b == 13) throw "unlucky";
-    return b < 10;
-  })
-}
-obj.a = 7;
-\end{lstlisting}
-When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
-first constraint. However, to trigger DeltaBlue to solve the second
-constraint, the new value for \lstinline{obj.b} has to be copied
-immediately, rather than when \lstinline{obj.b} is next
-read. Otherwise, a failure to satisfy the second constraint is only
-encountered sometime later in the execution and difficult to trace
-back to the assignment that caused it.
-
-\paragraph{Assigning Mutable Objects}
-\label{sec:assign-mutable-objec}
-So far we have described how assignment is handled for atomic objects,
-such as integers and floats. We have not, in our design, addressed the
-case of mutable objects with substructure. Consider the following midpoint line:
-\begin{lstlisting}
-var line = {start: pt(0,0), end: pt(1,1), midpoint = pt(0,0)};
-always: { solver: cassowary
-  var center = line.start.getPosition().
-                 addPt(line.end.getPosition()).scaleBy(0.5);
-  line.midpoint.getPosition().eqPt(center);
-}
-
-line.midpoint = pt(1, 1);
-\end{lstlisting}
-There are two ways to look at such an assignment: a) the assignment
-asserts equality between \lstinline{midpoint} and \lstinline{pt(1, 1)}
---- both mutable objects --- not their \lstinline{x} and \lstinline{y}
-parts. So the solver could also modify the parts of the newly assigned
-point to satisfy the constraint. This seems counter-intuitive, so
-presumably the right-hand side of an assignment should be read-only to
-the solver. On the other hand, there are use-cases for constraints for
-example in input rectification \cite{long-rectification-2012}, where
-programmers may expect the system to fix the assigned object, rather
-than reject the assignment.
-
-For now, we consider the behavior in this case to be implementation
-defined. Babelsberg/JS marks the assigned objects' parts with strong
-stay constraints. This means that, as long as other constraints allow,
-the solver will not change the new position for the midpoint. The
-design of a general solution is subject of further research.
-
-\subsubsection{Changing the Type of Variables}
-Most solvers only provide support for a limited number of
-type domains (such as reals or booleans).  When variables are used in
-constraints, their current values determine how they are handled by
-the solvers.  Changing the type of a variable, although possible in a
-dynamic language, is a relatively uncommon operation, so slow
-performance is acceptable.  When it does occur, the variable is
-removed from all solvers, all its constraints are disabled, and its
-constraint expressions are re-executed in constraint construction
-mode, thus creating new solver-specific representations.
-
-%% removed the following - doesn't seem that central, since we just
-%% said this is uncommon:
-%%
-%%
-%% This makes changing the type of a constrained variable potentially
-%% slow. Our ConstraintInterpreter is not optimized for performance
-%% (because it is run only at constraint construction) -- recalculating
-%% many constraints is many thousand times slower than running the same
-%% code natively. If any of the constraints fail, we have to re-assign
-%% the old value and recalculate all constraints on the variable once
-%% more.
-
-%% We believe this performance penalty to be acceptable for two reasons:
-%% first, it is likely to be infrequent, as even in dynamic languages
-%% most variables are only assigned once \todo{cite self?
-%%   perscheid?}. Second, optimizing just-in-time compilers in current
-%% \acp{vm} often assume the same\todo{cite}, and deoptimize if it does
-%% occur. For good performance in a dynamically typed program, it is thus
-%% not desirable to have variables change types often, regardless of
-%% whether they are constrained or not.
-
-% \subsubsection{Assigning Mutable Objects}
-% \label{sec:assign-compl-objects}
-
-% In the implemention described above, so far we have been dealing with
-% immutable, atomic objects, such as integers and floats.  In the
-% temperature converter, we connected the slider value to the Celsius
-% value; and the assigned value is a primitive, immutable float value and
-% the solver has to adjust other variables to satisfy the
-% constraints. However, we also need to address the case of mutable
-% objects with substructure.  Consider the following midpoint line:
-% \begin{lstlisting}
-% var line = {start: pt(0,0), end: pt(1,1), midpoint = pt(0,0)};
-% always({solver: cassowary}, function() {
-%   var center = line.start.getPosition().
-%                  addPt(line.end.getPosition()).scaleBy(0.5);
-%   return line.midpoint.getPosition().eqPt(center);
-% });
-
-% line.midpoint = pt(1, 1);
-% \end{lstlisting}
-% If we assign a new value to \lstinline{midpoint}, the system can
-% update the \lstinline{start} or \lstinline{end} points. But the
-% assignment asserts equality between \lstinline{midpoint} and
-% \lstinline{pt(1, 1)} --- both mutable objects --- not their
-% \lstinline{x} and \lstinline{y} parts. So the solver could also modify
-% the parts of the newly assigned point to satisfy the constraint. 
-% Because all variables have
-% weak stay constraints on them, the solver is as likely to modify
-% (parts of) the input object as it is to modify the rest of the system.
-
-% On the other hand, there are situations in which the system should
-% still be allowed to change assigned objects to satisfy constraints. To
-% use constraints for input rectification
-% \cite{long-rectification-2012}, programmers may expect the system to
-% fix the assigned object, rather than reject the assignment.
-
-% To support both scenarios, Babelsberg/JS marks the assigned objects'
-% parts with strong stay constraints. This means that, as long as other
-% constraints allow, the solver will not change the new position for the
-% midpoint. This solution usually meets expectations in our
-% experience. For more complex cases it may not always produce the
-% desired result, in which case the programmer has to be explicit.
-
-\subsection{Constraint Construction}
+\subsubsection*{Constraint Construction}
 \label{sec:constr-constr}
 When a programmer writes a function that contains a constraint
 expression, this expression is evaluated using our JavaScript
@@ -4023,7 +3796,7 @@ are sorted to determine which region the variable belongs to. Only the
 solver responsible for this region may write to the variable; as far
 as all other solvers are concerned it is read-only.
 
-\subsection{Determining Cooperating Solver Regions}
+\paragraph*{Determining Cooperating Solver Regions}
 \label{sec:determ-inter-solv}
 The architecture for cooperating constraint solvers requires that each
 variable must be read-only in all but one of the regions that it
@@ -4043,7 +3816,164 @@ solver, and that all other solvers are triggered (in descending order
 of regions) once the defining solver has resatisfied its constraints,
 as described in \autoref{sec:assignment}.
 
-\subsection{Edit Constraints}
+\subsubsection*{Constraint Solving}
+\label{sec:assignment}
+
+Assignment to  objects that  are constrained  in Babelsberg/JS  is the
+core  concept that  binds the  declarative constraints  and imperative
+code  together.  Whereas in  standard  imperative  code an  assignment
+writes a  value to  a memory location,  assignments in  Babelsberg add
+equality    constraints   on    constrained   objects    and   trigger
+re-satisfaction. The new equality  constraint may be unsatisfiable, in
+which case the  assignment is not executed and a  runtime exception is
+generated. As  in Babelsberg/R, the Babelsberg/JS  runtime informs the
+developer of  a failed assignment  by generating a  runtime exception.
+To support the cooperating solvers design, assignment in Babelsberg/JS
+is a 3-step process:
+
+\paragraph*{Set Value}
+If the new value is the same as the old, we simply return.  Otherwise,
+we convert all read-only constraints on the assigned variable either
+to required edit constraints (for solvers that support them) or to
+equality constraints.
+
+If the assigned value has an external variable, \ie it is constrained
+by a solver that can handle its type (for example a real in
+Cassowary), the new value is input into the furthest upstream solver
+using an equality constraint and this solver is then called.
+Afterwards, the equality constraint for assignment is removed.  
+However, if the solver cannot satisfy its constraints with the new value,
+an exception is raised.
+
+\paragraph*{Update Downstream Variables}
+For all external variables except the primary one (the one in the most
+upstream solver), the new value is input into the solver. If any of
+the solvers fail to satisfy their constraints with the new value, an
+exception is generated and all read-only constraints are re-enabled as
+above.
+
+All remaining constraints are in solvers that cannot handle the type
+of that variable. Consequently, its value was treated as a constant in
+their constraint expressions. With the new value, these have to be
+recalculated. The old variable value is remembered and the new value
+is stored. These constraints are disabled, their expressions
+re-evaluated in constraint construction mode, and then the constraints
+are re-enabled. If any constraint in this set fails to run its
+expression or cannot be satisfied with the new value, the old value is
+restored and an exception is generated.
+
+\paragraph*{Update Connected Variables}
+Finally, we have to update the variables connected to the assigned
+variable. To do so, we create the transitive closure of all variables
+connected to the assignee through constraints. For all these
+variables, a new value has already been created for all solvers that
+already ran, but their downstream read-only constraints still have to
+be updated. These variables have to go through the first two steps of
+the assignment process, returning early if their values have not
+changed.
+
+At this point, assignment can only fail for variables that
+are in solvers that have not run yet. These are only solvers that the
+primary assignee is not part of. If any one of these solvers cannot
+satisfy their constraints with the new value, we restore the old
+value, re-satisfy the constraints, and raise an exception. While this
+may leave the system in a different state than it was in before
+assignment (depending on the implementation of the participating
+solvers, they may not deterministically find the same solution to the
+same set of constraints) the system will still be in a state that
+satisfies all previous constraints.
+
+To optimize assignments in cases where only a single solver is in use,
+we defer  copying the  values from the  solver to  the object-oriented
+variable location after assignment. Instead  of copying the values for
+all  affected variables  immediately, the  variable's values  are read
+from the solver and copied when they are next used in imperative code.
+However, this optimization cannot be  when multiple solvers are in use
+with  our cooperating  constraint solver  architecture.  Consider  the
+following contrived example:
+\begin{lstlisting}
+var obj = {a: 10, b: 10, c: true};
+always: { solver: cassowary
+    obj.a + obj.b == 20
+}
+always: { solver: deltablue
+  obj.c.formula([obj.b], function (b) {
+    if (b == 13) throw "unlucky";
+    return b < 10;
+  })
+}
+obj.a = 7;
+\end{lstlisting}
+When \lstinline{obj.a} changes, Cassowary is called to resatisfy the
+first constraint. However, to trigger DeltaBlue to solve the second
+constraint, the new value for \lstinline{obj.b} has to be copied
+immediately, rather than when \lstinline{obj.b} is next
+read. Otherwise, a failure to satisfy the second constraint is only
+encountered sometime later in the execution and difficult to trace
+back to the assignment that caused it.
+
+\paragraph*{Changing the Type of Variables}
+Most solvers only provide support for a limited number of
+type domains (such as reals or booleans).  When variables are used in
+constraints, their current values determine how they are handled by
+the solvers.  Changing the type of a variable, although possible in a
+dynamic language, is a relatively uncommon operation, so slow
+performance is acceptable.  When it does occur, the variable is
+removed from all solvers, all its constraints are disabled, and its
+constraint expressions are re-executed in constraint construction
+mode, thus creating new solver-specific representations.
+
+This makes changing the type of a constrained variable potentially
+slow. Our ConstraintInterpreter is not optimized for performance
+(because it is run only at constraint construction) -- recalculating
+many constraints is many thousand times slower than running the same
+code natively. If any of the constraints fail, we have to re-assign
+the old value and recalculate all constraints on the variable once
+more.
+
+We believe this performance penalty to be acceptable for two reasons:
+first, it is likely to be infrequent, as even in dynamic languages
+most variables are only assigned once \todo{cite self?
+  perscheid?}. Second, optimizing just-in-time compilers in current
+\acp{vm} often assume the same\todo{cite}, and deoptimize if it does
+occur. For good performance in a dynamically typed program, it is thus
+not desirable to have variables change types often, regardless of
+whether they are constrained or not.
+
+\paragraph*{Assigning Mutable Objects}
+\label{sec:assign-mutable-objec}
+So far we have described how assignment is handled for atomic objects,
+such as integers and floats. We have not, in our design, addressed the
+case of mutable objects with substructure. Consider the following midpoint line:
+\begin{lstlisting}
+var line = {start: pt(0,0), end: pt(1,1), midpoint = pt(0,0)};
+always: { solver: cassowary
+  var center = line.start.getPosition().
+                 addPt(line.end.getPosition()).scaleBy(0.5);
+  line.midpoint.getPosition().eqPt(center);
+}
+
+line.midpoint = pt(1, 1);
+\end{lstlisting}
+There are two ways to look at such an assignment: a) the assignment
+asserts equality between \lstinline{midpoint} and \lstinline{pt(1, 1)}
+--- both mutable objects --- not their \lstinline{x} and \lstinline{y}
+parts. So the solver could also modify the parts of the newly assigned
+point to satisfy the constraint. This seems counter-intuitive, so
+presumably the right-hand side of an assignment should be read-only to
+the solver. On the other hand, there are use-cases for constraints for
+example in input rectification \cite{long-rectification-2012}, where
+programmers may expect the system to fix the assigned object, rather
+than reject the assignment.
+
+For now, we consider the behavior in this case to be implementation
+defined. Babelsberg/JS marks the assigned objects' parts with strong
+stay constraints. This means that, as long as other constraints allow,
+the solver will not change the new position for the midpoint. The
+design of a general solution is subject of further research.
+
+
+\subsection{Incremental Constraint Solving with Cooperating Solvers}
 \label{sec:edit-constraints}
 Since the original Babelsberg design did not include language-level
 support for edit constraints, these were supplied by the solver
@@ -4106,8 +4036,7 @@ uniform across solvers and also allows it to work with cooperating
 solvers. However, each solver now has to provide some support for
 this, so more work is required to enable the feature.
 
-\subsection{Babelsberg/S}
-\label{sec:babelsbergs}
+\subsection{Introspection and Debugging}
 
 \chapter{Discussion of Implementation Approaches}
 \label{cha:comp-impl-appr}

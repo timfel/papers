@@ -367,10 +367,11 @@ restrictions are as follows:
   constraints that implement frame axioms.
 \end{sloppypar}
 
-\item {\em Identity preservation}: Similarly, asserted constraints
-  cannot change what object a particular variable or field stores.  This
-  property is enforced by requiring constraints on object identity to
-  already be satisfied at the point where they are asserted.
+\item {\em Identity preservation}: Similarly, newly asserted
+  constraints cannot change what object a particular variable or field
+  stores (such changes can only flow from assignments).  This property
+  is enforced by requiring constraints on object identity to already
+  be satisfied at the point where they are asserted.
 
 \item {\em Structural/identity determinism}:  The structure of objects
   as well as the particular objects stored by variables and fields
@@ -490,7 +491,7 @@ subsequent statement if it may have become invalidated.  In contrast,
 a \verb!once! constraint is solved once and then immediately
 retracted. Semantically, \verb!always!  constraints persist for the
 rest of the execution, but the practical implementations garbage
-collect constraints if all variables that they refer to are no longer
+collect constraints if all variables that they transitively refer to are no longer
 accessible.
 
 As a simple example, consider a bank account application in which we
@@ -911,7 +912,7 @@ We use a simple syntactic rule to ensure that methods used in
 constraints have no side effects.  Such methods can only write to
 local variables and can only invoke other side-effect-free methods.
 This rule is checked dynamically before constraint solving by
-interpreting the constraint expression and detecting invalid
+executing the constraint expression and detecting invalid
 operations.
 
 % Our rules prevent the programmer from asserting constraints that have
@@ -1095,33 +1096,32 @@ is, it can modify any or all of the \verb!topLeft!, \verb!width!, and
 \verb!height! fields of the window in order to satisfy the constraint whenever the \verb!mousePosition!
 changes.
 
-A method \verb|m| that is used in a multi-way constraint is ultimately
+A method \verb|m| that is used in a multi-way constraint in the above manner is ultimately
 exploded into a set of primitive constraints that correspond to the
 primitive operations performed by \verb|m| and its callees, which are then handed to the solver.
 However, if the resulting constraints are not supported by the solver,
-then the method call must be treated in a one-way manner, as described
-below.  For example, a
+then even though we hand it to the solver as a multi-way constraint, the solver
+may be unable to solve for all variables that occur in the constraint or fail
+to solve the constraint altogether. For example, a
 local propagation solver such as DeltaBlue can handle the integer addition
 constraints resulting from the \verb|getCenter| example but cannot
 handle a method that involves integer inequalities.
 (Given a constraint $x \leq y$, a local propagation solver cannot find
 a unique value for $y$ given a value for $x$.)  On the other hand, a
 solver that can accommodate both linear equalities and inequalities
-\emph{would} be able to solve such a set of constraints.  Finally,
-given a constraint
+\emph{would} be able to solve such a set of constraints. Our rules 
+regarding which methods can be solved multi-directionally ignore such
+possible limitations of the solver. For example, given a constraint
 that invokes a method \verb|encrypt| on a
 public key object, presumably no practical solver will be able to
-solve this in a multi-way manner.
+solve this in a multi-way manner in reasonable time---but if such a solver is ever found
+our rules would allow it to be used.
 
 Given a side-effect-free method, if that method has branches or
 multiple statements rather than a single {\tt return} statement, then
-we do not support using it in a multi-way manner.  
-%% This will prevent
-%% the system from, for example, trying to reverse a one-way hash
-%% function written in an object-constraint language, since that function (or
-%% one of the functions it uses) would
-%% involve branches or more than a single return statement, even if
-%% all calls to other methods are side-effect-free.  
+we do not support using it in a multi-way manner. (This \emph{will}
+prevent the system from reversing most \verb!encrypt! methods, since they
+usually involve branches and loops even though they are side-effect-free.)
 The method \emph{can} still be invoked within a constraint,
 but can only be used in the ``forward''
 direction.  That is, the method will simply be executed (rather than 
@@ -1857,8 +1857,8 @@ environment and heap:
 \begin{theorem} (Structure Preservation)\\
  If \stepH{\E}{\H}{\C}{\I}{(once|always)
    C$_0$}{\E$'$}{\H$'$}{\C$'$}{\I$'$} and \\\indent
- \tcHC{\E}{\H}{C$_0$} and \tcH{\E}{\H}{x}{T},\\then
-  \tcH{\E$'$}{\H$'$}{x}{T}. 
+ \tcHC{\E}{\H}{C$_0$} and \tcH{\E}{\H}{L}{T},\\then
+  \tcH{\E$'$}{\H$'$}{L}{T}. 
 \end{theorem}
 \end{sloppypar}
 

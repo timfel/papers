@@ -49,6 +49,8 @@
 
 \newcommand{\eval}[3]{\texttt{#1} $\vdash$ \texttt{#2} $\Downarrow$ \texttt{#3}}
 \newcommand{\gstay}[3]{stay(\texttt{#1}, \texttt{#2}) $=$ \texttt{#3}}
+\newcommand{\stayPrefix}[4]{stayPrefix(\texttt{#1}, \texttt{#2}, \texttt{#3}) $=$ \texttt{#4}}
+\newcommand{\phase}[5]{solve(\texttt{#1}, \texttt{#2}, \texttt{#3}, \texttt{#4}) $=$ \texttt{#5}}
 \newcommand{\stay}[2]{stay(\texttt{#1}) $=$ \texttt{#2}}
 \newcommand{\istay}[2]{i-stay(\texttt{#1}) $=$ \texttt{#2}}
 \newcommand{\toSolver}[2]{\texttt{E} $\vdash$ \texttt{#1} $\leadsto$ $#2$}
@@ -1892,12 +1894,11 @@ we present it in its entirety rather than as a delta from those ones.
 Babelsberg/UID: \vskip0.5\baselineskip\noindent
 {\texttt{
 \begin{tabular}{lrrl}
-\textrm{Statement} & s & ::= & skip $\mid$ L := e $\mid$ L := new o $\mid$ always C $\mid$ once C \\
+\textrm{Statement} & s & ::= & skip $\mid$ L := e $\mid$ x := new o $\mid$ always C $\mid$ once C \\
   & & &  $\mid$ s;s $\mid$ if e then s else s $\mid$ while e do s \\
 \textrm{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
 \textrm{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
-$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I $\mid$ D \\
-\textrm{Identity} & I & ::= & L == L\\
+$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ L==L $\mid$ D \\
 \textrm{Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
 \textrm{L-Value} & L & ::= & x $\mid$ L.l \\
 \textrm{Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ \textrm{base type constants}\\
@@ -2068,11 +2069,11 @@ constraints.
   \tcH{\Euid}{\Huid}{r}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
 }
 
-\inferrule{T-Deref}{
-  \tcH{\Euid}{\Huid}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
-{
-  \tcH{\Euid}{\Huid}{\Huid(e)}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
-}
+% \inferrule{T-Deref}{
+%   \tcH{\Euid}{\Huid}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
+% {
+%   \tcH{\Euid}{\Huid}{\Huid(e)}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+% }
 
 % \inferrule{T-Object}{
 %   \tcH{\Euid}{\Huid}{e$_1$}{T$_1$} $\cdots$ \tcH{\Euid}{\Huid}{e$_n$}{T$_n$}
@@ -2220,6 +2221,30 @@ define stay constraints for references.
 {\mbox{
   \gstay{\Huid}{$\rho$}{C$_1$ $\wedge$ $\cdots$ $\wedge$ C$_n$}}}
 
+\judgment{\stayPrefix{\Euid}{\Huid}{L}{C}}
+\judgment{\stayPrefix{\Euid}{\Huid}{I}{C}}
+
+These judgments are another form of stay constraints that are
+necessary to ensure that updates to the values of variables and fields
+are done deterministically.
+
+\inferax{StayPrefixVar}{\stayPrefix{\Euid}{\Huid}{x}{true}}
+
+\inferrule{StayPrefixField}{
+{\tt L} = {\tt x.l$_1$.$\ldots$.l$_n$} \andalso $n>0$ \andalso \evalH{\Euid}{\Huid}{x}{r}
+\andalso
+\evalH{\Euid}{\Huid}{x.l$_1$}{r$_1$} $\cdots$ \evalH{\Euid}{\Huid}{x.l$_1$.$\ldots$.l$_{n-1}$}{r$_{n-1}$}
+}
+{\stayPrefix{\Euid}{\Huid}{L}{x=r\,$\wedge$\,x.l$_1$=r$_1$\,$\wedge$\,$\cdots$\,$\wedge$\,x.l$_1$.$\ldots$.l$_{n-1}$=r$_{n-1}$}}
+
+\inferrule{StayPrefixIdent}{
+{\tt I} = {\tt
+  L$_1$=L$_2$\,$\wedge$\,$\cdots$\,$\wedge$\,L$_{2n-1}$=L$_{2n}$}
+\andalso
+\stayPrefix{\Euid}{\Huid}{L$_1$}{C$_1$} $\cdots$ \stayPrefix{\Euid}{\Huid}{L$_{2n}$}{C$_{2n}$}
+}
+{\stayPrefix{\Euid}{\Huid}{I}{C$_1$\,$\wedge$\,$\cdots$\,$\wedge$\,C$_{2n}$}}
+
 \judgment{\combine{\Euid}{\Huid}{C}{C$'$}}
 \judgment{\combine{\Euid}{\Huid}{I}{C$'$}}
 
@@ -2232,6 +2257,27 @@ refers to a heap reference \texttt{r}, is translated  into \texttt{\Huid(L).l}
 straightforward. The full Babelsberg/Objects language includes a
 similar judgment that also inlines method calls, given in its
 entirety in Section \ref{sec:babelsberg-objects}.
+
+\judgment{\phase{\Euid}{\Huid}{\C}{$\rho$}{\Euid$'$;Huid$'$}}
+
+``Solving constraint \texttt{\C} in the context of \texttt{\Euid} and
+\texttt{\Huid} using stay constraints with priority $\rho$ produces the new environment and heap \texttt{\Euid$'$} and
+\texttt{\Huid$'$}.''
+
+
+This judgment represents one phase of constraint solving -- either
+solving ``value'' constraints or identity constraints.
+
+\infrule[Solve]{\mbox{
+    \gstay{\Euid}{$\rho$}{C$_{E}$} \andalso
+    \gstay{\Huid}{$\rho$}{C$_{H}$} \andalso
+    \combine{\Euid}{\Huid}{\C}{C$'$}}\\
+  \mbox{
+    \solveH{\Euid$'$}{\Huid$'$}{$($C$'$ $\wedge$ C$_{E}$ $\wedge$ C$_{H}$$)$}}
+}{\mbox{
+  \phase{\Euid}{\Huid}{\C}{$\rho$}{\Euid$'$;\Huid$'$}
+}}
+
 
 \judgment{\stepH{\Euid}{\Huid}{\C}{\I}{s}{\Euid$'$}{\Huid$'$}{\C$'$}{\I$'$}}
 
@@ -2251,7 +2297,7 @@ constraints that have been declared so far during execution. Note that
 our execution implicitly gets stuck if the solver cannot produce a
 model. 
 
-The first two rules below describe the semantics of assignments.  We
+The rule below describes the semantics of assignments.  We
 employ a two-phase process.  First the identity constraints are solved
 in the context of the new assignment.  This phase propagates the
 effect of the assignment through the identities, potentially changing
@@ -2263,7 +2309,7 @@ the first phase.  If they are well typed, then we proceed to solve
 them.  This phase can change the values of primitives but will not
 modify the structure of any object.
 
-Implicitly these rules get stuck if either a) the identity constraints
+Implicitly this rule gets stuck if either a) the identity constraints
 cannot be solved, b) the value constraints do not typecheck, 
 or c) the value constraints cannot be solved. A
 practical implementation would add explicit exceptions for these cases
@@ -2272,47 +2318,35 @@ that the programmer could handle.
 \infrule[S-Asgn]{
   \mbox{
     \evalH{\Euid}{\Huid}{e}{v} \andalso
-    \gstay{\Euid}{weak}{C$_{E_s}$} \andalso
-    \gstay{\Huid}{weak}{C$_{H_s}$}}\\
-  \mbox{
- \andalso
-\texttt{L} $\neq$ \texttt{x} $\Rightarrow$ \tcH{\Euid}{\Huid}{L}{T} \andalso
-    \combine{\Euid}{\Huid}{\I\,$\wedge$\,L=v}{C$_I$} \andalso
-    \solveH{\Euid$'$}{\Huid$'$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$)}}\\
-  \mbox{
-    \gstay{\Euid$'$}{required}{C$_{{E'}_s}$} \andalso
-    \gstay{\Huid$'$}{required}{C$_{{H'}_s}$}} \\
-  \mbox{
-    \combine{\Euid$'$}{\Huid$'$}{\C\,$\wedge$\,L=v}{C$_C$} \andalso
-    \tcHC{\Euid$'$}{\Huid$'$}{C$_C$} \andalso
-    \solveH{\Euid$''$}{\Huid$''$}{(C$_C$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
-}{\mbox{
+\texttt{L} $\neq$ \texttt{x} $\Rightarrow$ \tcH{\Euid}{\Huid}{L}{T}
+\andalso \stayPrefix{\Euid}{\Huid}{L}{C$_L$} \andalso \stayPrefix{\Euid}{\Huid}{I}{C$_I$}}\\
+\mbox{
+\phase{\Euid}{\Huid}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\Euid$'$;\Huid$'$} \andalso
+    \tcHC{\Euid$'$}{\Huid$'$}{C} \andalso
+\phase{\Euid$'$}{\Huid$'$}{\C\,$\wedge$\,L=v}{required}{\Euid$''$;\Huid$''$}
+}}
+{\mbox{
   \stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$''$}{\Huid$''$}{\C}{\I}
 }}
+
+The next rule describes the semantics of object creation, which is
+straightforward.  For simplicity we require a new object to be
+initially assigned to a fresh variable, but this is no loss of expressiveness.
 
 \infrule[S-AsgnNew]{
   \mbox{
     \evalH{\Euid}{\Huid}{e$_1$}{v$_n$} $\cdots$ \evalH{\Euid}{\Huid}{e$_n$}{v$_n$}} \\
 \mbox{
-    \Huid(\texttt{r})$\uparrow$ \andalso \texttt{\Huid$_0$} = \texttt{\Huid}
-    $\bigcup$ \{(\texttt{r}, \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\}} \\
-  \mbox{
-    \gstay{\Euid}{weak}{C$_{E_s}$} \andalso
-    \gstay{\Huid$_0$}{weak}{C$_{H_s}$} \andalso
-    C$_{new} = $\texttt{L=r\,$\wedge$\,\Huid(r)=\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}\\
-  \mbox{
-    \texttt{L} $\neq$ \texttt{x} $\Rightarrow$ \tcH{\Euid}{\Huid}{L}{T} \andalso
-    \combine{\Euid}{\Huid$_0$}{\I\,$\wedge$\,C$_{new}$}{C$_I$} \andalso
-    \solveH{\Euid$'$}{\Huid$'$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$)}}\\
-  \mbox{
-    \gstay{\Euid$'$}{required}{C$_{{E'}_s}$} \andalso
-    \gstay{\Huid$'$}{required}{C$_{{H'}_s}$}}\\
-  \mbox{
-    \combine{\Euid$'$}{\Huid$'$}{\C\,$\wedge$\,C$_{new}$}{C$_C$} \andalso
-    \tcHC{\Euid$'$}{\Huid$'$}{C$_C$} \andalso
-    \solveH{\Euid$''$}{\Huid$''$}{(C$_C$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$)}}
-}{\mbox{
-  \stepH{\Euid}{\Huid}{\C}{\I}{L := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\Euid$''$}{\Huid$''$}{\C}{\I}
+   \Euid(\texttt{x})$\uparrow$ \andalso 
+    \Huid(\texttt{r})$\uparrow$ \andalso \texttt{\Euid$'$} = \texttt{\Euid}
+    $\bigcup$ \{(\texttt{x},
+    \texttt{r})\}
+\andalso \texttt{\Huid$'$} = \texttt{\Huid}
+    $\bigcup$ \{(\texttt{r},
+    \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\}
+}}
+{\mbox{
+  \stepH{\Euid}{\Huid}{\C}{\I}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\Euid$'$}{\Huid$'$}{\C}{\I}
 }}
 
 The next two rules describe the semantics of identity constraints.  
@@ -2342,11 +2376,7 @@ on the environment and heap.
 
 \infrule[S-Once]{\mbox{
     \tcHC{\Euid}{\Huid}{C$_0$} \andalso
-    \gstay{\Euid}{required}{C$_{E_s}$} \andalso
-    \gstay{\Huid}{required}{C$_{H_s}$} \andalso
-    \combine{\Euid}{\Huid}{\C\,$\wedge$\,C$_0$}{C$'$}}\\
-  \mbox{
-    \solveH{\Euid$'$}{\Huid$'$}{$($C$'$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$$)$}}
+    \phase{\Euid}{\Huid}{\C\,$\wedge$\,C$_0$}{required}{\Euid$'$;\Huid$'$}}
 }{\mbox{
   \stepH{\Euid}{\Huid}{\C}{\I}{once C$_0$}{\Euid$'$}{\Huid$'$}{\C}{\I}
 }}
@@ -2463,7 +2493,7 @@ and {\tt C$_0$} is not an identity test and
 \begin{proof}
 Since \stepH{\Euid}{\Huid}{\C}{\I}{once
    C$_0$}{\Euid$'$}{\Huid$'$}{\C$'$}{\I$'$} and  {\tt C$_0$} is not an
- identity test, by {\sc S-Once} we have that 
+ identity test, by {\sc S-Once} and {\sc Solve} we have that 
  \tcHC{\Euid}{\Huid}{C$_0$} and
     \gstay{\Euid}{required}{C$_{E_s}$} and
     \gstay{\Huid}{required}{C$_{H_s}$} and
@@ -2654,7 +2684,7 @@ and {\tt C$_0$} is not an identity test and
 \begin{proof}
 Since \stepH{\Euid}{\Huid}{\C}{\I}{once
    C$_0$}{\Euid$'$}{\Huid$'$}{\C$'$}{\I$'$} and  {\tt C$_0$} is not an
- identity test, by {\sc S-Once} we have that 
+ identity test, by {\sc S-Once} and {\sc Solve} we have that 
  \tcHC{\Euid}{\Huid}{C$_0$} and
     \gstay{\Euid}{required}{C$_{E_s}$} and
     \gstay{\Huid}{required}{C$_{H_s}$} and

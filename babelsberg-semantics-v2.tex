@@ -3356,12 +3356,6 @@ can then be handed to the solver in one conjunction. Note how the
 local names are translated into a global solver environment by
 appending a digit to every duplicate name.
 
-\ab{include a version of the evaluation when Point and Rectangle are
-  value classes!}
-
-Now consider a similar example but using mutable rectangles (instances of
-\verb|MutableRectangle|).  \verb|Point| will still be a value class.
-
 \ifx\hpitr\undefined
 \newcommand{\mycskip}{\hspace{29em}}
 \else
@@ -3369,10 +3363,69 @@ Now consider a similar example but using mutable rectangles (instances of
 \fi
 
 $\begin{array}{rr@{\;=\;}l}
+\multicolumn{3}{r}{//~\mathrm{constraint~for~the~receiver~of~the~center~method}} \\
+\mathrm{required} & self1 & \{upper\_left: \{x:0,\,y:0\},\,lower\_right: \{x:5,\,y:5\}\}\\
+
+\multicolumn{3}{r}{//~\mathrm{the~point~addition~called~from~the~center~method}} \\
+\mathrm{required} & self2 & self1.upper\_left\\
+\mathrm{required} & arg1 & self1.lower\_right\\
+
+\multicolumn{3}{r}{//~\mathrm{the~point~constructor~called~from~the~point~addition~method}} \\
+\mathrm{required} & x1 & self2.x\,+\,arg1.x\\
+\mathrm{required} & y1 & self2.y\,+\,arg1.y\\
+
+\multicolumn{3}{r}{//~\mathrm{point~division~by~scalar~called~from~center~method}} \\
+\mathrm{required} & self3 & \{x: x1,\,y: y2\}\\
+\mathrm{required} & arg2 & 2\\
+
+\multicolumn{3}{r}{//~\mathrm{point~constructor~called~from~point~division~method}} \\
+\mathrm{required} & x2 & self3.x\,/\,arg2\\
+\mathrm{required} & y2 & self3.y\,/\,arg2\\
+
+\multicolumn{3}{r}{\mycskip\mathrm{//~point~constructor~for~the~static~point}} \\
+\mathrm{required} & x3 & 10\\
+\mathrm{required} & y3 & 20\\
+
+\multicolumn{3}{r}{//~\mathrm{and~for~the~point~equality}} \\
+\mathrm{required} & self4 & \{x: x2,\,y: y2\}\\
+\mathrm{required} & arg3 & \{x: x3,\,y: y3\}\\
+\mathrm{required} & self4.x & arg3.x \wedge self4.y = arg3.y\\
+\end{array}$
+
+As mentioned, for each variable name in a scope a unique global
+variable name is created.  The solver works only on the global
+names. During evaluation, each local name maps to a global name, which
+in turn maps to a value. Entering the center method creates a local
+environment in which \verb|self| is bound to the rectangle by value.
+A global alias \verb|self1| is created and constrained to refer to
+that same value.  Similarly, the global alias \verb|self2| is a point,
+namely the upper left corner of the mutable rectangle.  This alias is
+then used when we explode the \verb|+| message to that point.
+\verb|self3| is also a point, namely the new point that is returned by
+the point addition method and now used as receiver of the scalar
+division method on points.  For methods that take arguments, global
+names for the argument names are created and constrained similarly.
+For example, \verb|arg1| is the global name in this exploded
+constraint for the argument to the \verb|+| method for
+\verb|Point|. Thus, the solver never has to deal with different scopes
+or name clashes.
+
+Now consider a similar example but using mutable rectangles and points
+on the heap, using the syntactic translation when using them in
+constraints as defined in
+\autoref{sec:value-classes-as-syntactic-sugar}.
+
+$\begin{array}{rr@{\;=\;}l}
 \multicolumn{3}{r}{//~\mathrm{stays~for~the~heap}} \\
-\mathrm{required} & H(r) & \{upper\_left: r_{ul},\,lower\_right: r_{lr}\}\\
-\mathrm{weak} & r_{ul} & \{x:0,\,y:0\}\\
-\mathrm{weak} & r_{lr} & \{x:5,\,y:5\} \\
+\mathrm{required} & H(r) & \{upper\_left: p_{ul},\,lower\_right: p_{lr}\}\\
+\mathrm{weak} & H(r_{ul}) & \{x:x1,\,y:y1\}\\
+\mathrm{weak} & H(r_{lr}) & \{x:x2,\,y:y2\} \\
+\mathrm{required} & p_{ul} & r_{ul}\\
+\mathrm{required} & p_{lr} & r_{lr}\\
+\mathrm{required} & x1 & 0\\
+\mathrm{required} & y1 & 0\\
+\mathrm{required} & x2 & 5\\
+\mathrm{required} & y2 & 5\\
 
 \multicolumn{3}{r}{//~\mathrm{the~center~method}} \\
 \mathrm{required} & self1 & r\\
@@ -3382,55 +3435,58 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & arg1 & H(self1).lower\_right\\
 
 \multicolumn{3}{r}{//~\mathrm{the~point~constructor~called~from~the~point~addition~method}} \\
-\mathrm{required} & x1 & H(self2).x\,+\,H(arg1).x\\
-\mathrm{required} & y1 & H(self2).y\,+\,H(arg1).y\\
+\mathrm{required} & H(r_{c}) & \{x:x3,\,y:y3\}\\
+\mathrm{required} & self3 & r_{c}\\
+\mathrm{required} & x3 & H(self2).x\,+\,H(arg1).x\\
+\mathrm{required} & y3 & H(self2).y\,+\,H(arg1).y\\
 
 \multicolumn{3}{r}{//~\mathrm{point~division~by~scalar~called~from~center~method}} \\
-\mathrm{required} & self3 & \{x: x1,\,y: y2\}\\
+\mathrm{required} & self4 & self3\\
 \mathrm{required} & arg2 & 2\\
 
 \multicolumn{3}{r}{//~\mathrm{point~constructor~called~from~point~division~method}} \\
-\mathrm{required} & x2 & H(self3).x\,/\,arg2\\
-\mathrm{required} & y2 & H(self3).y\,/\,arg2\\
+\mathrm{required} & H(r_{d}) & \{x:x4,\,y:y4\}\\
+\mathrm{required} & self5 & r_{d}\\
+\mathrm{required} & x4 & H(self4).x\,/\,arg2\\
+\mathrm{required} & y4 & H(self4).y\,/\,arg2\\
 
 \multicolumn{3}{r}{\mycskip\mathrm{//~point~constructor~for~the~static~point}} \\
-\mathrm{required} & x3 & 10\\
-\mathrm{required} & y3 & 20\\
+\mathrm{required} & H(r_{s}) & \{x:x5,\,y:y5\}\\
+\mathrm{required} & self6 & r_{s}\\
+\mathrm{required} & x5 & 10\\
+\mathrm{required} & y5 & 20\\
 
 \multicolumn{3}{r}{//~\mathrm{and~for~the~point~equality}} \\
-\mathrm{required} & self4 & \{x: x2,\,y: y2\}\\
-\mathrm{required} & arg3 & \{x: x3,\,y: y3\}\\
-\mathrm{required} & H(self4).x & H(arg3).x \wedge H(self4).y = H(arg3).y\\
+\mathrm{required} & self7 & self5\\
+\mathrm{required} & arg3 & self6\\
+\mathrm{required} & H(self7).x & H(arg3).x \wedge H(self7).y = H(arg3).y\\
 \end{array}$
 
-As mentioned, for each variable name in a scope a unique global
-variable name is created.  The solver works only on the global
-names. During evaluation, each local name maps to a global name, which
-in turn maps to a value.  Entering the center method creates a local
-environment in which \verb|self| is bound to \verb|r|\@.  A global
-alias \verb|self1| is created and constrained to refer to the same
-reference (which is to a mutable rectangle).  Similarly, the global alias
-\verb|self2| is a point, namely the upper left corner of the mutable
-rectangle.  This alias is then used when we explode the \verb|+|
-message to that point.  \verb|self3| is also a point, namely the new
-point that is returned by the point addition method.  Note that we are
-representing the instance of this value class in the above conjunction
-of exploded constraints and in the formal semantics as an i-record.
-For methods that take arguments, global names for the argument names
-are created and constrained similarly.  For example, \verb|arg1| is
-the global name in this exploded constraint for the argument to the
-\verb|+| method for \verb|Point|. Thus, the solver never has to deal
-with different scopes or name clashes.
 
-This example illustrates why we need to solve for object identity and type
-before values --- if \verb|r| had been an instance of a class with a
-different implementation of the \verb|center| method, it would have
-been exploded in a different way.
+Now before we inline the methods we create stays on the heap. Entering
+the center method creates a local environment in which \verb|self| is
+bound to \verb|r|\@, which is a reference to the mutable rectangle on
+the heap. We create aliases for the receivers and arguments as before,
+but now treat constructors specially, in that we create a new
+reference on the heap, bind it to a new \verb!self! alias, and use the
+arguments to the constructor as constraints on the parts of the
+object, in effect turning the assignment of these arguments to the
+parts of the newly created object into required equality
+constraints. This basically means we execute constructors in a sort of
+``mixed mode'' where heap objects are created as needed and
+assignments are turned into equalities. This implies limitations on
+the constructors to be basically just methods binding arguments to the
+fields of the newly created object, without any control structures.
+
+This example also illustrates why we need to solve for object identity
+and type before values --- if \verb|r| had been an instance of a class
+with a different implementation of the \verb|center| method, it would
+have been exploded in a different way.
 
 If we assign to the rectangle's \verb|upper_left|, the solver will
 update \verb|lower_right| to keep the center at \verb|Point(10,20)|:
 \begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10);
+r := new MutableRectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20);
 r.upper_left := Point(100,2);
 \end{example}
@@ -4084,6 +4140,7 @@ pt_x_equals_5(q)
 After this code runs, \verb!q.x! is \verb!5!.
 
 \subsection{Value Classes as Syntactic Sugar}
+\label{sec:value-classes-as-syntactic-sugar}
 
 Value classes are in fact not necessary for Babelsberg --- there is a
 simple source-to-source transformation that can be used to remove them.

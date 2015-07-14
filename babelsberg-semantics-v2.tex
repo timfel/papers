@@ -1947,7 +1947,7 @@ function that maps mutable references to ``objects'' of the form {\tt \{l$_1$:v$
 we also treat both \Euid and \Huid as a set of pairs (\texttt{\{(x,v),...\}}
 and \texttt{\{(r,o),...\}}, respectively). The currently active value
 constraints are kept as a compound constraint \C; identity constraints
-are kept as a compound constraint referred to as \I.
+are kept as a single conjunction referred to as \I.
 
 \judgment{\evalH{\Euid}{\Huid}{e}{v}}
 
@@ -2239,7 +2239,7 @@ are done deterministically.
 
 \inferrule{StayPrefixIdent}{
 {\tt I} = {\tt
-  L$_1$=L$_2$\,$\wedge$\,$\cdots$\,$\wedge$\,L$_{2n-1}$=L$_{2n}$}
+  L$_1$==L$_2$\,$\wedge$\,$\cdots$\,$\wedge$\,L$_{2n-1}$==L$_{2n}$}
 \andalso
 \stayPrefix{\Euid}{\Huid}{L$_1$}{C$_1$} $\cdots$ \stayPrefix{\Euid}{\Huid}{L$_{2n}$}{C$_{2n}$}
 }
@@ -2253,7 +2253,8 @@ constraint suitable for the solver. Specifically, each occurrence of
 an expression of the form
 \texttt{L.l}, where \texttt{L}
 refers to a heap reference \texttt{r}, is translated  into \texttt{\Huid(L).l}
-(recursively, as required).  We do not give these rules, because they are
+(recursively, as required), and each occurrence of the identity
+operator {\tt ==} is replaced by ordinary equality.  We do not give these rules, because they are
 straightforward. The full Babelsberg/Objects language includes a
 similar judgment that also inlines method calls, given in its
 entirety in Section \ref{sec:babelsberg-objects}.
@@ -2317,8 +2318,7 @@ that the programmer could handle.
 
 \infrule[S-Asgn]{
   \mbox{
-    \evalH{\Euid}{\Huid}{e}{v} \andalso
-\texttt{L} $\neq$ \texttt{x} $\Rightarrow$ \tcH{\Euid}{\Huid}{L}{T}
+    \evalH{\Euid}{\Huid}{e}{v} 
 \andalso \stayPrefix{\Euid}{\Huid}{L}{C$_L$} \andalso \stayPrefix{\Euid}{\Huid}{I}{C$_I$}}\\
 \mbox{
 \phase{\Euid}{\Huid}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\Euid$'$;\Huid$'$} \andalso
@@ -2363,7 +2363,7 @@ the environment and heap are unchanged.
 
 \inferrule{S-AlwaysIdentity}{
   \stepH{\Euid}{\Huid}{\C}{\I}{once L$_0$ == L$_1$}{\Euid}{\Huid}{\C}{\I} \andalso
-  \I$'$ = \I\ $\wedge$ \texttt{L}$_0$ \texttt{=} \texttt{L}$_1$
+  \I$'$ = \I\ $\wedge$ \texttt{L}$_0$ \texttt{==} \texttt{L}$_1$
 }{
   \stepH{\Euid}{\Huid}{\C}{\I}{always L$_0$ == L$_1$}{\Euid}{\Huid}{\C}{\I$'$}
 }
@@ -2451,6 +2451,8 @@ implicitly assume that the given configuration {\tt \Euid|\Huid|C|I} is {\em wel
  \item any object reference appearing in the range of \Huid\ also
     appears in the domain of \Huid
  \item \tcHC{\Euid}{\Huid}{C}
+ \item \evalH{\Euid}{\Huid}{I}{true}
+
  % \item no object reference is transitively reachable from itself in
  %   \Huid
 \end{itemize}
@@ -2493,11 +2495,27 @@ and {\tt C$_0$} is not an identity test and
 \begin{proof}
 Since \stepH{\Euid}{\Huid}{\C}{\I}{once
    C$_0$}{\Euid$'$}{\Huid$'$}{\C$'$}{\I$'$} and  {\tt C$_0$} is not an
- identity test, by {\sc S-Once} and {\sc Solve} we have that 
- \tcHC{\Euid}{\Huid}{C$_0$} and
+ identity test, by {\sc S-Once} we have that 
+\tcHC{\Euid}{\Huid}{C$_0$} and
+    \phase{\Euid}{\Huid}{\C\,$\wedge$\,C$_0$}{required}{\Euid$'$;\Huid$'$}.
+By the assumption of well-formedness we have \tcHC{\Euid}{\Huid}{C} so
+by {\sc T-Conjunction} also \tcHC{\Euid}{\Huid}{C\,$\wedge$\,C$_0$}. 
+Therefore the result follows from Lemma~\ref{lem:keyAux}.
+\end{proof}
+
+\begin{Lemma}
+\label{lem:keyAux}
+ If \emph{\tcHC{\Euid}{\Huid}{C}} and
+ \emph{\phase{\Euid}{\Huid}{\C}{required}{\Euid$'$;\Huid$'$}}  and
+\emph{\tcH{\Euid}{\Huid}{L}{T}}, then
+  \emph{\tcH{\Euid$'$}{\Huid$'$}{L}{T}}. 
+\end{Lemma}
+\begin{proof}
+Since \phase{\Euid}{\Huid}{\C}{required}{\Euid$'$;\Huid$'$} by
+{\sc Solve} we have that 
     \gstay{\Euid}{required}{C$_{E_s}$} and
     \gstay{\Huid}{required}{C$_{H_s}$} and
-    \combine{\Euid}{\Huid}{\C\,$\wedge$\,C$_0$}{C$'$} and
+    \combine{\Euid}{\Huid}{\C}{C$'$} and
     \solveH{\Euid$'$}{\Huid$'$}{$($C$'$ $\wedge$ C$_{E_s}$ $\wedge$
       C$_{H_s}$$)$}.
 We prove this lemma by structural induction on {\tt T}.  
@@ -2541,7 +2559,7 @@ Since
 must be {\sc E-Variable}, so we have \Euid$'$({\tt x}) = {\tt r$'$}.  
 We know that assigning {\tt x} to {\tt c} satisfies the weak stay
 constraint above.
-Therefore there must be some constraint on {\tt x} in {\tt C $\wedge$ C$_0$}
+Therefore there must be some constraint on {\tt x} in {\tt C}
 that causes the change in value for {\tt x} from {\tt c} to {\tt
   r$'$}.  
   \item Case {\sc E-Field}.  Then {\tt L} has the form  {\tt L$_0$.l$_i$}
@@ -2571,20 +2589,20 @@ hence {\tt x$_i$} is
 We know that assigning {\tt x$_i$} to {\tt c} satisfies the weak stay
 constraint above.
 Therefore there must be some constraint on an l-value of the form {\tt
-  L$_{00}$.l$_i$} in {\tt C $\wedge$ C$_0$}, where \evalH{\Euid}{\Huid}{L$_{00}$}{r$_0$},
+  L$_{00}$.l$_i$} in {\tt C}, where \evalH{\Euid}{\Huid}{L$_{00}$}{r$_0$},
 that causes the change in value for {\tt x$_i$} from {\tt c} to {\tt
   r$'$}.  
 \end{itemize}
 
 Therefore in either case, there must be some constraint on an l-value
-{\tt L$''$} in {\tt C $\wedge$ C$_0$}, where
+{\tt L$''$} in {\tt C}, where
 \evalH{\Euid}{\Huid}{L$''$}{c} but
 \evalH{\Euid$'$}{\Huid$'$}{L$''$}{r$'$}.
 By {\sc T-Constant} we have \tcH{\Euid}{\Huid}{c}{PrimitiveType}, so
 by Lemma~\ref{lem:valueImpliesType} also \tcH{\Euid}{\Huid}{L$''$}{PrimitiveType}.
-By well-formedness we have \tcHC{\Euid}{\Huid}{C} and we are
-given that \tcHC{\Euid}{\Huid}{C$_0$}.  We argue a contradiction by case analysis of the immediate parent
-expression of any occurrence of {\tt L$''$} in {\tt C $\wedge$ C$_0$}:
+We argue a contradiction by case analysis of the immediate parent
+expression of any occurrence of {\tt L$''$} in {\tt C}.  We are given \tcHC{\Euid}{\Huid}{C} so this parent
+expression must also be well typed.
   \begin{itemize}
    \item Case {\tt L$''$.l}.  Then by {\sc T-Field} {\tt L$''$} must have a
      record type, contradicting the fact that \tcH{\Euid}{\Huid}{L$''$}{PrimitiveType}.
@@ -2673,24 +2691,22 @@ have \evalH{\Euid}{\Huid}{x}{v}.
 
 \begin{Lemma}
 \label{lem:aux}
- If \emph{\stepH{\Euid}{\Huid}{\C}{\I}{once
-   C$_0$}{\Euid$'$}{\Huid$'$}{\C$'$}{\I$'$}}
-and {\tt C$_0$} is not an identity test and
+If \emph{\tcHC{\Euid}{\Huid}{C}} and
+ \emph{\phase{\Euid}{\Huid}{\C}{required}{\Euid$'$;\Huid$'$}}  and
 \emph{\evalH{\Euid}{\Huid}{L}{v}}, then there exists a value {\tt
   v$'$} such that
   \emph{\evalH{\Euid$'$}{\Huid$'$}{L}{v$'$}}.  Furthermore, if {\tt v}
   is an object reference {\tt r}, then also {\tt v$'$} = {\tt r}.
 \end{Lemma}
 \begin{proof}
-Since \stepH{\Euid}{\Huid}{\C}{\I}{once
-   C$_0$}{\Euid$'$}{\Huid$'$}{\C$'$}{\I$'$} and  {\tt C$_0$} is not an
- identity test, by {\sc S-Once} and {\sc Solve} we have that 
- \tcHC{\Euid}{\Huid}{C$_0$} and
+Since \phase{\Euid}{\Huid}{\C}{required}{\Euid$'$;\Huid$'$} by
+{\sc Solve} we have that 
     \gstay{\Euid}{required}{C$_{E_s}$} and
     \gstay{\Huid}{required}{C$_{H_s}$} and
-    \combine{\Euid}{\Huid}{\C\,$\wedge$\,C$_0$}{C$'$} and
+    \combine{\Euid}{\Huid}{\C}{C$'$} and
     \solveH{\Euid$'$}{\Huid$'$}{$($C$'$ $\wedge$ C$_{E_s}$ $\wedge$
-      C$_{H_s}$$)$}.  We proceed by structural induction on {\tt L}:
+      C$_{H_s}$$)$}.
+ We proceed by structural induction on {\tt L}:
 \begin{itemize}
 \item Case {\tt L} is a variable {\tt x}.  Since
   \evalH{\Euid}{\Huid}{L}{v}, by {\sc E-Var} we have that \Euid({\tt
@@ -2950,107 +2966,234 @@ assignment will produce structurally equivalent environments and heaps:
 
 \begin{Theorem} (Structural Determinism)
   If
-  \stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$_1$}{\Huid$_1$}{\C$_1$}{\I$_1$} and
-  \stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$_2$}{\Huid$_2$}{\C$_2$}{\I$_2$} 
-and \evalH{\Euid}{\Huid}{I}{true}
-  and \texttt{x} in dom(\Euid), then
-\tcH{\Euid$_1$}{\Huid$_1$}{x}{T} and
-  \tcH{\Euid$_2$}{\Huid$_2$}{x}{T}.
+  \emph{\stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$_1$}{\Huid$_1$}{\C$_1$}{\I$_1$}} and
+  \emph{\stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$_2$}{\Huid$_2$}{\C$_2$}{\I$_2$}} 
+  and \emph{\tcH{\Euid}{\Huid}{x}{T$_0$}}, then there exists a type {\tt T}
+  such that
+\emph{\tcH{\Euid$_1$}{\Huid$_1$}{x}{T}} and
+\emph{\tcH{\Euid$_2$}{\Huid$_2$}{x}{T}}.
 \end{Theorem}
 \begin{proof}
-As described earlier the rule \textsc{S-Asgn} encodes the two-phase
-process for solving constraints.  We are given two derivations of an
-assignment's execution using this rule:
-  \stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$_1$}{\Huid$_1$}{\C$_1$}{\I$_1$} and
-  \stepH{\Euid}{\Huid}{\C}{\I}{L :=
-    e}{\Euid$_2$}{\Huid$_2$}{\C$_2$}{\I$_2$}.
-By the lemma below, these two derivations have the identical
-environment and heap after the first phase, which solves identity
-constraints.  Let's call this environment and heap \Euid$'$ and
-\Huid$'$.  Further, the second phase, which solves value constraints, 
-is identical to how a \texttt{
-  once} constraint is processed by the rule \textsc{S-Once}.
-Therefore by the same argument as in the Structure Preservation
-Theorem, if \tcH{\Euid$'$}{\Huid$'$}{x}{T}, then also
-\tcH{\Euid$_1$}{\Huid$_1$}{x}{T} and
-\tcH{\Euid$_2$}{\Huid$_2$}{x}{T}.  By construction \Euid$'$ includes
-all the variables in \Euid, so the result follows.
+By {\sc S-Asgn} we have     \evalH{\Euid}{\Huid}{e}{v} 
+and \stayPrefix{\Euid}{\Huid}{L}{C$_L$} and
+\stayPrefix{\Euid}{\Huid}{I}{C$_I$} and
+\phase{\Euid}{\Huid}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\Euid$_1'$;\Huid$_1'$} and
+    \tcHC{\Euid$_1'$}{\Huid$_1'$}{C} and
+\phase{\Euid$_1'$}{\Huid$_1'$}{\C\,$\wedge$\,L=v}{required}{\Euid$_1$;\Huid$_1$}.
+Also by {\sc S-Asgn} (and determinism of the expression evaluation and
+stayPrefix rules) we have
+\phase{\Euid}{\Huid}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\Euid$_2'$;\Huid$_2'$} and
+    \tcHC{\Euid$_2'$}{\Huid$_2'$}{C} and
+\phase{\Euid$_2'$}{\Huid$_2'$}{\C\,$\wedge$\,L=v}{required}{\Euid$_2$;\Huid$_2$}.
+By Lemma~\ref{lem:phase1Det} we have that  {\tt \Euid$_1'$} = {\tt \Euid$_2'$} and {\tt \Huid$_1'$} = {\tt
+  \Huid$_2'$}.  Since \tcH{\Euid}{\Huid}{x}{T$_0$}, {\tt x} must be in
+the domain of {\tt \Euid$_1'$}, and by assumption of well formedness,
+{\tt x}'s value {\tt v$_x$} in {\tt \Euid$_1'$} is in the domain of {\tt \Huid$_1'$} if it is a reference.
+Then by Lemma~\ref{lem:valueHasType} there is some type {\tt T$'$}
+such that  \tcH{\Euid$_1'$}{\Huid$_1'$}{v$_x$}{T$'$}, so by
+Lemma~\ref{lem:valueImpliesType} also
+\tcH{\Euid$_1'$}{\Huid$_1'$}{x}{T$'$}.  Finally by
+Lemma~\ref{lem:keyAux} we have that \tcH{\Euid$_1$}{\Huid$_1$}{L}{T$'$} and
+\tcH{\Euid$_2$}{\Huid$_2$}{L}{T$'$}, so the result is shown with {\tt T} =
+{\tt T$'$}.
+
+% As described earlier the rule \textsc{S-Asgn} encodes the two-phase
+% process for solving constraints.  We are given two derivations of an
+% assignment's execution using this rule:
+%   \stepH{\Euid}{\Huid}{\C}{\I}{L := e}{\Euid$_1$}{\Huid$_1$}{\C$_1$}{\I$_1$} and
+%   \stepH{\Euid}{\Huid}{\C}{\I}{L :=
+%     e}{\Euid$_2$}{\Huid$_2$}{\C$_2$}{\I$_2$}.
+% By the lemma below, these two derivations have the identical
+% environment and heap after the first phase, which solves identity
+% constraints.  Let's call this environment and heap \Euid$'$ and
+% \Huid$'$.  Further, the second phase, which solves value constraints, 
+% is identical to how a \texttt{
+%   once} constraint is processed by the rule \textsc{S-Once}.
+% Therefore by the same argument as in the Structure Preservation
+% Theorem, if \tcH{\Euid$'$}{\Huid$'$}{x}{T}, then also
+% \tcH{\Euid$_1$}{\Huid$_1$}{x}{T} and
+% \tcH{\Euid$_2$}{\Huid$_2$}{x}{T}.  By construction \Euid$'$ includes
+% all the variables in \Euid, so the result follows.
 \end{proof}
 
 \begin{Lemma}
-If  \stay{\Euid}{C$_{E_s}$} and \stay{\Huid}{C$_{H_s}$} and
-\evalH{\Euid}{\Huid}{I}{true} and
-    \combine{\Euid}{\Huid}{\I\,$\wedge$\,L=v}{C$_I$} and
-    \solveH{\Euid$_1$}{\Huid$_1$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$
-      C$_{H_s}$)} and
-    \solveH{\Euid$_2$}{\Huid$_2$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$
-      C$_{H_s}$)}, then \texttt{\Euid$_1$} = \texttt{\Euid$_2$} and
-\texttt{\Huid$_1$} = \texttt{\Huid$_2$}.
+\label{lem:phase1Det}
+If \emph{\stayPrefix{\Euid}{\Huid}{L}{C$_L$}} and
+\emph{\stayPrefix{\Euid}{\Huid}{I}{C$_I$}} and 
+\emph{\phase{\Euid}{\Huid}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\Euid$_1$;\Huid$_1$}}
+and
+\emph{\phase{\Euid}{\Huid}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\Euid$_2$;\Huid$_2$}},
+then {\tt \Euid$_1$} = {\tt \Euid$_2$} and {\tt \Huid$_1$} = {\tt
+  \Huid$_2$}.
 \end{Lemma}
 \begin{proof}
-Let \texttt{C} = \texttt{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$
-      C$_{H_s}$)}.
-The \textsc{Stay} rules assert weak constraints that the environment
-and heap stay unchanged by the constraint solver.  By assumption
-\evalH{\Euid}{\Huid}{I}{true} as well.  Therefore, in the absence of
-the constraint \texttt{L=v} there is a unique optimal solution to \texttt{C},
-which satisfies all the required constraints and as many 
-weak constraints as possible.  In this case, all the weak constraints
-are satisfied, and the solution is simply to leave
-the environment and heap unchanged.  If
-\evalH{\Euid}{\Huid}{L==v}{true} then \texttt{\Euid} and \texttt{\Huid} are still the
-unique optimal solution to the constraints, so the result follows.
-
-Otherwise \evalH{\Euid}{\Huid}{L==v}{false}.  The unique optimal
-solution to this constraint in the context of the stay constraints
-(ignoring \texttt{I} for the moment) is the environment and heap \Euid$'$
-and \Huid$'$ that are
-identical to \texttt{\Euid} and \texttt{\Huid} but with \texttt{L} assigned to \texttt{v}.  If
-\evalH{\Euid$'$}{\Huid$'$}{I}{true} then we are done.
-Otherwise, there is at least one constraint in \texttt{I} of the form
-\texttt{L$_1$ = L$_2$} that is violated.  
-
-We do a subcase analysis, which
-relies on the following definition of the {\em l-value} of
-\texttt{L}.  The {\em l-value} of \texttt{x} under a given \texttt{\Euid} and \texttt{\Huid} 
-is \texttt{x}.  The {\em l-value}
-of \texttt{L.l} under a given \texttt{\Euid} and \texttt{\Huid} is \texttt{v.l}, where
-\evalH{\Euid}{\Huid}{L}{v}.
-Without loss of generality, we
-have three subcases:
-\begin{itemize}
-\item The {\em l-value} of \texttt{L$_1$} under \Euid$'$ and \Huid$'$ 
-is \texttt{L}.  Then there is a unique optimal solution
-  to this constraint in the context of the stay constraints and the
-  constraint \texttt{L=v}, namely the environment and heap \Euid$''$
-and \Huid$''$ that are identical to \Euid$'$ and \Huid$'$ but with \texttt{
-  L$_2$} assigned to \texttt{v}.
-\item \texttt{L$_1$} has the form \texttt{L$_1'$.l$_1$.$\cdots$.l$_n$} where
-  the {\em l-value} of \texttt{L$_1'$} under \Euid$'$ and \Huid$'$ 
-is \texttt{L}.  Then there is a unique optimal solution
-  to this constraint in the context of the stay constraints and the
-  constraint \texttt{L=v}, namely the environment and heap \Euid$''$
-and \Huid$''$ that are identical to \Euid$'$ and \Huid$'$ but with \texttt{
-  L$_2$} assigned to the value of \texttt{v.l$_1$.$\cdots$.l$_n$}.
-\item There is some \texttt{L$_1'$} of the form  \texttt{L$_1$.l$_1$.$\cdots$.l$_n$} such that
-  the {\em l-value} of \texttt{L$_1'$} under \Euid$'$ and \Huid$'$ 
-is \texttt{L}.  Then there is a unique optimal solution
-  to this constraint in the context of the stay constraints and the
-  constraint \texttt{L=v}, namely the environment and heap \Euid$''$
-and \Huid$''$ that are identical to \Euid$'$ and \Huid$'$ but with \texttt{
-  L$_2$.l$_1$.$\cdots$.l$_n$} assigned to the value of \texttt{v}.
-\end{itemize}
-
-This process continues, identifying constraints in \texttt{I} that are
-falsified, finding the unique optimal solution to such constraints in
-the context of the previously solved constraints and the stay
-constraints.  Since we are given that \texttt{C} is satisfiable,
-eventually this process will terminate with all constraints in \texttt{I}
-satisfied.  Since at each step there was a unique optimal solution, it
-must be the case that \texttt{\Euid$_1$} = \texttt{\Euid$_2$} and
-\texttt{\Huid$_1$} = \texttt{\Huid$_2$}.
-
+TODO
 \end{proof}
+
+\begin{Definition}
+\label{def:alias}
+We say that {\tt L$_1$} and {\tt L$_2$} are \emph{aliases} given \Euid\
+and \Huid\ if either:
+\begin{itemize}
+\item {\tt L$_1$} and {\tt L$_2$} are the same variable {\tt x}
+\item {\tt L$_1$} has the form {\tt L$_1'$.l} and {\tt L$_2$} has the
+  form {\tt L$_2'$.l} and there is a reference {\tt r} such that \evalH{\Euid}{\Huid}{L$_1'$}{r} and \evalH{\Euid}{\Huid}{L$_2'$}{r}
+\end{itemize}
+\end{Definition}
+
+\begin{Definition}
+\label{def:ops}
+We say that {\tt L} and {\tt L$'$} are the \emph{operands} of the
+constraint {\tt L = L$'$}.
+\end{Definition}
+
+\begin{Definition}
+\label{def:graph}
+We define the \emph{induced graph} of {\tt I} and {\tt L} given \Euid\
+and \Huid\ as follows.  Let $S$ be the set that includes {\tt L} as
+well as all operands of identity tests in {\tt I}.  Partition $S$ into
+equivalence classes defined by the alias relation:  {\tt L$_1$} and {\tt
+  L$_2$} are in the same equivalence class if and only if they are
+aliases given \Euid\ and \Huid.  (It is easy to show that the alias
+relation is an equivalence relation.)
+Then the induced graph has one node per equivalence class and an
+undirected edge between nodes $N_1$ and $N_2$ if there is a conjunct {\tt
+  L$_1$==L$_2$} in {\tt I} such that {\tt L$_1$} belongs to node $N_1$
+and {\tt L$_2$} belongs to node $N_2$.
+\end{Definition}
+
+\begin{Definition}
+\label{def:relevant}
+We say that a node in the induced graph of {\tt I} and {\tt L} given \Euid\
+and \Huid\ is \emph{relevant} if it
+is reachable from {\tt L}'s node in the graph; an l-value is
+\emph{relevant} if 
+its node in the graph is relevant.
+\end{Definition}
+
+\begin{Definition}
+The \emph{relevant update} of \Euid\ and \Huid\ for {\tt I} and {\tt
+  L=v} is the environment \Euid$'$ and heap \Huid$'$ that are identical to \Euid\ and
+\Huid\ except that for each relevant l-value {\tt L$_0$} in the induced graph of {\tt I} and {\tt L} given \Euid\
+and \Huid:
+\begin{itemize}
+\item If {\tt L$_0$} is a variable {\tt x}, then \Euid$'$({\tt x}) =
+  {\tt v}.
+\item If {\tt L$_0$} has the form {\tt L$_0'$.l} and
+  \evalH{\Euid}{\Huid}{{\tt L$_0'$}}{{\tt r}},
+then \evalH{\Euid}{\Huid}{{\tt r.l}}{{\tt v}}.
+\end{itemize}
+\end{Definition}
+
+In the following lemma, we implicitly convert a constraint {\tt C} to an
+expression by removing all priorities, thereby allowing the constraint
+to be evaluated.
+
+\begin{Lemma}
+\label{lem:stayPrefix}
+If \emph{\stayPrefix{\Euid}{\Huid}{L.f}{C}} and
+\emph{\evalH{\Euid$'$}{\Huid$'$}{C}{true}}, then there is some
+reference {\tt r} such that 
+\emph{\evalH{\Euid}{\Huid}{L}{r}} and
+\emph{\evalH{\Euid$'$}{\Huid$'$}{L}{r}}.
+\end{Lemma}
+\begin{proof}
+By {\sc StayPrefixField} we have {\tt L.f} = {\tt
+x.l$_1$.$\ldots$.l$_n$} and $n>0$ and \evalH{\Euid}{\Huid}{x}{r}
+and \evalH{\Euid}{\Huid}{x.l$_1$}{r$_1$} $\cdots$
+\evalH{\Euid}{\Huid}{x.l$_1$.$\ldots$.l$_{n-1}$}{r$_{n-1}$} and {\tt
+  C} is {\tt
+  x=r\,$\wedge$\,x.l$_1$=r$_1$\,$\wedge$\,$\cdots$\,$\wedge$\,x.l$_1$.$\ldots$.l$_{n-1}$=r$_{n-1}$}.  
+\begin{itemize}
+\item Case $n=1$.  Then {\tt L} is {\tt x} and {\tt C} is {\tt x=r}.
+  Since \evalH{\Euid$'$}{\Huid$'$}{C}{true}, by {\sc E-Compare} and
+  the semantics of equality we have 
+  \evalH{\Euid$'$}{\Huid$'$}{x}{v$_1$} and
+  \evalH{\Euid$'$}{\Huid$'$}{r}{v$_2$} and {\tt v$_1$} = {\tt v$_2$}.  By
+{\sc E-Ref} we have that {\tt v$_2$} = {\tt r}, so the result follows.
+\item Case $n>1$.  Then {\tt L} is {\tt x.l$_1$.$\ldots$.l$_{n-1}$}.
+  Since \evalH{\Euid$'$}{\Huid$'$}{C}{true}, by {\sc E-Combine}, {\sc E-Compare}, and
+  the semantics of equality we have 
+  \evalH{\Euid$'$}{\Huid$'$}{L}{v$_1$} and
+  \evalH{\Euid$'$}{\Huid$'$}{r$_{n-1}$}{v$_2$} and {\tt v$_1$} = {\tt v$_2$}.  By
+{\sc E-Ref} we have that {\tt v$_2$} = {\tt r$_{n-1}$}, so the result follows.
+\end{itemize}
+\end{proof}
+
+% \begin{Lemma}
+% If  \stay{\Euid}{C$_{E_s}$} and \stay{\Huid}{C$_{H_s}$} and
+% \evalH{\Euid}{\Huid}{I}{true} and
+%     \combine{\Euid}{\Huid}{\I\,$\wedge$\,L=v}{C$_I$} and
+%     \solveH{\Euid$_1$}{\Huid$_1$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$
+%       C$_{H_s}$)} and
+%     \solveH{\Euid$_2$}{\Huid$_2$}{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$
+%       C$_{H_s}$)}, then \texttt{\Euid$_1$} = \texttt{\Euid$_2$} and
+% \texttt{\Huid$_1$} = \texttt{\Huid$_2$}.
+% \end{Lemma}
+% \begin{proof}
+% Let \texttt{C} = \texttt{(C$_I$ $\wedge$ C$_{E_s}$ $\wedge$
+%       C$_{H_s}$)}.
+% The \textsc{Stay} rules assert weak constraints that the environment
+% and heap stay unchanged by the constraint solver.  By assumption
+% \evalH{\Euid}{\Huid}{I}{true} as well.  Therefore, in the absence of
+% the constraint \texttt{L=v} there is a unique optimal solution to \texttt{C},
+% which satisfies all the required constraints and as many 
+% weak constraints as possible.  In this case, all the weak constraints
+% are satisfied, and the solution is simply to leave
+% the environment and heap unchanged.  If
+% \evalH{\Euid}{\Huid}{L==v}{true} then \texttt{\Euid} and \texttt{\Huid} are still the
+% unique optimal solution to the constraints, so the result follows.
+
+% Otherwise \evalH{\Euid}{\Huid}{L==v}{false}.  The unique optimal
+% solution to this constraint in the context of the stay constraints
+% (ignoring \texttt{I} for the moment) is the environment and heap \Euid$'$
+% and \Huid$'$ that are
+% identical to \texttt{\Euid} and \texttt{\Huid} but with \texttt{L} assigned to \texttt{v}.  If
+% \evalH{\Euid$'$}{\Huid$'$}{I}{true} then we are done.
+% Otherwise, there is at least one constraint in \texttt{I} of the form
+% \texttt{L$_1$ = L$_2$} that is violated.  
+
+% We do a subcase analysis, which
+% relies on the following definition of the {\em l-value} of
+% \texttt{L}.  The {\em l-value} of \texttt{x} under a given \texttt{\Euid} and \texttt{\Huid} 
+% is \texttt{x}.  The {\em l-value}
+% of \texttt{L.l} under a given \texttt{\Euid} and \texttt{\Huid} is \texttt{v.l}, where
+% \evalH{\Euid}{\Huid}{L}{v}.
+% Without loss of generality, we
+% have three subcases:
+% \begin{itemize}
+% \item The {\em l-value} of \texttt{L$_1$} under \Euid$'$ and \Huid$'$ 
+% is \texttt{L}.  Then there is a unique optimal solution
+%   to this constraint in the context of the stay constraints and the
+%   constraint \texttt{L=v}, namely the environment and heap \Euid$''$
+% and \Huid$''$ that are identical to \Euid$'$ and \Huid$'$ but with \texttt{
+%   L$_2$} assigned to \texttt{v}.
+% \item \texttt{L$_1$} has the form \texttt{L$_1'$.l$_1$.$\cdots$.l$_n$} where
+%   the {\em l-value} of \texttt{L$_1'$} under \Euid$'$ and \Huid$'$ 
+% is \texttt{L}.  Then there is a unique optimal solution
+%   to this constraint in the context of the stay constraints and the
+%   constraint \texttt{L=v}, namely the environment and heap \Euid$''$
+% and \Huid$''$ that are identical to \Euid$'$ and \Huid$'$ but with \texttt{
+%   L$_2$} assigned to the value of \texttt{v.l$_1$.$\cdots$.l$_n$}.
+% \item There is some \texttt{L$_1'$} of the form  \texttt{L$_1$.l$_1$.$\cdots$.l$_n$} such that
+%   the {\em l-value} of \texttt{L$_1'$} under \Euid$'$ and \Huid$'$ 
+% is \texttt{L}.  Then there is a unique optimal solution
+%   to this constraint in the context of the stay constraints and the
+%   constraint \texttt{L=v}, namely the environment and heap \Euid$''$
+% and \Huid$''$ that are identical to \Euid$'$ and \Huid$'$ but with \texttt{
+%   L$_2$.l$_1$.$\cdots$.l$_n$} assigned to the value of \texttt{v}.
+% \end{itemize}
+
+% This process continues, identifying constraints in \texttt{I} that are
+% falsified, finding the unique optimal solution to such constraints in
+% the context of the previously solved constraints and the stay
+% constraints.  Since we are given that \texttt{C} is satisfiable,
+% eventually this process will terminate with all constraints in \texttt{I}
+% satisfied.  Since at each step there was a unique optimal solution, it
+% must be the case that \texttt{\Euid$_1$} = \texttt{\Euid$_2$} and
+% \texttt{\Huid$_1$} = \texttt{\Huid$_2$}.
+
+% \end{proof}
 
 \section{Babelsberg/Objects}
 \label{sec:babelsberg-objects}

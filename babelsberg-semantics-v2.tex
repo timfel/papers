@@ -171,7 +171,7 @@
   A Step-by-Step Approach}
 \author{Tim Felgentreff, Todd Millstein, and Alan Borning}
 
-\date{VPRI Technical Report TR-2014-002b, June 2015 \\ 
+\date{VPRI Technical Report TR-2014-002b, July 2015 \\
 (revised version of TR-2014-002, September 2014)}
 
 \maketitle
@@ -3337,11 +3337,13 @@ or if they are too hard for the solver, our execution implicitly gets stuck.
 
 \subsection{Value Classes}
 
-In the formal semantics, we will use instances of \emph{value classes}
-as well as instances of ordinary, full-featured, classes.  The
-restrictions on value classes will make it easier to use them with
-constraints.  A number of existing languages have proposals to support
-forms of value classes, such as Java\footnote{\url{http://openjdk.java.net/jeps/169}} and Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}.
+Babelsberg/Objects includes \emph{value classes} as well as ordinary,
+full-featured, classes.  The restrictions on value classes make it
+easier to use them with constraints.  A number of existing languages
+have proposals or support for forms of value classes, such
+as Java\footnote{\url{http://openjdk.java.net/jeps/169}} and
+Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}
+respectively.
 In Babelsberg/Objects, instances of value
 classes are immutable (that is, we need to provide values for all the
 fields at object creation time, and after that the value class instance
@@ -3370,6 +3372,94 @@ Finally, to foreshadow the formal semantics, for simplicity we omit
 details about object creation, method lookup, and inheritance (which
 are completely standard), and represent ordinary instances as
 uid-records and value class instances as i-records.
+
+\subsection{Value Classes as Sugar}
+\label{sec:value-classes-as-syntactic-sugar}
+
+Value classes are in fact not necessary for Babelsberg --- there is a
+simple transformation that can be used to remove them.  However, they
+are of practical importance, since using them can make
+Babelsberg/Objects programs much clearer.
+
+To eliminate a use of a value class in a constraint expression, we can
+instead create a new (ordinary) instance \emph{outside} of the
+constraint, and in the constraint replace it by appropriate
+constraints on the attributes of the (new) instance.  Consider again a
+constraint on the center of a rectangle:
+
+\begin{verbatim}
+always r.center() = Point(10,20)
+\end{verbatim}
+
+We can rewrite this as:
+\begin{verbatim}
+point1 := MutablePoint.new(0,0)
+always r.center() = point1 && point1.x=10 && point1.y=20
+\end{verbatim}
+
+If the new value class instance is created using expressions, we need
+to add appropriate read-only annotations in the rewritten code.  For example,
+\begin{verbatim}
+always r.center() = Point(d,d+10)
+\end{verbatim}
+
+is rewritten as:
+\begin{verbatim}
+point1 := MutablePoint.new(0,0)
+always r.center() = point1 && point1.x=d? && point1.y=d?+10
+\end{verbatim}
+
+The read-only annotations are necessary since we don't want to satisfy
+the constraint by changing \verb|d|.
+
+A remaining issue is that \verb!r.center()! returns a new
+computed point, which we disallow if points are not instances of a
+value class, as creating new objects on the heap
+is considered a side-effect. We can handle this in the following way:
+when, during our inlining, a constructor is encountered, the object is
+allocated in a special part of the heap that cannot be reached by user
+code (using pointer magic or VM introspection or the like). The
+constructor of the object is not inlined; instead, each argument
+expression is required to be equal to a field on the new object. This
+implies limitations on how these objects are constructed, in that
+their constructors can only assign each argument to a field, in order,
+and not do any computation. Given these limitations, we will have
+created a fresh and hidden reference with required equalities in its
+parts, which makes it effectively immutable. Constraint inlining then
+proceeds with this object.
+
+Note that the identity of the new (ordinary) instance used in this
+rewriting cannot escape from the constraint, since ordinary constraint
+expressions cannot use identity constraints.
+
+Finally, we might create an instance of a value class outside of a
+constraint expression.  These uses of value classes can be replaced by
+ordinary classes that have no methods that change the state of an
+instance after it is created, and that override the default identity
+test method to test for equality instead.  For this transformation for
+statements that create value class instances outside of constraint
+expressions, we rely on the fact that value class instances cannot be
+changed after they are created.  To illustrate this, consider an
+example using value classes, and suppose that in fact value class
+instances \emph{were} mutable.
+
+\begin{verbatim}
+a := Point(10,20);
+b := a;
+a.x := 30;
+\end{verbatim}
+
+Just as in Babelsberg/Records, at the end of this program
+\verb|a=Point(30,20)| but \verb|b=Point(10,20)|.  However, if we do the same
+thing with mutable objects:
+
+\begin{verbatim}
+a := MutablePoint.new(10,20);
+b := a;
+a.x := 30;
+\end{verbatim}
+
+then both \verb|a| and \verb|b| have \verb|x=30| (since they are identical).
 
 \subsection{Control Structures and Methods}
 
@@ -3456,7 +3546,7 @@ so that for example we can find a value for \verb|b| given values for
 \verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
 inlined so that the resulting constraints can be turned over to the
 solver, and we can potentially solve for any of \verb|x|, \verb|a|,
-\verb|b|, or \verb|c|.  This done by creating an environment for
+\verb|b|, or \verb|c|\@.  This done by creating an environment for
 method \verb|m| and inlining the returned expression with respect to
 that environment. The parameters in that environment are constrained
 to be identical to \verb|a| and \verb|b| respectively, and \verb|self|
@@ -3465,12 +3555,12 @@ is constrained to be identical to \verb|x|.
 \subsection{Examples}
 
 Here is a constraint on the center of a rectangle, where the center is
-a computed value rather than being stored as an instance variable
-(both \verb!Rectangle! and \verb!Point! are value classes in this
-example):
+a computed value rather than being stored as an instance variable.
+(Both \verb!Rectangle! and \verb!Point! are value classes in this
+example.)
 
 \begin{verbatim}
-r := Rectangle(Point(2,2), Point(10,10);
+r := Rectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20)
 \end{verbatim}
 
@@ -3507,7 +3597,7 @@ appending a digit to every duplicate name.
 
 $\begin{array}{rr@{\;=\;}l}
 \multicolumn{3}{r}{//~\mathrm{constraint~for~the~receiver~of~the~center~method}} \\
-\mathrm{required} & self1 & \{upper\_left: \{x:0,\,y:0\},\,lower\_right: \{x:5,\,y:5\}\}\\
+\mathrm{required} & self1 & \{upper\_left: \{x:2,\,y:2\},\,lower\_right: \{x:10,\,y:10\}\}\\
 
 \multicolumn{3}{r}{//~\mathrm{the~point~addition~called~from~the~center~method}} \\
 \mathrm{required} & self2 & self1.upper\_left\\
@@ -3565,10 +3655,10 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & H(r_{lr}) & \{x:x2,\,y:y2\} \\
 \mathrm{required} & p_{ul} & r_{ul}\\
 \mathrm{required} & p_{lr} & r_{lr}\\
-\mathrm{required} & x1 & 0\\
-\mathrm{required} & y1 & 0\\
-\mathrm{required} & x2 & 5\\
-\mathrm{required} & y2 & 5\\
+\mathrm{required} & x1 & 2\\
+\mathrm{required} & y1 & 2\\
+\mathrm{required} & x2 & 10\\
+\mathrm{required} & y2 & 10\\
 
 \multicolumn{3}{r}{//~\mathrm{the~center~method}} \\
 \mathrm{required} & self1 & r\\
@@ -3605,7 +3695,7 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & H(self7).x & H(arg3).x \wedge H(self7).y = H(arg3).y\\
 \end{array}$
 
-Now before we inline the methods we create stays on the heap. Entering
+Before we inline the methods, we create appropriate stays on the heap. Entering
 the center method creates a local environment in which \verb|self| is
 bound to \verb|r|\@, which is a reference to the mutable rectangle on
 the heap. We create aliases for the receivers and arguments as before,
@@ -3614,10 +3704,10 @@ reference on the heap, bind it to a new \verb!self! alias, and use the
 arguments to the constructor as constraints on the parts of the
 object, in effect turning the assignment of these arguments to the
 parts of the newly created object into required equality
-constraints. This basically means we execute constructors in a sort of
-``mixed mode'' where heap objects are created as needed and their
-arguments are turned into equalities on the fields. This implies
-limitations on the constructors to be basically just methods binding
+constraints. This means we execute constructors in a sort of
+``mixed mode,'' in which heap objects are created as needed and their
+arguments are turned into equality constraints on their fields. This implies
+limitations on the constructors, namely that they be just methods binding
 arguments to the fields of the newly created object, without any
 control structures.
 
@@ -3626,6 +3716,8 @@ and type before values --- if \verb|r| had been an instance of a class
 with a different implementation of the \verb|center| method, it would
 have been exploded in a different way.
 
+Now consider an example with mutable rectangles (instances of
+\verb|MutableRectangle|) but points again as instances of a value class.
 If we assign to the rectangle's \verb|upper_left|, the solver will
 update \verb|lower_right| to keep the center at \verb|Point(10,20)|:
 \begin{example}
@@ -3645,7 +3737,7 @@ r.upper_left := Point(100,2);
 
 We can also accomplish the same thing using a \verb|once| constraint:
 \begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10);
+r := new MutableRectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20);
 once r.upper_left.x = 100
 \end{example}
@@ -3653,7 +3745,7 @@ once r.upper_left.x = 100
 Finally, this test fails because the \verb|always| and \verb|once|
 constraints are incompatible:
 \begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10);
+r := new MutableRectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20);
 once r.center().x = 100
 \end{example}
@@ -4281,93 +4373,6 @@ q := MutablePoint.new(0,0);
 pt_x_equals_5(q)
 \end{example}
 After this code runs, \verb!q.x! is \verb!5!.
-
-\subsection{Value Classes as Sugar}
-\label{sec:value-classes-as-syntactic-sugar}
-
-Value classes are in fact not necessary for Babelsberg --- there is a
-simple transformation that can be used to remove them.  However, they
-are of practical importance, since using them can make
-Babelsberg/Objects programs much clearer.
-
-To eliminate a use of a value class in a constraint expression, we can
-instead create a new (ordinary) instance \emph{outside} of the
-constraint, and in the constraint replace it by appropriate
-constraints on the attributes of the (new) instance.  Consider again a
-constraint on the center of a rectangle:
-
-\begin{verbatim}
-always r.center() = Point(10,20)
-\end{verbatim}
-
-We can rewrite this as:
-\begin{verbatim}
-point1 := MutablePoint.new(0,0)
-always r.center() = point1 && point1.x=10 && point1.y=20
-\end{verbatim}
-
-If the new value class instance is created using expressions, we need
-to add appropriate read-only annotations.  For example,
-\begin{verbatim}
-always r.center() = Point(d,d+10)
-\end{verbatim}
-
-is rewritten as:
-\begin{verbatim}
-point1 := MutablePoint.new(0,0)
-always r.center() = point1 && point1.x=d? && point1.y=d?+10
-\end{verbatim}
-
-The read-only annotations are necessary since we don't want to satisfy
-the constraint by changing \verb|d|.
-
-Now, this leaves the issue that \verb!r.center()! returns a new
-computed point, which we disallow, as creating new objects on the heap
-is considered a side-effect. We can fix this in the following way:
-when, during our inlining, a constructor is encountered, the object is
-allocated in a special part of the heap that cannot be reached by user
-code (using pointer magic or VM introspection or the like). The
-constructor of the object is not inlined, instead, each argument
-expression is required to be equal to a field on the new object. This
-implies limitations on how these objects are constructed, in that
-their constructors can only assign each argument to a field, in order,
-and not do any computation. Given these limitations, we will have
-created a fresh and hidden reference with required equalities in its
-parts, which makes it effectively immutable. Constraint inlining then
-proceeds with this object.
-
-Note that the identity of the new (ordinary) instance used in this
-rewriting cannot escape from the constraint, since ordinary constraint
-expressions cannot use identity constraints.
-
-We might also create an instance of a value class outside of a
-constraint expression.  These uses of value classes can be replaced by
-ordinary classes that have no methods that change the state of an
-instance after it is created, and that override the default identity
-test method to test for equality instead.  For this transformation for
-statements that create value class instances outside of constraint
-expressions, we rely on the fact that value class instances cannot be
-changed after they are created.  Consider an example using value
-classes, and suppose that in fact value class instances \emph{were}
-mutable.
-
-\begin{verbatim}
-a := Point(10,20);
-b := a;
-a.x := 30;
-\end{verbatim}
-
-Just as in Babelsberg/Records, at the end of this program
-\verb|a=Point(30,20)| but \verb|b=Point(10,20)|.  However, if we do the same
-thing with mutable objects:
-
-\begin{verbatim}
-a := MutablePoint.new(10,20);
-b := a;
-a.x := 30;
-\end{verbatim}
-
-then both \verb|a| and \verb|b| have \verb|x=30| (since they are identical).
 
 \subsection{Formalism}
 

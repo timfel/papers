@@ -3554,15 +3554,15 @@ constraint for the argument to the \verb|+| method for
 or name clashes.
 
 Now consider a similar example but using mutable rectangles and points
-on the heap, using the syntactic translation when using them in
+on the heap, using the translation when using their constructors in
 constraints as defined in
 \autoref{sec:value-classes-as-syntactic-sugar}.
 
 $\begin{array}{rr@{\;=\;}l}
 \multicolumn{3}{r}{//~\mathrm{stays~for~the~heap}} \\
 \mathrm{required} & H(r) & \{upper\_left: p_{ul},\,lower\_right: p_{lr}\}\\
-\mathrm{weak} & H(r_{ul}) & \{x:x1,\,y:y1\}\\
-\mathrm{weak} & H(r_{lr}) & \{x:x2,\,y:y2\} \\
+\mathrm{required} & H(r_{ul}) & \{x:x1,\,y:y1\}\\
+\mathrm{required} & H(r_{lr}) & \{x:x2,\,y:y2\} \\
 \mathrm{required} & p_{ul} & r_{ul}\\
 \mathrm{required} & p_{lr} & r_{lr}\\
 \mathrm{required} & x1 & 0\\
@@ -3605,7 +3605,6 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & H(self7).x & H(arg3).x \wedge H(self7).y = H(arg3).y\\
 \end{array}$
 
-
 Now before we inline the methods we create stays on the heap. Entering
 the center method creates a local environment in which \verb|self| is
 bound to \verb|r|\@, which is a reference to the mutable rectangle on
@@ -3616,10 +3615,11 @@ arguments to the constructor as constraints on the parts of the
 object, in effect turning the assignment of these arguments to the
 parts of the newly created object into required equality
 constraints. This basically means we execute constructors in a sort of
-``mixed mode'' where heap objects are created as needed and
-assignments are turned into equalities. This implies limitations on
-the constructors to be basically just methods binding arguments to the
-fields of the newly created object, without any control structures.
+``mixed mode'' where heap objects are created as needed and their
+arguments are turned into equalities on the fields. This implies
+limitations on the constructors to be basically just methods binding
+arguments to the fields of the newly created object, without any
+control structures.
 
 This example also illustrates why we need to solve for object identity
 and type before values --- if \verb|r| had been an instance of a class
@@ -4282,12 +4282,12 @@ pt_x_equals_5(q)
 \end{example}
 After this code runs, \verb!q.x! is \verb!5!.
 
-\subsection{Value Classes as Syntactic Sugar}
+\subsection{Value Classes as Sugar}
 \label{sec:value-classes-as-syntactic-sugar}
 
 Value classes are in fact not necessary for Babelsberg --- there is a
-simple source-to-source transformation that can be used to remove them.
-However, they are of practical importance, since using them can make
+simple transformation that can be used to remove them.  However, they
+are of practical importance, since using them can make
 Babelsberg/Objects programs much clearer.
 
 To eliminate a use of a value class in a constraint expression, we can
@@ -4320,6 +4320,21 @@ always r.center() = point1 && point1.x=d? && point1.y=d?+10
 
 The read-only annotations are necessary since we don't want to satisfy
 the constraint by changing \verb|d|.
+
+Now, this leaves the issue that \verb!r.center()! returns a new
+computed point, which we disallow, as creating new objects on the heap
+is considered a side-effect. We can fix this in the following way:
+when, during our inlining, a constructor is encountered, the object is
+allocated in a special part of the heap that cannot be reached by user
+code (using pointer magic or VM introspection or the like). The
+constructor of the object is not inlined, instead, each argument
+expression is required to be equal to a field on the new object. This
+implies limitations on how these objects are constructed, in that
+their constructors can only assign each argument to a field, in order,
+and not do any computation. Given these limitations, we will have
+created a fresh and hidden reference with required equalities in its
+parts, which makes it effectively immutable. Constraint inlining then
+proceeds with this object.
 
 Note that the identity of the new (ordinary) instance used in this
 rewriting cannot escape from the constraint, since ordinary constraint

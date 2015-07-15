@@ -3335,6 +3335,97 @@ or if they are too hard for the solver, our execution implicitly gets stuck.
 %%   would show that the operational and the model theoretic semantics
 %%   were equivalent, at least under some conditions.}
 
+\subsection{Control Structures and Methods}
+
+Babelsberg/Objects has the simple \verb|if| and \verb|while| control
+structures that were introduced for Babelsberg/PrimitiveTypes.  There
+are no particular complications in including these in
+Babelsberg/Objects.
+
+In addition, however, Babelsberg/Objects includes methods.  Following
+our overarching design goal of having a standard object-oriented
+language in the absence of constraints, in imperative execution mode,
+methods are standard.  Suppose we are evaluating \verb|x.m(a,b)|.  We
+first look in \verb|x|'s class for a method with selector \verb|m|,
+then its superclass, and so on up the superclass chain.  If no such
+method is found, it is an error.\footnote{This is analogous to the
+  structural compatibility checks from Babelsberg/Records, and just as
+  in Babelsberg/Records we don't invent a new field for a record if
+  needed to satisfy a constraint, in Babelsberg/Objects we don't
+  convert an object to an instance of a different class, or synthesize
+  a new method, to satisfy constraints --- instead, if there is a
+  missing method it's just an error.  This lookup process isn't
+  represented in our formal semantics since it is standard and doesn't
+  introduce any issues for our focus on constraints.}
+Otherwise we evaluate the body of the method in a new environment, and
+return the result.  Arguments are passed by value (with pointer
+semantics), as in most standard object-oriented languages.  For
+instances of primitive types and value classes, the argument can also
+be copied (since we can't tell the difference between sharing and
+copying in this case).
+
+The following example shows that passing a variable of primitive type
+into a method that modifies its argument does not affect the
+environment outside the method:
+\begin{verbatim}
+def addTo(a)
+  a := a + 3;
+  return a
+end
+\end{verbatim}
+
+\begin{example}
+y := 10;
+x := addTo(y)
+\end{example}
+After the method returns, \verb!x! will be 13 and \verb!y! will have
+stayed at 10.
+
+Methods called in the ordinary way can create new constraints, which
+then persist after the method returns.  There is an example in the
+next section to illustrate this.
+
+Methods can also be invoked by constraint expressions.  There are a
+number of restrictions on methods to allow them to be used in this way
+--- briefly, they can't have side effects, and if they consist of more
+than just a single return statement they can only be used in the
+forward direction in constraints.  Creating an instance of an ordinary
+class is regarded as a side effect, so methods that can be invoked by
+constraint expressions can only create instances of value classes.
+See Section \ref{sec:additional-constraint-restrictions} for details,
+including a discussion of the rationale for this particular choice of
+restrictions.
+
+If the method can be used in a constraint but only in the forward
+direction, then it can still be called in the usual way, including
+passing any parameters by value with pointer semantics.  For example,
+suppose we have a constraint \verb|always c=x.m(a,b)|, and method
+\verb|m| has multiple statements so that it can only be used in the
+forward direction, i.e., we can find a value for \verb|c| given values
+for \verb|x|, \verb|a|, and \verb|b| but not any other direction.  In
+that case, \verb|m| can be called in the usual way, passing \verb|a|
+and \verb|b| by value with pointer semantics.  If the other
+constraints are such that the correct solution involves finding a
+value for \verb|b| given values for \verb|c|, \verb|x|, and \verb|a|,
+a practical system will halt with an error that the constraints are
+too hard for it to solve, due to a method called from the constraint
+that can't be inlined (or in the formal semantics, we get stuck).
+However, in contrast to all the previous examples of constraints that
+were too hard, the fact that they are too hard is a limitation of the
+transformations we use for methods called by constraints, rather than
+being a limitation of the solver.
+
+On the other hand, if method \verb|m| can be used multi-directionally,
+so that for example we can find a value for \verb|b| given values for
+\verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
+inlined so that the resulting constraints can be turned over to the
+solver, and we can potentially solve for any of \verb|x|, \verb|a|,
+\verb|b|, or \verb|c|\@.  This done by creating an environment for
+method \verb|m| and inlining the returned expression with respect to
+that environment. The parameters in that environment are constrained
+to be identical to \verb|a| and \verb|b| respectively, and \verb|self|
+is constrained to be identical to \verb|x|.
+
 \subsection{Value Classes}
 
 Babelsberg/Objects includes \emph{value classes} as well as ordinary,
@@ -3460,97 +3551,6 @@ a.x := 30;
 \end{verbatim}
 
 then both \verb|a| and \verb|b| have \verb|x=30| (since they are identical).
-
-\subsection{Control Structures and Methods}
-
-Babelsberg/Objects has the simple \verb|if| and \verb|while| control
-structures that were introduced for Babelsberg/PrimitiveTypes.  There
-are no particular complications in including these in
-Babelsberg/Objects.
-
-In addition, however, Babelsberg/Objects includes methods.  Following
-our overarching design goal of having a standard object-oriented
-language in the absence of constraints, in imperative execution mode,
-methods are standard.  Suppose we are evaluating \verb|x.m(a,b)|.  We
-first look in \verb|x|'s class for a method with selector \verb|m|,
-then its superclass, and so on up the superclass chain.  If no such
-method is found, it is an error.\footnote{This is analogous to the
-  structural compatibility checks from Babelsberg/Records, and just as
-  in Babelsberg/Records we don't invent a new field for a record if
-  needed to satisfy a constraint, in Babelsberg/Objects we don't
-  convert an object to an instance of a different class, or synthesize
-  a new method, to satisfy constraints --- instead, if there is a
-  missing method it's just an error.  This lookup process isn't
-  represented in our formal semantics since it is standard and doesn't
-  introduce any issues for our focus on constraints.}
-Otherwise we evaluate the body of the method in a new environment, and
-return the result.  Arguments are passed by value (with pointer
-semantics), as in most standard object-oriented languages.  For
-instances of primitive types and value classes, the argument can also
-be copied (since we can't tell the difference between sharing and
-copying in this case).
-
-The following example shows that passing a variable of primitive type
-into a method that modifies its argument does not affect the
-environment outside the method:
-\begin{verbatim}
-def addTo(a)
-  a := a + 3;
-  return a
-end
-\end{verbatim}
-
-\begin{example}
-y := 10;
-x := addTo(y)
-\end{example}
-After the method returns, \verb!x! will be 13 and \verb!y! will have
-stayed at 10.
-
-Methods called in the ordinary way can create new constraints, which
-then persist after the method returns.  There is an example in the
-next section to illustrate this.
-
-Methods can also be invoked by constraint expressions.  There are a
-number of restrictions on methods to allow them to be used in this way
---- briefly, they can't have side effects, and if they consist of more
-than just a single return statement they can only be used in the
-forward direction in constraints.  Creating an instance of an ordinary
-class is regarded as a side effect, so methods that can be invoked by
-constraint expressions can only create instances of value classes.
-See Section \ref{sec:additional-constraint-restrictions} for details,
-including a discussion of the rationale for this particular choice of
-restrictions.
-
-If the method can be used in a constraint but only in the forward
-direction, then it can still be called in the usual way, including
-passing any parameters by value with pointer semantics.  For example,
-suppose we have a constraint \verb|always c=x.m(a,b)|, and method
-\verb|m| has multiple statements so that it can only be used in the
-forward direction, i.e., we can find a value for \verb|c| given values
-for \verb|x|, \verb|a|, and \verb|b| but not any other direction.  In
-that case, \verb|m| can be called in the usual way, passing \verb|a|
-and \verb|b| by value with pointer semantics.  If the other
-constraints are such that the correct solution involves finding a
-value for \verb|b| given values for \verb|c|, \verb|x|, and \verb|a|,
-a practical system will halt with an error that the constraints are
-too hard for it to solve, due to a method called from the constraint
-that can't be inlined (or in the formal semantics, we get stuck).
-However, in contrast to all the previous examples of constraints that
-were too hard, the fact that they are too hard is a limitation of the
-transformations we use for methods called by constraints, rather than
-being a limitation of the solver.
-
-On the other hand, if method \verb|m| can be used multi-directionally,
-so that for example we can find a value for \verb|b| given values for
-\verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
-inlined so that the resulting constraints can be turned over to the
-solver, and we can potentially solve for any of \verb|x|, \verb|a|,
-\verb|b|, or \verb|c|\@.  This done by creating an environment for
-method \verb|m| and inlining the returned expression with respect to
-that environment. The parameters in that environment are constrained
-to be identical to \verb|a| and \verb|b| respectively, and \verb|self|
-is constrained to be identical to \verb|x|.
 
 \subsection{Examples}
 

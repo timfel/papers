@@ -171,7 +171,7 @@
   A Step-by-Step Approach}
 \author{Tim Felgentreff, Todd Millstein, and Alan Borning}
 
-\date{VPRI Technical Report TR-2014-002b, June 2015 \\ 
+\date{VPRI Technical Report TR-2014-002b, July 2015 \\
 (revised version of TR-2014-002, September 2014)}
 
 \maketitle
@@ -3440,42 +3440,6 @@ or if they are too hard for the solver, our execution implicitly gets stuck.
 %%   would show that the operational and the model theoretic semantics
 %%   were equivalent, at least under some conditions.}
 
-\subsection{Value Classes}
-
-In the formal semantics, we will use instances of \emph{value classes}
-as well as instances of ordinary, full-featured, classes.  The
-restrictions on value classes will make it easier to use them with
-constraints.  A number of existing languages have proposals to support
-forms of value classes, such as Java\footnote{\url{http://openjdk.java.net/jeps/169}} and Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}.
-In Babelsberg/Objects, instances of value
-classes are immutable (that is, we need to provide values for all the
-fields at object creation time, and after that the value class instance
-cannot be modified).\footnote{For use with e.g.\ distributed systems 
-applications, we would also want to restrict instances of value
-classes to only hold references to primitive types or to other value
-class, but this restriction isn't needed for our purposes here.}
-Finally, object identity is not significant for
-value class instances --- we define the identity test method, but it
-performs a test for equality rather than identity on its argument.
-However, value classes are more than simple record declarations, since
-they support methods and inheritance.
-
-In this section, we will use \verb|Point| and \verb|Rectangle| as our
-example value classes.  To distinguish them from ordinary classes, we
-will create instances just by supplying the arguments, e.g.,
-\verb|Point(10,20)|, whereas instances of ordinary classes will be
-created using the \verb|new| message, e.g., \verb|Window.new(...)|.
-
-In a practical implementation of Babelsberg, ideally the host language
-will itself support value classes, so that we can use them directly.
-If not, we can use ordinary classes, with appropriate conventions
-about object creation, modification, and not testing for object identity.
-
-Finally, to foreshadow the formal semantics, for simplicity we omit
-details about object creation, method lookup, and inheritance (which
-are completely standard), and represent ordinary instances as
-uid-records and value class instances as i-records.
-
 \subsection{Control Structures and Methods}
 
 Babelsberg/Objects has the simple \verb|if| and \verb|while| control
@@ -3561,21 +3525,147 @@ so that for example we can find a value for \verb|b| given values for
 \verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
 inlined so that the resulting constraints can be turned over to the
 solver, and we can potentially solve for any of \verb|x|, \verb|a|,
-\verb|b|, or \verb|c|.  This done by creating an environment for
+\verb|b|, or \verb|c|\@.  This done by creating an environment for
 method \verb|m| and inlining the returned expression with respect to
 that environment. The parameters in that environment are constrained
 to be identical to \verb|a| and \verb|b| respectively, and \verb|self|
 is constrained to be identical to \verb|x|.
 
+\subsection{Value Classes}
+
+Babelsberg/Objects includes \emph{value classes} as well as ordinary,
+full-featured, classes.  The restrictions on value classes make it
+easier to use them with constraints.  A number of existing languages
+have proposals or support for forms of value classes, such
+as Java\footnote{\url{http://openjdk.java.net/jeps/169}} and
+Scala\footnote{\url{http://docs.scala-lang.org/sips/completed/value-classes.html}}
+respectively.
+In Babelsberg/Objects, instances of value
+classes are immutable (that is, we need to provide values for all the
+fields at object creation time, and after that the value class instance
+cannot be modified).\footnote{For use with e.g.\ distributed systems 
+applications, we would also want to restrict instances of value
+classes to only hold references to primitive types or to other value
+class, but this restriction isn't needed for our purposes here.}
+Finally, object identity is not significant for
+value class instances --- we define the identity test method, but it
+performs a test for equality rather than identity on its argument.
+However, value classes are more than simple record declarations, since
+they support methods and inheritance.
+
+In this section, we will use \verb|Point| and \verb|Rectangle| as our
+example value classes.  To distinguish them from ordinary classes, we
+will create instances just by supplying the arguments, e.g.,
+\verb|Point(10,20)|, whereas instances of ordinary classes will be
+created using the \verb|new| message, e.g., \verb|Window.new(...)|.
+
+In a practical implementation of Babelsberg, ideally the host language
+will itself support value classes, so that we can use them directly.
+If not, we can use ordinary classes, with appropriate conventions
+about object creation, modification, and not testing for object identity.
+
+Finally, to foreshadow the formal semantics, for simplicity we omit
+details about object creation, method lookup, and inheritance (which
+are completely standard), and represent ordinary instances as
+uid-records and value class instances as i-records.
+
+\subsection{Value Classes as Sugar}
+\label{sec:value-classes-as-syntactic-sugar}
+
+Value classes are in fact not necessary for Babelsberg --- there is a
+simple transformation that can be used to remove them.  However, they
+are of practical importance, since using them can make
+Babelsberg/Objects programs much clearer.
+
+To eliminate a use of a value class in a constraint expression, we can
+instead create a new (ordinary) instance \emph{outside} of the
+constraint, and in the constraint replace it by appropriate
+constraints on the attributes of the (new) instance.  Consider again a
+constraint on the center of a rectangle:
+
+\begin{verbatim}
+always r.center() = Point(10,20)
+\end{verbatim}
+
+We can rewrite this as:
+\begin{verbatim}
+point1 := MutablePoint.new(0,0)
+always r.center() = point1 && point1.x=10 && point1.y=20
+\end{verbatim}
+
+If the new value class instance is created using expressions, we need
+to add appropriate read-only annotations in the rewritten code.  For example,
+\begin{verbatim}
+always r.center() = Point(d,d+10)
+\end{verbatim}
+
+is rewritten as:
+\begin{verbatim}
+point1 := MutablePoint.new(0,0)
+always r.center() = point1 && point1.x=d? && point1.y=d?+10
+\end{verbatim}
+
+The read-only annotations are necessary since we don't want to satisfy
+the constraint by changing \verb|d|.
+
+A remaining issue is that \verb!r.center()! returns a new
+computed point, which we disallow if points are not instances of a
+value class, as creating new objects on the heap
+is considered a side-effect. We can handle this in the following way:
+when, during our inlining, a constructor is encountered, the object is
+allocated in a special part of the heap that cannot be reached by user
+code (using pointer magic or VM introspection or the like). The
+constructor of the object is not inlined; instead, each argument
+expression is required to be equal to a field on the new object. This
+implies limitations on how these objects are constructed, in that
+their constructors can only assign each argument to a field, in order,
+and not do any computation. Given these limitations, we will have
+created a fresh and hidden reference with required equalities in its
+parts, which makes it effectively immutable. Constraint inlining then
+proceeds with this object.
+
+Note that the identity of the new (ordinary) instance used in this
+rewriting cannot escape from the constraint, since ordinary constraint
+expressions cannot use identity constraints.
+
+Finally, we might create an instance of a value class outside of a
+constraint expression.  These uses of value classes can be replaced by
+ordinary classes that have no methods that change the state of an
+instance after it is created, and that override the default identity
+test method to test for equality instead.  For this transformation for
+statements that create value class instances outside of constraint
+expressions, we rely on the fact that value class instances cannot be
+changed after they are created.  To illustrate this, consider an
+example using value classes, and suppose that in fact value class
+instances \emph{were} mutable.
+
+\begin{verbatim}
+a := Point(10,20);
+b := a;
+a.x := 30;
+\end{verbatim}
+
+Just as in Babelsberg/Records, at the end of this program
+\verb|a=Point(30,20)| but \verb|b=Point(10,20)|.  However, if we do the same
+thing with mutable objects:
+
+\begin{verbatim}
+a := MutablePoint.new(10,20);
+b := a;
+a.x := 30;
+\end{verbatim}
+
+then both \verb|a| and \verb|b| have \verb|x=30| (since they are identical).
+
 \subsection{Examples}
 
 Here is a constraint on the center of a rectangle, where the center is
-a computed value rather than being stored as an instance variable
-(both \verb!Rectangle! and \verb!Point! are value classes in this
-example):
+a computed value rather than being stored as an instance variable.
+(Both \verb!Rectangle! and \verb!Point! are value classes in this
+example.)
 
 \begin{verbatim}
-r := Rectangle(Point(2,2), Point(10,10);
+r := Rectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20)
 \end{verbatim}
 
@@ -3604,12 +3694,6 @@ can then be handed to the solver in one conjunction. Note how the
 local names are translated into a global solver environment by
 appending a digit to every duplicate name.
 
-\ab{include a version of the evaluation when Point and Rectangle are
-  value classes!}
-
-Now consider a similar example but using mutable rectangles (instances of
-\verb|MutableRectangle|).  \verb|Point| will still be a value class.
-
 \ifx\hpitr\undefined
 \newcommand{\mycskip}{\hspace{29em}}
 \else
@@ -3617,10 +3701,69 @@ Now consider a similar example but using mutable rectangles (instances of
 \fi
 
 $\begin{array}{rr@{\;=\;}l}
+\multicolumn{3}{r}{//~\mathrm{constraint~for~the~receiver~of~the~center~method}} \\
+\mathrm{required} & self1 & \{upper\_left: \{x:2,\,y:2\},\,lower\_right: \{x:10,\,y:10\}\}\\
+
+\multicolumn{3}{r}{//~\mathrm{the~point~addition~called~from~the~center~method}} \\
+\mathrm{required} & self2 & self1.upper\_left\\
+\mathrm{required} & arg1 & self1.lower\_right\\
+
+\multicolumn{3}{r}{//~\mathrm{the~point~constructor~called~from~the~point~addition~method}} \\
+\mathrm{required} & x1 & self2.x\,+\,arg1.x\\
+\mathrm{required} & y1 & self2.y\,+\,arg1.y\\
+
+\multicolumn{3}{r}{//~\mathrm{point~division~by~scalar~called~from~center~method}} \\
+\mathrm{required} & self3 & \{x: x1,\,y: y2\}\\
+\mathrm{required} & arg2 & 2\\
+
+\multicolumn{3}{r}{//~\mathrm{point~constructor~called~from~point~division~method}} \\
+\mathrm{required} & x2 & self3.x\,/\,arg2\\
+\mathrm{required} & y2 & self3.y\,/\,arg2\\
+
+\multicolumn{3}{r}{\mycskip\mathrm{//~point~constructor~for~the~static~point}} \\
+\mathrm{required} & x3 & 10\\
+\mathrm{required} & y3 & 20\\
+
+\multicolumn{3}{r}{//~\mathrm{and~for~the~point~equality}} \\
+\mathrm{required} & self4 & \{x: x2,\,y: y2\}\\
+\mathrm{required} & arg3 & \{x: x3,\,y: y3\}\\
+\mathrm{required} & self4.x & arg3.x \wedge self4.y = arg3.y\\
+\end{array}$
+
+As mentioned, for each variable name in a scope a unique global
+variable name is created.  The solver works only on the global
+names. During evaluation, each local name maps to a global name, which
+in turn maps to a value. Entering the center method creates a local
+environment in which \verb|self| is bound to the rectangle by value.
+A global alias \verb|self1| is created and constrained to refer to
+that same value.  Similarly, the global alias \verb|self2| is a point,
+namely the upper left corner of the mutable rectangle.  This alias is
+then used when we explode the \verb|+| message to that point.
+\verb|self3| is also a point, namely the new point that is returned by
+the point addition method and now used as receiver of the scalar
+division method on points.  For methods that take arguments, global
+names for the argument names are created and constrained similarly.
+For example, \verb|arg1| is the global name in this exploded
+constraint for the argument to the \verb|+| method for
+\verb|Point|. Thus, the solver never has to deal with different scopes
+or name clashes.
+
+Now consider a similar example but using mutable rectangles and points
+on the heap, using the translation when using their constructors in
+constraints as defined in
+\autoref{sec:value-classes-as-syntactic-sugar}.
+
+$\begin{array}{rr@{\;=\;}l}
 \multicolumn{3}{r}{//~\mathrm{stays~for~the~heap}} \\
-\mathrm{required} & H(r) & \{upper\_left: r_{ul},\,lower\_right: r_{lr}\}\\
-\mathrm{weak} & r_{ul} & \{x:0,\,y:0\}\\
-\mathrm{weak} & r_{lr} & \{x:5,\,y:5\} \\
+\mathrm{required} & H(r) & \{upper\_left: p_{ul},\,lower\_right: p_{lr}\}\\
+\mathrm{required} & H(r_{ul}) & \{x:x1,\,y:y1\}\\
+\mathrm{required} & H(r_{lr}) & \{x:x2,\,y:y2\} \\
+\mathrm{required} & p_{ul} & r_{ul}\\
+\mathrm{required} & p_{lr} & r_{lr}\\
+\mathrm{required} & x1 & 2\\
+\mathrm{required} & y1 & 2\\
+\mathrm{required} & x2 & 10\\
+\mathrm{required} & y2 & 10\\
 
 \multicolumn{3}{r}{//~\mathrm{the~center~method}} \\
 \mathrm{required} & self1 & r\\
@@ -3630,55 +3773,60 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & arg1 & H(self1).lower\_right\\
 
 \multicolumn{3}{r}{//~\mathrm{the~point~constructor~called~from~the~point~addition~method}} \\
-\mathrm{required} & x1 & H(self2).x\,+\,H(arg1).x\\
-\mathrm{required} & y1 & H(self2).y\,+\,H(arg1).y\\
+\mathrm{required} & H(r_{c}) & \{x:x3,\,y:y3\}\\
+\mathrm{required} & self3 & r_{c}\\
+\mathrm{required} & x3 & H(self2).x\,+\,H(arg1).x\\
+\mathrm{required} & y3 & H(self2).y\,+\,H(arg1).y\\
 
 \multicolumn{3}{r}{//~\mathrm{point~division~by~scalar~called~from~center~method}} \\
-\mathrm{required} & self3 & \{x: x1,\,y: y2\}\\
+\mathrm{required} & self4 & self3\\
 \mathrm{required} & arg2 & 2\\
 
 \multicolumn{3}{r}{//~\mathrm{point~constructor~called~from~point~division~method}} \\
-\mathrm{required} & x2 & H(self3).x\,/\,arg2\\
-\mathrm{required} & y2 & H(self3).y\,/\,arg2\\
+\mathrm{required} & H(r_{d}) & \{x:x4,\,y:y4\}\\
+\mathrm{required} & self5 & r_{d}\\
+\mathrm{required} & x4 & H(self4).x\,/\,arg2\\
+\mathrm{required} & y4 & H(self4).y\,/\,arg2\\
 
 \multicolumn{3}{r}{\mycskip\mathrm{//~point~constructor~for~the~static~point}} \\
-\mathrm{required} & x3 & 10\\
-\mathrm{required} & y3 & 20\\
+\mathrm{required} & H(r_{s}) & \{x:x5,\,y:y5\}\\
+\mathrm{required} & self6 & r_{s}\\
+\mathrm{required} & x5 & 10\\
+\mathrm{required} & y5 & 20\\
 
 \multicolumn{3}{r}{//~\mathrm{and~for~the~point~equality}} \\
-\mathrm{required} & self4 & \{x: x2,\,y: y2\}\\
-\mathrm{required} & arg3 & \{x: x3,\,y: y3\}\\
-\mathrm{required} & H(self4).x & H(arg3).x \wedge H(self4).y = H(arg3).y\\
+\mathrm{required} & self7 & self5\\
+\mathrm{required} & arg3 & self6\\
+\mathrm{required} & H(self7).x & H(arg3).x \wedge H(self7).y = H(arg3).y\\
 \end{array}$
 
-As mentioned, for each variable name in a scope a unique global
-variable name is created.  The solver works only on the global
-names. During evaluation, each local name maps to a global name, which
-in turn maps to a value.  Entering the center method creates a local
-environment in which \verb|self| is bound to \verb|r|\@.  A global
-alias \verb|self1| is created and constrained to refer to the same
-reference (which is to a mutable rectangle).  Similarly, the global alias
-\verb|self2| is a point, namely the upper left corner of the mutable
-rectangle.  This alias is then used when we explode the \verb|+|
-message to that point.  \verb|self3| is also a point, namely the new
-point that is returned by the point addition method.  Note that we are
-representing the instance of this value class in the above conjunction
-of exploded constraints and in the formal semantics as an i-record.
-For methods that take arguments, global names for the argument names
-are created and constrained similarly.  For example, \verb|arg1| is
-the global name in this exploded constraint for the argument to the
-\verb|+| method for \verb|Point|. Thus, the solver never has to deal
-with different scopes or name clashes.
+Before we inline the methods, we create appropriate stays on the heap. Entering
+the center method creates a local environment in which \verb|self| is
+bound to \verb|r|\@, which is a reference to the mutable rectangle on
+the heap. We create aliases for the receivers and arguments as before,
+but now treat constructors specially, in that we create a new
+reference on the heap, bind it to a new \verb!self! alias, and use the
+arguments to the constructor as constraints on the parts of the
+object, in effect turning the assignment of these arguments to the
+parts of the newly created object into required equality
+constraints. This means we execute constructors in a sort of
+``mixed mode,'' in which heap objects are created as needed and their
+arguments are turned into equality constraints on their fields. This implies
+limitations on the constructors, namely that they be just methods binding
+arguments to the fields of the newly created object, without any
+control structures.
 
-This example illustrates why we need to solve for object identity and type
-before values --- if \verb|r| had been an instance of a class with a
-different implementation of the \verb|center| method, it would have
-been exploded in a different way.
+This example also illustrates why we need to solve for object identity
+and type before values --- if \verb|r| had been an instance of a class
+with a different implementation of the \verb|center| method, it would
+have been exploded in a different way.
 
+Now consider an example with mutable rectangles (instances of
+\verb|MutableRectangle|) but points again as instances of a value class.
 If we assign to the rectangle's \verb|upper_left|, the solver will
 update \verb|lower_right| to keep the center at \verb|Point(10,20)|:
 \begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10);
+r := new MutableRectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20);
 r.upper_left := Point(100,2);
 \end{example}
@@ -3694,7 +3842,7 @@ r.upper_left := Point(100,2);
 
 We can also accomplish the same thing using a \verb|once| constraint:
 \begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10);
+r := new MutableRectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20);
 once r.upper_left.x = 100
 \end{example}
@@ -3702,7 +3850,7 @@ once r.upper_left.x = 100
 Finally, this test fails because the \verb|always| and \verb|once|
 constraints are incompatible:
 \begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10);
+r := new MutableRectangle(Point(2,2), Point(10,10));
 always r.center() = Point(10,20);
 once r.center().x = 100
 \end{example}
@@ -4330,77 +4478,6 @@ q := MutablePoint.new(0,0);
 pt_x_equals_5(q)
 \end{example}
 After this code runs, \verb!q.x! is \verb!5!.
-
-\subsection{Value Classes as Syntactic Sugar}
-
-Value classes are in fact not necessary for Babelsberg --- there is a
-simple source-to-source transformation that can be used to remove them.
-However, they are of practical importance, since using them can make
-Babelsberg/Objects programs much clearer.
-
-To eliminate a use of a value class in a constraint expression, we can
-instead create a new (ordinary) instance \emph{outside} of the
-constraint, and in the constraint replace it by appropriate
-constraints on the attributes of the (new) instance.  Consider again a
-constraint on the center of a rectangle:
-
-\begin{verbatim}
-always r.center() = Point(10,20)
-\end{verbatim}
-
-We can rewrite this as:
-\begin{verbatim}
-point1 := MutablePoint.new(0,0)
-always r.center() = point1 && point1.x=10 && point1.y=20
-\end{verbatim}
-
-If the new value class instance is created using expressions, we need
-to add appropriate read-only annotations.  For example,
-\begin{verbatim}
-always r.center() = Point(d,d+10)
-\end{verbatim}
-
-is rewritten as:
-\begin{verbatim}
-point1 := MutablePoint.new(0,0)
-always r.center() = point1 && point1.x=d? && point1.y=d?+10
-\end{verbatim}
-
-The read-only annotations are necessary since we don't want to satisfy
-the constraint by changing \verb|d|.
-
-Note that the identity of the new (ordinary) instance used in this
-rewriting cannot escape from the constraint, since ordinary constraint
-expressions cannot use identity constraints.
-
-We might also create an instance of a value class outside of a
-constraint expression.  These uses of value classes can be replaced by
-ordinary classes that have no methods that change the state of an
-instance after it is created, and that override the default identity
-test method to test for equality instead.  For this transformation for
-statements that create value class instances outside of constraint
-expressions, we rely on the fact that value class instances cannot be
-changed after they are created.  Consider an example using value
-classes, and suppose that in fact value class instances \emph{were}
-mutable.
-
-\begin{verbatim}
-a := Point(10,20);
-b := a;
-a.x := 30;
-\end{verbatim}
-
-Just as in Babelsberg/Records, at the end of this program
-\verb|a=Point(30,20)| but \verb|b=Point(10,20)|.  However, if we do the same
-thing with mutable objects:
-
-\begin{verbatim}
-a := MutablePoint.new(10,20);
-b := a;
-a.x := 30;
-\end{verbatim}
-
-then both \verb|a| and \verb|b| have \verb|x=30| (since they are identical).
 
 \subsection{Formalism}
 

@@ -1208,6 +1208,25 @@ select one arbitrarily. This is in contrast to logic- and
 constraint-logic programming, where the programmer can usually access
 all possible solutions.
 
+In general, a constraint might also consist not only of a single
+(in-)equality, but also conjunctions, disjunctions, and negations of
+atomic constraints. Only some solvers, such as Z3, can accommodate
+disjunctions and explicit conjunctions of constraints.  For DeltaBlue
+and Cassowary, conjunctions of constraints are implicitly specified by
+feeding multiple constraints to the solver, while disjunctions aren't
+allowed. For a conjunction or disjunction, if there is a priority, it
+applies to the entire constraint, not to components.  Thus this is
+legal:
+\begin{center}
+  \begin{tabular}{rl}
+    strong & $(x=3 \vee x=4)$
+  \end{tabular}
+\end{center}
+but this is not allowed:
+\begin{center}
+  (strong $x=3$) $\vee$ (weak $x=4$)
+\end{center}
+
 \todo[inline]{should we provide a formal explanation or refer to the
   other paper?}
 
@@ -1408,16 +1427,62 @@ a number of challenges and possibly confusing issues, especially with
 respect to how constraints interact with mutable state, method
 activation, inheritance, object identity, and finite collections of
 objects for which identity may or may not be relevant, depending on
-the modeled problem. Additional confusion arises from the gap between
-the semantics of a solver and the solutions it produces and the limits
-of representing that solution in an imperative runtime. For example
-Cassowary is complete for linear equalities over reals, but its
-implementation uses float values to represent reals, so a concrete
-solution may suffer from round-off errors. Similarly, while \gls{z3}
-supports non-linear operations over reals, many of these theories are
-incomplete, so a way to handle solving errors is desirable that allows
-the programmer to distinguish if the constraint was simply too hard
-for the solver, or if it is indeed unsatisfiable.
+the modeled problem. Experience with prior languages that integrate
+objects with imperative structures have often shown the potential to
+produce surprising and possibly undesired solutions. For the
+imperative programmer with little prior experience in constraint
+programming, incrementally adding constraints was thus often
+difficult, as the possible effects of a constraint could not be easily
+determined. As part of our design, we have proposed a set of design
+principles to avoid such surprises, as well as restrictions on
+\ac{ocp} languages to enforce these principles
+\cite{FelgentreffMillsteinBorningOOSPLA15}:
+\begin{itemize}
+\item {\em Structure preservation}: Asserted constraints cannot change
+  the structure of any objects (meaning the number and names of their
+  fields).  This property is enforced through a form of dynamic
+  structural typechecking, along with implicitly generated extra
+  constraints that implement frame axioms.
+\item {\em Identity preservation}: Similarly, newly asserted
+  constraints cannot change what object a particular variable or field
+  stores (such changes can only flow from assignments).  This property
+  is enforced by requiring constraints on object identity to already
+  be satisfied at the point where they are asserted.
+\item {\em Structural/identity determinism}: The structure of objects
+  as well as the particular objects stored by variables and fields
+  must be allowed to change through imperative updates, and such
+  changes can in turn cause existing constraints to be re-solved.
+  However, the results of constraint solving are deterministic in
+  terms of the final structures of objects and the identities of
+  objects stored in each variable/field.  This property is enforced
+  through a novel two-phase solving process that first
+  deterministically solves identity constraints and then solves the
+  remaining constraints in the updated environment and heap.
+\item {\em Syntactic method rules}: A simple syntactic check suffices
+  to determine whether and how a method can be used within
+  constraints.  In short, methods with side effects (writes other than
+  to local variables) cannot be used in constraints.  Other methods
+  whose bodies simply compute and return a expression can be used {\em
+    multi-directionally} in constraints --- any subset of their
+  variables can be considered ``unknowns'' and solved for in terms of
+  the other variables --- provided any methods called as part of that
+  expression also follow this restriction. The remaining methods can
+  be used just in the ``forward'' direction, in order to produce a
+  result value which can participate within constraints.
+\end{itemize}
+
+Additional confusion arises from the gap between the semantics of a
+solver and the solutions it produces and the limits of representing
+that solution in an imperative runtime. For example Cassowary is
+complete for linear equalities over reals, but its implementation uses
+float values to represent reals, so a concrete solution may suffer
+from round-off errors. Similarly, while \gls{z3} supports non-linear
+operations over reals, many of these theories are incomplete, so a way
+to handle solving errors is desirable that allows the programmer to
+distinguish if the constraint was simply too hard for the solver, or
+if it is indeed unsatisfiable. Furthermore, when expressing
+constraints over complex objects, a local propagation solver such as
+DeltaBlue may often produce better results.
 
 In this chapter, we approach these issues incrementally and describe
 our complete design in three parts: \autoref{sec:primitive-objects}
@@ -1587,12 +1652,13 @@ rules for method lookup and dispatch, identity constraints, and the
 interaction with the heap. \autoref{sec:records-with-ident} presents
 the rules for constraints over collections.
 
-In addition to our semantic rules, we also present an executable form
-of the complete semantics that passes a language test suite in
-\autoref{sec:exec-spec}. We use this executable form to demonstrate
-the validity of our rules, and provide a mechanism to generate test
-suites that can be run against \gls{Babelsberg} implementations to
-assert their compliance to the semantics.
+In addition to our semantic rules, we also present how key properties
+are ensured by these semantics in \autoref{sec:proofs}, as well an
+executable form of the complete semantics that passes a language test
+suite in \autoref{sec:exec-spec}. We use this executable form to
+demonstrate the validity of our rules, and provide a mechanism to
+generate test suites that can be run against \gls{Babelsberg}
+implementations to assert their compliance to the semantics.
 
 \section{Primitive Types}
 \label{sec:primitive-types}
@@ -1604,15 +1670,8 @@ expressions must return either true or false (with the solvers task to
 make them true). For this initial language, we also add reals and
 integers.
 
-
-\subsection{Formalism}
-\label{sec:int-formalism}
-
-We present the formal semantics of Babelsberg/PrimitiveTypes. 
-
-\subsubsection{Syntax}
+\subsection{Syntax}
 \label{sec:babelsberg-primitivetypes-syntax}
-
 
 {\texttt{
 \begin{tabular}{lrrl}
@@ -1676,7 +1735,7 @@ We could also add standard exception handling to remove the
 unsatisfiable or unknown constraint and continue, but omit this here
 for simplicity.
 
-\subsubsection{Semantics}
+\subsection{Semantics}
 
 
 The semantics is defined by several judgments, defined below.  These
@@ -1979,7 +2038,7 @@ dereferencing.  Source programs will not use expressions of the form
 to the solver, which we assume will treat \Heap as an uninterpreted
 function.
 
-\subsection{Operational Semantics}
+\subsection{Semantics}
 
 The semantics includes an environment \E and a heap \Heap. The former is
 a function that maps variable names to values, while the latter is a
@@ -2466,40 +2525,6 @@ augmented with constraint stores, and are only given for completeness.
 % combination judgment \combine{\E}{\Heap}{\Ccal}{C} is replaced by an
 % inlining judgment that translates method calls within constraints
 % according to the rules given in \autoref{sec:transl-multi-way}.
-
-\subsection{Key Properties}
-
-Here we state two key theorems about our formalism.  The proofs for
-these theorems can be found in the companion technical report.  The
-first theorem formalizes the idea that any solution to a value
-constraint preserves the structures of the objects on the
-environment and heap:
-
-\begin{theorem} (Structure Preservation)
- If \stepH{\E}{\Heap}{\Ccal}{\I}{(once|always)
-   C$_0$}{\E$'$}{\Heap$'$}{\Ccal$'$}{\I$'$} and  \tcHC{\E}{\Heap}{C$_0$} and
-\tcH{\E}{\Heap}{x}{T}, then
-  \tcH{\E$'$}{\Heap$'$}{x}{T}. 
-\end{theorem}
-
-The second theorem formalizes the idea that all solutions to an
-assignment will produce structurally equivalent environments and heaps
-(provided we start in a well-formed configuration where all identity
-constraints are satisfied):
-
-\begin{theorem} (Structural Determinism)
-  If
-  \stepH{\E}{\Heap}{\Ccal}{\I}{L := e}{\E$_1$}{\Heap$_1$}{\Ccal$_1$}{\I$_1$} and
-  \stepH{\E}{\Heap}{\Ccal}{\I}{L := e}{\E$_2$}{\Heap$_2$}{\Ccal$_2$}{\I$_2$} and
-  \evalH{\E}{\Heap}{I}{true} and 
-  \texttt{x} in dom(\E),
-  then
-  \tcH{\E$_1$}{\Heap$_1$}{x}{T} and
-  \tcH{\E$_2$}{\Heap$_2$}{x}{T}.
-  % $\forall \texttt{x}\in dom(\E_1):$ \tcH{\E$_1$}{\Heap$_1$}{x}{T} $\Rightarrow$
-  % \tcH{\E$_2$}{\Heap$_2$}{x}{T}.
-\end{theorem}
-
 
 Since we have methods with local scopes now, we introduce local
 environments \Scope as mappings from local names to globally unique
@@ -3066,7 +3091,43 @@ the rules below.
 \section{Collections of Objects}
 \label{sec:records-with-ident}
 
+
+
 \todo{Collections of objects semantics}
+
+\section{Key Properties}
+\label{sec:proofs}
+
+Here we state two key theorems about our formalism.  The proofs for
+these theorems can be found in the companion technical report.  The
+first theorem formalizes the idea that any solution to a value
+constraint preserves the structures of the objects on the
+environment and heap:
+
+\begin{theorem} (Structure Preservation)
+ If \stepH{\E}{\Heap}{\Ccal}{\I}{(once|always)
+   C$_0$}{\E$'$}{\Heap$'$}{\Ccal$'$}{\I$'$} and  \tcHC{\E}{\Heap}{C$_0$} and
+\tcH{\E}{\Heap}{x}{T}, then
+  \tcH{\E$'$}{\Heap$'$}{x}{T}. 
+\end{theorem}
+
+The second theorem formalizes the idea that all solutions to an
+assignment will produce structurally equivalent environments and heaps
+(provided we start in a well-formed configuration where all identity
+constraints are satisfied):
+
+\begin{theorem} (Structural Determinism)
+  If
+  \stepH{\E}{\Heap}{\Ccal}{\I}{L := e}{\E$_1$}{\Heap$_1$}{\Ccal$_1$}{\I$_1$} and
+  \stepH{\E}{\Heap}{\Ccal}{\I}{L := e}{\E$_2$}{\Heap$_2$}{\Ccal$_2$}{\I$_2$} and
+  \evalH{\E}{\Heap}{I}{true} and 
+  \texttt{x} in dom(\E),
+  then
+  \tcH{\E$_1$}{\Heap$_1$}{x}{T} and
+  \tcH{\E$_2$}{\Heap$_2$}{x}{T}.
+  % $\forall \texttt{x}\in dom(\E_1):$ \tcH{\E$_1$}{\Heap$_1$}{x}{T} $\Rightarrow$
+  % \tcH{\E$_2$}{\Heap$_2$}{x}{T}.
+\end{theorem}
 
 \section{Executable Specifications}
 \label{sec:exec-spec}
@@ -3982,8 +4043,8 @@ compare to a \ac{vm}-based solution, we cannot rely on access to the
 still aims to provide good performance for a variety of applications
 that use constraints or access constrained variables.
 
-...
-
+To evaluate the performance, we investigated two scenarios: how
+object-oriented performance is affected by our extension.
 
 \paragraph*{Incremental Constraint Solving with Cooperating Solvers}
 \label{sec:edit-constraints}
@@ -4196,7 +4257,24 @@ solution quality or performance. The metrics itself are not clear as
 of this point, and might vary based on the needs of the developer,
 suggesting that an interactive dialog between the development
 environment and the developer might be required to choose the right
-solver.
+solver.a
+\todo[inline]{Edit the above to reflect the seminar outcome}
+
+A larger question that this work leaves unanswered is how to integrate
+Prolog-style backtracking into the constraint solving process. Right
+now, constraint satisfaction leads to exactly one solution which is
+then visible to the imperative parts of the program. An option to
+support finding multiple solutions would be to design an explicit new
+mechanism. An alternative is to instead use Prolog as the basis, and
+interact with the Prolog runtime for dynamically adding and removing
+constraints to find multiple solutions.  The main program will still
+be an object constraint program, while the Prolog part is a separate
+subcomponent, with some clearly defined means to communicate with the
+main program. \citeauthor{unipycation} describe Unipycation, which is
+a composition of Python and Prolog. This seems like a good starting
+point for such future work, since they have already worked out many
+issues about how a dynamically-typed imperative language and Prolog
+can interact.
 
 We feel that a number of questions remain that are less clearly
 defined. In this work we position constraints as a tool in the utility

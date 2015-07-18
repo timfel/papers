@@ -67,6 +67,8 @@
 \newcommand{\C}{\texttt{C}}
 \newcommand{\I}{\texttt{I}}
 \renewcommand{\H}{\texttt{\upshape H}\xspace}
+\usepackage{textgreek}
+\newcommand{\Deref}{\H}%{\texttt{\upshape h}\xspace}
 \xspaceaddexceptions{'$'$ |(}
 \newcommand{\reinline}[6]{{\tt <#1,#2,#3,#4>} $\leadsto$ {\tt <#5,#6>}}
 
@@ -416,12 +418,14 @@ Section~\ref{sec:related-work}).
 We describe our approach informally (\autoref{sec:example-programs}) and have evaluated it in several
 ways.  First, we have formalized the approach in a
 core subset of Babelsberg (\autoref{sec:semantics}).  Second, we have developed 
-an executable version of our formal semantics to automatically verify a
+executable versions of the formal semantics of our core language as well as 
+a full object-oriented language with polymorphic method dispatch. We use this
+executable semantics to automatically verify a
   suite of example programs, including ones that illustrate the problems we address.
-On top of this executable semantics, we have also built a framework
+On top of our executable semantics, we have also built a framework
   to generate language test suites from our suite of example programs, to facilitate
   automatically testing Babelsberg implementations for conformance to
-  this semantics.
+  the semantic rules.
 Finally, we have created an updated version of the Babelsberg/JS
 implementation using our approach, have verified that it conforms to
 the formal semantics on the suite of example programs, and describe
@@ -777,7 +781,7 @@ To that end, we allow arbitrary updates to objects and variables
 through ordinary assignment but impose a principle of \emph{structural
   and identity determinism}:  all solutions to the
 violated constraints must agree on the structures of all objects and
-the identities stored in all variables and fields.  The key
+the identities stored in all variables and fields. The key
 observation is that changes to structure and identity can only occur through an
 assignment statement, and the inherent directionality of an assignment
 ensures a deterministic ``flow'' to other variables in order to
@@ -811,6 +815,12 @@ structure of objects and change which objects are stored in particular
 variables and fields but will do so deterministically.  In the second phase, all other
 constraints are solved in the context of this updated environment and
 heap, using the restrictions described earlier.
+Here we also include a notion from previous system
+\cite{freeman1990kaleidoscope} that the solver should always pick a
+solution that is ``close'' to the current state of the system. To that
+end, we implicitly add a low priority ``stay'' constraint to each
+variable, so that its value only changes if required by some
+higher-priority constraint.
 
 As an example for our two-phase solving suppose we have the
 constraints from \autoref{lst:account} plus the identity constraint in
@@ -1266,75 +1276,69 @@ while restrictive, provides a useful balance between clarity and power.
 
 This section presents a core language that we call Babelsberg/UID,
 which we use to formalize the key aspects of our approach and to prove
-properties about them.  For simplicity we model objects as mutable
-records.  As a result, the formalism does not account for our rules on
-method calls as discussed in Section~\ref{sec:rules-constr-expr}, but
-it accounts for all other rules described informally above.
+properties about them.  It includes primitive types (ints, reals,
+booleans, and strings) and records. For simplicity we model objects as
+mutable records.  As a result, the formalism does not account for our
+rules on method calls as discussed in
+Section~\ref{sec:rules-constr-expr}, but it accounts for all other
+rules described informally above and illustrates our key contributions.
 
-% A goal of this work is to clarify design decisions of Babelsberg to
-% guide language users and implementers.  However, it is not intended to
-% be a complete description of a practical object-constraint language,
-% and we omit aspects of the language that are inherited from the host
-% language and that are not core to the interaction between constraints
-% and object-oriented programming, such as class and method definitions,
-% exception handling, and \textsc{IO}.
+A goal of this work is to clarify design decisions of Babelsberg to
+guide language users and implementers.  However, it is not intended to
+be a complete description of a practical object-constraint language,
+and we omit aspects of the language that are inherited from the host
+language and that are not core to the interaction between constraints
+and object-oriented programming, such as class and method definitions,
+exception handling, and \textsc{IO}. A guiding principle for it
+has been to adhere to the original goal of Babelsberg: in the absence
+of constraints, it should behave like a standard imperative
+language. We focus on how imperative constructs need to be modified to
+support the Babelsberg design. Where there is a choice, we aim to make
+the smallest possible changes while still accommodating constraints in
+a clean and powerful way. Beyond this, we favor simplicity of the
+rules over support for interesting features that are rarely used in
+practice. Extending it to
+include all the essential features of the actual object-constraint
+languages, including support for classes, methods, messages, and
+inheritance, along with constraint definitions that can include
+polymorphic method calls, is straightforward, and we present such extensions
+in a separate technical report \cite{felgentreff:2015:semantics}.
 
-% For our formal semantics we use a simple language, called Babelsberg/UID,
-% that includes primitive types (ints, reals, booleans, and strings), as
-% well as mutable objects that live on the heap and immutable objects on
-% the stack. A guiding principle in our design has been to adhere to the
-% original goal of Babelsberg: in the absence of constraints, it should
-% behave like a standard imperative language. We focus on how imperative
-% constructs need to be modified to support the Babelsberg design. Where
-% there is a choice, we aim to make the smallest possible changes while
-% still accommodating constraints in a clean and powerful way. Beyond
-% this, we favor simplicity of the rules over support for interesting
-% features that are rarely used in practice. The semantics for this
-% language, although not object-oriented, illustrates our key
-% contributions. Extending it to include all the essential features of
-% the actual object-constraint languages, including support for classes,
-% methods, messages, and inheritance, along with constraint definitions
-% that can include polymorphic method calls, is straightforward, and we
-% present this extension in a companion technical report
-% \cite{felgentreff:2015:semantics}.
+In addition to the imperative semantics, after every statement
+execution the current set of constraints is solved and the environment
+and heap are replaced with the solution.  The current set of
+constraints is determined as follows.  
+For assignments, we evaluate the right-hand side and then create a
+constraint that the resulting value and the left-hand side be
+identical. Otherwise the statement is just executed. In addition to any
+constraint resulting from an assignment statement, each constraint in
+the current set of constraints (e.g, a constraint from an explicit
+\verb|always| statement, or from an implicit {\tt weak} stay) is given to
+the solver.  If the solver finds a solution, the environment and heap
+are replaced by the model the solver found; if the constraints have no
+solution (or they are too hard), the execution halts. In practical
+languages, a run-time exception would be generated and the heap and
+environment remain unchanged.
 
-% In addition to the imperative semantics, after every statement
-% execution the current set of constraints is solved and the environment
-% and heap are replaced with the solution.  The current set of
-% constraints is determined as follows.  
-% For assignments, we evaluate the right-hand side and then create a
-% constraint that the resulting value and the left-hand side be
-% identical. Otherwise the statement is just executed. In addition to any
-% constraint resulting from an assignment statement, each constraint in
-% the current set of constraints (e.g, a constraint from an explicit
-% \verb|always| statement, or from an implicit {\tt weak} stay) is given to
-% the solver.  If the solver finds a solution, the environment and heap
-% are replaced by the model the solver found; if the constraints have no
-% solution (or they are too hard), the execution halts. In practical
-% languages, a run-time exception would be generated and the heap and
-% environment remain unchanged.
+The semantics treats the solver as a black box, but we assume it
+supports our primitive types, records, and uninterpreted functions, as
+well as hard and soft constraints and read-only variables
+\cite{borning1992constraint}. The solver should find a single best
+solution --- if there are multiple solutions, it is free to pick any
+one of them. Providing answers rather than solutions, \ie results such
+as $10 \leq x \leq 20$ rather than a single value for $x$, and
+backtracking among multiple answers, as available in for example
+constraint logic programming \cite{jaffar-popl-1987}, is left for
+future work.  
 
-% The semantics treats the solver as a black box, but we assume it
-% supports our primitive types, records, and uninterpreted functions,
-% as well as hard and soft constraints and read-only variables
-% \cite{borning1992constraint}. The solver should find a single best solution ---
-% if there are multiple solutions, it is free to pick any one of
-% them.
-% In the theory presented in \cite{borning1992constraint}, read-only
-% annotations apply only to variables, not arbitrary expressions, and
-% for simplicity we make the same restriction in our semantics.  In
-% practical languages, programs are often more concise if we also permit
-% read-only annotations on expressions, as was done in the example in
-% \autoref{sec:example-programs}.  The implementations do a simple
-% rewrite to convert a read-only expression to a read-only variable by
-% introducing a fresh variable as needed.  See the companion technical
-% report \cite{felgentreff:2015:semantics} for details.
+The theory of read-only annotations applies only to single variables
+\cite{borning1992constraint} and we make the same
+restriction in our semantics.  In practical languages, we also permit
+read-only annotations on expressions.  The implementations do a simple
+rewrite to convert a read-only expression to a read-only variable by
+introducing a fresh variable as needed
+\cite{felgentreff:2015:semantics}.
 
-% Providing answers rather than solutions, \ie results such as
-% $10 \leq x \leq 20$ rather than a single value for $x$, and
-% backtracking among multiple answers, as available in for example
-% constraint logic programming \cite{jaffar-popl-1987}, is left for
-% future work.
 
 \subsection{Syntax}
 
@@ -1357,7 +1361,7 @@ We use the following syntax for Babelsberg/UID:\\[.5\baselineskip]
 \textrm{Variable} & x & ::= & \textrm{variable names} \\
 \textrm{Label} & l & ::= & \textrm{record label names} \\
 \textrm{Reference} & r & ::= & \textrm{references to heap records} \\
-% \textrm{Dereference} & D & ::= & \H(e) \\
+% \textrm{Dereference} & D & ::= & \Deref(e) \\
 
 \textrm{Value} & v & ::= & c $\mid$ r
 \end{tabular}
@@ -1394,20 +1398,20 @@ a priority of {\tt required}.
                        {\tt \E} and heap \H \\
     \multicolumn{2}{l}{\textbf{\textit{Constraint Solving}}}\\
     \solveH{\E}{\H}{C} & Environment \E and heap \H represent a solution to constraint {\tt C} \\
-    \multicolumn{2}{l}{\textbf{\textit{Stay Constraints}}}\\
-    \stay{\E}{C} & Constraint {\tt C} is a conjunction of weak stay constraints on variables in environment \E \\
-    \stay{\H}{C} & Constraint {\tt C} is a conjunction of weak stay constraints on objects in heap \H \\
-    \istay{e}{C} & Constraint {\tt C} is a stay constraint for expression {\tt e} \\
-    \istay{\E}{C} & Constraint {\tt C} is a conjunction of stay constraints that are weak for primitive values and
-                    required for references in environment \E\\
-    \istay{\H}{C} & Constraint {\tt C} is a conjunction of stay constraints that are weak for fields with primitive values and
-                    required for fields with references on objects in heap \H\\
-    \multicolumn{2}{l}{\textbf{\textit{Constraint Translation}}}\\
-    \combine{\E}{\H}{C}{C$'$} & Translating constraint {\tt C} into a form suitable for the solver yields constraint {\tt C}$'$\\
-    % \combine{\E}{\H}{I}{C$'$} & Translating constraint {\tt I} into a form suitable for the solver yields constraint {\tt C}$'$\\
     \multicolumn{2}{l}{\textbf{\textit{Statement Evaluation}}}\\
     \stepH{\E}{\H}{\C}{\I}{s}{\E$'$}{\H$'$}{\C$'$}{\I$'$} & Execution starting from configuration {\tt <\E|\H|\C|\I|s>} ends in
-                                                            the state {\tt <E$'$|\H$'$|C$'$|\I$'$>}
+                                                            the state {\tt <E$'$|\H$'$|C$'$|\I$'$>}\\
+    \multicolumn{2}{l}{\textbf{\textit{Helper Rules}}}\\
+    \phase{\E}{\H}{\C}{$\rho$}{\E$'$;\H$'$} & Solving the constraint {\tt C} by translating it into a form suitable for the solver and adding stay constraints on \E and \H yields new environment \E$'$ and new heap \H$'$\\
+    \combine{\E}{\H}{C}{C$'$} & Translating constraint {\tt C} into a form suitable for the solver yields constraint {\tt C}$'$\\
+    \gstay{\E}{$\rho$}{C} & Constraint {\tt C} is a conjunction of stay constraints on variables in environment \E \\
+    \gstay{\H}{$\rho$}{C} & Constraint {\tt C} is a conjunction of stay constraints on objects in heap \H \\
+    \gstay{x=c}{$\rho$}{C} & Constraint {\tt C} is a weak stay constraint for {\tt x} to equal {\tt c}\\
+    \gstay{x=r}{$\rho$}{C} & Constraint {\tt C} is a stay constraint with priority $\rho$ for {\tt x} to equal {\tt r}\\
+    \gstay{r=o}{$\rho$}{C} & Constraint {\tt C} is a required stay constraint for reference {\tt r} to refer to the object {\tt o}\\
+    \stayPrefix{\E}{\H}{I}{C} & Constraint {\tt C} is a conjunction of required equalities to ensure both sides of the identity constraint can only be updated deterministically\\
+    \stayPrefix{\E}{\H}{L}{C} & Constraint {\tt C} is a conjunction of required equalities to ensure that all but the last part in {\tt L} cannot be changed\\
+    % \combine{\E}{\H}{I}{C$'$} & Translating constraint {\tt I} into a form suitable for the solver yields constraint {\tt C}$'$\\
   \end{tabularx}
   \caption{Judgments and Intuitions of Semantic Rules}
   \label{tab:judgments}
@@ -1426,8 +1430,6 @@ and their intuitions. We give the rules to these judgments below.
 \paragraph{Expression Evaluation}
 The rules for evaluation are standard, but we show them for
 completeness. 
-% We do not give rules for expressions of the form {\tt
-%   \H(e)}, because they are not meant to appear in source. 
 For each
 operator {\tt op} in the language we assume the existence of a
 corresponding semantic function denoted
@@ -1520,7 +1522,7 @@ formalize our notion of structure through a simple syntax of types:
 Our typechecking rules check expressions dynamically just
 before constraint solving, so we typecheck in the context of a
 run-time environment.  Otherwise the rules are relatively standard.  In a statically typed language these checks
-could instead be performed in a more traditional manner at compile time.
+could instead be performed in a more traditional manner (using the static types) at compile time.
 Note that we do not
 include type rules for identities. This ensures that constraints
 involving them do not typecheck, so identity checks cannot occur in
@@ -1541,7 +1543,7 @@ ordinary constraints.
 % \inferrule{T-Deref}{
 %   \tcH{\E}{\H}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}}
 % {
-%   \tcH{\E}{\H}{\H(e)}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+%   \tcH{\E}{\H}{\Deref(e)}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
 % }
 
 % \inferrule{T-Object}{
@@ -1656,7 +1658,7 @@ making it a separate part of the semantic rules.)
 %   {\tt C} = {\tt weak x$_{r0}$ = v$_0$ $\wedge$ $\ldots$ $\wedge$ weak x$_{rn}$ = v$_n$}}
 % }{\mbox{
 %   \stay{\H}{C$_0$ $\wedge$
-%     {\tt weak \H(r)=\{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\}}\,$\wedge$\,C}
+%     {\tt weak \Deref(r)=\{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\}}\,$\wedge$\,C}
 % }}
 
 % \inferax{IStayEmpty}{\istay{$\emptyset$}{true}}
@@ -1700,7 +1702,7 @@ making it a separate part of the semantic rules.)
 %     {\tt o}$ = $\{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\}}
 % }{\mbox{
 %   \istay{\H}{C$_0$\,$\wedge$\,%
-%     {\tt required \H(r)=o}\,$\wedge$\,%
+%     {\tt required \Deref(r)=o}\,$\wedge$\,%
 %     C$_{r0}$\,$\wedge$\,$\ldots$\,$\wedge$\,C$_{rn}$ }
 % }}
 
@@ -1709,7 +1711,7 @@ making it a separate part of the semantic rules.)
 % We translate constraints into a form suitable for the
 % solver. Specifically, each occurrence of an expression of the form
 % {\tt L.l}, where {\tt L} refers to a heap reference {\tt r}, is
-% translated into {\tt \H(L).l} (recursively, as required). We do not
+% translated into {\tt \Deref(L).l} (recursively, as required). We do not
 % give rules, because they are straightforward. The full
 % Babelsberg/Objects language includes a similar judgment that also
 % inlines method calls, given in its entirety in the companion technical
@@ -1763,14 +1765,14 @@ identity tests, which are handled separately.
 }{\mbox{
   \phase{\E}{\H}{\C}{$\rho$}{\E$'$;\H$'$}
 }}
-
+\vskip0.6em
 \inferrule{StayEnv}{
   \E = {\tt \{(x$_1$, v$_1$), $\ldots$, (x$_n$, v$_n$)\}} \andalso
   \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$   \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$} 
 }{
   \gstay{\E}{$\rho$}{\texttt{C}$_1$ $\wedge$ $\cdots$ $\wedge$ \texttt{C}$_n$}
 }
-
+\vskip0.6em
 \infrule[StayHeap]{
   \mbox{
   \H = {\tt \{(r$_1$, o$_1$), $\ldots$, (r$_n$, o$_n$)\}} \andalso
@@ -1778,16 +1780,18 @@ identity tests, which are handled separately.
 }}
 {\mbox{
   \gstay{\H}{$\rho$}{C$_1$ $\wedge$ $\cdots$ $\wedge$ C$_n$}}}
-
+\vskip0.6em
 \inferax{StayConst}{\gstay{x=c}{$\rho$}{weak x=c}}
+\vskip0.6em
 
 \inferax{StayRef}{\gstay{x=r}{$\rho$}{$\rho$ x=r}}
+\vskip0.6em
 
 \inferrule{StayObject}{  {\tt x$_1$} fresh $\cdots$ {\tt x$_n$} fresh
   \andalso 
 \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$
 \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$}}
-{\gstay{r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{\texttt{(required \H(r)=\{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
+{\gstay{r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{\texttt{(required \Deref(r)=\{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
     C$_{1}$ $\wedge$
     $\cdots$ $\wedge$
     C$_{n}$ }}
@@ -1807,7 +1811,7 @@ keep it at its current value.  Rule {\sc StayConst} uses a {\tt weak}
 priority to allow a primitive to be changed by the solver.  Rule {\sc
   StayObject} uses a {\tt required} constraint on the structure of
 each object, to ensure that the solver will not invent new fields.  In
-that rule we use \H as an uninterpreted function to properly model the
+that rule we use \Deref as an uninterpreted function to properly model the
 heap as a set of constraints.
 All other stay constraints have the given priority $\rho$.  In the
 context of {\sc S-Once} $\rho$ is {\tt required}, which prevents the
@@ -1817,7 +1821,7 @@ constraints are solved.
 Finally, the judgment \combine{\E}{\H}{\C}{C$'$} translates constraints into a form suitable for the
 solver. Specifically, each occurrence of an expression of the form
 {\tt L.l}, where {\tt L} refers to a heap reference {\tt r}, is
-translated into {\tt \H(L).l} (recursively, as required), and each
+translated into {\tt \Deref(L).l} (recursively, as required), and each
 identity operator {\tt ==} is translated to the {\tt =} operator.
 These rules are straightforward and are omitted.
 
@@ -1860,19 +1864,21 @@ modify the structure of any object.
 
 \infrule[S-Asgn]{
   \mbox{
-    \evalH{\E}{\H}{e}{v} 
-\andalso \stayPrefix{\E}{\H}{L}{C$_L$} \andalso \stayPrefix{\E}{\H}{I}{C$_I$}}\\
-\mbox{
-\phase{\E}{\H}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\E$'$;\H$'$} \andalso
+    \evalH{\E}{\H}{e}{v}}\\
+  \mbox{\stayPrefix{\E}{\H}{L}{C$_L$} \andalso \stayPrefix{\E}{\H}{I}{C$_I$}}\\
+  \mbox{
+    \phase{\E}{\H}{C$_L$\,$\wedge$\,C$_I$\,$\wedge$\,L=v\,$\wedge$\,I}{weak}{\E$'$;\H$'$}}\\
+  \mbox{
     \tcHC{\E$'$}{\H$'$}{C} \andalso
-\phase{\E$'$}{\H$'$}{\C\,$\wedge$\,L=v}{required}{\E$''$;\H$''$}
-}}
+    \phase{\E$'$}{\H$'$}{\C\,$\wedge$\,L=v}{required}{\E$''$;\H$''$}}
+}
 {\mbox{
   \stepH{\E}{\H}{\C}{\I}{L := e}{\E$''$}{\H$''$}{\C}{\I}
 }}
 
 \begin{figure*}[tp]
 \inferax{StayPrefixVar}{\stayPrefix{\E}{\H}{x}{true}}
+\vskip0.6em
 
 \inferrule{StayPrefixField}{
 {\tt L} = {\tt x.l$_1$.$\ldots$.l$_n$} \andalso $n>0$ \andalso \evalH{\E}{\H}{x}{r$_0$}
@@ -1880,6 +1886,7 @@ modify the structure of any object.
 \evalH{\E}{\H}{r$_0$.l$_1$}{r$_1$} $\cdots$ \evalH{\E}{\H}{r$_{n-2}$.l$_{n-1}$}{r$_{n-1}$}
 }
 {\stayPrefix{\E}{\H}{L}{x=r$_0$\,$\wedge$\,r$_0$.l$_1$=r$_1$\,$\wedge$\,$\cdots$\,$\wedge$\,r$_{n-2}$.l$_{n-1}$=r$_{n-1}$}}
+\vskip0.6em
 
 \inferrule{StayPrefixIdent}{
 {\tt I} = {\tt
@@ -1909,18 +1916,21 @@ right-hand side of an arbitrary assignment.
 
 \infrule[S-AsgnNew]{
   \mbox{
+    {\tt o} = {\tt \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}}\\
+  \mbox{
     \evalH{\E}{\H}{e$_1$}{v$_n$} $\cdots$ \evalH{\E}{\H}{e$_n$}{v$_n$}} \\
 \mbox{
    \E(\texttt{x})$\uparrow$ \andalso 
     \H(\texttt{r})$\uparrow$ \andalso \texttt{\E$'$} = \texttt{\E}
     $\bigcup$ \{(\texttt{x},
-    \texttt{r})\}
-\andalso \texttt{\H$'$} = \texttt{\H}
+    \texttt{r})\}}\\
+\mbox{
+  \texttt{\H$'$} = \texttt{\H}
     $\bigcup$ \{(\texttt{r},
     \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\}
 }}
 {\mbox{
-  \stepH{\E}{\H}{\C}{\I}{x := new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\E$'$}{\H$'$}{\C}{\I}
+  \stepH{\E}{\H}{\C}{\I}{x := new o}{\E$'$}{\H$'$}{\C}{\I}
 }}
 
 The remaining rules are standard for imperative languages and are

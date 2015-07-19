@@ -456,7 +456,11 @@ constraints to be interleaved with imperative code and supports
 expressive constraints involving mutable objects and their methods. 
 The language provides a mechanism to satisfy the constraints stated
 by the programmer, and to ensure that they remain
-satisfied when variables are re-assigned imperatively.
+satisfied when variables are re-assigned imperatively. 
+A core principle of Babelsberg is that, in the absence
+of constraints, it should behave like a standard imperative
+language.
+
 % However, experience with the design has
 % shown that interactions between the object-oriented core and
 % constraints could be difficult to understand.  In prior versions of
@@ -468,7 +472,15 @@ satisfied when variables are re-assigned imperatively.
 
 In Babelsberg, the details of the underlying solvers are abstracted so
 that constraints can be handed to a number of different solvers,
-including ones that can then cooperate to find solutions. Instances of
+including ones that can then cooperate to find solutions. 
+For Babelsberg, the solver is used to find a single best
+solution --- if there are multiple solutions, it is free to pick any
+one of them. Providing answers rather than solutions, \ie results such
+as $10 \leq x \leq 20$ rather than a single value for $x$, and
+backtracking among multiple answers, as available in for example
+constraint logic programming \cite{jaffar-popl-1987}, is not currently a goal.
+
+Instances of
 Babelsberg are direct extensions of dynamic object-oriented
 languages, and include support for such features as dynamic typing,
 object encapsulation, and message sends in constraints. Previous work that integrated
@@ -547,7 +559,15 @@ and fields are not special ``constraint variables''---any variable can appear
 and potentially be solved for in a constraint. The read-only annotation
 on \verb!plan.minimumBalance()!, indicated by the question mark, prevents
 the solver from changing the plan or its minimum balance
-to satisfy the constraint. In this case, this means that only
+to satisfy the constraint. The theory of read-only annotations applies only to single variables
+\cite{borning1992constraint} and we make the same restriction in our
+semantics below, but in practical languages we also permit read-only
+annotations on expressions.  The implementations do a simple rewrite
+to convert a read-only expression to a read-only variable by
+introducing a fresh variable as needed
+\cite{felgentreff:2015:semantics}.
+
+In this constraint, the read-only annotation means that only
 \verb!acc.balance! is available for the solver to modify.
 Because this is an \verb!always! constraint, it will be
 re-checked, and if necessary re-solved, as part of executing each subsequent
@@ -1278,71 +1298,39 @@ while restrictive, provides a useful balance between clarity and power.
 
 This section presents a core language that we call Babelsberg/UID,
 which we use to formalize the key aspects of our approach and to prove
-properties about them.  It includes primitive types (ints, reals,
-booleans, and strings) and records. For simplicity we model objects as
-mutable records.  As a result, the formalism does not account for our
+properties about them.  For simplicity we model objects as
+mutable records and we also include primitive types (ints, reals,
+booleans, and strings).  The formalism does not account for our
 rules on method calls as discussed in
 Section~\ref{sec:rules-constr-expr}, but it accounts for all other
 rules described informally above and illustrates our key contributions.
+It also omits aspects that in a practical implementation are inherited from the host
+language %and that are not core to the interaction between constraints
+% and object-oriented programming,
+such as class and method definitions,
+exception handling, and \textsc{IO}. Instead, we focus on how imperative constructs are modified
+to support the Babelsberg design. Where there is a choice, we aim to
+make the smallest possible changes while still accommodating
+constraints in a clean and powerful way. Beyond this, we favor
+simplicity of the rules over support for interesting features that are
+rarely used in practice. 
 
-A goal of this work is to clarify design decisions of Babelsberg to
-guide language users and implementers.  However, it is not intended to
-be a complete description of a practical object-constraint language,
-and we omit aspects of the language that are inherited from the host
-language and that are not core to the interaction between constraints
-and object-oriented programming, such as class and method definitions,
-exception handling, and \textsc{IO}. A guiding principle for it
-has been to adhere to the original goal of Babelsberg: in the absence
-of constraints, it should behave like a standard imperative
-language. We focus on how imperative constructs need to be modified to
-support the Babelsberg design. Where there is a choice, we aim to make
-the smallest possible changes while still accommodating constraints in
-a clean and powerful way. Beyond this, we favor simplicity of the
-rules over support for interesting features that are rarely used in
-practice. Extending it to
-include all the essential features of the actual object-constraint
-languages, including support for classes, methods, messages, and
-inheritance, along with constraint definitions that can include
-polymorphic method calls, is straightforward.
-
-%% , and we present such extensions
-%% in a separate technical report \cite{felgentreff:2015:semantics}.
-
-In addition to the imperative semantics, after every statement
-execution the current set of constraints is solved and the environment
-and heap are replaced with the solution.  The current set of
-constraints is determined as follows.  
-For assignments, we evaluate the right-hand side and then create a
-constraint that the resulting value and the left-hand side be
-identical. Otherwise the statement is just executed. In addition to any
-constraint resulting from an assignment statement, each constraint in
-the current set of constraints (e.g, a constraint from an explicit
-\verb|always| statement, or from an implicit {\tt weak} stay) is given to
-the solver.  If the solver finds a solution, the environment and heap
-are replaced by the model the solver found; if the constraints have no
-solution (or they are too hard), the execution halts. In practical
-languages, a run-time exception would be generated and the heap and
-environment remain unchanged.
-
-The semantics treats the solver as a black box, but we assume it
-supports our primitive types, records, and uninterpreted functions, as
-well as hard and soft constraints and read-only variables
-\cite{borning1992constraint}. The solver should find a single best
-solution --- if there are multiple solutions, it is free to pick any
-one of them. Providing answers rather than solutions, \ie results such
-as $10 \leq x \leq 20$ rather than a single value for $x$, and
-backtracking among multiple answers, as available in for example
-constraint logic programming \cite{jaffar-popl-1987}, is left for
-future work.  
-
-The theory of read-only annotations applies only to single variables
-\cite{borning1992constraint} and we make the same
-restriction in our semantics.  In practical languages, we also permit
-read-only annotations on expressions.  The implementations do a simple
-rewrite to convert a read-only expression to a read-only variable by
-introducing a fresh variable as needed.
-%% \cite{felgentreff:2015:semantics}.
-
+In addition to mostly standard 
+imperative evaluation rules,
+after every statement execution the current set of constraints is
+solved and the environment and heap are replaced with the solution.
+The current set of constraints is determined as follows.  For
+assignments, we evaluate the right-hand side and then create
+constraints that the resulting value and the left-hand side be
+identical. Otherwise the statement is just executed. In addition to
+any constraint resulting from an assignment statement, each constraint
+in the current set of constraints (e.g, a constraint from an explicit
+\verb|always| statement, or from an implicit {\tt weak} stay) is given
+to the solver.  If the solver finds a solution, the environment and
+heap are replaced by the model the solver found; if the constraints
+have no solution (or they are too hard), the execution halts. In
+practical languages, a run-time exception would be generated and the
+heap and environment remain unchanged.
 
 \subsection{Syntax}
 
@@ -1608,6 +1596,7 @@ has a type.
 
 \paragraph{Constraint Solving}
 \label{sec:constraint-solving}
+
 This judgment represents a call to the constraint solver, which we
 treat as a black box.  We assume that the solver
 supports our primitive types, records, and uninterpreted functions,
@@ -1864,7 +1853,6 @@ the first phase.  If they are well typed, then we proceed to solve
 them in the same manner as a {\tt once} constraint (see {\sc S-Once} above).  This phase can change the values of primitives but will not
 modify the structure of any object.
 
- 
 
 \infrule[S-Asgn]{
   \mbox{
@@ -2044,8 +2032,16 @@ implementation to conform to it.
 
 Beyond that, we offer two forms of evaluation.  First, we have
 implemented our natural semantics in \rml \cite{pettersson1994rml},
-yielding an executable semantics.  We then evaluated a set of test
-programs in this executable semantics, using the Z3 solver
+yielding executable semantics both for the core language presented above,
+Babelsberg/UID, and 
+an extended, object-oriented language, Babelsberg/Objects.
+\footnote{The extensions to the core language to include support for classes,
+and methods, along with constraint definitions that can include
+polymorphic method calls is straightforward. Besides encoding 
+these extensions in the executable semantics, we present them
+in a separate technical report \cite{felgentreff:2015:semantics}}.
+We then evaluated a set of test
+programs in these executable semantics, using the Z3 solver
 \cite{de2008z3} to provide heap and environment updates. As an
 extension to that, we provide a translation framework to generate test
 suites for the implementations in \javascript, Ruby, and Smalltalk
@@ -2437,7 +2433,7 @@ programmers are able to express constraints involving arbitrary
 mutable objects, object identity, or methods.
 
 The work presented here allows object-constraint languages to use
-different constraint solver libraries as black-box solvers and ensures
+different constraint solver libraries as black box solvers and ensures
 that using a different solver does not introduce non-deterministic and
 surprising behaviors regarding the structure and identity of
 objects. A large number of constraint satisfaction libraries

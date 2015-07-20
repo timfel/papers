@@ -1381,11 +1381,11 @@ The typechecking rules are mostly standard.  However, we check
 expressions dynamically just before constraint solving, so we
 typecheck in the context of a runtime environment, which is somewhat unusual.
 
-\inferax{T-Constant}{
+\inferax{T-Const}{
   \tc{E}{c}{PrimitiveType}
 }
 
-\inferrule{T-Variable}{
+\inferrule{T-Var}{
   \eval{E}{x}{v} \andalso \tc{E}{v}{T}
 }{
   \tc{E}{x}{T}
@@ -1396,29 +1396,6 @@ typecheck in the context of a runtime environment, which is somewhat unusual.
 % }{
 %   \tc{E}{x?}{T}
 % }
-
-\inferrule{T-Op}{
-  \tc{E}{e$_1$}{PrimitiveType} \andalso \tc{E}{e$_2$}{PrimitiveType}
-}{
-  \tc{E}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
-}
-
-\inferrule{T-Compare}{
-  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
-}{
-  \tc{E}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
-}
-
-The above rule ensures that two records can only be compared for
-equality when they have the same structure.  This is necessary to
-ensure that the solver will never have to invent record fields in
-order to satisfy a record equality constraint.  
-
-\inferrule{T-Combine}{
-  \tc{E}{e$_1$}{PrimitiveType} \andalso \tc{E}{e$_2$}{PrimitiveType}
-}{
-  \tc{E}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
-}
 
 \inferrule{T-Rec}{
   \tc{E}{e$_1$}{T$_1$} $\cdots$ \tc{E}{e$_n$}{T$_n$}
@@ -1433,6 +1410,31 @@ order to satisfy a record equality constraint.
   \tc{E}{e.l$_i$}{T$_i$}
 }
 
+\inferrule{T-Op}{
+  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+}{
+  \tc{E}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
+}
+
+% \inferrule{T-Compare}{
+%   \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+% }{
+%   \tc{E}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
+% }
+
+The above rule ensures that two records can only be combined
+with binary operations (e.g. to compare them) when they have the same structure.
+This is necessary to
+ensure that the solver will never have to invent record fields in
+order to satisfy a constraint that combines two records through 
+equality or other.
+
+% \inferrule{T-Combine}{
+%   \tc{E}{e$_1$}{PrimitiveType} \andalso \tc{E}{e$_2$}{PrimitiveType}
+% }{
+%   \tc{E}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
+% }
+
 The above rule ensures that a field of a record can only be referenced
 when it already exists in the record. This is necessary to ensure that
 the solver will never have to invent record fields in order to satisfy
@@ -1441,13 +1443,44 @@ a constraint containing field accesses.
 
 The following two rules simply ensure that a constraint is well typed.
 
-\inferrule{T-Priority}{\tc{E}{e}{T}}{\tcC{E}{$\rho$ e}}
+\inferrule{T-Priority}{
+  \tc{E}{e}{T}
+}{
+  \tcC{E}{$\rho$ e}
+}
 
 \inferrule{T-Conjunction}{
   \tcC{E}{C$_1$} \andalso
   \tcC{E}{C$_2$}
 }{
   {\tcC{E}{C$_1$ $\wedge$ C$_2$}}
+}
+
+\judgment{\solve{E}{C}}
+
+The solving judgment is unchanged from Babelsberg/PrimitiveTypes.
+
+\judgment{\gstay{x=v}{$\rho$}{C}}
+\judgment{\gstay{E}{$\rho$}{C}}
+
+We add a stay rule to express stays on records. For records,
+we create fresh variables for each field and add a {\tt required}
+stay on the variable to refer to a record with exactly the same
+fields, and the fresh variables as values. We then add stay constraints
+for each of those variables to be equal to the current value of the field.
+
+\inferrule{StayObject}{
+  {\tt x$_1$} fresh $\cdots$ {\tt x$_n$} fresh
+  \andalso 
+  \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$
+  \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$}
+}{
+  \gstay{%
+    x = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{%
+    \texttt{(required x = \{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
+    C$_{1}$ $\wedge$
+    $\cdots$ $\wedge$
+    C$_{n}$}
 }
 
 %% TODO LATER:
@@ -1469,7 +1502,7 @@ below.
 
 \inferrule{S-Asgn}{
   \eval{E}{e}{v} \andalso \tcC{E[x $\mapsto$ v]}{C} \andalso
-  \stay{E}{C$_s$} \andalso
+  \gstay{E}{$\rho$}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
 }{
   \step{E}{C}{x := e}{E$'$}{C}
@@ -1485,17 +1518,13 @@ required constraint \texttt{x = v} will take precedence.  The syntax \texttt{
   E[x $\mapsto$ v]} denotes the environment identical to \texttt{E} but
 with \texttt{x} mapped to the value \texttt{v}.
 
-\inferrule{S-Once}{\tcC{E}{C$_0$} \andalso
-  \stay{E}{C$_s$} \andalso
+\inferrule{S-Once}{
+  \tcC{E}{C$_0$} \andalso
+  \gstay{E}{$\rho$}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }
-{\step{E}{C}{once C$_0$}{E$'$}{C}}
-
-\inferrule{S-Always}{
-\step{E}{C}{once C$_0$}{E$'$}{C} \andalso
-\texttt{C$'$ = C $\wedge$ C$_0$}
-}{
-  \step{E}{C}{always C$_0$}{E$'$}{C$'$}
+{
+  \step{E}{C}{once C$_0$}{E$'$}{C}
 }
 
 \subsection{Adding Mutable Records}

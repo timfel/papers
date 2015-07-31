@@ -1464,11 +1464,15 @@ The solving judgment is unchanged from Babelsberg/PrimitiveTypes.
 \judgment{\gstay{x=v}{$\rho$}{C}}
 \judgment{\gstay{E}{$\rho$}{C}}
 
-We add a stay rule to express stays on records. For records,
-we create fresh variables for each field and add a {\tt required}
-stay on the variable to refer to a record with exactly the same
-fields, and the fresh variables as values. We then add stay constraints
-for each of those variables to be equal to the current value of the field.
+We add a stay rule to express stays on records. For records, we create
+fresh variables for each field and add a stay on the variable to refer
+to a record with exactly the same fields, and the fresh variables as
+values. We then add stay constraints for each of those variables to be
+equal to the current value of the field.  When solving in
+\textsc{S-Once}, the stay on the structure will be required, so the
+structure of records cannot change when adding a fresh
+constraint. During assignment, however, the stay will be weak, so that
+the structure \emph{can} change through imperative updates.
 
 \inferrule{StayRecord}{
   {\tt x$_1$} fresh $\cdots$ {\tt x$_n$} fresh
@@ -1478,7 +1482,7 @@ for each of those variables to be equal to the current value of the field.
 }{
   \gstay{%
     x = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{%
-    \texttt{(required x = \{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
+    \texttt{($\rho$ x = \{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
     C$_{1}$ $\wedge$
     $\cdots$ $\wedge$
     C$_{n}$}
@@ -1503,7 +1507,7 @@ below.
 
 \inferrule{S-Asgn}{
   \eval{E}{e}{v} \andalso \tcC{E[x $\mapsto$ v]}{C} \andalso
-  \gstay{E}{$\rho$}{C$_s$} \andalso
+  \gstay{E}{weak}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
 }{
   \step{E}{C}{x := e}{E$'$}{C}
@@ -1521,7 +1525,7 @@ with \texttt{x} mapped to the value \texttt{v}.
 
 \inferrule{S-Once}{
   \tcC{E}{C$_0$} \andalso
-  \gstay{E}{$\rho$}{C$_s$} \andalso
+  \gstay{E}{required}{C$_s$} \andalso
   \solve{E$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
 }
 {
@@ -3374,19 +3378,24 @@ only global variable names type.
   \tcH{\E}{\H}{e.l$_i$}{T$_i$}
 }
 
+We add a typing rule for de-references, although they will only appear
+in expressions that have been translated by through our inlining
+judgment. This ensures that the inlined expressions still type, and
+makes the rules for constraint solving simpler.
+
 \inferrule{T-Deref}{
   \tcH{\E}{\H}{e}{T}
 }{
   \tcH{\E}{\H}{\Deref(e)}{T}
 }
 
-We add a typing rule for de-references, although they will only appear
-in expressions that have been translated by through our inlining
-judgment. This ensures that the inlined expressions still type, and
-makes the rules for constraint solving simpler.
+Since we now re-added records (as instances of value classes), and we
+want to be able to perform operations (at least equality) on them, we
+just require the operands of an operation to be of the same type, not
+necessarily a primitive type.
 
 \inferrule{T-Op}{
-  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
+  \tcH{\E}{\H}{e$_1$}{T} \andalso \tcH{\E}{\H}{e$_2$}{T}
 }{
   \tcH{\E}{\H}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
 }
@@ -3514,7 +3523,7 @@ Babelsberg/Records, adapted to this formalisms environment and heap.
 }{
   \gstay{%
     x = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{%
-    \texttt{(required x = \{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
+    \texttt{($\rho$ x = \{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\})} $\wedge$
     C$_{1}$ $\wedge$
     $\cdots$ $\wedge$
     C$_{n}$}
@@ -3632,15 +3641,18 @@ through further inlining).
   \inline{\E}{E}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
   \inline{\E$'$}{E}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
 }{
-  \inline{\E}{E}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ = e$_b$}
+  \inline{\E}{E}{\H}{\C}{\I}{e$_1$ == e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ == e$_b$}
 }
 
 The \textsc{I-Identity} rule includes the \textsc{StayPrefixIdent}
 rule from Babelsberg/UID, but now works on arbitrary
 expressions. Through \textsc{I-Field} and \textsc{I-ValueField}, all
-but the last part are forced to stay as they are. From the previous
-\combine{\Euid}{\Huid}{C}{C$'$}
-judgment, we here translate \texttt{==} to \texttt{=} directly.
+but the last part are forced to stay as they are. Note: In contrast to
+the previous \combine{\Euid}{\Huid}{C}{C$'$}
+judgment, we no longer translate \texttt{==} to \texttt{=}, but
+instead assume that the solver treats it the same. This ensures that
+inlined identity constraints still do not type (in \textsc{S-Once}),
+even if both operands have the same type.
 
 % \tf{TODO: Check if we generate the right constraint here!}
 \infrule[I-Call]{
@@ -3800,12 +3812,12 @@ and the new constraint and identity-constraint stores.
 \infrule[S-AsgnNewLocal]{
   \mbox{
     \texttt{E}(\texttt{x})$\uparrow$ \andalso
-    \texttt{\E}(\texttt{x$_g$})$\uparrow$ \andalso
-    $\texttt{E}' = \texttt{E} \bigcup \{(\texttt{x},\texttt{x}_g)\}$}\\
+    \texttt{\E}(\texttt{x$_g$})$\uparrow$}\\
   \mbox{
     \evalBig{\E}{E}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
   \mbox{
-    \texttt{<\E$'$|\H$'$|\C$'$|\I$'$|x$_g$==v|true>} $\Longrightarrow$ \texttt{<\E$''$|\H$''$>}}
+    $\texttt{E}' = \texttt{E} \bigcup \{(\texttt{x},\texttt{x}_g)\}$ \andalso
+    $\texttt{\E}' = \texttt{\E} \bigcup \{(\texttt{x}_g,\texttt{v})\}$}\\
 }{\mbox{
   \stepHO{\E}{E}{\H}{\C}{\I}{x := e}{\E$''$}{E$'$}{\H$''$}{\C$'$}{\I$'$}
 }}
@@ -3879,8 +3891,8 @@ not modeled by this semantics.
     \texttt{C$_0'$} = $\rho$ (\texttt{e$'$} $\wedge$ \texttt{e$_{C_e}$})}\\
   \mbox{
     \tcHC{\E$'$}{\H}{C$_0'$} \andalso
-    \istay{\E$'$}{C$_{E_s}$} \andalso
-    \istay{\H}{C$_{H_s}$}
+    \gstay{\E$'$}{required}{C$_{E_s}$} \andalso
+    \gstay{\H}{required}{C$_{H_s}$}
   }\\
   \mbox{
     \reinline{\E$'$}{\H}{\I}{\C}{\E$''$}{C} \andalso

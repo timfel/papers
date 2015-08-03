@@ -129,6 +129,8 @@
 \renewcommand{\H}{$\mathbb{H}$}
 \newcommand{\reinline}[7]{\texttt{<#1,#2,#3,#4,#5>} $\leadsto$ \texttt{<#5,#6>}}
 
+\newcommand{\generateConstraints}[7]{genC(\texttt{#1,#2,#3,#4,#5,#6}) = \texttt{#7}}
+
 \ifx\C\undefined
 \newcommand{\C}{\Ccal}
 \else
@@ -3819,47 +3821,47 @@ store using our inlining rules before solving.
 }}
 
 
-\judgment{\texttt{<\E|\H|\C|\I|I|C>} $\Longrightarrow$ \texttt{<\E$'$|\H$'$>}}
+\judgment{\generateConstraints{\E}{E}{\H}{\C}{\I}{e}{C}}
+\judgment{\generateConstraints{\E}{E}{\H}{\I}{\C}{e}{C}}
 
-This is a helper judgment for use in evaluating assignment statements
-and identity constraints.  These statements are the only ones that can
-cause the types of variables to change.  It combines both phases of
-solving into one rule. These steps cannot occur separately, and the
-typechecking that in Babelsberg/UID was done in between phases now
-needs to use a possibly modified global environment, so we have
-combined both phases into this one judgment for simplicity.
-Otherwise, the steps and phases are exactly equivalent: in the first
-phase, we propagate the new equality constraint through all existing
+These are helper judgment for use in evaluating assignment statements
+and constraints. They are used to generate the inlined expression
+\texttt{e$'$} from \texttt{e}, re-inline the constraints from the
+identity and constraint stores, and to generate the stay
+constraints. The solving occurs separately. The steps and phases are
+exactly equivalent to those in Babelsberg/UID: in the first phase, we
+use the first judgment above to inline the identity constraint store
+and generate the stays on the heap and environment such that the solve
+can propagate the new equality constraint through all existing
 identity constraints in order to update other variables and fields as
-needed.  In the second phase we solve all of the non-identity
-constraints, plus any constraints \texttt{C} created by inlining
-identity constraints, and we typecheck under the new environment
-before solving the value constraints.
+needed.  In the second phase we use the second judgment above generate
+constraints for the non-identity constraint store, and we typecheck
+under the new environment before solving the value constraints.
 
-\infrule[TwoPhaseUpdate]{
+\infrule[GenerateIdentityConstraints]{
   \mbox{
     \gstay{\E}{weak}{C$_{E_s}$} \andalso
     \gstay{\H}{weak}{C$_{{H}_s}$} \andalso
     \reinline{\E}{E}{\H}{\C}{\I}{\E$_i$}{C$_i$} \andalso
   }\\
   \mbox{
-    \inline{\E}{E}{\H}{\C}{\I}{e$_1$}{\E$_{e_1}$}{e$_{c_1}$}{e$_1'$} \andalso
-    \inline{\E}{E}{\H}{\C}{\I}{e$_2$}{\E$_{e_2}$}{e$_{c_2}$}{e$_2'$}
-  }\\
-  \mbox{\solveH{\E$'$}{\H$'$}{(C$_i$ $\wedge$ C$_{E_s}$ $\wedge$ C$_0$ $\wedge$ C$_{{H}_s}$ $\wedge$ e$_{c_1}$ $\wedge$ e$_{c_2}$ $\wedge$ e$_1'$=e$_2'$)}}\\
-  \mbox{
-    \gstay{\E$'$}{required}{C$_{{E'}_s}$} \andalso
-    \gstay{\H$'$}{required}{C$_{{H'}_s}$} \andalso
-    \reinline{\E$'$}{E}{\H$'$}{\I}{\C}{\E$_c$}{C}}\\
-  \mbox{
-    \inline{\E$'$}{E}{\H$'$}{\C}{\I}{e$_1$}{\E$_{e_1}$}{e$_{c_1}'$}{e$_1''$} \andalso
-    \inline{\E$'$}{E}{\H$'$}{\C}{\I}{e$_2$}{\E$_{e_2}$}{e$_{c_2}'$}{e$_2''$}
-  }\\
-  \mbox{
-    \tcHC{\E$_c$}{\H$'$}{C} \andalso
-    \solveH{\E$''$}{\H$''$}{(C $\wedge$ C$_0$ $\wedge$ C$_{{E'}_s}$ $\wedge$ C$_{{H'}_s}$ $\wedge$ e$_{c_1}'$ $\wedge$ e$_{c_2}'$ $\wedge$ e$_1''$=e$_2''$)}}
+    \inline{\E}{E}{\H}{\C}{\I}{e$_1$}{\E$_{e}$}{e$_c$}{e$'$}
+  }
 }{\mbox{
-  \texttt{<\E|\H|\C|\I|e$_1$ == e$_2$|C$_0$>} $\Longrightarrow$ \texttt{<\E$''$|\H$''$>}
+  \generateConstraints{\E}{E}{\H}{\C}{\I}{e}{C$_i$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{{H}_s}$ $\wedge$ e$_c$ $\wedge$ e$'$}
+}}
+
+\infrule[GenerateValueConstraints]{
+  \mbox{
+    \gstay{\E}{required}{C$_{E_s}$} \andalso
+    \gstay{\H}{required}{C$_{{H}_s}$} \andalso
+    \reinline{\E}{E}{\H}{\I}{\C}{\E$_c$}{C$_c$} \andalso
+  }\\
+  \mbox{
+    \inline{\E}{E}{\H}{\C}{\I}{e$_1$}{\E$_{e}$}{e$_c$}{e$'$}
+  }
+}{\mbox{
+  \generateConstraints{\E}{E}{\H}{\I}{\C}{e}{C$_c$ $\wedge$ C$_{E_s}$ $\wedge$ C$_{{H}_s}$ $\wedge$ e$_c$ $\wedge$ e$'$}
 }}
 
 \judgment{\stepHO{\E}{E}{\H}{\C}{\I}{s}{\E$'$}{E$'$}{\H$'$}{\C$'$}{\I$'$}}
@@ -3886,7 +3888,12 @@ and the new constraint and identity-constraint stores.
   \mbox{
     \evalBig{\E}{E}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
   \mbox{
-    \texttt{<\E$'$|\H$'$|\C$'$|\I$'$|x$_g$==v|true>} $\Longrightarrow$ \texttt{<\E$''$|\H$''$>}}
+    \generateConstraints{\E$'$}{E}{\H$'$}{\C$'$}{\I$'$}{x$_g$=v}{C$_i$} \andalso
+    \solveH{\E$''$}{\H$''$}{C$_i$}}\\
+  \mbox{
+    \generateConstraints{\E$''$}{E}{\H$''$}{\I$'$}{\C$'$}{x$_g$=v}{C$_v$} \andalso
+    \tcHC{\E$''$}{\H$''$}{C$_v$} \andalso
+    \solveH{\E$'''$}{\H$'''$}{C$_v$}}
 }{\mbox{
   \stepHO{\E}{E}{\H}{\C}{\I}{x := e}{\E$''$}{E}{\H$''$}{\C}{\I}
 }}
@@ -3895,9 +3902,12 @@ and the new constraint and identity-constraint stores.
   \mbox{
     \evalBig{\E}{E}{\H}{\C}{\I}{e}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}}\\
   \mbox{
-    \inline{\E$'$}{E}{\H$'$}{\C$'$}{\I$'$}{e$_l$.l}{\E$''$}{e$_c$}{e$'$}} \\
+    \generateConstraints{\E$'$}{E}{\H$'$}{\C$'$}{\I$'$}{e$_l$.l=v}{C$_i$} \andalso
+    \solveH{\E$''$}{\H$''$}{C$_i$}}\\
   \mbox{
-    \texttt{<\E$''$|\H$'$|\C$'$|\I$'$|e$'$==v|e$_c$>} $\Longrightarrow$ \texttt{<\E$'''$|\H$''$>}}
+    \generateConstraints{\E$''$}{E}{\H$''$}{\I$'$}{\C$'$}{e$_l$.l=v}{C$_v$} \andalso
+    \tcHC{\E$''$}{\H$''$}{C$_v$} \andalso
+    \solveH{\E$'''$}{\H$'''$}{C$_v$}}
 }{\mbox{
   \stepHO{\E}{E}{\H}{\C}{\I}{e$_l$.l := e}{\E$'''$}{E}{\H$''$}{\C$'$}{\I$'$}
 }}
@@ -3950,18 +3960,13 @@ will be rejected in the inlining rules.
 \infrule[S-Once]{
   \mbox{
     \texttt{C$_0$} = $\rho$ \texttt{e} \andalso
-    \inline{\E}{E}{\H}{\C}{\I}{e}{\E$'$}{e$_{C_e}$}{e$'$} \andalso
-    \texttt{C$_0'$} = $\rho$ (\texttt{e$'$} $\wedge$ \texttt{e$_{C_e}$})}\\
-  \mbox{
-    \tcHC{\E$'$}{\H}{C$_0'$} \andalso
-    \gstay{\E$'$}{required}{C$_{E_s}$} \andalso
-    \gstay{\H}{required}{C$_{H_s}$}
-  }\\
-  \mbox{
-    \reinline{\E$'$}{E}{\H}{\I}{\C}{\E$''$}{C} \andalso
-    \solveH{\E$'''$}{\H$'$}{$($C $\wedge$ C$_{E_s}$ $\wedge$ C$_{H_s}$ $\wedge$ C$_0'$$)$}}
+    \generateConstraints{\E}{E}{\H}{\I}{\C}{e}{C$_v$} \andalso
+    \tcHC{\E}{\H}{C$_v$} \andalso
+    \solveH{\E$'$}{\H$'$}{C$_v$}
+  }
+}{\mbox{
+    \stepHO{\E}{E}{\H}{\C}{\I}{once C$_0$}{\E$'''$}{E}{\H$'$}{\C}{\I}}
 }
-{\mbox{\stepHO{\E}{E}{\H}{\C}{\I}{once C$_0$}{\E$'''$}{E}{\H$'$}{\C}{\I}}}
 
 \infrule[S-Always]{
   \mbox{

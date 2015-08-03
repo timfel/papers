@@ -1051,7 +1051,9 @@ semantics, as discussed earlier).
 \judgment{\gstay{E}{$\rho$}{C}}
 
 This judgment defines how to translate an environment into a
-source-level ``stay'' constraint.
+source-level ``stay'' constraint. It takes a priority as an argument,
+which is not used at this stage of the semantics. It will, however, be
+used in all the later languages.
 
 \inferrule{StayEnv}{
   E = {\tt \{(x$_1$, v$_1$), $\ldots$, (x$_n$, v$_n$)\}} \andalso
@@ -1215,40 +1217,103 @@ a := {y:10};
 
 However, in contrast to Babelsberg/PrimitiveTypes, the following
 program fails the structural compatibility checks --- only an
-assignment can change the type of a variable.
+assignment can change the type of a variable, but the constraint would
+require the solver to add a \verb!y! field to \verb!a!, and thus change
+its structural type.
 
 \begin{example}
 a := {x:1};
-once a = {y:10};
+once a.y = y;
 \end{example}
+
+It is also not possible to use even equality between records:
+\begin{example}
+a := {x:1};
+b := {x:1};
+always a = b;
+\end{example}
+It's a bit weird that this behavior treats immediate records
+differently from primitive types (in which a similar program was OK).
+We decided against explicitly allowing only record equality
+operations, as it would needlessly complicate the semantics/.  The
+above example could be ok, but we do not want later assignments to
+ripple through the system. Once we introduce object identity, we will
+be able to have changes to the types of variables ripple through the
+system via identity constraints (but it will need to be via identity
+constraints and not value constraints). However, even so, the above
+constraint may be ok, if we chose the rules for our stay constraints
+appropriately.
+
+Here's another example that illustrates the issue:
+\begin{example}
+a := {x:0};
+b := {y:5};
+always a = b
+\end{example}
+This example fails even if we allowed equality between records, even
+though there actually are records that would satisfy the required
+\verb!a = b! constraint --- the issue is that the assignment to
+\verb|a| leaves it with a record type that has a single \verb|x|
+field, the assignment to \verb|b| leaves it with a record type that
+has a single \verb|y| field, and the structural compatibility check
+prevents the solver from changing either of these types.  This
+illustrates one aspect of using the structural compatibility checks to
+tame the solver --- one could otherwise imagine the solver coming up
+with the solution $\texttt{a} \mapsto \texttt{\{x:0, y:5\}}$ and
+$\texttt{b} \mapsto \texttt{\{x:0, y:5\}}$, or even
+$\texttt{a} \mapsto \texttt{\{x:0, y:5, z:10\}}$ and
+$\texttt{b} \mapsto \texttt{\{x:0, y:5, z:10\}}$.  See Appendix
+\ref{sec:structural-compatibility-check-alternatives} for more about
+this issue.
+
+This next program illustrates why it would not be ok to allow
+comparison operations between records:
+\begin{example}
+a := {x:1};
+b := {x:1};
+always a != b;
+a := b;
+\end{example}
+Here, we are asking that two records be not equal. For line 3, we can
+create stay constraints so that the solver changes \verb!b.x! to be a
+different integer for the \verb!always! constraint. This would be done
+by forcing the solver to keep the structure of records during solving,
+including the structure of its fields, recursively. However, we want
+to allow the solver to change the structure of records during
+assignments, thus complicating the rules for line 4. If we make the
+stays on the structure of all records weak, then nothing prevents the
+solver from setting \verb!b.x! to be the empty record, rather than a
+different integer, a solution that would clearly be undesired and
+violate our desire to have structurally deterministic solutions. For
+simplicity in the rules, we thus disallow operations on entire records
+completely, requiring the programmer to explicitly reference the
+fields down to primitive types. While this may seem like a strong
+restriction, once we introduce object-oriented methods, these explicit
+field accesses would be hidden in comparator methods.
 
 This program fails the structural compatibility checks as well:
 \begin{example}
 a := {x:1};
 b := {x:1};
-always a=b;
-a := {x:1, y:10};
+always a.x = b.x;
+a := {a:1, b:10};
 \end{example}
-Here, assigning a record with a different structure to \verb|a| is OK on its
-own, but the \verb|always| constraint would also require \verb|b| to
-change.  It's a bit weird that this behavior is different from the
-behavior with primitive types (in which a similar program was OK).
-However, once we introduce object identity, we will be able to have
-changes to the types of variables ripple through the system via
-identity constraints (but it will need to be via identity constraints
-and not value constraints).
+Here, assigning a record with a different structure to \verb|a| is OK
+on its own, but the \verb|always| constraint would also require
+\verb|b| to change. As mentioned above, we want to prevent such
+changes from rippling through the system. Via equality constraints.
 
 A few more examples:
 
 These two programs fail, because as in Babelsberg/PrimitiveTypes only
 assignment can initialize variables.
 \begin{verbatim}
-once a = {y:10};
+once a.y = 10;
 \end{verbatim}
 
 \begin{example}
 a := {y:10};
-always b=a;
+always b.y = a.y;
 \end{example}
 
 The following program also fails the structural compatibility checks, since
@@ -1278,8 +1343,8 @@ p := {x:2, y:5};
 However, the following program is OK:
 \begin{verbatim} 
 p := {x:0};
-always medium p = {x:3};
-always medium p = {x:4}
+always medium p.x = 3;
+always medium p.x = 4
 \end{verbatim}
 The solution will be that \verb|p| is a record with a single field
 \verb|x| bound to a number, with the exact value depending on the
@@ -1288,29 +1353,6 @@ that the solver may need to adjudicate among solutions that have
 different primitive types in a given field, but the structural
 compatibility checks ensure that it doesn't need to decide between
 two records with e.g.\ different numbers of fields.
-
-Here's another example that fails a structural compatibility check:
-\begin{example}
-a := {x:0};
-b := {y:5};
-always a=b
-\end{example}
-
-This is the case even though there actually are records that would
-satisfy the required \verb|a=b| constraint --- the issue is that the assignment
-to \verb|a| leaves it with a record type that has a single \verb|x|
-field, the assignment to \verb|b| leaves it with a record type that
-has a single \verb|y| field, and the structural compatibility check
-prevents the solver from changing either of these types.  This
-illustrates one aspect of using the structural compatibility checks to
-tame the solver --- one could otherwise imagine the solver coming up
-with the solution 
-$\texttt{a} \mapsto \texttt{\{x:0, y:5\}}$ and
-$\texttt{b} \mapsto \texttt{\{x:0, y:5\}}$, or even
-$\texttt{a} \mapsto \texttt{\{x:0, y:5, z:10\}}$ and
-$\texttt{b} \mapsto \texttt{\{x:0, y:5, z:10\}}$.  See Appendix 
-\ref{sec:structural-compatibility-check-alternatives} for more about
-this issue.
 
 \subsection{Formalism}
 
@@ -1412,7 +1454,7 @@ typecheck in the context of a runtime environment, which is somewhat unusual.
 }
 
 \inferrule{T-Op}{
-  \tc{E}{e$_1$}{T} \andalso \tc{E}{e$_2$}{T}
+  \tc{E}{e$_1$}{PrimitiveType} \andalso \tc{E}{e$_2$}{PrimitiveType}
 }{
   \tc{E}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
 }
@@ -1423,12 +1465,9 @@ typecheck in the context of a runtime environment, which is somewhat unusual.
 %   \tc{E}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
 % }
 
-The above rule ensures that two records can only be combined
-with binary operations (e.g. to compare them) when they have the same structure.
-This is necessary to
-ensure that the solver will never have to invent record fields in
-order to satisfy a constraint that combines two records through 
-equality or other.
+The above rule ensures that only primitive values can be combined with
+binary operations --- operations on records have to explicitly
+reference the fields in questions.
 
 % \inferrule{T-Combine}{
 %   \tc{E}{e$_1$}{PrimitiveType} \andalso \tc{E}{e$_2$}{PrimitiveType}
@@ -3379,9 +3418,9 @@ only global variable names type.
 }
 
 We add a typing rule for de-references, although they will only appear
-in expressions that have been translated by through our inlining
-judgment. This ensures that the inlined expressions still type, and
-makes the rules for constraint solving simpler.
+in expressions that have been generated by our inlining judgment. This
+ensures that the inlined expressions still type, and makes the rules
+for constraint solving simpler.
 
 \inferrule{T-Deref}{
   \tcH{\E}{\H}{e}{T}
@@ -3389,13 +3428,8 @@ makes the rules for constraint solving simpler.
   \tcH{\E}{\H}{\Deref(e)}{T}
 }
 
-Since we now re-added records (as instances of value classes), and we
-want to be able to perform operations (at least equality) on them, we
-just require the operands of an operation to be of the same type, not
-necessarily a primitive type.
-
 \inferrule{T-Op}{
-  \tcH{\E}{\H}{e$_1$}{T} \andalso \tcH{\E}{\H}{e$_2$}{T}
+  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
 }{
   \tcH{\E}{\H}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
 }

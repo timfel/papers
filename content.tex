@@ -1339,48 +1339,75 @@ but this is not allowed:
 
 \section{Good Performance in Practical Applications}
 
-~4 pages
-
-- no unexpected drops in performance (steady-state performance)
-
-- refer to performance of solvers and incremental solving
-
-- refer to state of the art in JIT, and that JITing  solvers is hard (PyPy)
-
-- show charts comparing hand-written algo with solving
+We have discussed how constraint solvers are useful to find solutions
+to declaratively specified problems. However, especially when
+constraints interact with imperative code in graphical applications,
+the system state may change frequently as imperative code manipulates
+variables or adds and removes constraints between them. The system
+must be able to react to changes to maintain or re-satisfy constraints
+quickly, without reducing responsiveness to user input.
+% ~4 pages
+% - no unexpected drops in performance (steady-state performance)
+% - refer to performance of solvers and incremental solving
+% - refer to state of the art in JIT, and that JITing  solvers is hard (PyPy)
+% - show charts comparing hand-written algo with solving
 
 Kaleidoscope provides a declarative semantics for assignment, type
-declaration and subclassing. However, this declarative semantics is
-also used if no actual constraints are in the program. In \ac{ocp}, we
-only use the declarative semantics for assignments of variables that
-are also used in constraints. This means that the performance of
-purely imperative code is the same as on a purely imperative \ac{vm}.
+declaration and sub-classing, all of which are handed to a
+solver. However, this declarative semantics, while clean, only models
+the ordinary object-oriented semantics for consumption by the solver,
+and thus does not add to the expressiveness of these
+constructs. Furthermore, this declarative semantics is also used if no
+actual constraints are in the program. In \ac{ocp}, we decided to only
+use a declarative semantics for assignments of variables that are also
+used in constraints. This means that the performance of purely
+imperative code is the same as on a purely imperative \ac{vm}.
+
+If the constraint system is in a satisfied state, and most variables
+that are being manipulated are not referenced from constraints, the
+solver only runs for those assignments that would cause constraints to
+become invalidated.  However, in interactive applications consistent
+performance is more important than performance that may be better on
+average, but where apparently similar manipulations sometimes are very
+fast and at other times noticeably slow\todo{cite Self?}. Thus, even
+when the solver is run, the performance impact must be small enough so
+it will not noticeably affect the responsiveness of the system.
 
 \paragraph{Incremental Re-Satisfaction}
 \label{sec:incr-re-satisf}
-Some solvers explicitly support state changes with good
+Not all constraint solvers are developed to provide good performance
+for interactive applications \cite{freeman1989deltablue}, being used
+primarily for proofing or model finding \cite{de2008z3}. However, of
+the ones that are used interactively, some solvers have explicit
+support for re-solving in case of state changes with good
 performance. To that end, \citeauthor{freeman1989deltablue} introduce
-the notion of \emph{edit constraints}. As discussed in
-\autoref{sec:constr-solv-strat}, constraint solving can be regarded as
-creating and traversing a graph of constrained variables connected by
-constraint-specific operations. If only a subset of the variables
-change frequently, the performance of the solving can be improved by
-generating a graph that is optimized to be traversed by starting from
-these few variables. Furthermore, in graphical applications user input
-should often be regarded as a non-required. Consider, for example, the
-desire that a graphical object stay visible even if the user tries to
-drag it outside the visible screen area. In such cases, the graphical
-object should follow the user interaction until it meets the border of
-the visible screen area. Formally, edit constraints are again simply
-an equality constraint $v=c$ for variable $v$ and constant $c$.
-Operationally, it is used to model changing an input value, for
-example in response to the cursor position, where in this case $v$ and
-$c$ would both hold points: $v$ would be a point in a graphical object
-being moved, and $c$ would be the cursor position.  Edit constraints
-also have a high, but not required priority --- the system will attempt
-to accommodate the edit action, but may be prevented from doing so. In
-the above example, if the graphical object would leave the visible
-area as a result of attempting to move it too far.
+the notion of \emph{edit constraints} and incremental re-satisfaction.
+Their work is based on the observation that user input is usually
+restricted to modify only small parts of the constraint graph at a
+time, for example modifying 2d coordinates when moving the mouse or
+modifying a string by entering one character at a time.
+
+As discussed in \autoref{sec:constr-solv-strat}, constraint solving
+can be regarded as creating and traversing a graph of constrained
+variables connected by constraint-specific operations. If only a
+subset of the variables change frequently, the performance of the
+solving can be improved by generating a graph that is optimized to be
+traversed by starting from these few variables. Furthermore, in
+graphical applications user input should often be regarded as a
+non-required. Consider, for example, the desire that a graphical
+object stay visible even if the user tries to drag it outside the
+visible screen area. In such cases, the graphical object should follow
+the user interaction until it meets the border of the visible screen
+area. Formally, edit constraints are again simply an equality
+constraint $v=c$ for variable $v$ and constant $c$.  Operationally, it
+is used to model changing an input value, for example in response to
+the cursor position, where in this case $v$ and $c$ would both hold
+points: $v$ would be a point in a graphical object being moved, and
+$c$ would be the cursor position.  Edit constraints also have a high,
+but not required priority --- the system will attempt to accommodate
+the edit action, but may be prevented from doing so. In the above
+example, if the graphical object would leave the visible area as a
+result of attempting to move it too far.
 
 Both DeltaBlue and Cassowary treat stay and edit constraints
 specially, allowing very fast incremental re-satisfaction of a
@@ -1405,28 +1432,32 @@ variables.
 
 An overarching design goal is that in the absence of constraints, an
 \gls{ocp} implementation such as Babelsberg should be a standard
-object-oriented language. We thus focus on integrating those
+object-oriented language.  We thus focus on integrating those
 constraint programming features that are powerful and integrate
 cleanly with the underlying object structures, at the cost of omitting
 some possibly interesting features that have proven less relevant in
-practice \cite{freeman-benson-oopsla-1990, freeman-benson-phd,
-  freeman-benson-iccl-1992, freeman-benson-ecoop-1992}.
+practice.
 
-The integration of constraints into object-oriented languages presents
-a number of challenges and possibly confusing issues, especially with
-respect to how constraints interact with mutable state, method
-activation, inheritance, object identity, and finite collections of
-objects for which identity may or may not be relevant, depending on
-the modeled problem. Experience with prior languages that integrate
-objects with imperative structures have often shown the potential to
-produce surprising and possibly undesired solutions. For the
-imperative programmer with little prior experience in constraint
-programming, incrementally adding constraints was thus often
-difficult, as the possible effects of a constraint could not be easily
-determined. As part of our design, we have proposed a set of design
-principles to avoid such surprises, as well as restrictions on
-\ac{ocp} languages to enforce these principles
-\cite{FelgentreffMillsteinBorningOOSPLA15}:
+Experience with integrating constraints into object-oriented languages
+\cite{freeman-benson-oopsla-1990, freeman-benson-phd,
+  freeman-benson-iccl-1992, freeman-benson-ecoop-1992} has shown that
+a number of important problems involve constraints including mutable
+objects, method activation, inheritance, object identity, and finite
+collections of objects. These kinds of constraints presents a number
+of challenges and possibly confusing issues, such as the potential for
+finding surprising solutions and non-determinism. If a constraint
+references a field that does not exist on an object, should the solver
+be allowed to add it? If a constraint requires two variables to refer
+to the same object, which variable should be changed? Which methods
+can be used in constraints?  Can they only be used in the ``forward''
+direction, to compute a result, or can the solver also use them to
+define multi-directional constraints?  For the imperative programmer
+with little prior experience in constraint programming, incrementally
+adding constraints was thus often difficult, as the possible effects
+of a constraint could not be easily determined. As part of our design,
+we have proposed a set of design principles to avoid such surprises,
+as well as restrictions on \ac{ocp} languages to enforce these
+principles \cite{FelgentreffMillsteinBorningOOSPLA15}:
 \begin{itemize}
 \item {\em Structure preservation}: Asserted constraints cannot change
   the structure of any objects (meaning the number and names of their
@@ -1512,21 +1543,29 @@ implementation of any one language.
 
 We describe the first set of design issues using a simple language
 that has only primitive types, namely booleans, integers, reals, and
-strings. In this first step, we omit user-defined, structured classes,
-and assume the language has only classes that map to our primitive
-types, \ie \lstinline|Boolean|, \lstinline|Integer|,
-\lstinline|Float|, and \lstinline|String|. The basic language we use
-here is object-oriented, with standard imperative evaluation
-rules. The language includes methods, mutable variables, and standard
-imperative control structures such as branches and loops, and
-operations on the variables are executed as method sends (with
-possibly some primitive behavior).
+strings. We call this language Babelsberg/PrimitiveTypes. In this
+first step, we omit user-defined, structured classes or methods, and
+assume the language has onlyx classes that map to our primitive types,
+\ie \lstinline|Boolean|, \lstinline|Integer|, \lstinline|Float|, and
+\lstinline|String|. The basic language we use here is imperative with
+mostly standard evaluation rules.  The language includes operations on
+the primitive values, mutable variables, and standard imperative
+control structures such as branches and loops. Operations on the
+variables are executed primitively as part of the language, rather
+than as message sends. It is straightforward to extend this language
+with other primitive types, provided that they all are atomic --- we
+don't have recursive types or types that define values that hold other
+values (such as records, arrays, or sets). Primitive types as we
+regard them map to types natively supported by the solver. They are
+not, however, necessarily primitive in the host language. For example,
+in languages like Ruby or Smalltalk, integers, reals, and booleans are
+all proper objects.
 
 \subsection{Declaring Constraints}
 \label{sec:decl-constr}
-The first extension over the basic object-oriented language adds
-support for declaring constraints. A statement starting with either
-the keyword \lstinline|once| or \lstinline|always| declares a
+The first extension over a basic imperative language adds support for
+declaring constraints. A statement starting with either the keyword
+\lstinline|once| or \lstinline|always| declares a
 constraint. Constraints are immediately activated and solved. A
 \lstinline|once| constraint removed immediately after the solver finds
 a solution to the current set of constraints, whereas an
@@ -1538,23 +1577,10 @@ must be solved, all expressions contained in this store are translated
 into a form that can be passed to the solver, the solver is called,
 and its results are translated back.
 
-Constraint expressions are interpreted using an additional evaluation
-mode we call \emph{\gls{ccm}}. In \gls{ccm}, methods are translated
-into the equivalent operations in the solver and objects are
-unboxed\footnote{This may not be required in a language that has true
-  primitive values like Java}. For example, the \lstinline|+| method
-on \lstinline|Integer| would expand to use the $+$ operation on a
-primitive representation of itself, and similarly for the
-\lstinline|+| method for \lstinline|Float|, the \lstinline|or| method
-for \lstinline|Boolean|, and so forth. However, since these are full
-objects, the language may include methods that have no equivalent
-primitive operation in any solver. We ignore these for now, and
-discuss how such methods are handled in \autoref{sec:complex-objects}.
-
 \subsection{Translating and Solving Constraints}
 \label{sec:transl-solv-constr}
 
-The evaluation model for Babelsberg/Reals is mostly standard for
+The evaluation model for Babelsberg/PrimitiveTypes is mostly standard for
 ordinary expressions and statements.  In contrast, a statement that
 adds a constraint starts with a duration, namely \verb|always| or
 \verb|once|.  The expression following the duration is taken
@@ -1841,16 +1867,15 @@ These will apply to all of the Babelsberg languages.
 
 \subsection{Control Structures}
 
-Babelsberg/Reals includes \verb|if| and \verb|while| control
+Babelsberg/PrimitiveTypes includes \verb|if| and \verb|while| control
 structures.  These work in the usual way, and allow (for example) a
 variable to be incremented only if a test is satisfied, or an
 \verb|always| constraint to be conditionally asserted.  The test for
 an \verb|if| statement is evaluated, and one or the other branch is
 taken --- there is no notion of backtracking to try the other branch.
-(Adding Prolog-style backtracking is left for future work --- see
-Appendix \ref{sec:adding-solvers}.)  Similarly, a \verb|while|
-statement executes the body a fixed number of times --- there is no
-possibility of backtracking to execute it a different number of times.
+Similarly, a \verb|while| statement executes the body a fixed number
+of times --- there is no possibility of backtracking to execute it a
+different number of times.
 
 The test in an \verb|if| or \verb|while| statement can use
 short-circuit evaluation when evaluating an expression involving
@@ -1900,15 +1925,77 @@ which is equivalent to:
 always (x=4 and x=5) or (x!=4 and x=4)
 \end{verbatim}
 
-\subsection{Adding Other Primitive Types}
+So far we have shown constraints over integers, but assuming the
+solver supports more types than just integers, we need to consider
+whether the following should be valid:
+\begin{example}
+x := 5;
+x := "Hello";
+\end{example}
 
-It is straightforward to extend Babelsberg/Reals with other primitive
-types, such as integers and strings.  When we need to refer to
-this language rather than just Babelsberg/Reals we will call it
-Babelsberg/PrimitiveTypes.  Note that all the types in
-Babelsberg/PrimitiveTypes are atomic --- we don't have recursive types
-or types that define values that hold other values (such as records,
-arrays, or sets). 
+Since we are modeling a language that should be a straightforward
+extension of existing object-oriented languages, including dynamic
+languages, we want to allow variables to be able to change their
+type. Thus, when we execute the above we get the following constraints
+when executing the second statement:
+\begin{tabular}{rl}
+weak     & $x = 5$ \\
+required & $x = $ \verb|"Hello"|
+\end{tabular}
+
+The final result is $\texttt{x} \mapsto \texttt{"Hello"}$. The changed
+type might propagate through an \verb|always| constraint:
+\begin{example}
+x := 5;
+y := 10;
+always y = x;
+x := "Hello";
+\end{example}
+The final result is that both \verb|x| and \verb|y| are strings.
+
+There is also a potential interaction with overloaded operators.
+Suppose that for strings \verb|+| denotes string concatenation:
+\begin{example}
+x := 5;
+y := 10;
+always y = x+x;
+x := "Hello";
+\end{example}
+After the \verb|always| statement we have
+$\texttt{x} \mapsto \texttt{5}$, $\texttt{y} \mapsto \texttt{10}$.
+Then after the final statement, we have the constraints
+\begin{tabular}{rl}
+weak     & $x=5$ \\
+weak     & $y=10$ \\
+required & $y=x+x$ \\
+required & $x=$ \texttt{"Hello"}
+\end{tabular}
+This has the solution $\texttt{x} \mapsto \texttt{"Hello"}$, 
+$\texttt{y} \mapsto \texttt{"HelloHello"}$.
+
+Non-determinism can arise for primitive types as well as values:
+\begin{example}
+x := 3;
+always weak x=5;
+always weak x="hello";
+\end{example}
+
+Here the solver is free to choose either an integer or a string for
+\verb|x|.  This may seem strange, and also not really in keeping with
+the spirit of the goals for our languages with respect to avoiding
+non-determinism. However, as mentioned above, we are looking to avoid
+non-determinism in solutions involving object identity and object
+structure. In this language, both integers and strings are primitive
+types without identity or structure, and thus the above program is
+legal. When we extend this language to a full object-oriented
+language, the corresponding program may not be valid if strings or
+integers are represented with objects for which identity is important
+or that have some non-identical, user-visible structure. (For example,
+boxed strings in many languages have a \verb!length! field, which
+integers do not have, and thus the above would be illegal.)
+
+\section{Constraints on Messages}
+\label{sec:complex-objects}
 
 ~4 pages
 
@@ -1926,8 +2013,18 @@ arrays, or sets).
 
 - mutable objects -> we must pass all constraints to the solver all the time
 
-\section{Constraints on Messages}
-\label{sec:complex-objects}
+Constraint expressions are interpreted using an additional evaluation
+mode we call \emph{\gls{ccm}}. In this mode in a full object-oriented
+language, methods are translated into the equivalent operations in the
+solver and objects are unboxed\footnote{This may not be required in a
+  language that has true primitive values like Java}. For example, the
+\lstinline|+| method on \lstinline|Integer| would expand to use the
+$+$ operation on a primitive representation of itself, and similarly
+for the \lstinline|+| method for \lstinline|Float|, the \lstinline|or|
+method for \lstinline|Boolean|, and so forth. However, since these are
+full objects, the language may include methods that have no equivalent
+primitive operation in any solver. We ignore these for now, and
+discuss how such methods are handled in \autoref{sec:complex-objects}.
 
 ~7 pages
 
@@ -4432,6 +4529,10 @@ uniform across solvers and also allows it to work with cooperating
 solvers. However, each solver now has to provide some support for
 this, so more work is required to enable the feature.
 
+\paragraph*{Improving Performance with Automatic Edit Constraints}
+
+- JIT description
+
 \section{Adding New Solvers}
 
 - javascript
@@ -4441,6 +4542,8 @@ this, so more work is required to enable the feature.
 - no type-based heuristics
 
 - solver capabilities
+
+- automatic solver selection
 
 \chapter{Discussion of Implementation Approaches}
 \label{cha:comp-impl-appr}

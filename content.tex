@@ -896,19 +896,19 @@ always { rect.visible? }
 \begin{table*}
   \centering
   \tableinsidecommand
-  \caption{Comparison of OCP with Related Work}
+  \caption{Comparison of Related Approaches}
   \label{tab:cmp-constraint-lang-approaches}
-  \begin{tabular}{lccccc}
+  \begin{tabular}{lcccc}
     \toprule
-    & Libraries & \textsc{dsl} & DataFlow/\textsc{frp} & \textsc{cip} & \textsc{ocp} \\
+    & Libraries & \textsc{dsl} & DataFlow/\textsc{frp} & \textsc{cip} \\
     \midrule
-    Constraints on methods & & & & & \y \\
-    Unified State &  & \y & \y & \y & \y \\
-    Automatic Solving & & \y & \y & \y & \y \\
-    Linguistic Symbiosis & & & \y & \y & \y \\
-    Extensible Solvers & \y & & \y & & \y \\
-    Bi-directional Constraints & \y & \y & & \y & \y \\
-    Finite \& Infinite Domains & \y & \y & \y & \y & \y \\
+    Constraints on methods & & & & (\y) \\
+    Unified State &  & \y & \y & \y \\
+    Automatic Solving & & \y & \y & \y \\
+    Linguistic Symbiosis & & & \y & \y \\
+    Extensible Solvers & \y & & \y & \\
+    Bi-directional Constraints & \y & \y & & \y \\
+    % Finite \& Infinite Domains & \y & \y & \y & \y \\
     \bottomrule
   \end{tabular}
 \end{table*}
@@ -1537,8 +1537,6 @@ the best performance.
 \chapter{Design}
 \label{sec:design}
 
-
-
 An overarching design goal is that in the absence of constraints, an
 \gls{ocp} implementation such as Babelsberg should be a standard
 object-oriented language.  We thus focus on integrating those
@@ -1616,25 +1614,29 @@ DeltaBlue may often produce better results.
 
 In this chapter, we approach these issues incrementally and describe
 our complete design in three parts: \autoref{sec:primitive-objects}
-describes how constraint expressions involving only objects that
-represent primitive types in the solver are mapped to the solver, how
-the solving process interacts with these objects' values, and how
-different solvers are combined to find a solution to problems
-involving more types than are supported by any one solver. In this
-first part we focus only on those objects for which identity is not
-relevant. In \autoref{sec:complex-objects} we extend our design to
-include standard object-oriented structures, a heap with objects for
-which identity is relevant, inheritance, and polymorphism. We discuss
-how objects for which no solver is available can participate in
-constraints, and what restrictions apply to methods that are called in
-constraints. Finally, in \autoref{sec:collections}, we add constraints
-over collections of objects to our design. The collection protocol
-provided in many languages allows for powerful abstractions, and
-collections can map to finite domains, which are useful in a variety
-of constraint problems. In this third part, we describe what types of
-operations on collections we support in constraints in a generic
-manner that is independent of the concrete collection protocol and
-implementation of any one language.
+describes how constraint expressions involving only variables that
+have primitive type are mapped to the solver, how the solving process
+interacts with these variables' values, and how different solvers are
+combined to find a solution to problems involving more types than are
+supported by any one solver. In this first part we focus only on
+primitive types, for which identity is not relevant. In
+\autoref{sec:complex-objects} we extend our design to include standard
+object-oriented structures, a heap with objects for which identity is
+relevant, inheritance, and polymorphism. We discuss how objects for
+which no solver is available can participate in constraints, and what
+restrictions apply to methods that are called in constraints. Finally,
+in \autoref{sec:collections}, we add constraints over collections of
+objects to our design. The collection protocol provided in many
+languages allows for powerful abstractions, and collections can map to
+finite domains, which are useful in a variety of constraint
+problems. In this third part, we describe what types of operations on
+collections we support in constraints in a generic manner that is
+independent of the concrete collection protocol and implementation of
+any one language.
+
+We will illustrate our design decisions using small example programs
+and their associated constraints. Programs are written in fixed pitch
+font, the constraints that are handed to the solver in math font.
 
 % ~1 page
 
@@ -1689,16 +1691,16 @@ and its results are translated back.
 \subsection{Translating and Solving Constraints}
 \label{sec:transl-solv-constr}
 
-The evaluation model for Babelsberg/PrimitiveTypes is mostly standard for
-ordinary expressions and statements.  In contrast, a statement that
-adds a constraint starts with a duration, namely \verb|always| or
+The evaluation model for Babelsberg/PrimitiveTypes is mostly standard
+for ordinary expressions and statements.  In contrast, a statement
+that adds a constraint starts with a duration, namely \verb|always| or
 \verb|once|.  The expression following the duration is taken
 unevaluated and added to the \emph{constraint store}.  For
 \verb|always|, the constraint remains for the duration of the
 program's execution; for \verb|once|, it is removed after the solver
-finds a solution to the current set of constraints.  The only wrinkle
-in the evaluation model for ordinary statements is that for an
-assignment statement, we evaluate the expression on the right hand
+finds a solution to the current set of constraints.  The only
+adjustment in the evaluation model for ordinary statements is that for
+an assignment statement, we evaluate the expression on the right hand
 side of the assignment, constrain the variable on the left hand side
 of the assignment to be equal to the result using a \verb|once|
 constraint, and then turn all the constraints over to the solver.
@@ -1722,10 +1724,6 @@ required & $x=3$
 The solver finds a value for $x$, which is then used to update the
 environment to be $\texttt{x} \mapsto \texttt{3}$.
 
-Note that programs, as well as the variable names and values in the
-environment, are written in fixed pitch font.  For contrast, we write
-the constraints that are handed to the solver in math font.
-
 Continuing with the example, after the second statement we hand the
 following constraints to the solver:
 
@@ -1734,14 +1732,26 @@ weak     & $x=3$ \\
 required & $x=4$
 \end{tabular}
 
-The weak $x=3$ constraint is the stay constraint that \texttt{x}
-retain its previous value, while the required $x=4$ constraint comes
-from the second assignment.  This has the solution $x=4$, resulting in
-a new environment $\texttt{x} \mapsto \texttt{4}$.  
+The weak $x=3$ constraint is the \emph{stay constraint} that
+\texttt{x} retain its previous value, while the required $x=4$
+constraint comes from the second assignment. These stay constraints
+are generated implicitly by the language. They contribute to our goal
+of not surprising the programmer. In imperative languages, programmers
+expect their variables to retain their values, unless some assignment
+operation changes them. For example, in interactive graphical
+applications, when moving one part of a constrained figure, the user
+generally expects other parts to remain where they are unless there is
+some reason for them to change to satisfy the constraints. As
+described in \autoref{sec:stay-constraints}, this desire is commonly
+expressed using stay constraints. In our design, we assume that the
+solver supports low-priority stay constraints, although in practice
+not all do. (We describe later how we deal with this in the practical
+implementations).
 
-The third statement adds the \texttt{always} constraint to the
-constraint store.  So after that statement we have the following
-constraints:
+After the second statement, the solver finds the the solution $x=4$,
+resulting in a new environment $\texttt{x} \mapsto \texttt{4}$.  The
+third statement adds the \texttt{always} constraint to the constraint
+store.  So after that statement we have the following constraints:
 
 \begin{tabular}{rl}
 weak     & $x=4$ \\
@@ -1878,29 +1888,23 @@ required & $x = 20$
 Note that the required $x \leq 10$ constraint has persisted into this
 new set of constraints.  These constraints are unsatisfiable.
 
-An interesting aspect of this semantics, both as presented informally
-above and in the formalism that follows, is that we model assignment
-as a constraint between a variable and an evaluated value on the
-right-hand side.
-
-The earlier Kaleidoscope papers \cite{lopez1994kaleidoscope}, for
-example, instead modeled assignment as constraints between variables
-at different times in what is called a \emph{refinement model} of
-constraints. Later versions switched to the \emph{pertubation
-  model}. In the pertubation model, ordinary variables are represented
-as a stream of ``pellucid variables,'' each holding a value at a
-different time.  Although used in Kaleidoscope, this was adapted from
-Lucid \cite{ashcroft-cacm-1977}.  In the \emph{perturbation model},
-variables are instead represented conventionally.  Assignment perturbs
-the value of a variable, and then the constraints are then solved to
-adjust the values of other variables so that they were re-satisfied if
-necessary.
-
-This work modifies the pertubation model. Rather than just perturbing
-the value of a variable by changing it and then re-satisfying the
-constraints, we model assignment as a \verb|once| constraint between
-the variable and the value of the expression on the right hand side of
-an assignment statement.
+An interesting aspect of this semantics is how we model assignment as
+a \verb!once! constraint between a variable and an evaluated value on
+the right-hand side. We derive this model from the Kaleidoscope
+system.  Kaleidoscope initially modeled assignment as constraints
+between variables at different times in what is called a
+\emph{refinement model} of constraints. This model, adapted from Lucid
+\cite{ashcroft-cacm-1977}, adds some complexity to the semantics.
+Ordinary variables are represented as a stream of ``pellucid
+variables,'' each holding a value at a different time, and we have to
+ensure that values can only flow forward in time, and with the details
+of when to advance the time and thus which values a given set of
+expressions can access. Later versions of Kaleidoscope switched
+instead to the \emph{pertubation model}, which we also use here. In
+this model, variables are instead represented conventionally as
+holding a single value.  Assignment \emph{perturbs} the value of a
+variable, and then the constraints are then solved to adjust the
+values of variables so that they are re-satisfied if necessary.
 
 The refinement model does provide additional capabilities --- for
 example syntax for referring to both the current and previous values
@@ -1931,8 +1935,8 @@ would be equivalent to these constraints:
 
 The read-only annotations in the refinement model serve the same role
 as do the evaluation rules in our current model.  In the example, in
-our current semantics we model the final assignment \verb|x:=x+15| by
-first evaluating \verb|x+15| in the old environment, and then adding a
+our current semantics we model the final assignment \verb|x := x + 15| by
+first evaluating \verb|x + 15| in the old environment, and then adding a
 required \verb|once| constraint that \verb|x| be equal to that value.
 In the refinement model, we model the final assignment as
 $x_2 = x_1?  + 15$, where the read-only annotation on $x_1$
@@ -2037,14 +2041,14 @@ always (x = 4 and x = 5) or (x != 4 and x = 10)
 In either case, we would turn the entire constraint over to the solver
 to find a solution for \verb|x|.
 
-Here is an example of an unsatisfiable constraint of this sort:
-\begin{verbatim}
-always if x = 4 then x = 5 else x = 4
-\end{verbatim}
-which is equivalent to:
-\begin{verbatim}
-always (x = 4 and x = 5) or (x != 4 and x = 4)
-\end{verbatim}
+% Here is an example of an unsatisfiable constraint of this sort:
+% \begin{verbatim}
+% always if x = 4 then x = 5 else x = 4
+% \end{verbatim}
+% which is equivalent to:
+% \begin{verbatim}
+% always (x = 4 and x = 5) or (x != 4 and x = 4)
+% \end{verbatim}
 
 So far we have shown constraints over integers, but assuming the
 solver supports more types than just integers, we need to consider
@@ -2124,166 +2128,46 @@ control structures and the syntax of the language, this section will
 illustrate how this extends to a fully object-oriented language. For
 this next language, which we call Babelsberg/Objects, we will add
 mutable and immutable objects that live on the heap or the stack,
-respectively. We also illustrate constraints on the results of
-messages sends, how these are handed to the solver, and the
-limitations as to which kinds of messages can be used in constraints.
+respectively. We also illustrate constraints over object identity,
+constraints on the results of messages sends and how these are handed
+to the solver, as well as the limitations as to which kinds of
+messages can be used in constraints.
 
-We can thus now write constraints on the results of message sends,
-such as the following constraint on the \verb!x! coordinate of the
-center of a rectangle \verb!r!:
-\begin{verbatim}
-always r.center().x() = 100;
-\end{verbatim}
+\subsection{Objects, Structure, and Identity}
 
-The constraint here is on the result of sending the message
-\verb|center| to \verb|r|, then sending the \verb|x| message to that,
-and finally sending the \verb|=| message to the result.  Depending on
-how the rectangle is stored, the rectangle's center may well be
-computed in the \verb|center| method rather than simply being looked
-up; and even \verb|x| might be computed rather than being stored, for
-example if the point is stored in polar coordinates.
+Babelsberg/Objects has ordinary objects that live on the heap and have
+a unique identity. Allowing constraints over object identity is useful
+for example for defining data structures (for example a circular
+linked list) or when modeling aspects of the real world
+\cite{lopez-ecoop-1994}. For example, it is clearly different if two
+train tickets are valid for the \emph{same} or an \emph{equal} train.
+Thus, we add identity constraints to the language (following Smalltalk
+syntax, written \verb|==|, in contrast to \verb|=| for equality
+constraints).  For two objects \verb|p| and \verb|q|, if \verb|p| and
+\verb|q| are identical, they must also be equal, but the converse is
+not necessarily true --- if \verb|p| and \verb|q| are equal, they
+might or might not be identical.
 
-Constraint expressions in this design are not simply executed, but
-instead interpreted using an additional evaluation mode we call
-\emph{\gls{ccm}}. While in the simple Babelsberg/PrimitiveTypes design
-presented before we assumed that the solver primitives and its
-operations are essentially the same as those in the imperative
-language, constraint expressions on objects and messages are now
-translated into the language of the solver. We still assume the solver
-can deal with some primitive types, but it does not know about methods
-or inheritance. For simplicity, we will assume that the solver can
-understand uninterpreted symbols and records. We will show later that
-this is not strictly necessary, but it simplifies the description of
-the design \todo{do it}. In this full design of Babelsberg, we treat
-all operations on objects such as \verb|a + b| in an object-oriented
-fashion, so that this means ``send the message \verb|+| with the
-argument \verb|b| to the object \verb|a|,'' with the meaning of
-\verb|+| in this expression (and in constraints such as
-\verb|a + b = c|) depending on the class of \verb|a|.
+Among our restrictions on constraint expressions in
+\autoref{sec:constraint-expression-requirements} was that they must be
+free of observable side-effects. In this language, we consider
+creating an object a side-effect. This is because object creation
+could potentially be observed using a meta-protocol, it modifies the
+heap, and newly created objects can be tested for identity, which
+would be equivalent to testing against a random number. Thus, new
+objects cannot be created as part of constraints.
 
-As with the previous languages, semantically, after every statement
-execution that could potentially invalidate constraints, the current
-set of active constraints is translated, solved, and the environment
-is updated with the solution (or the program halts with an
-exception). A practical implementation can optimize by caching the
-translated constraints and only invalidate the cache as necessary, or
-only solve a subset of the constraints.
-
-\subsection{Control Structures and Methods}
-
-The full Babelsberg design still has the simple \verb|if| and
-\verb|while| control structures that were introduced for
-Babelsberg/PrimitiveTypes. In addition, however, Babelsberg/Objects
-includes methods. Following our overarching design goal of having a
-standard object-oriented language in the absence of constraints, in
-imperative execution mode, methods are standard.  Suppose we are
-evaluating \verb|x.m(a,b)|.  We first look in \verb|x|'s class for a
-method with selector \verb|m|, then its superclass, and so on up the
-superclass chain. If no such method is found, it is an
-error. \footnote{Note that we could have chosen to give the system
-  additional power to invent a new method or convert an object to an
-  instance of a different class to satisfy a method lookup. However,
-  similar behavior has not been useful in practice in the earlier
-  Kaleidoscope {CITE} and BackTalk {CITE} systems, and would
-  also go against our goal of keeping close to a standard
-  object-oriented language.} Otherwise we evaluate the body of the
-method in a new scope, and return the result.  Arguments are passed by
-value (with pointer semantics), as in most standard object-oriented
-languages.  For instances of primitive types and value classes, the
-argument can also be copied (since we can't tell the difference
-between sharing and copying in this case).
-
-The following example shows that passing a variable of primitive type
-into a method that modifies its argument does not affect the
-environment outside the method:
-\begin{verbatim}
-def addTo(a)
-  a := a + 3;
-  return a
-end
-\end{verbatim}
-
-\begin{example}
-y := 10;
-x := addTo(y)
-\end{example}
-After the method returns, \verb!x! will be 13 and \verb!y! will have
-stayed at 10.
-
-Methods called in the ordinary way can create new constraints, which
-then persist after the method returns.  There is an example in the
-next section to illustrate this.
-
-Methods can also be invoked by constraint expressions. Methods
-implemented as primitives in the host language (such as \verb!+! on
-integers), are translated into the equivalent operations in the solver
-and the participating objects are unboxed. For a language like Java,
-which has true primitive values, the operations can still be
-translated directly, but primitive methods on boxed types like
-\lstinline|Integer|, \lstinline|Float|, \lstinline|Boolean|, and so
-forth are translated into primitive operations on their unboxed
-equivalents. When we encounter a message in \gls{ccm} that is not a
-primitive, we do a normal method lookup, transform, and inline the
-method body, and then continue to evaluate the inlined body in
-\gls{ccm}.
-
-There are a number of restrictions on methods to allow them to be used
-in this way, which we discuss in more detail in
-\autoref{sec:additional-constraint-restrictions}. Briefly, if they
-have side effects the transformation fails. If they consist of more
-than just a single return statement they can only be used in the
-\emph{forward direction} in constraints, \ie they return value will be
-passed to the solver as a constant, and all their arguments are marked
-as being read-only for the solver. Creating an instance of an ordinary
-class is regarded as a side effect, so methods that can be invoked by
-constraint expressions can only create instances of value classes. If
-we we encounter a side-effect, the transformation fails. If we
-encounter a complex expression or statement that we cannot transform,
-we evaluate it normally and only use its result.
-
-As an example for a constraint in which a method can only be used in
-the forward direction, suppose we have \verb|always c = x.m(a, b)|,
-and method \verb|m| has multiple statements so that it cannot be
-translated and passed to the solver. We will evaluate the method and
-pass the equality between its result and \verb!c! to the solver, as
-well as required equalities for \verb!x!, \verb!a!, and \verb!b! to
-keep their current values. This allows the system to find an
-assignment for \verb|c| given values for \verb|x|, \verb|a|, and
-\verb|b|, but not any other direction. If any other constraints are
-such that the correct solution involves finding a value for \verb|b|
-given values for \verb|c|, \verb|x|, and \verb|a|, a practical system
-will halt with an error that the constraints are too hard for it to
-solve, due to a method called from the constraint that can't be
-inlined (or in the formal semantics, we get stuck).  However, in
-contrast to all the previous examples of constraints that were too
-hard, the fact that they are too hard is a limitation of the
-transformations we use for methods called by constraints, rather than
-being a limitation of the solver.
-
-On the other hand, if method \verb|m| can be used multi-directionally,
-so that for example we can find a value for \verb|b| given values for
-\verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
-translated and inlined so that the resulting constraint expression can
-be turned over to the solver.  This done by creating a scope and fresh
-variable bindings for method \verb|m| and inlining the returned
-expression with respect to that environment. The parameters are
-constrained to be identical to the argument names used in the fresh
-scope for the method, and the receiver is constrained to be equal to
-\verb!self! in the new scope.
-
-\subsection{Value Classes}
-
+Since ordinary objects cannot be created in constraint expressions,
 Babelsberg/Objects includes \emph{value classes} as well as ordinary,
-full-featured, classes. The restrictions on value classes make it
-easier to use them with constraints. Instances of value classes are
-immutable after object creation\footnote{For use with e.g.\
-  distributed systems applications, we would also want to restrict
-  instances of value classes to only hold references to primitive
-  types or to other value class, but this restriction is not needed
-  for our purposes here.}, and object identity is not significant for
-value class instances --- an identity test performs a test for
-equality of structure and fields.  However, value classes are more
-than simple record declarations, since they support methods and
+full-featured, classes. Instances of value classes \emph{can} be
+created in constraints. They are immutable after object
+creation\footnote{For use with e.g.\ distributed systems applications,
+  we would also want to restrict instances of value classes to only
+  hold references to primitive types or to other value class, but this
+  restriction is not needed for our purposes here.}, and object
+identity is not significant for them --- an identity test performs a
+test for equality of structure and fields.  However, value classes are
+more than simple record declarations, since they support methods and
 inheritance.
 
 In a practical implementation of Babelsberg, ideally the host language
@@ -2297,23 +2181,198 @@ on creating ordinary objects in constraints, and instead enforce
 appropriate conventions about object modification and not testing the
 identity of objects that were created in constraints.
 
-In this section, we will use \verb|Point| and \verb|Rectangle| as our
-example value classes.  To distinguish them from ordinary classes, we
-will create instances just by supplying the arguments, e.g.,
-\verb|Point(10,20)|, whereas instances of ordinary classes will be
-created using the \verb|new| message, e.g., \verb|new Window(...)|.
+We will now show how our complete, object-oriented design encodes the
+principles from \autoref{sec:design}: Identity preservation, structure
+preservation, and identity/structural determinism.
+
+\subsubsection*{Identity Preservation}
+In addition to the stay constraints that variables of primitive type
+stay equal to their primitive values, we now also automatically
+generate stay constraints on variables that store references. Thus, a
+variable continues to refer to the same object (and no just an equal
+one) unless reassigned. This requires the solver to support
+uninterpreted values --- the stays ensure that the variables are equal
+to the (uninterpreted) references that they hold, not to the objects
+on the heap. In addition, we add stay constraints for each field of an
+object. Since all practical solvers find minimal solutions (rather
+than inventing variables that are not mentioned anywhere), these stay
+constraints ensure that the solver cannot remove fields of an object
+if not all have been explicitly mentioned in constraints.
+
+Consider the following example:
+\begin{example}
+p := new {x: 2, y: 5};
+a := p;
+always a == p
+\end{example}
+The first line creates a new object with two fields on the heap. When
+evaluating the second line, these are the generated constraints:
+\begin{tabular}{rl}
+  weak & $p = r$ \\
+  required & $\Deref(r) = \{x: x_r, y: y_r\}$\\
+  weak & $x_r = 2$\\
+  weak & $y_r = 5$\\
+  required & $a = r$
+\end{tabular}
+
+The reference $r$ is an uninterpreted constant. We assume the solver
+understands uninterpreted function symbols. The uninterpreted function
+$\Deref$ in the second constraint above is used to model the heap's
+mapping from references to objects. The solver cannot change this
+mapping, only update the fields if a higher priority constraint
+requires it. Marking this constraint as required ensures that the
+solver's solution will always agree with what is on the heap ---
+namely, that reference $r$ points to an object that has \emph{only} an
+$x$ and a $y$ field. We introduce variables for the values of these
+fields and add weak stays to these, so the solver can find solutions
+that update parts of objects.
+
+The third line adds a constraint $a=p$, which from then onwards
+ensures that any assignment to either of those variables is reflected
+on the other.
+
+The stay constraints above would be enough to ensure that the identity
+of \verb!p! cannot change in this case. However, consider the
+following example:
+\begin{example}
+  p := new {x: 0};
+  a := new {x: 2};
+  always p.x > 0
+\end{example}
+
+Here, the desire may be that the system change \verb!p.x! to be larger
+than zero. However, the resulting constraint system using only weak
+stay constraints would allow the solver to satisfy the constraint by
+making \verb!p! point to the reference stored in \verb!a!! This in
+itself may seem useful for some applications, but it is a slippery
+slope. There is inherent non-determinism in allowing such a change,
+because we cannot tell which reference \verb!p! will point to
+afterwards. This becomes especially apparent if we changed the last
+constraint to \verb!always p.x = 0 || p.x = 3!. Here, the system may
+even choose to change \verb!p! to point to the second record
+\emph{and} change that record's \verb!x! field, depending on the
+comparator used.
+
+An additional issue arises with explicit constraints on object
+identity.  Such constraints are useful for specifying real-world
+requirements that two variables denote the same actual object and to
+describe cyclic structures.  Kaleidoscope had many of the same goals
+as Babelsberg, as well as some of its features (including explicit
+constraints on object identity), but did not have the rules presented
+here to tame the power of the constraint solver when solving such
+constraints.  Experience with that language in particular demonstrated
+that identity constraints can have non-obvious consequences in an
+imperative language. As an example, suppose we create the following
+constraint:
+\begin{example}
+  p := new {x: 0};
+  a := new {x: 0};
+  always a == p
+\end{example}
+
+This identity constraint requires two variables to point to the same
+object.  It is not clear whether the solution will require them both
+to point to the object stored in \verb!p! or that stored in \verb!a!.
+The solver could also satisfy the identity constraint by assigning
+both variables to yet a third object\footnote{One could also imagine
+  an \emph{isDistinct} identity constraint to express that two
+  variables should not refer to the same object---however, this would
+  almost always lead to non-determinism, as the solver would be free
+  to pick any object to re-satisfy the constraint if one of the
+  variables were assigned to be identical to the other.}. Adding a
+read-only annotation on one of the variables does not suffice, because
+that would prevent the system from re-satisfying the constraint if we
+later assign to the variable that is not read-only.
+
+To address these problems, we employ a principle of \emph{identity
+  preservation}: newly asserted constraints cannot change which object
+a particular variable or field stores. When ordinary constraints are
+asserted, we make all stay constraints that equate variables and
+references be \verb!required!. Second, we require all identity
+constraints are \emph{already satisfied} at the time they are asserted
+--- they are only tested at the time they are asserted, and not handed
+to the solver. Only during later assignments will the system
+re-satisfy the constraint deterministically. Third, to be able to
+enforce these properties, we do not allow identity constraints to be
+mixed with non-identity constraints. If either of these conditions is
+not met, we treat the constraint as unsatisfiable. While this design
+places a bit more burden on the programmer, we believe that the
+programmer effort is more than made up for by the strong guarantee
+provided by the language.
+
+\subsubsection*{Structure Preservation}
+With objects and, in particular, references to their fields being
+allowed to appear in constraint expressions, situations can arise in
+which the solver could come up with an undesired or surprising
+solution. In this section, we will use \verb|Point| and
+\verb|Rectangle| as value classes.  To distinguish them from ordinary
+classes, we will create instances just by supplying the arguments,
+e.g., \verb|Point(10, 20)|, whereas instances of ordinary classes will
+be created using the \verb|new| message, e.g., \verb|new Window(...)|.
 Finally, to foreshadow the formal semantics, for simplicity we omit
 details about object creation, method lookup, and inheritance (which
 are completely standard and inherited from the host language).
 
-\paragraph{Value Classes as Sugar}
+The following example assumes that a \verb!Window! has a
+\verb!topLeft! field, which contains an instance of the value class
+\verb!Point!:
+\begin{example}
+a := new Window(Point(0, 0));
+always a.topLeft = Point(10, 10)
+\end{example}
+The constraint on line two ensures that the window pointed to by
+\verb!a! stays at position \verb!10,10!, disregarding the weak stay
+constraint.
+\begin{tabular}{rl}
+  required & $a = r$ \\
+  required & $\Deref(r) = \{topLeft: topLeft_r\}$\\
+  weak & $topLeft_r = \{x: 0, y: 0\}$\\
+  required & $\Deref(a).topLeft = \{x: 10, y: 10\}$
+\end{tabular}
+
+In this example, no structurally surprising solutions are
+possible. However, suppose we had asked the solver to make the
+\verb!topLeft!  field of the window above be equal to a 3-d point:
+\verb!always a.topLeft = 3DPoint(10, 10, 10)!. Should the solver be
+allowed to add a \verb!z! field to \verb!a!? After all, we have asked
+it to ensure that \verb!a! be structurally equal to an object having
+such a field. While such behavior may seem desirable in this case, it
+can cause non-determinism. What if the constraint is of the following
+form:
+\begin{example}
+  always a.topLeft = 3DPoint(10,10,10) || a.topLeft = Point(20,20)
+\end{example}
+Should the solver be allowed to change the structure of \verb!a!
+depending on what works best with other constraints? If \verb!a!
+currently has no fields at all, which ones should it gain?
+
+Allowing such constraints, although it adds to the power of the
+system, would make programs using them harder to understand, as the
+structure of an object cannot be determined just by looking at the
+code. To avoid this, we employ a principle of \emph{structure
+  preservation}: the solution to a newly asserted constraint will
+never change the structure of any objects, where we take
+\emph{structure} to include the names and number of an object's fields
+(and thus, implicitly also its size), recursively.  We enforce this
+principle by employing a form of \emph{structural type-checking} at
+run time, just before sending constraints to the solver. Our checks
+ensure that all structural requirements of the given constraints are
+already satisfied in the current environment and heap.  For example,
+before solving the constraint on the \verb!topLeft! of our window, a
+Babelsberg language must check that the field already all fields
+required to make it equal to a point, and will raise an exception if
+that is not the case.
+
+\paragraph*{Value Classes as Sugar}
 \label{sec:value-classes-as-syntactic-sugar}
 
 Value classes are in fact not necessary for Babelsberg --- there is a
 simple transformation that can be used to remove them.  However, they
 are useful in practice, since using them can make Babelsberg/Objects
 programs much clearer and simplifies an implementation of Babelsberg
-that follows our restrictions.
+that follows our restrictions. However, showing how they can be
+eliminated is useful to illustrate how our \emph{structural type
+  checking} avoids verbosity in the constraints.
 
 To eliminate a use of a value class in a constraint expression, we can
 instead create a new (ordinary) instance \emph{outside} of the
@@ -2396,16 +2455,221 @@ a.x := 30;
 then both \verb|a| and \verb|b| have \verb|x = 30| (since they are
 identical).
 
-\subsection{Examples}
+\subsubsection*{Deterministic Updates to Structure and Identity}
+\label{sec:determinism}
 
-Here is a constraint on the center of a rectangle, where the center is
-a computed value rather than being stored as an instance variable.
-(Both \verb!Rectangle! and \verb!Point! are value classes in this
-example.)
+Of course, imperative programs do need to sometimes update the
+structures of objects and change which objects are stored in
+particular variables and fields.  In Babelsberg we must therefore
+allow such updates.  The challenge, then, is to provide this
+expressiveness while at the same time avoiding non-determinism in the
+structures or identities of objects.
+
+To that end, we allow arbitrary updates to objects and variables
+through ordinary assignment but impose a principle of \emph{structural
+  and identity determinism}: all solutions to the violated constraints
+must agree on the structures of all objects and the identities stored
+in all variables and fields. The key observation is that changes to
+structure and identity can only occur through an assignment statement,
+and the inherent directionality of an assignment ensures a
+deterministic ``flow'' to other variables in order to re-establish
+violated constraints. An assignment statement may then cause
+violations in both identity constraints as well as ordinary ``value''
+constraints. 
+
+As described in above, constraint solving is not allowed to modify
+references stored in variables. To allow this during assignment, we
+therefore introduce a two-phase approach to constraint solving as part
+of an assignment statement.  In the first phase, all identity
+constraints are re-established as described above. In this phase, the
+stay constraints on identities and value class structures are weak,
+and the solver may update the structure of objects and change which
+objects are stored in particular variables and fields, but it will do
+so deterministically.  In the second phase, all other constraints are
+solved in the context of this updated environment and heap, using the
+restrictions described earlier, and with \verb!required! stay
+constraints on the structures and references stored in variables.
+
+\todo{Example?}
+
+\subsection{Control Structures and Methods}
+
+The full Babelsberg/Objects design still has the simple \verb|if| and
+\verb|while| control structures that were introduced for
+Babelsberg/PrimitiveTypes. In addition, however, Babelsberg/Objects
+includes methods. Following our overarching design goal of having a
+standard object-oriented language in the absence of constraints, in
+imperative execution mode, methods are standard.  Suppose we are
+evaluating \verb|x.m(a,b)|.  We first look in \verb|x|'s class for a
+method with selector \verb|m|, then its superclass, and so on up the
+superclass chain. If no such method is found, it is an
+error. \footnote{Note that we could have chosen to give the system
+  additional power to invent a new method or convert an object to an
+  instance of a different class to satisfy a method lookup. However,
+  similar behavior has not been useful in practice in the earlier
+  Kaleidoscope {CITE} and BackTalk {CITE} systems, and would also go
+  against our goal of keeping close to a standard object-oriented
+  language.} Otherwise we evaluate the body of the method in a new
+scope, and return the result.  Arguments are passed by value (with
+pointer semantics), as in most standard object-oriented languages.
+For instances of primitive types and value classes, the argument can
+also be copied (since we can't tell the difference between sharing and
+copying in this case).
+
+We can now write constraints on the results of message sends, such as
+the following constraint on the \verb!x! coordinate of the center of a
+rectangle \verb!r!:
+\begin{verbatim}
+always r.center().x() = 100;
+\end{verbatim}
+
+The constraint here is on the result of sending the message
+\verb|center| to \verb|r|, then sending the \verb|x| message to that,
+and finally sending the \verb|=| message to the result.  Depending on
+how the rectangle is stored, the rectangle's center may well be
+computed in the \verb|center| method rather than simply being looked
+up; and even \verb|x| might be computed rather than being stored, for
+example if the point is stored in polar coordinates.
+
+Constraint expressions in this design are not simply executed, but
+instead interpreted using an additional evaluation mode we call
+\emph{\gls{ccm}}. While in the simple Babelsberg/PrimitiveTypes design
+presented before we assumed that the solver primitives and its
+operations are essentially the same as those in the imperative
+language, constraint expressions on objects and messages are now
+translated into the language of the solver. We still assume the solver
+can deal with some primitive types, but it does not know about methods
+or inheritance. For simplicity, we will assume that the solver can
+understand uninterpreted symbols and records. We will show later that
+this is not strictly necessary, but it simplifies the description of
+the design \todo{do it}. In this full design of Babelsberg, we treat
+all operations on objects such as \verb|a + b| in an object-oriented
+fashion, so that this means ``send the message \verb|+| with the
+argument \verb|b| to the object \verb|a|,'' with the meaning of
+\verb|+| in this expression (and in constraints such as
+\verb|a + b = c|) depending on the class of \verb|a|.
+
+As with the previous languages, semantically, after every statement
+execution that could potentially invalidate constraints, the current
+set of active constraints is translated, solved, and the environment
+is updated with the solution (or the program halts with an
+exception). A practical implementation can optimize by caching the
+translated constraints and only invalidate the cache as necessary, or
+only solve a subset of the constraints.
+
+The following example shows that passing a variable of primitive type
+into a method that modifies its argument does not affect the
+environment outside the method:
+\begin{verbatim}
+def addTo(a)
+  a := a + 3;
+  return a
+end
+\end{verbatim}
+
+\begin{example}
+y := 10;
+x := addTo(y)
+\end{example}
+After the method returns, \verb!x! will be 13 and \verb!y! will have
+stayed at 10.
+
+Methods implemented as primitives in the host language (such as
+\verb!+! on integers), are translated into the equivalent operations
+in the solver and the participating objects are unboxed. For a
+language like Java, which has true primitive values, the operations
+can still be translated directly, but primitive methods on boxed types
+like \lstinline|Integer|, \lstinline|Float|, \lstinline|Boolean|, and
+so forth are translated into primitive operations on their unboxed
+equivalents. When we encounter a message in \gls{ccm} that is not a
+primitive, we do a normal method lookup, transform, and inline the
+method body, and then continue to evaluate the inlined body in
+\gls{ccm}.
+
+Here is a simple example of using a method in a constraint. Suppose we
+add a \verb|double| method to \verb|Float|, and then use it in a
+constraint:
 
 \begin{verbatim}
-r := Rectangle(Point(2,2), Point(10,10));
-always r.center() = Point(10,20)
+def double()
+  return 2 * self;
+end
+\end{verbatim}
+
+\begin{example}
+x := 0;
+y := 0;
+always y = x.double();
+y := 20
+\end{example}
+
+After the program runs, \verb|y| will be 20 and \verb|x| will be 10.
+For this program, the constraint \verb|y = x.double()| explodes into
+the following network:
+\[
+  \begin{array}{rr@{\;=\;}l}
+    \mathrm{required} & self & x\\
+    \mathrm{required} & y & 2 * self
+  \end{array}
+\]
+This conjunction of constraints works equally well for determining
+\verb|x| or determining \verb|y|, even though \verb|double| is
+actually a message to \verb|x|.
+
+However, not all methods can be used in this manner. There are a
+number of restrictions on methods to allow them to be used in this
+way, which we discuss in more detail in
+\autoref{sec:additional-constraint-restrictions}. Briefly, if they
+have side effects the transformation fails. If they consist of more
+than just a single return statement they can only be used in the
+\emph{forward direction} in constraints, \ie they return value will be
+passed to the solver as a constant, and all their arguments are marked
+as being read-only for the solver. Creating an instance of an ordinary
+class is regarded as a side effect, so methods that can be invoked by
+constraint expressions can only create instances of value classes. If
+we we encounter a side-effect, the transformation fails. If we
+encounter a complex expression or statement that we cannot transform,
+we evaluate it normally and only use its result.
+
+As an example for a constraint in which a method can only be used in
+the forward direction, suppose we have \verb|always c = x.m(a, b)|,
+and method \verb|m| has multiple statements so that it cannot be
+translated and passed to the solver. We will evaluate the method and
+pass the equality between its result and \verb!c! to the solver, as
+well as required equalities for \verb!x!, \verb!a!, and \verb!b! to
+keep their current values. This allows the system to find an
+assignment for \verb|c| given values for \verb|x|, \verb|a|, and
+\verb|b|, but not any other direction. If any other constraints are
+such that the correct solution involves finding a value for \verb|b|
+given values for \verb|c|, \verb|x|, and \verb|a|, a practical system
+will halt with an error that the constraints are too hard for it to
+solve, due to a method called from the constraint that can't be
+inlined (or in the formal semantics, we get stuck).  However, in
+contrast to all the previous examples of constraints that were too
+hard, the fact that they are too hard is a limitation of the
+transformations we use for methods called by constraints, rather than
+being a limitation of the solver.
+
+On the other hand, if method \verb|m| can be used multi-directionally,
+so that for example we can find a value for \verb|b| given values for
+\verb|x|, \verb|a|, and \verb|c|, then in the semantics the method is
+translated and inlined so that the resulting constraint expression can
+be turned over to the solver.  This done by creating a scope and fresh
+variable bindings for method \verb|m| and inlining the returned
+expression with respect to that environment. The parameters are
+constrained to be identical to the argument names used in the fresh
+scope for the method, and the receiver is constrained to be equal to
+\verb!self! in the new scope.
+
+Here is a more complex illustrating this translation and inlining
+step. We create a constraint on the center of a rectangle, where the
+center is a computed value rather than being stored as an instance
+variable.  (Both \verb!Rectangle! and \verb!Point! are value classes
+in this example.)
+
+\begin{verbatim}
+r := Rectangle(Point(2, 2), Point(10, 10));
+always r.center() = Point(10, 20)
 \end{verbatim}
 
 The \verb|center| method for \verb|Rectangle| is defined as follows:
@@ -2416,22 +2680,21 @@ end
 \end{verbatim}
 
 Note that since \verb|Point| is a value class, we can make an instance
-of it in the constraint expression itself (``\verb|Point(10,20)|''),
+of it in the constraint expression itself (``\verb|Point(10, 20)|''),
 and also in the \verb|center| method, since we are doing point
-addition and division in that method.  (If it had been an ordinary
-class, creating such an instance would have been a side effect,
-disallowing this constraint.)
+addition and division in that method.
 
 The constraint is evaluated in the following way.  The code for
-Rectangle's \verb|center| method is found, and inlined to construct an
-equality constraint between the result of evaluating
-\verb|(self.upper_left + self.lower_right) / 2| and a new point with
-\verb|x=10|, \verb|y=20|. Constructing the center point from the first
-expression, as well as looking up and inlining the \verb|=| method on
-it, explodes into a network of simpler constraints, all required, that
-can then be handed to the solver in one conjunction. Note how the
-local names are translated into a global solver environment by
-appending a digit to every duplicate name.
+Rectangle's \verb|center| method is found via standard method lookup.
+It is inlined to construct an equality constraint between the result
+of evaluating \verb|(self.upper_left + self.lower_right) / 2| and a
+new point with \verb|x=10|, \verb|y=20|. Constructing the center point
+from the first expression, as well as looking up and inlining the
+\verb|=| method on it, explodes into a network of simpler constraints,
+all required, that can then be handed to the solver in one
+conjunction. The table below shows how the constraints are
+constructed, and in particular how the local names are translated into
+a global solver environment by making them unique.
 
 \newcommand{\mycskip}{\hspace{12em}}
 
@@ -2535,36 +2798,36 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & \Deref(self7).x & \Deref(arg3).x \wedge \Deref(self7).y = \Deref(arg3).y\\
 \end{array}$
 
-Before we inline the methods, we create appropriate stays on the heap. Entering
-the center method creates a local environment in which \verb|self| is
-bound to \verb|r|\@, which is a reference to the mutable rectangle on
-the heap. We create aliases for the receivers and arguments as before,
-but now treat constructors specially, in that we create a new
-reference on the heap, bind it to a new \verb!self! alias, and use the
-arguments to the constructor as constraints on the parts of the
-object, in effect turning the assignment of these arguments to the
-parts of the newly created object into required equality
-constraints. This means we execute constructors in a sort of
+Before we inline the methods, we create appropriate stays on the
+heap. Entering the center method creates a local environment in which
+\verb|self| is bound to \verb|r|\@, which is a reference to the
+mutable rectangle on the heap. We create aliases for the receivers and
+arguments as before, but now treat constructors specially, in that we
+create a new reference on the heap, bind it to a new \verb!self!
+alias, and use the arguments to the constructor as constraints on the
+parts of the object, in effect turning the assignment of these
+arguments to the parts of the newly created object into required
+equality constraints. This means we execute constructors in a sort of
 ``mixed mode,'' in which heap objects are created as needed and their
-arguments are turned into equality constraints on their fields. This implies
-limitations on the constructors, namely that they be just methods binding
-arguments to the fields of the newly created object, without any
-control structures.
+arguments are turned into equality constraints on their fields. This
+implies limitations on the constructors, namely that they be just
+methods binding arguments to the fields of the newly created object,
+without any control structures.
 
 This example also illustrates why we need to solve for object identity
-and type before values --- if \verb|r| had been an instance of a class
-with a different implementation of the \verb|center| method, it would
-have been exploded in a different way.
+and type before values (\cf{\ref{sec:determinism}}) --- if \verb|r|
+had been an instance of a class with a different implementation of the
+\verb|center| method, it would have been inlined in a different way.
 
-Now consider an example with mutable rectangles (instances of
-\verb|MutableRectangle|) but points again as instances of a value class.
-If we assign to the rectangle's \verb|upper_left|, the solver will
-update \verb|lower_right| to keep the center at \verb|Point(10,20)|:
-\begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10));
-always r.center() = Point(10,20);
-r.upper_left := Point(100,2);
-\end{example}
+% Now consider an example with mutable rectangles (instances of
+% \verb|MutableRectangle|) but points again as instances of a value class.
+% If we assign to the rectangle's \verb|upper_left|, the solver will
+% update \verb|lower_right| to keep the center at \verb|Point(10,20)|:
+% \begin{example}
+% r := new MutableRectangle(Point(2,2), Point(10,10));
+% always r.center() = Point(10,20);
+% r.upper_left := Point(100,2);
+% \end{example}
 
 %% We used to have an example that assigned to the x field of a point.
 %% I'm not convinced this works - I don't think we should be able to use
@@ -2575,20 +2838,20 @@ r.upper_left := Point(100,2);
 %% r.upper_left.x := 100;
 %% \end{example}
 
-We can also accomplish the same thing using a \verb|once| constraint:
-\begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10));
-always r.center() = Point(10,20);
-once r.upper_left.x = 100
-\end{example}
+% We can also accomplish the same thing using a \verb|once| constraint:
+% \begin{example}
+% r := new MutableRectangle(Point(2,2), Point(10,10));
+% always r.center() = Point(10,20);
+% once r.upper_left.x = 100
+% \end{example}
 
-Finally, this test fails because the \verb|always| and \verb|once|
-constraints are incompatible:
-\begin{example}
-r := new MutableRectangle(Point(2,2), Point(10,10));
-always r.center() = Point(10,20);
-once r.center().x = 100
-\end{example}
+% Finally, this test fails because the \verb|always| and \verb|once|
+% constraints are incompatible:
+% \begin{example}
+% r := new MutableRectangle(Point(2,2), Point(10,10));
+% always r.center() = Point(10,20);
+% once r.center().x = 100
+% \end{example}
 
 % \begin{verbatim}
 %   self1 = r // enter center method
@@ -2614,88 +2877,55 @@ once r.center().x = 100
 %   ^ self4.x = arg3.x && self4.y = arg3.y
 % \end{verbatim}
 
-Here is another example of using a method in a constraint.  Suppose we
-add a \verb|double| method to \verb|Float|, and then use it in a
-constraint:
+\ParSep
+
+Methods called in the ordinary way can also create new constraints,
+which then persist after the method returns. Here is a simple example.
+Suppose we have a \verb|BankAccount| class that includes a
+\verb|balance| method.  We can then define the following method:
 
 \begin{verbatim}
-def double()
-  return 2*self;
-end
-\end{verbatim}
-
-\begin{example}
-x := 0;
-y := 0;
-always y=x.double();
-y := 20;
-\end{example}
-
-After the program runs, \verb|y| will be 20 and \verb|x| will be 10.
-
-For this program, the constraint \verb|y=x.double()| explodes into the
-following network:
-
-$\begin{array}{rr@{\;=\;}l}
-\mathrm{required} & self1 & x\\
-\mathrm{required} & y & 2*self1
-\end{array}$
- 
-This conjunction of constraints works equally well for determining
-\verb|x| or determining \verb|y|, even though \verb|double| is
-actually a message to \verb|x|.
-
-As noted above, methods called in the ordinary way can create new
-constraints, which then persist after the method returns.  Here is a
-simple example.  Suppose we have a \verb|BankAccount| class that
-includes a \verb|balance| method.  We can then define the following method:
-
-\begin{verbatim}
-def require_min_balance(acct,min)
+def require_min_balance(acct, min)
   always acct.balance >= min?
 end;
 \end{verbatim}
-
-Now suppose we call \verb|require_min_balance(a,10)| on some account
-\verb|a|.  (This is just calling the method from an ordinary
-statement, either at the top level or some other method, \emph{not}
-from a constraint expression.)  Thereafter the balance in the account
+Now suppose we call \verb|require_min_balance(a, 10)| on some account
+\verb|a| (as an ordinary method invocation, \emph{not} from a
+constraint expression).  Thereafter the balance in the account
 \verb|a| must be at least 10 (a persistent constraint).  We use a
 \verb|?| annotation on the variable \verb|min| to make it read-only
 with respect to this constraint --- otherwise the solver would be free
-to change either the account balance or the local variable \verb|min|.
-Section \ref{sec:constraints} includes a discussion of read-only
-annotations; as noted earlier, we do not include rules for read-only
-annotations in the semantics, but they would be straightforward to
-add.
+to change either the account balance or the local variable \verb|min|,
+hiding any effect of the constraint.
 
-Note the consequences of our calling convention for such methods.
-Consider:
+Note the consequences of calling this method with arguments passed by
+value (with pointer semantics):
 \begin{example}
 a := new BankAccount();
 m := 10;
-require_min_balance(a,m);
+require_min_balance(a, m);
 m := 100
 \end{example}
 Even though we reassigned \verb|m|, the minimum balance for the
-account stays at 10, since we passed \verb|m| (a primitive type) by
-value.  Of course, we are passing the account \verb|a| by value as well:
+account stays at 10, since we passed \verb|m| by value.  Of course, we
+are passing the account \verb|a| by value as well:
 
 \begin{verbatim}
 a := new BankAccount();
-require_min_balance(a,10);
-a := new BankAccount();
+require_min_balance(a, 10);
+a := new BankAccount()
 \end{verbatim}
-
-After the second assignment,  \verb|a| is bound to a new account --- but
-the minimum balance constraint is on the previous instance of
-\verb|BankAccount| (which will presumably be garbage collected since
-there aren't any references to it).  
+After the second assignment, \verb|a| is bound to a new account ---
+but the minimum balance constraint is on the previous instance of
+\verb|BankAccount| (which can be garbage collected since there aren't
+any references to it). However, in general implementing such methods
+requires that the semantics keep the local variables in such a method
+invocation as long as the constraints it creates are active and any
+one of the variables is still referenced from the outside.
 
 If we do want a constraint that continues to be enforced even if the
 account or the minimum is rebound, we can instead write a method that
 is a minimum balance test and use it in a constraint:
-
 \begin{verbatim}
 def has_min_balance(acct,min)
   return acct.balance >= min;
@@ -2705,8 +2935,8 @@ end
 \begin{example}
 a := new BankAccount();
 m := 10;
-always has_min_balance(a,m?);
-m := 100;
+always has_min_balance(a, m?);
+m := 100
 \end{example}
 
 Programmers will need to be aware of the different semantics for these
@@ -2716,26 +2946,14 @@ variable \verb|m| in the \verb|always| constraint --- it would make no
 sense to place it on \verb|min| in the \verb|has_min_balance| method,
 since that is just a method, not itself a constraint.
 
-Implementing such methods requires that the semantics (and
-implementations) keep the local variables in such a method invocation
-as long as the constraints it creates are active.  Here is a somewhat
-artificial variant of the original \verb|require_min_balance|
-method to illustrate this:
+As a common pattern, placing constraints inside methods allows
+programmers to express structural integrity constraints inside the
+constructors for objects, and thus ensure they are satisfied
+throughout the lifetime of the object. This next example ensures that
+a bank account is always initialized with a minimum balance
+(defaulting to zero):
 \begin{verbatim}
-def require_min_balance_with_locals(acct,min)
-  b := acct.balance;
-  always b = acct.balance;
-  always b >= min?;
-end;
-\end{verbatim}
-
-We could also add a minimum balance constraint in the initialization
-method for \verb|BankAccount|.  This version requires that the initial
-balance be provided, but has a default of 0 for the minimum balance in
-case it isn't provided.
-
-\begin{verbatim}
-def init(initial_balance,min=0)
+def initialize(initial_balance, min = 0)
   self.balance := initial_balance;
   always self.balance >= min?;
 end;
@@ -2744,9 +2962,9 @@ end;
 \subsection{Additional Restrictions on Constraint Expressions}
 \label{sec:additional-constraint-restrictions}
 
-Methods can of course have side effects, but 
-such methods can't be used in the expressions that define
-constraints.  (This is one of the restrictions noted in Section
+Methods can of course have side effects, but such methods can't be
+used in the expressions that define constraints.  (This is one of the
+restrictions noted in Section
 \ref{sec:constraint-expression-requirements} on requirements for
 constraint expressions.)  This subsection describes some consequences
 of this restriction when we have objects, methods, and object

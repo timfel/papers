@@ -432,13 +432,33 @@ with the spirit of dynamic, purely object-oriented languages in which
 the meta-level is readily accessible.
 
 \paragraph{An Architecture for Adding and Using Multiple Cooperating Solvers}
-Babelsberg provides an architecture that supports multiple constraint
-solvers, which makes it straightforward to add new solvers, and which
-does not privilege the solvers provided with the basic implementation.
-To solve more complex problems involving different types of
-constraint, we present an architecture to let multiple solvers
-cooperate. Our architecture works with and without \ac{vm} support and
-supports incremental constraint satisfaction across solvers.
+In addition to the goals of a clean integration, a semantics that is
+close to an object-oriented language, and good performance, a useful
+\ac{ocp} language requires sufficiently powerful constraint solving
+capabilities. It is often infeasible to provide a single solving
+algorithm that works well across a variety of types and operations
+that occur in different application domains, and users of constraint
+solvers usually have to understand the limitations of the available
+solving strategies to use them effectively.
+
+As part of this work we present a design and implementation for
+\emph{cooperating constraint solvers} and \emph{automatic solver
+  selection}. Since most constraint solvers are specialized to work
+well for only a small number of aspects of a problem, a combination of
+different solvers may be more appropriate that work together to solve
+the entire problem. Babelsberg provides an architecture provides this
+capability, in a way that supports hard and soft constraints,
+automatically assigning constraints to different solvers, and fast
+incremental re-solving of such constraints.
+
+Our design also makes it straightforward to add new solvers, and it
+does not privilege the solvers provided with the basic implementation,
+so that user code can add specialized solvers that can then integrate
+with our architecture to solve more complex problems involving
+different types of constraints. Our architecture works with and
+without \ac{vm} support and we demonstrate that it can address a
+variety of problems without the users learning specifically about the
+solving strategies involved.
 
 \paragraph{Performant Implementation Techniques and Possible Applications for \ac{ocp}}
 We describe three working prototype systems. The first implements a
@@ -2055,80 +2075,6 @@ to find a solution for \verb|x|.
 % always (x = 4 and x = 5) or (x != 4 and x = 4)
 % \end{verbatim}
 
-\subsection{Cooperating Constraint Solvers}
-\label{sec:coop-constr-solv}
-
-\todo{design}
-
-So far we have shown constraints over integers, but assuming the
-solver supports more types than just integers, we need to consider
-whether the following should be valid:
-\begin{verbatim}
-x := 5;
-x := "Hello";
-\end{verbatim}
-
-Since we are modeling a language that should be a straightforward
-extension of existing object-oriented languages, including dynamic
-languages, we want to allow variables to be able to change their
-type. Thus, when we execute the above we get the following constraints
-when executing the second statement:
-\begin{tabular}{rl}
-weak     & $x = 5$ \\
-required & $x = $ \verb|"Hello"|
-\end{tabular}
-
-The final result is $\texttt{x} \mapsto \texttt{"Hello"}$. The changed
-type might propagate through an \verb|always| constraint:
-\begin{verbatim}
-x := 5;
-y := 10;
-always y = x;
-x := "Hello";
-\end{verbatim}
-The final result is that both \verb|x| and \verb|y| are strings.
-
-There is also a potential interaction with overloaded operators.
-Suppose that for strings \verb|+| denotes string concatenation:
-\begin{verbatim}
-x := 5;
-y := 10;
-always y = x + x;
-x := "Hello";
-\end{verbatim}
-After the \verb|always| statement we have
-$\texttt{x} \mapsto \texttt{5}$, $\texttt{y} \mapsto \texttt{10}$.
-Then after the final statement, we have the constraints
-\begin{tabular}{rl}
-weak     & $x=5$ \\
-weak     & $y=10$ \\
-required & $y=x+x$ \\
-required & $x=$ \texttt{"Hello"}
-\end{tabular}
-This has the solution $\texttt{x} \mapsto \texttt{"Hello"}$, 
-$\texttt{y} \mapsto \texttt{"HelloHello"}$.
-
-Non-determinism can arise for primitive types as well as values:
-\begin{verbatim}
-x := 3;
-always weak x = 5;
-always weak x = "hello";
-\end{verbatim}
-
-Here the solver is free to choose either an integer or a string for
-\verb|x|.  This may seem strange, and also not really in keeping with
-the spirit of the goals for our languages with respect to avoiding
-non-determinism. However, as mentioned above, we are looking to avoid
-non-determinism in solutions involving object identity and object
-structure. In this language, both integers and strings are primitive
-types without identity or structure, and thus the above program is
-legal. When we extend this language to a full object-oriented
-language, the corresponding program may not be valid if strings or
-integers are represented with objects for which identity is important
-or that have some non-identical, user-visible structure. (For example,
-boxed strings in many languages have a \verb!length! field, which
-integers do not have, and thus the above would be illegal.)
-
 \section{Constraints on Objects and Messages}
 \label{sec:complex-objects}
 
@@ -3112,11 +3058,6 @@ def initialize(initial_balance, min = 0)
   always self.balance >= min?;
 end;
 \end{verbatim}
-
-\subsection{Constraints Without Capable Solvers}
-\label{sec:constr-with-capable}
-
-\todo{Write it}
 
 \subsection{Additional Restrictions on Constraint Expressions}
 \label{sec:additional-constraint-restrictions}
@@ -4588,21 +4529,13 @@ will be rejected in the inlining rules.
 
 \todo{re-read and augment/remove UID references}
 
-\section{Collections of Objects}
-\label{sec:records-with-ident}
-
-
-
-\todo{Collections of objects semantics}
-
-\section{Key Properties}
+\subsection{Key Properties}
 \label{sec:proofs}
 
-Here we state two key theorems about our formalism.  The proofs for
-these theorems can be found in the companion technical report.  The
-first theorem formalizes the idea that any solution to a value
-constraint preserves the structures of the objects on the
-environment and heap:
+Here we state two key theorems about our formalism, the proofs for
+which can be found in the appendix\todo{move and update}. The first
+theorem formalizes the idea that any solution to a value constraint
+preserves the structures of the objects on the environment and heap:
 
 \begin{theorem} (Structure Preservation)
  If \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{(once|always)
@@ -4628,6 +4561,11 @@ constraints are satisfied):
   % $\forall \texttt{x}\in dom(\Env_1):$ \tcH{\Env$_1$}{\Heap$_1$}{x}{T} $\Rightarrow$
   % \tcH{\Env$_2$}{\Heap$_2$}{x}{T}.
 \end{theorem}
+
+\section{Collections of Objects}
+\label{sec:records-with-ident}
+
+\todo{Collections of objects semantics}
 
 \section{Executable Specifications}
 \label{sec:exec-spec}
@@ -4700,11 +4638,195 @@ specific test cases
 to run these tests
 
 \chapter{An Architecture For Using Multiple Constraint Solvers}
+\label{sec:a-coop-arch}
 
- In \ac{ocp}, however, all solvers use the same interface
+So far we have shown constraints over integers and objects referring
+to other objects or integer fields, but assuming the host language
+supports more primitive types than just integers, we need to consider
+whether the following should be valid:
+\begin{verbatim}
+x := 5;
+x := "Hello";
+\end{verbatim}
+
+Since we are modeling a language that should be a straightforward
+extension of existing object-oriented languages, including dynamic
+languages, we want to allow variables to be able to change their
+type. Thus, when we execute the above we get the following constraints
+when executing the second statement:
+\begin{tabular}{rl}
+weak     & $x = 5$ \\
+required & $x = $ \verb|"Hello"|
+\end{tabular}
+
+It is easy to see that the final result should be
+$\texttt{x} \mapsto \texttt{"Hello"}$. The changed type might
+propagate through an \verb|always| constraint:
+\begin{verbatim}
+x := 5;
+y := 10;
+always y = x;
+x := "Hello";
+\end{verbatim}
+The final result is that both \verb|x| and \verb|y| are strings.
+
+There is also a potential interaction with overloaded operators.
+Suppose that for strings \verb|+| denotes string concatenation:
+\begin{verbatim}
+x := 5;
+y := 10;
+always y = x + x;
+x := "Hello";
+\end{verbatim}
+After the \verb|always| statement we have
+$\texttt{x} \mapsto \texttt{5}$, $\texttt{y} \mapsto \texttt{10}$.
+Then after the final statement, we have the constraints
+\begin{tabular}{rl}
+weak     & $x=5$ \\
+weak     & $y=10$ \\
+required & $y=x+x$ \\
+required & $x=$ \texttt{"Hello"}
+\end{tabular}
+This has the solution $\texttt{x} \mapsto \texttt{"Hello"}$, 
+$\texttt{y} \mapsto \texttt{"HelloHello"}$.
+
+Non-determinism can arise for primitive types as well as values:
+\begin{verbatim}
+x := 3;
+always weak x = 5;
+always weak x = "hello";
+\end{verbatim}
+
+Here the solver is free to choose either an integer or a string for
+\verb|x|.  This may seem strange, and also not really in keeping with
+the spirit of the goals for our languages with respect to avoiding
+non-determinism. However, as mentioned in \autoref{sec:design}, we are
+looking to avoid non-determinism in solutions involving object
+identity and object structure. In this example, both integers and
+strings are primitive types without identity or structure, and thus
+the above program should be legal. However, when we consider a
+language where both integers and strings are boxed as objects for
+which identity \emph{is} important or that have some non-identical
+structure (like a \verb!length! field on a string), then the above
+would be illegal. Regardless, we need a solving strategy that can deal
+with different types or objects.
+
+\section{Cooperating Solvers Architecture}
+\label{sec:coop-solv-arch}
+
+In practice, it is often infeasible to provide a single constraint
+solver that works well for all types or operations involved of a
+problem; instead, different solvers may be more appropriate than
+others for some aspects, and which need to work together to solve the
+problem.
+
+Prior work on constraint-programming systems including Sketchpad
+\cite{sutherland-ifips-1963}, ThingLab \cite{borning-toplas-1981}, and
+Kaleidoscope \cite{lopez1994kaleidoscope} recognized this need for
+letting multiple solvers cooperate. However, these systems did not
+include a general architecture for letting multiple solvers cooperate,
+but rather included a fixed set of solvers with a meta-solving
+strategy that was hand-coded to connect these solvers in the
+appropriate way. In a similar vein, specialized solvers such as
+Ultraviolet \cite{borning1998ultraviolet} or DETAIL
+\cite{hosobe2001modular} combine multiple decision strategies to solve
+more complex problems. (In the case of Ultraviolet, these were a local
+propagation solver for functional constraints, a local propagation
+solver for constraints over reals, a solver for simultaneous linear
+equations, and an incomplete solver for simultaneous linear
+inequalities.) However, these, too were inflexible to extend.
+
+In another avenue, there is much recent work in the area of \gls{smt}
+solvers \cite{nelson-oppen-1979}, mostly focused on the context of
+model checking and program verification. As described in
+\autoref{sec:z3}, \gls{smt} solvers communicate through shared
+variables, inferring equalities on those variables. This is powerful,
+but has certain limitations. Most commonly, a limitation is that the
+method is incomplete for a number of theories, but more importantly
+for the work presented here, it does not deal at all with soft
+constraints, whereas our design explicitly requires them.
+
+Thus, we find a need to combine multiple cooperating solvers in a
+general way, while at the same time supporting soft-constraints and,
+ideally, fast incremental
+re-solving. \citeauthor{borning2012architectures}
+\cite{borning2012architectures} proposed an architecture that puts
+minimal requirements on the component solvers, but still allows for
+more powerful interactions in parts of the constraint graph.
+
+At the top level, constraints and constraint variables are simply
+viewed as a bipartite graph. The constraints are partitioned into
+regions that are connected via read-only variables. Each constraint
+belongs to exactly one region, but regions may share variables. This
+happens if variables occur in multiple constraints that belong to
+different regions. Such variables, however, must then be read-only in
+all but one of the regions.
+
+In this architecture, the regions must form an acyclic graph, so that
+solving can simply proceed from the upstream to the downstream
+regions, propagating variable values. This architecture prohibits
+loops and a system that oscillates without finding a solution. We ﬁnd
+an order for solving the regions, so that region B is solved after
+region A if B is downstream from A in terms of the read-only
+variables. Read-only variables are represented simply through required
+equality constraints which are automatically generated as higher
+regions determine the values of variables. The result is a very loose
+coupling among the cooperating solvers. Furthermore, the programmer
+can explicitly control the position of a solver in this graph, or the
+system can create the order without the programmer's support.
+
+\begin{figure}
+  \centering
+  \missingfigure[figheight=8cm]{}
+  \caption{A Graph of Constraints in our Cooperating Solvers Architecture}
+  \label{fig:coop-architecture}
+\end{figure}
+
+\autoref{fig:coop-architecture} shows an example configuration. Once
+the solver regions are sorted, solving proceeds from the furthest
+upstream region.  Each region will determine values for the variables
+it can write to, and the downstream regions will adjust to accommodate
+the new values propagated to their read-only variables from higher
+level regions. Soft constraints are solved for just within each region
+--- in keeping with the theory of hard and soft constraints in the
+presence of read-only variables \cite{borning1992constraint}, if a
+soft constraint in an upstream region restricts a variable to a
+certain value, then a downstream region must use that value and can in
+fact not distinguish if this value was determined by a required or a
+soft constraint. If constraints in a downstream region cannot be
+satisfied due to an upstream soft constraint, we do not backtrack.
+
+This architecture imposes severe limitations on the kinds of
+constraints that can be solved. For example, there is no support for
+solving soft constraints level by level (first solving all required
+constraints, then proceeding to the soft constraints), because the
+architecture does not assume that all solvers support solving soft
+constraints in this manner. However, the architecture is flexible in
+that a region can itself be partitioned further and use a different
+strategy for combining solvers, which possibly has stronger
+requirements on the participating solvers. In fact, it is possible to
+have a region that uses an \gls{smt} solver (which itself uses
+different solvers internally), and another region that combines
+DeltaBlue and Cassowary solvers and supports fast incremental
+re-solving within that region. For example, if we determine that a
+variable that changes frequently is referenced from constraints in
+regions that are solved by DeltaBlue as well as Cassowary, we combine
+this region and, when the complete constraint graph is re-solved due
+to an update to this variable, we automatically create edit
+constraints for DeltaBlue and Cassowary and run them. This way,
+incremental re-solving within those regions is fast, but we do not
+prohibit also using solvers for which no fast incremental re-solving
+strategy is available.
+
+\section{Automatic Solver Selection}
+\label{sec:autom-solv-select}
+
+\section{User-defined Constraint Solvers}
+\label{sec:constr-with-capable}
+
+In \ac{ocp}, however, all solvers use the same interface
 to communicate with the \ac{vm} so developers can add new solvers and
 replace existing ones.
-
 
 Furthermore, the solvers embedded in \ac{cip} languages such as
 Kaleidoscope ignore encapsulation and manipulate the contents of

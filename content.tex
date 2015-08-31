@@ -1,3 +1,5 @@
+\def\partautorefname{Part}
+\def\chapterautorefname{Chapter}
 \def\sectionautorefname{Section}
 \def\subsectionautorefname{Section}
 \def\subsubsectionautorefname{Section}
@@ -4757,9 +4759,11 @@ Thus, we find a need to combine multiple cooperating solvers in a
 general way, while at the same time supporting soft-constraints and,
 ideally, fast incremental
 re-solving. \citeauthor{borning2012architectures}
-\cite{borning2012architectures} proposed an architecture that puts
-minimal requirements on the component solvers, but still allows for
-more powerful interactions in parts of the constraint graph.
+\cite{borning2012architectures} proposed an architectural design that
+puts minimal requirements on the component solvers, but still allows
+for more powerful interactions in parts of the constraint graph. As
+part of this work, we have implemented and evaluated this architecture
+in practice.
 
 At the top level, constraints and constraint variables are simply
 viewed as a bipartite graph. The constraints are partitioned into
@@ -4861,7 +4865,7 @@ different solvers before using them. Instead, manual annotation should
 be the fallback if the system is unable to select the ideal solver in
 a situation.
 
-\paragraph{Eager Selection by Type}
+\subsection{Eager Selection by Type}
 For this algorithm, the solvers in the system must extend appropriate
 classes to respond to a solver selection message with an instance of
 themselves.  When executing a constraint expression in \gls{ccm}, the
@@ -4921,7 +4925,149 @@ solvers are called to solve these constraints matters. We must first
 call the local propagation solver to update the string length. If we
 call the linear arithmetic solver first, it will give up and treat the
 constraint as unsatisfiable, since it cannot manipulate the string to
-make it longer.
+make it longer. This can lead to confusing cases where the system will
+say a set of constraints is unsolvable, but a simple re-ordering of
+operations in the constraint expressions will make it work.
+
+\subsection{Selection by Preference}
+If the set of constraints that two or more solvers can solve is not
+empty, it may be desirable to always give preference to one solver
+over another, to avoid issues where the solver surprisingly changes
+when a constraint expression is refactored. To assign preferences, the
+system maintains a list of solvers implicitly ordered by
+preference. This list may be generated or supplied by the user. In
+either case, the list of solvers should be created early in the
+execution of the program and, once the first constraint has been
+created, it should only be possible to append, not remove or re-order
+solvers.
+
+Instead of executing the constraint expression just once, it is
+executed in \gls{ccm} once for each of the available solvers. The
+first solver that is able to work with at least some of the variables
+that participate in the constraint is selected and the constraint is
+assigned to it. Executing the constraint expression multiple times is
+safe due to our requirement on it being free of side-effects
+(\cf{\autoref{sec:constraint-expression-requirements}}).
+
+For the above example, suppose that the arithmetic solver is preferred
+over the local propagation solver. In this case, both constraints will
+be assigned to it. This means, however, that the assignment on line 5
+now becomes unsatisfiable! While this may seem like a strong
+restriction on the kinds of programs that can be written in this
+manner, we consider it preferable over the potential surprise that the
+two constraints above, even though they trivially express the same
+equality, are assigned to different solvers. In this scenario, the
+constraint system will always be unsatisfiable, regardless of how we
+refactor the two constraint expressions. To make the program work, the
+user should manually select the local propagation solver in this case,
+or else re-order the solvers to give preference to the local
+propagation solver at the beginning of the execution.
+
+\subsection{Heuristic Selection}
+The preferential solver selection is heuristic: it selects the first
+solver that can work with at least some of the variables that
+participate in the constraint. This heuristic can be easily
+extended. An obvious extension is to select the first solver that can
+deal with the \emph{most} variables, and go by preference only in case
+of a tie. There are more such extensions that make sense in this
+decision procedure. As described above, there may be solvers that have
+exactly the same capabilities, and that only differ in their
+performance or in the quality of their results.
+
+Some of the solvers' properties, such as performance and the quality
+of the result, can be determined automatically. For others, this
+solver selection procedure requires solvers to come annotated with
+\emph{capabilities}, such as the types and operations it supports, for
+which theories it is complete or incomplete, or whether it supports
+finite as well as infinite domains.
+
+As in the selection by preference, we execute the constraint
+expression once for solver, and in addition we let each solver solve
+the constraint once, but without updating the environment and heap
+with the solution. Using the preference and the below heuristics in
+conjunction, we can then select the best solver and add the constraint
+to it. As constraints are added, we regularly re-evaluate the metrics
+for existing constraints to check if they should be moved for better
+performance or better results. Similarly, when a constraint becomes
+unsatisfiable, but the current solver is annotated as being
+incomplete, we also re-evaluate the metrics to search for another
+solver.
+
+\paragraph*{Precision} As an example, Cassowary is complete for linear
+equalities over reals, but its implementation uses float values to
+represent reals, so a concrete solution may suffer from round-off
+errors. Similarly, although the \gls{z3} real theory works on reals of
+arbitrary precision, these reals will be represented in many languages
+as finite-precision floating point numbers, so again round-off errors
+may occur. The precision of the results these solvers produce may thus
+differ in practice, and could be considered as part of the solver
+selection.
+
+\paragraph*{Variable Changes} Another property that may impact the
+quality of the solution is how the solver implementation affects the
+selection of solutions when multiple solutions are available. Although
+stay constraints ensure that any solution is close to the previous
+state of the system, there are often multiple possible solutions that
+satisfy this property. Which solution is selected is usually an
+artifact of the solver implementation. However, problems such as the
+split-stay problem may make some solutions still more desirable than
+others, and solvers which avoid it may be preferable over those that
+do not. Similarly, solvers that change multiple variables, but achieve
+a small squared distance from the previous state of the system may be
+more or less suited to a particular problem than those that change few
+variables, but those by a larger amount.
+
+\paragraph*{Dimensionality} Besides the types of variables, the
+operations on them and how they are connected also play a
+role. Cassowary can only solve linear equations, while a relaxation
+solver can find solutions for higher dimensional arithmetic. Thus, the
+operations and associated operands within a constraint expression must
+be considered to select the solver.
+
+\paragraph*{Completeness} Another issue arises with incomplete
+theories. \gls{smt} solvers, for example, require the different
+partial solvers within to be convex for the decision procedure to be
+complete. For example, the theory $(\mathbb{Z},+,=)$ (addition and
+equality over the whole numbers) is convex, but $(\mathbb{Z},+,\leq)$
+is not --- a constraint involving inequalities over the integers may
+be satisfiable for a specific set of values, but another set of values
+may make it simply too hard for the solver. In that event, another
+solver (\eg using a form of relaxation) may be able to approximate a
+solution and the constraint should be moved to that solver.
+
+\paragraph*{Performance} Depending on the implementation, solvers may
+differ significantly in both base performance and complexity in
+required memory as well as time. As constraints are added during the
+execution of a program, a solver that is fast for few constraints may,
+due to higher complexity, become slower than a constraint with worse
+base performance but better complexity. A selection algorithm can take
+into account how fast a solver was able to satisfy a constraint, and
+continues to monitor solvers to notice drops in performance when
+constraints are added.
+
+\ParSep
+
+In practice we have found a mixture of manual and eager selection to
+produce good results once the user has a basic understanding of the
+available solvers and is aware of the eager selection process (in
+particular, how seemingly idempotent refactorings may lead to
+different results). We have found that while preferential selection
+avoids some surprising behavior, this behavior occurs rarely in
+practice. The heuristic solver selection procedure, although very
+powerful, has strong drawbacks: its complexity impacts the performance
+of creating new constraints, and requires constant re-checking. As
+with any heuristic, the results also depend on the weight that is
+given to each of the metrics and may need to be adjusted depending on
+the application domain. An educational advantage, however, is that
+practical implementations can use the metrics to communicate to the
+user the selection process and increase the user's understanding of
+the capabilities and limits of available constraint solvers. As a
+guideline to implementers, we suggest using the heuristic procedure as
+an educational tool and guiding instrument at development-time, but
+revert to manual and eager selection when many constraints are added
+dynamically throughout the run-time of the program, to avoid the
+performance overhead. We present implementations of all selection
+procedures in \autoref{part:impl-object-constr}.
 
 \section{User-defined Constraint Solvers}
 \label{sec:constr-with-capable}

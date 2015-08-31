@@ -11,6 +11,16 @@
 \xspaceaddexceptions{'$'$ |(}
 \usepackage{bcprules}
 
+\newcommand{\E}{\texttt{\upshape E}\xspace}
+\newcommand{\Sc}{\texttt{\upshape S}\xspace}
+\newcommand{\Hc}{\texttt{\upshape H}\xspace}
+\newcommand{\Deref}{\texttt{\upshape H}\xspace}
+\newcommand{\Cc}{\texttt{\upshape C}\xspace}
+\newcommand{\I}{\texttt{\upshape I}\xspace}
+\ifx\C\undefined \newcommand{\C}{\Cc} \else \renewcommand{\C}{\Cc} \fi
+\ifx\H\undefined \newcommand{\H}{\Hc} \else \renewcommand{\H}{\Hc} \fi
+\ifx\S\undefined \newcommand{\S}{\Sc} \else \renewcommand{\S}{\Sc} \fi
+
 \def\sectionautorefname{Section}
 \def\subsectionautorefname{Section}
 \def\subsubsectionautorefname{Section}
@@ -228,8 +238,7 @@ Statement & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C \\
   & & &  $\mid$ s;s $\mid$ if e then s else s $\mid$ while e do s \\
 {Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
 {Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
-$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
-  & & & $\mid$ o $\mid$ new o $\mid$ D\\
+  $\mid$ I $\mid$ o $\mid$ new o $\mid$ D \\
   & & & $\mid$ e.l(e$_1$,$\ldots$,e$_n$)\\
 {Identity} & I & ::= & L == L\\
 {Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
@@ -238,7 +247,7 @@ $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I\\
 {Variable} & x & ::= & \textrm{variable names} \\
 {Label} & l & ::= & \textrm{record label names} \\
 {Reference} & r & ::= & \textrm{references to heap records} \\
-{Dereference} & D & ::= & \H(e) \\
+{Dereference} & D & ::= & \Deref(e) \\
 {Method Body} & b & ::= & s; return e $\mid$ return e \\~\\
 {Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\} \\
 \end{tabular}
@@ -262,8 +271,6 @@ module babelsberg:
   datatype Exp = VALUE of Value
 	       | LVALUE of LValue
 	       | OP of Exp * Op * Exp
-	       | COMPARE of Exp * Comp * Exp
-	       | COMBINE of Exp * Comb * Exp
 	       | IDENTITY of Exp * Exp
 	       | IRECORD of ObjectLiteral
 	       | UIDRECORD of ObjectLiteral
@@ -285,9 +292,9 @@ module babelsberg:
 (* Helper types *)
   datatype Rho = WEAK | MEDIUM | REQUIRED
   datatype Op =  ADD | SUB | MUL | DIV
-  datatype Comp = LESSTHAN | LEQUAL | EQUAL
+                | LESSTHAN | LEQUAL | EQUAL
                 | NEQUAL | GEQUAL | GREATERTHAN
-  datatype Comb = AND | OR
+                | AND | OR
 
 (* Type syntax *)
   datatype Type = PRIMITIVE | TRECORD of (Label * Type) list
@@ -443,6 +450,7 @@ give here only a definition for $K = 1$:
 (declare-datatypes () ((Value (Record (rec (Array Label Real)))
                               (Real (real Real))
                               (Bool (bool Bool))
+                              (String (string Real))
                               (Reference (ref Reference)))))
 \end{lstlisting}
 
@@ -580,6 +588,22 @@ translated as shown:
 # weak x0 = 4.0
 (declare-const x0 (Value))
 (assert-soft (bool (equal x0 (Real 4.0))) :weight 1)
+\end{lstlisting}
+
+Finally, to encode strings in Z3, we use an encoding into reals. This
+encoding is really just a prefix (1), and then decimal coded character
+values as they appear in the string, padded to 3 digits. Z3 can only
+perform equality operations on strings encoded in this manner, which is
+enough for our purposes.
+\begin{lstlisting}
+rule   string_list(c) => clist &
+       list_map(clist, char_int) => ilist &
+       list_map(ilist, int_string) => islist &
+       list_map(islist, string_padding3) => padded_list &
+       string_append_list(padded_list) => isstring &
+       string_append_list(["(String 1", isstring, ")"]) => s
+       -----------------------------------------------------
+       printZ3E(babelsberg.VALUE(babelsberg.K(babelsberg.STRING(c)))) => s
 \end{lstlisting}
 
 \subsubsection{Running the Solver}
@@ -1204,15 +1228,6 @@ RML semantics, and the source code of our test generation framework.
 \newcommand{\inferax}[2]{\infax[#1]{\mbox{#2}}}
 \newcommand{\judgment}[1]{\begin{flushleft} \fbox{#1}\end{flushleft}}
 
-\newcommand{\E}{\texttt{\upshape E}\xspace}
-\newcommand{\Sc}{\texttt{\upshape S}\xspace}
-\newcommand{\Hc}{\texttt{\upshape H}\xspace}
-\newcommand{\Cc}{\texttt{\upshape C}\xspace}
-\newcommand{\I}{\texttt{\upshape I}\xspace}
-\ifx\C\undefined \newcommand{\C}{\Cc} \else \renewcommand{\C}{\Cc} \fi
-\ifx\H\undefined \newcommand{\H}{\Hc} \else \renewcommand{\H}{\Hc} \fi
-\ifx\S\undefined \newcommand{\S}{\Sc} \else \renewcommand{\S}{\Sc} \fi
-
 \newcommand{\lookup}[3]{\textit{lookup}(\texttt{#1},\texttt{#2}) = (\texttt{x$_1$} $\cdots$ \texttt{x$_n$},\texttt{#3})}
 \newcommand\enter[9]{%
 \def\argA{#1}\def\argB{#2}\def\argC{#3}\def\argD{#4}\def\argE{#5}%
@@ -1252,8 +1267,8 @@ RML semantics, and the source code of our test generation framework.
 \textrm{Statement} & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
   & & & $\mid$ if e then s else s $\mid$ while e do s \\
 \textrm{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
-\textrm{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e
-$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I \\
+\textrm{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e \\
+% $\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e $\mid$ I \\
  & & & $\mid$ e.l(e$_1$,$\ldots$,e$_n$) $\mid$ o $\mid$ new o $\mid$ D\\
 \textrm{Identity} & I & ::= & e == e\\
 \textrm{Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
@@ -1338,29 +1353,6 @@ possibly having side-effects on everything but the local environment.''
 }{\mbox{
   \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
 }}
-
-\infrule[E-Compare]{
-  \mbox{
-    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$}}\\
-  \mbox{
-    \evalBig{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}}\\
-  \mbox{
-    \texttt{v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = \texttt{v}}
-}{\mbox{
-  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
-}}
-
-\infrule[E-Combine]{
-  \mbox{
-    \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$_0$}{\H$_0$}{\C$_0$}{\I$_0$}{v$_1$}}\\
-  \mbox{
-    \evalBig{\E$_0$}{\S}{\H$_0$}{\C$_0$}{\I$_0$}{e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v$_2$}}\\
-  \mbox{
-    \texttt{v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = \texttt{v}}
-}{\mbox{
-  \evalBig{\E}{\S}{\H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{\E$'$}{\H$'$}{\C$'$}{\I$'$}{v}
-}}
-
 
 \infrule[E-IdentityTrue]{
   \mbox{
@@ -1468,25 +1460,13 @@ possibly having side-effects on everything but the local environment.''
 \inferrule{T-Deref}{
   \tcH{\E}{\H}{e}{T}
 }{
-  \tcH{\E}{\H}{\H(e)}{T}
+  \tcH{\E}{\H}{\Deref(e)}{T}
 }
 
 \inferrule{T-Op}{
   \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
 }{
   \tcH{\E}{\H}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
-}
-
-\inferrule{T-Compare}{
-  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
-}{
-  \tcH{\E}{\H}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
-}
-
-\inferrule{T-Combine}{
-  \tcH{\E}{\H}{e$_1$}{PrimitiveType} \andalso \tcH{\E}{\H}{e$_2$}{PrimitiveType}
-}{
-  \tcH{\E}{\H}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
 }
 
 \inferrule{T-ValueObject}{
@@ -1644,20 +1624,6 @@ the constraint expression \texttt{e$_C$} is returned.''
   \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
 }{
   \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ $\oplus$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\oplus$ e$_b$}
-}
-
-\inferrule{I-Compare}{
-  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
-  \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
-}{
-  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ $\olessthan$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\olessthan$ e$_b$}
-}
-
-\inferrule{I-Combine}{
-  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$}{\E$'$}{e$_{C_a}$}{e$_a$} \andalso
-  \inline{\E$'$}{\S}{\H}{\C}{\I}{e$_2$}{\E$''$}{e$_{C_b}$}{e$_b$}
-}{
-  \inline{\E}{\S}{\H}{\C}{\I}{e$_1$ $\ovee$ e$_2$}{\E$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\ovee$ e$_b$}
 }
 
 \inferrule{I-Identity}{
@@ -2200,11 +2166,11 @@ expression      : value
                 | expression soperation expression %prec T_ADD
                         { $$ = babelsberg__OP($1, $2, $3); }
                 | expression comparison expression %prec T_EQUAL
-                        { $$ = babelsberg__COMPARE($1, $2, $3); }
+                        { $$ = babelsberg__OP($1, $2, $3); }
                 | expression combination expression %prec T_AND
-                        { $$ = babelsberg__COMBINE($1, $2, $3); }
+                        { $$ = babelsberg__OP($1, $2, $3); }
                 | expression disjunction expression %prec T_OR
-                        { $$ = babelsberg__COMBINE($1, $2, $3); }
+                        { $$ = babelsberg__OP($1, $2, $3); }
                 | expression T_IDENTICAL expression %prec T_EQUAL
                         { $$ = babelsberg__IDENTITY($1, $3); }
                 | T_GLOBAL T_LPAREN callargs T_RPAREN
@@ -2333,8 +2299,6 @@ module babelsberg:
   datatype Exp = VALUE of Value
 	       | LVALUE of LValue
 	       | OP of Exp * Op * Exp
-	       | COMPARE of Exp * Comp * Exp
-	       | COMBINE of Exp * Comb * Exp
 	       | IDENTITY of Exp * Exp
 	       | CALL of Exp * Label * Exp list
 	       | IRECORD of ObjectLiteral
@@ -2362,8 +2326,8 @@ module babelsberg:
 
 (* Helper types *)
   datatype Op =  ADD | SUB | MUL | DIV
-  datatype Comp = LESSTHAN | LEQUAL | EQUAL | NEQUAL | GEQUAL | GREATERTHAN
-  datatype Comb = AND | OR
+                 | LESSTHAN | LEQUAL | EQUAL | NEQUAL | GEQUAL | GREATERTHAN
+                 | AND | OR
 
 (* Type syntax *)
   datatype Type = PRIMITIVE | TRECORD of (Label * Type) list
@@ -2412,13 +2376,13 @@ relation lookup: (Value, Label) => (Variable list, MethodBody) =
 
  axiom lookup(_, "Require_min_balance") => (["acct","min"], (* always acct.balance > min *)
              METHOD(ALWAYS(CONSTRAINT(REQUIRED,
-                               COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("acct")),"balance")),
+                               OP(LVALUE(FIELD(LVALUE(VARIABLE("acct")),"balance")),
                                    GREATERTHAN,
                                    LVALUE(VARIABLE("min?"))))),
                  LVALUE(VARIABLE("self"))))
 
  axiom lookup(_, "Has_min_balance") => (["acct","min"], (* return acct.balance > min *)
-             SIMPLE(COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("acct")),"balance")),
+             SIMPLE(OP(LVALUE(FIELD(LVALUE(VARIABLE("acct")),"balance")),
                      GREATERTHAN,
                      LVALUE(VARIABLE("min")))))
 
@@ -2459,18 +2423,18 @@ relation lookup: (Value, Label) => (Variable list, MethodBody) =
 
  (* self.x == other.x && self.y == other.y *)
  axiom lookup(_, "ptEq") => (["other"],
-                SIMPLE(COMBINE(COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("self")),"x")),
+                SIMPLE(OP(OP(LVALUE(FIELD(LVALUE(VARIABLE("self")),"x")),
                             EQUAL,
                             LVALUE(FIELD(LVALUE(VARIABLE("other")),"x"))),
                         AND,
-                        COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("self")),"y")),
+                        OP(LVALUE(FIELD(LVALUE(VARIABLE("self")),"y")),
                             EQUAL,
                             LVALUE(FIELD(LVALUE(VARIABLE("other")),"y"))))))
 
  (* always medium i = 5; return i + 1 *)
  axiom lookup(_, "Test") => (["i"],
                METHOD(ALWAYS(CONSTRAINT(MEDIUM,
-                   COMPARE(LVALUE(VARIABLE("i")),EQUAL,VALUE(K(REAL(5.0)))))),
+                   OP(LVALUE(VARIABLE("i")),EQUAL,VALUE(K(REAL(5.0)))))),
                        OP(LVALUE(VARIABLE("i")),ADD,VALUE(K(REAL(1.0))))))
 
  axiom lookup(_, "MutablePointNew") => (["x", "y"],
@@ -2496,19 +2460,19 @@ relation lookup: (Value, Label) => (Variable list, MethodBody) =
 
  axiom lookup(_, "Testalwaysxequal5") => (["x"],
                 METHOD(ALWAYS(CONSTRAINT(REQUIRED,
-                      COMPARE(LVALUE(VARIABLE("x")),EQUAL,
+                      OP(LVALUE(VARIABLE("x")),EQUAL,
                           VALUE(K(REAL(5.0)))))),
                     LVALUE(VARIABLE("x"))))
 
  axiom lookup(_, "Testalwaysaequalsbplus3") => (["a", "b"],
                 METHOD(ALWAYS(CONSTRAINT(REQUIRED,
-                      COMPARE(LVALUE(VARIABLE("a")),EQUAL,
+                      OP(LVALUE(VARIABLE("a")),EQUAL,
                           OP(LVALUE(VARIABLE("b")),ADD,VALUE(K(REAL(3.0))))))),
                     LVALUE(VARIABLE("a"))))
 
  axiom lookup(_, "Testpointxequals5") => (["p"],
                 METHOD(ALWAYS(CONSTRAINT(REQUIRED,
-                      COMPARE(LVALUE(FIELD(LVALUE(VARIABLE("p")),"x")),EQUAL,
+                      OP(LVALUE(FIELD(LVALUE(VARIABLE("p")),"x")),EQUAL,
                           VALUE(K(REAL(5.0)))))),
                     LVALUE(VARIABLE("p"))))
 
@@ -2585,33 +2549,18 @@ relation eval: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Heap, Cstore, Is
 
   axiom	eval(E,S,H,C,I, VALUE(R(r))) => (E,H,C,I, R(r))
 
-  rule alert(["E-Op\n"],[],[]) &
-       eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
-       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
-       Util.apply_binop(op,v1,v2) => v
-       ------------------------
-       eval(E,S,H,C,I, OP(e1, op, e2)) => (E'',H'',C'',I'',v)
+  rule	eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+	Util.should_short_circuit(op, v1) => (true, v) &
+	print "E-Op (short circuit)\n"
+	------------------------------
+	eval(E,S,H,C,I, OP(e1, op, e2)) => (E',H',C',I',v)
 
-  rule alert(["E-Compare\n"],[],[]) &
-       eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
-       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
-       Util.apply_bincomp(op,v1,v2) => v
-       ---------------------------
-       eval(E,S,H,C,I, COMPARE(e1, op, e2)) => (E'',H'',C'',I'',v)
-
-  rule eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
-       Util.shortcircuit_bincomb(op,v1) => (true, v) &
-       alert(["E-CombineShortCircuit\n"],[],[])
-       ---------------------------
-       eval(E,S,H,C,I, COMBINE(e1, op, e2)) => (E',H',C',I',v1)
-
-  rule alert(["E-Combine\n"],[],[]) &
-       eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
-       Util.shortcircuit_bincomb(op,v1) => (false, v) &
-       eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
-       Util.apply_bincomb(op,v1,v2) => v
-       ----------------------------
-       eval(E,S,H,C,I, COMBINE(e1, op, e2)) => (E'',H'',C'',I'',v1)
+  rule  alert(["E-Op\n"],[],[]) &
+	eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
+	eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
+	Util.apply_binop(op,v1,v2) => v
+	-------------------------------
+	eval(E,S,H,C,I, OP(e1, op, e2)) => (E'',H'',C'',I'',v)
 
   rule eval(E,S,H,C,I,e1) => (E',H',C',I',v1) &
        eval(E',S,H',C',I',e2) => (E'',H'',C'',I'',v2) &
@@ -2699,19 +2648,6 @@ relation tC: (Env, Heap, Exp) => Type =
 	tC(E,H,e2) => PRIMITIVE
 	-------------------
 	tC(E,H, OP(e1, op, e2)) => PRIMITIVE
-
-  rule alert(["T-Compare\n"],[],[]) &
-       tC(E,H,e1) => T1 &
-       tC(E,H,e2) => T2 &
-       T1 = T2
-       ----------------------
-       tC(E,H, COMPARE(e1, op, e2)) => PRIMITIVE
-
-  rule alert(["T-Combine\n"],[],[]) &
-       tC(E,H,e1) => PRIMITIVE &
-       tC(E,H,e2) => PRIMITIVE
-       ----------------------
-       tC(E,H, COMBINE(e1, op, e2)) => PRIMITIVE
 
   rule alert(["T-ValueObject\n"],[],[]) &
        tCFields(E,H, fvalues) => ftypes
@@ -2842,7 +2778,7 @@ relation stay: Env => Constraint =
        stay(E0) => C0
        --------------------------------------
        stay((x, v) :: E0) => COMPOUNDCONSTRAINT(C0,
-             CONSTRAINT(WEAK, COMPARE(LVALUE(VARIABLE(x)), EQUAL, VALUE(v))))
+             CONSTRAINT(WEAK, OP(LVALUE(VARIABLE(x)), EQUAL, VALUE(v))))
 end
 
 relation stayH: Heap => Constraint =
@@ -2852,7 +2788,7 @@ relation stayH: Heap => Constraint =
        stayH(H0) => C0
        ---------------------------------------
        stayH((r, o) :: H0) => COMPOUNDCONSTRAINT(C0,
-              CONSTRAINT(WEAK, COMPARE(DEREF(VALUE(R(r))), EQUAL, VALUE(O(o)))))
+              CONSTRAINT(WEAK, OP(DEREF(VALUE(R(r))), EQUAL, VALUE(O(o)))))
 end
 
 relation stayFields: (Reference, ObjectLiteral) => (Constraint, ObjectLiteral) =
@@ -2862,7 +2798,7 @@ relation stayFields: (Reference, ObjectLiteral) => (Constraint, ObjectLiteral) =
        int_string(r) => is & string_append_list(["ref", is, "_", l]) => x
        ---------------------------------------
        stayFields(r, (l, e) :: rest) => (COMPOUNDCONSTRAINT(
-                  CONSTRAINT(WEAK, COMPARE(LVALUE(VARIABLE(x)), EQUAL, e)), C),
+                  CONSTRAINT(WEAK, OP(LVALUE(VARIABLE(x)), EQUAL, e)), C),
                   (l, LVALUE(VARIABLE(x))) :: o)
 end
 
@@ -2872,7 +2808,7 @@ relation identityStay: Env => Constraint =
        identityStay(E0) => C0
        ------------------------------------------
        identityStay((x, R(r)) :: E0) => COMPOUNDCONSTRAINT(C0,
-              CONSTRAINT(REQUIRED, COMPARE(LVALUE(VARIABLE(x)), EQUAL, VALUE(R(r)))))
+              CONSTRAINT(REQUIRED, OP(LVALUE(VARIABLE(x)), EQUAL, VALUE(R(r)))))
 
   rule alert(["StayObj\n"],[],[]) & identityStay(E0) => C0 & stay([(x, O(o))]) => C1
        -----------------------------------------
@@ -2890,7 +2826,7 @@ relation identityStayH: Heap => Constraint =
        identityStayH(H0) => C0
        ---------------------------------------
        identityStayH((r, o) :: H0) => COMPOUNDCONSTRAINT(C0,
-              CONSTRAINT(WEAK, COMPARE(DEREF(VALUE(R(r))), EQUAL, VALUE(O(o)))))
+              CONSTRAINT(WEAK, OP(DEREF(VALUE(R(r))), EQUAL, VALUE(O(o)))))
 end
 
 relation identityStayFields: (Reference, ObjectLiteral) => (Constraint, ObjectLiteral) =
@@ -2936,7 +2872,7 @@ relation inline: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Exp, Exp) =
 	inline(E,S,H,C,I,e) => (E',ec,e') &
 	eval(E',S,H,C,I,e) => (E'',H,C,I,R(r))
 	----------------------------------------------
-	inline(E,S,H,C,I,LVALUE(FIELD(e,l))) => (E',COMBINE(ec,AND,COMPARE(e',EQUAL,VALUE(R(r)))),
+	inline(E,S,H,C,I,LVALUE(FIELD(e,l))) => (E',OP(ec,AND,OP(e',EQUAL,VALUE(R(r)))),
                                                  LVALUE(FIELD(DEREF(e'),l)))
 
   rule	alert(["I-ValueField"],[],[]) &
@@ -2951,25 +2887,13 @@ relation inline: (Env, Scope, Heap, Cstore, Istore, Exp) => (Env, Exp, Exp) =
 	inline(E,S,H,C,I,e1) => (E',eca,ea) &
 	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
 	-------------------------------------
-	inline(E,S,H,C,I,OP(e1,op,e2)) => (E'',COMBINE(eca,AND,ecb),OP(ea,op,eb))
-
-  rule	alert(["I-Compare"],[],[]) &
-	inline(E,S,H,C,I,e1) => (E',eca,ea) &
-	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
-	-------------------------------------------
-	inline(E,S,H,C,I,COMPARE(e1,op,e2)) => (E'',COMBINE(eca,AND,ecb),COMPARE(ea,op,eb))
-
-  rule	alert(["I-Combine"],[],[]) &
-	inline(E,S,H,C,I,e1) => (E',eca,ea) &
-	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
-	-------------------------------------------
-	inline(E,S,H,C,I,COMBINE(e1,op,e2)) => (E'',COMBINE(eca,AND,ecb),COMBINE(ea,op,eb))
+	inline(E,S,H,C,I,OP(e1,op,e2)) => (E'',OP(eca,AND,ecb),OP(ea,op,eb))
 
   rule	alert(["I-Identity"],[],[]) &
 	inline(E,S,H,C,I,e1) => (E',eca,ea) &
 	inline(E',S,H,C,I,e2) => (E'',ecb,eb)
 	------------------------------------------
-	inline(E,S,H,C,I,IDENTITY(e1,e2)) => (E'',COMBINE(eca,AND,ecb),IDENTITY(ea,eb))
+	inline(E,S,H,C,I,IDENTITY(e1,e2)) => (E'',OP(eca,AND,ecb),IDENTITY(ea,eb))
 
   rule	eval(E,S,H,C,I,e) => (E',H,C,I,v) & lookup(v,l) => (argnames,METHOD(s,e)) &
 	alert(["I-Call(", l],[],[")"]) &
@@ -3001,7 +2925,7 @@ relation inlineEach: (Env, Scope, Heap, Cstore, Istore, Exp list) => (Env, Exp, 
   rule	inline(E,S,H,C,I,e) => (E',eC,e') &
 	inlineEach(E',S,H,C,I,rest) => (E'',restC,rest')
 	-------------------------------------
-	inlineEach(E,S,H,C,I,e :: rest) => (E'',COMBINE(eC,AND,restC),e' :: rest')
+	inlineEach(E,S,H,C,I,e :: rest) => (E'',OP(eC,AND,restC),e' :: rest')
 end
 
 relation inlineEachField: (Env, Scope, Heap, Cstore, Istore, ObjectLiteral) => (Env, Exp, ObjectLiteral) =
@@ -3010,7 +2934,7 @@ relation inlineEachField: (Env, Scope, Heap, Cstore, Istore, ObjectLiteral) => (
   rule	inline(E,S,H,C,I,e) => (E',eC,e') &
 	inlineEachField(E',S,H,C,I,rest) => (E'',restC,rest')
 	-------------------------------------------
-	inlineEachField(E,S,H,C,I,(l,e) :: rest) => (E'',COMBINE(eC,AND,restC),(l,e') :: rest')
+	inlineEachField(E,S,H,C,I,(l,e) :: rest) => (E'',OP(eC,AND,restC),(l,e') :: rest')
 end
 
 relation reinlineC: (Env, Heap, Istore, Cstore) => (Env, Constraint) =
@@ -3020,7 +2944,7 @@ relation reinlineC: (Env, Heap, Istore, Cstore) => (Env, Constraint) =
 	inline(E0,S,H,Cstore0,I,e) => (E',eC,e')
 	------------------------------------------------
 	reinlineC(E,H,I,(S,CONSTRAINT(rho,e)) :: Cstore0) => (E',COMPOUNDCONSTRAINT(C0,
-                                                               CONSTRAINT(rho,COMBINE(e',AND,eC))))
+                                                               CONSTRAINT(rho,OP(e',AND,eC))))
 end
 
 relation reinlineI: (Env, Heap, Cstore, Istore) => (Env, Constraint) =
@@ -3030,7 +2954,7 @@ relation reinlineI: (Env, Heap, Cstore, Istore) => (Env, Constraint) =
 	inline(E0,S,H,C,Istore0,e) => (E',eC,e')
 	----------------------------------------------------
 	reinlineI(E,H,C,(S,CONSTRAINT(REQUIRED,e)) :: Istore0) => (E',COMPOUNDCONSTRAINT(C0,
-                                                                  CONSTRAINT(REQUIRED,COMBINE(e',AND,eC))))
+                                                                  CONSTRAINT(REQUIRED,OP(e',AND,eC))))
 end
 \end{lstlisting}
 
@@ -3044,12 +2968,12 @@ statement evaluation rules.
 relation twoPhaseUpdate: (Env, Heap, Cstore, Istore, Exp, Constraint) => (Env, Heap) =
   rule	stay(E) => CEs & stayH(H) => CHs & reinlineI(E,H,C,I) => (Ei,Ci) &
 	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(Ci,CEs),C0),
-		  COMPOUNDCONSTRAINT(CHs,CONSTRAINT(REQUIRED,COMPARE(e1,EQUAL,e2))))) => (E',H') &
+		  COMPOUNDCONSTRAINT(CHs,CONSTRAINT(REQUIRED,OP(e1,EQUAL,e2))))) => (E',H') &
 	identityStay(E') => CEs' & identityStayH(H') => CHs' &
         reinlineC(E',H',I,C) => (Ec,Cc) & welltyped(Ec,H',Cc) &
 	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(Cc,C0),
 						     COMPOUNDCONSTRAINT(CEs',CHs')),
-				  CONSTRAINT(REQUIRED,COMPARE(e1,EQUAL,e2)))) => (E'',H'')
+				  CONSTRAINT(REQUIRED,OP(e1,EQUAL,e2)))) => (E'',H'')
 	--------------------------------------------------
 	twoPhaseUpdate(E,H,C,I,IDENTITY(e1,e2),C0) => (E'',H'')
 end
@@ -3127,11 +3051,11 @@ relation step: (Env, Scope, Heap, Cstore, Istore, Statement) => (Env, Scope, Hea
 
   rule	alert(["S-Once\n"],[],[]) &
 	inline(E,S,H,C,I,e) => (E',eC,e') &
-	welltyped(E',H, CONSTRAINT(rho,COMBINE(e',AND,eC))) &
+	welltyped(E',H, CONSTRAINT(rho,OP(e',AND,eC))) &
 	identityStay(E') => CEs & identityStayH(H) => CHs &
 	reinlineC(E',H,I,C) => (E'', Cc) &
 	models(COMPOUNDCONSTRAINT(COMPOUNDCONSTRAINT(CEs, CHs),
-				  COMPOUNDCONSTRAINT(Cc, CONSTRAINT(rho,COMBINE(e',AND,eC))))) => (E''',H')
+				  COMPOUNDCONSTRAINT(Cc, CONSTRAINT(rho,OP(e',AND,eC))))) => (E''',H')
 	----------------------------------------------------
 	step(E,S,H,C,I,ONCE(CONSTRAINT(rho,e))) => (E''',S,H',C,I)
 
@@ -3813,14 +3737,6 @@ relation printE: babelsberg.Exp => () =
 	---------------------
 	printE(babelsberg.OP(e1, op, e2))
 
-  rule	printE(e1) & printComp(op) & printE(e2)
-	----------------------
-	printE(babelsberg.COMPARE(e1, op, e2))
-
-  rule	printE(e1) & printComb(op) & printE(e2)
-	----------------------
-	printE(babelsberg.COMBINE(e1, op, e2))
-
   rule	printE(e1) & print " === " & printE(e2)
 	----------------------
 	printE(babelsberg.IDENTITY(e1, e2))
@@ -3888,42 +3804,38 @@ relation printOp: babelsberg.Op => () =
   rule	print " * "
 	--------------
 	printOp(babelsberg.MUL)
-end
 
-relation printComp: babelsberg.Comp => () =
   rule	print " < "
 	------------------
-	printComp(babelsberg.LESSTHAN)
+	printOp(babelsberg.LESSTHAN)
 
   rule	print " <= "
 	-----------------
-	printComp(babelsberg.LEQUAL)
+	printOp(babelsberg.LEQUAL)
 
   rule	print " == "
 	-----------------
-	printComp(babelsberg.EQUAL)
+	printOp(babelsberg.EQUAL)
 
   rule	print " != "
 	-----------------
-	printComp(babelsberg.NEQUAL)
+	printOp(babelsberg.NEQUAL)
 
   rule	print " >= "
 	-----------------
-	printComp(babelsberg.GEQUAL)
+	printOp(babelsberg.GEQUAL)
 
   rule	print " > "
 	-------------------
-	printComp(babelsberg.GREATERTHAN)
-end
+	printOp(babelsberg.GREATERTHAN)
 
-relation printComb: babelsberg.Comb => () =
   rule	print " && "
 	---------------
-	printComb(babelsberg.AND)
+	printOp(babelsberg.AND)
 
   rule	print " || "
 	---------------
-	printComb(babelsberg.OR)
+	printOp(babelsberg.OR)
 end
 
 relation printRho: babelsberg.Rho => () =

@@ -2651,7 +2651,7 @@ constraints on the structures and references stored in variables.
 \todo{Example?}
 
 \subsection{Control Structures and Methods}
-
+\label{sec:contr-struct-meth}
 The full Babelsberg/Objects design still has the simple \verb|if| and
 \verb|while| control structures that were introduced for
 Babelsberg/PrimitiveTypes. In addition, however, Babelsberg/Objects
@@ -3197,183 +3197,209 @@ incremented and returned on each call.
 
 \todo{think about where we want to move this}
 
-\subsection{Arrays}
+While it is not strictly necessary to include collections such as
+arrays or sets in Babelsberg, supporting collections is useful in a
+variety of applications that use constraint-based programming. In
+particular, finite domain problems such as those found in logic
+puzzles often lend themselves well constraint-solving techniques,
+while their graphical representation and user-interface is usually
+more readily expressed using imperative code. This combination makes
+them an ideal example of the kinds of applications we want to support
+with this design.
 
-While it is not strictly necessary to include arrays in
-Babelsberg/Objects, we have used arrays in some examples that follow.
-We treat the length of an array is part of its structure, and use the
-same structural compatibility checks for the existence of array
-elements that we do for the existence of fields in a object.  Thus, we
-would not, for example, grow an array to allow a constraint on its
-$i^{th}$ element to be satisfied if it didn't already have an $i^{th}$
-element.
+\subsection{Constraints on Collection Predicates}
+\label{sec:constr-coll-pred}
 
-Here are some examples.
-
-Consider an iterative \verb|sum| method for the class \verb|Array|.
-This works as expected for normal imperative code.
-
+Until now, we have expressed constraints that correlate single
+variables or fields. Suppose that arrays in our language have a
+\verb!length! field and a number of indexed fields starting at
+\verb!0!, and that we can access these fields using square bracket
+notation. Thus treat the length and fields of an array as its
+structure, and use the same structural compatibility checks for the
+existence of array elements that we do for the existence of fields in
+a object.  Thus, we would not, for example, grow an array to allow a
+constraint on its $i^{th}$ element to be satisfied if it didn't
+already have an $i^{th}$ element. If we want to express that all
+fields in such an array should be pairwise different, we can do so in
+Babelsberg/Objects with a loop:
 \begin{verbatim}
-def sum()
-  ans := 0;
-  i := 0;
-  while i<self.length
-    ans := ans + self[i];
-    i := i+1;
-  end;
-  return ans;
-end
+i := 0;
+while i < array.length do (
+  j := 0;
+  while j < array.length do (
+    if i != j then always array[i?] != array[j?]
+    j := j + 1
+  );
+  i := i + 1
+)
+\end{verbatim}
+Such a constraint could be used, for example, in the implementation of
+a Sudoku game \cite{lynce2006sudoku}, to express the constraint that
+numbers must not repeat per cell, line, or column.
+
+The above code has two main problems, however. First, if we consider
+collections that can grow (or shrink), these constraints would then be
+incorrect --- they would either have to be redacted and the loops
+re-executed or after adding the above constraints once any changes to
+the size of the collection must be prohibited. Second, many
+object-oriented languages include a set of \acp{api} to work with
+collections, and rather than iterating manually, a method such as
+\verb!all_elements_different!, if available on the \verb!Array! class,
+should work in a constraint:
+\begin{verbatim}
+always array.all_elements_different()
 \end{verbatim}
 
-We can also use it in the forward direction in a constraint:
+There are a number of collection predicates that are commonly used in
+constraints and that would be useful to support. For these, we propose
+to check their actual implementation and allow them in a modified form
+of \gls{ccm}. In this mode, while rather simply executing through
+complex methods involving loops, we convert any operations involving
+array elements that are used as tests into constraints. Any indexing
+variable is treated as read-only. If the test would trigger an early
+return, we ignore the return and continue.
 
+Depending on the type of recognized test, the generated constraints
+must then added to a conjunction or disjunction. The system determines
+whether to use a conjunction or disjunction if the method uses an
+early return optimization. If, depending on an element test, the
+method would early return \verb!true!, the tests must be combined in a
+disjunction, since it is enough to satisfy just one test to have the
+method return the same. Otherwise, the elements are negated and added
+in to a conjunction.  Thus, an implementation of
+\verb!all_elements_different!  with the following implementation would
+be turned into a conjunction of pair-wise inequality constraints:
+\begin{verbatim}
+def all_elements_different()
+  i := 0;
+  while i < self.length do (
+    j := 0;
+    while j < self.length do (
+      if i != j && array[i] = array[j] then return false;
+      j := j + 1
+    );
+    i := i + 1
+  )
+\end{verbatim}
+The above code would generate a conjunction of constraints, because
+the early return is \verb!false!. The constraints in the conjunction
+would be for the tests to that early return, pair-wise constraining
+\verb!array[i] = array[j]! to be false (with the values of \verb!i!
+and \verb!j! fixed for each constraint).
+
+\begin{table}
+  \centering
+  \begin{tabular}{r|l}
+    \verb!every! & $\forall x\in \texttt{array}. f(x)$\\
+    \verb!some! & $\exists x\in \texttt{array}. f(x)$\\
+    \verb!member! & $y. \exists x\in \texttt{array}. x = y$\\
+  \end{tabular}
+  \caption{Mapping from collection predicates to declarative representation}
+  \label{tab:mapping-collection}
+\end{table}
+
+Some common predicates available on collections in Common Lisp are
+translated as per \autoref{tab:mapping-collection}. % Note that both the
+% test if some element satisfies a particular predicate as well as the
+% test for membership (the latter being a special case of the former)
+% require a disjunction. Without any other constraints, and since our
+% design does not use Prolog-style backtracking, they would probably
+% always be satisfied by setting the first (or last, depending on the
+% concrete implementation) element of the array.
+Even though this list contains only a few predicates, in practice many
+languages come only with a relatively small set of collection types
+that are supported at a language level. Languages with a rich
+collection library such as Common Lisp or Squeak/Smalltalk
+\cite{Ingalls1997Squeak} are built around a small number of types and
+primitive operations to access and store indexed elements in an
+object. Thus, implementing the special support needed to support these
+basic predicates enables their use in a variety of contexts, including
+methods that are built on top of these predicates. Examples for these
+are the Common Lisp methods \verb!notevery! which simply uses a
+negation of the predicate used in \verb!some! or \verb!notany!, which
+is the negation for \verb!every!.
+
+\subsection{Constraints on User-Defined Methods}
+\label{sec:constr-coll-pred}
+
+We do not intend to support every possible method that a collection
+may have in a practical implementation, in particular if that
+collection may be extended with user-defined methods. As an example,
+consider an iterative \verb|sum| method:
+\begin{verbatim}
+def sum()
+  answer := 0;
+  i := 0;
+  while i < self.length (
+    answer := answer + self[i];
+    i := i + 1
+  );
+  return ans
+end
+\end{verbatim}
+We can of course use this method in the forward direction in a
+constraint, according to the rules in
+\autoref{sec:additional-constraint-restrictions}:
 \begin{verbatim}
 a := new Array(2);
 a[0] := 10;
 a[1] := 20;
 s := 30;
 always s = a.sum();
-a[0] := 100;
+a[0] := 100
 \end{verbatim}
-
 After the \verb|always| constraint is executed, \verb|s| is 30; then
 after the final assignment to \verb|a[0]|, \verb|s| becomes 120.
-
 However, the method doesn't work backwards --- for example, we can't
 constrain the sum of the array and expect the system to update one or
 more elements to satisfy the constraint.  So the constraint in the
 last line below will be too hard for the system to solve:
-
 \begin{verbatim}
 a := new Array(2);
 a[0] := 10;
 a[1] := 20;
-always 50 = a.sum();
+always 50 = a.sum()
 \end{verbatim}
 
-We \emph{can} provide something that works both forward and backward
-by writing an ordinary method that sets up the appropriate network of
-addition constraints.  For this to work correctly, this method should
-take an argument that holds the sum of the array and that is mutable.
-We will use an instance of a class \verb|Cell| with a \verb|value|
-method that can be used to read or constrain the cell's value.  The
-following \verb|sum_equal| method sets up an appropriate network of
-constraints.
-
+We have found a design pattern for user code that works well in these
+situations that \emph{can} provide something that works both forward
+and backward. Rather than using a method that returns the calculated
+sum of the elements, we eagerly update the sum as the array changes in
+a variable. This can be done by writing an ordinary method that sets
+up the appropriate network of addition constraints. The \verb|sum|
+becomes an instance variable of our collection, and the implementation
+of that collection must take care to correctly initialize the
+constraint network when it is created or an element is added or
+removed:
 \begin{verbatim}
-def sum_equal(array,sum)
-  helper(array,0,sum);
-end;
-
-def helper(array, start, sum)
-  if start >= array.length() then always sum.value() = 0;
-    else 
-       partial := new Cell(0); /* create a local variable */
-       helper(array, start + 1, partial);
-       always sum.value() = array[start] + partial.value();
-  end if;
-end;  
+def initialize_sum()
+  if self.length = 0 then
+    always self.sum = 0
+  else (
+    sub_array := new Array(self.length - 1);
+    i := 1;
+    while i < self.length do (
+      sub_array[i - 1] := self[i];
+      always sub_array[i - 1] = self[i];
+      i := i + 1
+    )
+    always self.sum = self[0] + sub_array.sum
+  )
+end
 \end{verbatim}
+The advantage for code using the collection's sum in further
+constraints is, that it is used simply as a variable --- constraints
+on it can work both ways, and it can even be assigned and the array
+changes to satisfy the constraints. We will discuss additional useful
+design patterns in \autoref{sec:idioms}.
 
-Now our example works:
-
-\begin{verbatim}
-a := new Array(2);
-a[0] := 10;
-a[1] := 20;
-sum_equal(a, new Cell(50));
-\end{verbatim}
-
-If we subsequently set \verb|a[1]| to 5, \verb|a[0]| will become 45 to
-keep the constraints satisfied.
-
-Note that in contrast to the earlier version, the constraints are not
-automatically re-applied if \verb|a| is reassigned; the programmer
-needs to call \verb|sum_equal| again.
-
-Needing to call \verb|sum_equal| explicitly if \verb|a| is reassigned,
-as well as needing to use instances of \verb|Cell| to hold the sum, is
-slightly annoying.  We can address both of these issues by making
-\verb|sum| be an instance variable of arrays, and setting up the
-necessary network of constraints in the array's \verb|initialize|
-method.  (We're still using \verb|Cell| in the helper method, but it's
-not visible outside that method.)
-
-\begin{verbatim}
-def initialize()
-  c := new Cell(0);
-  always c.value()=self.sum();
-  helper(self,0,c);
-end;
-\end{verbatim}
-
-As an aside, we expect that we will discover additional useful design
-patterns (like the pattern for constructing multi-way constraints on
-collections) as we make further use of the Babelsberg implementations.
-
-It is tempting to write \verb|sum| as a method that returns the sum
-and that still can be used multi-directionally, perhaps:
-
-\begin{verbatim}
-def sum()
-  return self.sum_from(0);
-end;
-
-def sum_from(start)
-  if start >= self.length
-    then return 0
-    else return self[start] + self.sum_from(start+1);
-  end;
-end;
-\end{verbatim}
-
-Unfortunately, this doesn't meet the restriction that methods called
-from constraints consist only of a single return statement.  Worse, if
-we tried inlining it, the method would expand infinitely.  So, at
-least for now, \verb|sum_equal| seems like it is as good as we can do.
-
-A related example is a method for \verb|Array| that tests whether the
-argument is one of the elements of that array.
-
-\begin{verbatim}
-def contains(x)
-  i:=0;
-  while i<self.length && self[i]!=x
-    i:=i+1;
-  end;
-  return i<self.length;
-end;
-\end{verbatim}
-
-Since this includes more than one statement, it can only be used in
-a constraint in the forward direction:
-\begin{verbatim}
-a := Array.new(10);
-a.fill(100);
-c := false;
-always c = a.contains(5);
-a[3] := 5;
-\end{verbatim}
-
-The analogous method to \verb|sum_equal|, say \verb|must_contain|,
-unfortunately would not be very useful: since we don't have
-Prolog-style backtracking, it would probably just be satisfied in the
-reverse direction by setting the first element of the array.
-
-
-
-~4 pages
-
-- collection apis
-
-- sets are a nice declarative feature
-
-- objects usually don't care what they are in
-
-- need to worry about stuff like early return optimizations
-
-- collections implemented on top of each other, but breaks down to
-complex objects problem
+% ~4 pages
+% - collection apis
+% - sets are a nice declarative feature
+% - objects usually don't care what they are in
+% - need to worry about stuff like early return optimizations
+% - collections implemented on top of each other, but breaks down to
+% complex objects problem
 
 \chapter{Semantics}
 \label{sec:semantics}
@@ -5072,7 +5098,7 @@ performance overhead. We present implementations of all selection
 procedures in \autoref{part:impl-object-constr}.
 
 \section{User-defined Constraint Solvers}
-\label{sec:constr-with-capable}
+\label{sec:user-defined-constraint-solvers}
 
 In the Babelsberg design, all solvers use the same interface to
 communicate with the \ac{vm} so developers can add new solvers and
@@ -5108,6 +5134,14 @@ minimum two functions:
   assignments and for propagating the values of read-only variables in
   the cooperating solvers architecture.
 \end{description}
+
+\todo{describe figure once I've drawn it}
+\begin{figure}
+  \centering
+  \missingfigure[figheight=8cm]{}
+  \caption{Interactions Between Imperative Code and Solvers}
+  \label{fig:solver-interaction}
+\end{figure}
 
 % - define the common interface we use for solvers
 
@@ -5625,43 +5659,41 @@ always { twp_str.each {|byte| byte >= ?A \&\& byte <= ?Z} }
 \label{part:object-constr-progr-1}
 \label{sec:implementation-1}
 
-\paragraph{Babelsberg/JS}
-\label{sec:babelsbergjs}
+We have implemented Babelsberg/JS \cite{FelgentreffECOOP14} in the
+Lively Kernel \javascript environment \cite{lively-kernel-2008} and
+Babelsberg/S \cite{GraberREBLS2014} in Squeak/Smalltalk
+\cite{Ingalls1997Squeak}. Both languages are implemented as libraries
+without \ac{vm} support. Their implementation are sufficiently similar
+that we present only the \javascript implementation; the Squeak
+implementation is analogous.
 
-We have implemented Babelsberg/JS in the Lively Kernel environment
-\cite{lively-kernel-2008}.  We
-provide pure \javascript implementations of DeltaBlue and Cassowary as
-constraint solvers and extend the Lively Kernel \javascript interpreter
-to evaluate constraint expressions. The code is not Lively specific --
-we use the collection \acp{api} and class system of Lively, but this
-could be trivially changed. However, when used in the Lively
-environment, we provide a source transformation that makes writing
-constraints in the Object Explorer \cite{lively-partsbin-2012} more
-convenient.
-
-\paragraph{Babelsberg/S}
-\label{sec:babelsbergs}
-
+In Babelsberg/JS, we provide pure \javascript implementations of all
+types of constraint solvers presented in \ref{sec:constr-solv-strat}.
+Furthermore, we use a \javascript interpreter written in \javascript
+to evaluate constraint expressions. Although Babelsberg/JS is
+developed in the Lively Kernel, the code is not Lively
+specific. However, when used in the Lively environment, we provide
+tools that make writing constraints and adding them to \emph{parts}
+\cite{lively-partsbin-2012} more convenient.
 
 \section{Imperative and Declarative Execution}
-Like the  \ac{vm}-based approach, the library  approach uses different
-modes of execution  to interpret and solve  constraints. A consequence
-of  implementing   Babelsberg  as  a   library  in  a   language  like
+Like the \ac{vm}-based approach, the library approach uses different
+modes of execution to interpret and solve constraints. A consequence
+of implementing Babelsberg as a library in a language like
 \javascript, which does not provide language-level access to the local
 scope, is that local variables cannot be solved for in constraints.
 
 \subsection*{Imperative Execution}
-Without modifying  the \acrlong{vm},  the normal  imperative execution
-mode  is unchanged.   To support  reading and  writing to  constrained
-variables, variables are wrapped  during constraint construction using
-accessors that call into the  solver as needed.  This trivially avoids
-any performance  impact when constraints  are not used, but  relies on
-the underlying  \ac{jit} to optimize access  to constrained variables.
-As  in  Babelsberg/R,  reading  a   variable  from  the  solver  calls
-\verb!value! on  the solver object  instead of returning  the original
+Without modifying the \acrlong{vm}, the normal imperative execution
+mode is unchanged.  To support reading and writing to constrained
+variables, variables are wrapped during constraint construction using
+accessors that call into the solver as needed.  This trivially avoids
+any performance impact when constraints are not used, but relies on
+the underlying \ac{jit} to optimize access to constrained variables.
+As in Babelsberg/R, reading a variable from the solver calls
+\verb!value! on the solver object instead of returning the original
 variable. Writing calls \verb!suggestValue!, which raises an exception
 if an assignment would make existing constraints unsatisfiable.
-
 
 \subsection*{Constraint Construction}
 \label{sec:constr-constr}
@@ -5676,8 +5708,8 @@ Firefox's SpiderMonkey \cite{gal-tracejit-2009}, or Microsoft's
 Chakra\footnote{http://en.wikipedia.org/wiki/Chakra (JScript engine)})
 do not provide direct access to the native interpreter or execution
 context of the caller, so our interpreter cannot look up names used in
-the constraint expression in the caller's environment. Instead, those names
-have to be passed explicitly.
+the constraint expression in the caller's environment. Instead, those
+names have to be passed explicitly.
 
 Babelsberg/JS provides a source-to-source transformation based on
 \mbox{\emph{UglifyJS}}\footnote{http://lisperator.net/uglifyjs/}, which

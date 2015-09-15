@@ -203,14 +203,16 @@ analysis over multiple executions. Unfortunately, a key requirement for this
 approach is that failures must be deterministic.
 
 To debug non-deterministic, timing\-/dependent network communication, we have
-proposed \emph{record and refinement}, an extension to the Path Tools
-framework called \toolname~\cite{felgentreff2013wasdett}. We record network
-communication schedules and analyze the differences between executions to detect
-anomalies that are likely causes of the non\-/deterministic failure. We
-constrain the distributed system to the failing schedules by modifying its
-network communication analogous to a traffic shaper~\cite{IetfShaper}. If the
-constrained system reproduces the failure repeatedly, developers can request and
-refine more data from the live system with the help of Path Tools.
+proposed an approach we call \emph{record and refinement}. We have also
+implemented this approach as an extension to the Path Tools framework called
+\toolname~\cite{felgentreff2013wasdett}. The approach relies on recording
+network communication schedules and analyzing the differences between executions
+to detect anomalies that are likely causes of the non\-/deterministic
+failure. We then constrain the distributed system to the failing schedules by
+modifying its network communication analogous to a traffic
+shaper~\cite{IetfShaper}. If the constrained system reproduces the failure
+repeatedly, developers can request and refine more data from the live system
+with the help of Path Tools.
 
 To selectively modify the live system for our incremental recording and
 analysis, we describe a technique to transparently enable core library
@@ -222,42 +224,38 @@ Our combined approach imposes low overhead, provides a top-down view on
 timing\-/dependent communication, and still allows developers to inspect
 run-time data from the live system during debugging. In this paper, we describe
 the implementation of these techniques in our prototype \toolname and its
-integration with our Path Tools framework. The contributions with respect to our
-implementation in Squeak/Smalltalk~\cite{Ingalls1997} are:
-
+integration with our Path Tools framework. The contribution of this approach are:
 \begin{itemize}
-
-\item An architectural overview of our Path Tools framework that
-  provides debugging tools for our test-driven fault navigation.
-
-\item An extension to the Path Tools framework---\toolname---for
-  debugging non-deterministic failures, that implements our record and
-  refinement approach.
-
-\item An implementation technique based in \ac{cop} that allows us to
-  safely adapt core library code in a self-sustaining development
-  environment.
-
+\item A combination of communication recording and anomaly detection techniques
+  help developers identify failing communication schedules.
+\item A novel use of traffic shaping in conjunction with the incremental
+  analysis provided by test-driven fault-navigation allows developers to split
+  the recording and refinement of debugging data over multiple runs, thus
+  imposing low overhead on the system and allowing debugging in the live system.
 \end{itemize}
 
-The rest of this paper is structured as
-follows: Section~\ref{sec:background} introduces a motivating example
-and the underlying programming environment.
-%
-Section~\ref{sec:pathTools} presents our existing test-driven fault
-navigation debugging approach with a focus on the implementation of
-our corresponding Path Tools framework.
-%
-Section~\ref{sec:approach} illustrates our record and refinement
-approach and the \toolname extension.
-%
-Section~\ref{sec:cont-scop-core} describes how we scoped core library
-modifications with \ac{cop}.
-%
-Section~\ref{sec:discussion} discusses our implementation and how it
-could be applied to other environments.
-%
-Section~\ref{sec:related-work} presents related work and Section~\ref{sec:conclusions} concludes.
+The contributions with respect to our tool's implementation in
+Squeak/Smalltalk~\cite{Ingalls1997} are:
+\begin{itemize}
+\item An architectural overview of our Path Tools framework that provides the
+  debugging tools used for our incremental refinement and test-driven fault
+  navigation.
+\item The description of \toolname that implements our record and refinement
+  approach, and which extends the Path Tools framework for debugging
+  non-deterministic failures.
+\end{itemize}
+
+Our approach is heavily driven by a concrete non-deterministic failure that we
+experienced in a distributed application and how we extended our Path Tools
+framework to debug this kind of failure. The original application is not open
+source, but we describe a smaller application that exhibits a similar bug in
+Section~\ref{sec:background}. Because this failure was difficult to debug using
+standard tools, we show how we extended our existing test-driven fault
+navigation approach (Section~\ref{sec:pathTools}) with \toolname, illustrated in
+Section~\ref{sec:approach}. From this practical implementations, we distill the
+general components for record and refinement
+(Section~\ref{sec:dist-conc-record}). Section~\ref{sec:related-work} presents
+related work and Section~\ref{sec:conclusions} concludes.
 
 % Context:
 % much distributed applications development, inherent communication
@@ -339,12 +337,8 @@ my cart just fine, but with a different price than what was displayed
 in the list when I clicked it.%
 \footnote{We provide an simplified implementation of this service,
   including tests and the tools described in this paper as a
-  stand-alone Squeak bundle at
-  \url{http://myhpi.de/~tim.felgentreff/EST-6-Peek-At-Talk-All-in-One.app.zip}
-  and as a \textsc{SHARE}\cite{van2011share} \textsc{VM} at
-  \url{https://is.ieis.tue.nl/staff/pvgorp/share/}. The \textsc{VM}
-  includes a screencast, which is also available at
-  \url{http://myhpi.de/~tim.felgentreff/EST-6-Peek-At-Talk-Screencast.mp4}}
+  stand-alone \textsc{SHARE}\cite{van2011share} \textsc{VM} at
+  \url{https://is.ieis.tue.nl/staff/pvgorp/share/}.}
 \end{quote}
 
 The above bug report contains the word "sometimes", indicating a degree of non-determinism. 
@@ -433,43 +427,73 @@ We use assertions to classify recorded network communication schedules in relati
 
 \subsection{Test-driven Fault Navigation}
 
-To debug such difficult failures,  our \emph{test-driven fault navigation}~\cite{Perscheid13} provides developers an interconnected debugging guide that integrates anomaly detection~\cite{Jones2002Vti,Ernst2007Tds} into a systematic breadth-first search for tracing failure causes back to defects.
-Starting with at least one test case that reproduce the observable failure, we localize anomalies by comparing behavior and state of all failed and passed test cases. 
+To debug such difficult failures, our \emph{test-driven fault
+  navigation}~\cite{Perscheid13} provides developers with a debugging
+guide. This guide interconnects multiple light-weight debugging tools into a
+framework that supports complex debugging scenarios and guides developers
+through from tool to tool. To do so, Path Tools applies anomaly
+detection~\cite{Jones2002Vti,Ernst2007Tds} to find likely failure causes and
+uses a breadth-first search for tracing failure causes back to defects, starting
+at a high abstraction level and guiding the developer to the low level defective
+code that caused the failure. To do so, Path Tools starts with at least one test
+case that reproduces the observable failure and a number of test cases that show
+desired behavior, localizes anomalies by comparing behavior and state of all
+failed and passed test cases, and provides entry points for debugging.
 %
-For behavior anomalies, we are looking for methods being executed by a large number of failing but only a few passing tests.
-These methods have a higher failure cause probability (anomaly) than methods being executed by less failing but many passing test cases.
-%
-For state anomalies, we first derive likely invariants from passing test cases and then create dynamic contracts that verify the collected object properties.
-Differences during the execution of failing test cases uncover state anomalies that have a high probability to include failure causes. 
-%
-To reveal infection chains and explain how failure causes are related to each other, we integrate these anomalies into our lightweight back-in-time debugger~\cite{Perscheid2010} and so allow developers to distinguish between suspicious and expected run-time behavior and state. 
-Thus, our execution histories include additional information about failure cause probabilities that gives developers helpful advice on how to follow infection chains back to their root causes.
+To find anomalies, we are looking for methods that are executed by failing tests
+cases, but not (or only rarely), by passing tests. These methods have a higher
+failure cause probability (anomaly) than methods being executed by less failing
+but many passing test cases.
 
 \begin{figure*}\centering
 \includegraphics[width= 1.0\textwidth]{screenshots/PathTools}
 \caption{\label{fig:pathTools}PathMap as an extended test runner and PathFinder as a lightweight back-in-time debugger implement our test-driven fault navigation.}
 \end{figure*}
 
-We implement our test-driven fault navigation as part of the Path Tools framework\footnote{\url{http://www.hpi.uni-potsdam.de/hirschfeld/trac/SqueakCommunityProjects/wiki/pathToolsFramework}} for the Squeak/Smalltalk development environment~\cite{Ingalls1997}.
-The tool suite  as presented in \figurename\,\ref{fig:pathTools} mainly consists of our enhanced test runner PathMap~\cite{Perscheid12Tqf} and our lightweight back-in-time debugger PathFinder~\cite{Perscheid2010}.
+We implement our test-driven fault navigation as part of the Path Tools
+framework\footnote{\url{http://www.hpi.uni-potsdam.de/hirschfeld/trac/SqueakCommunityProjects/wiki/pathToolsFramework}}
+for the Squeak development environment~\cite{Ingalls1997}.  The tool suite as
+presented in \figurename\,\ref{fig:pathTools} mainly consists of our enhanced
+test runner PathMap~\cite{Perscheid12Tqf} and our lightweight back-in-time
+debugger PathFinder~\cite{Perscheid2010}.
 %PathMap
-PathMap is an extended unit test runner that does not only verify test cases but also localizes failure causes. 
-Its integral components are from left to right a testing control panel (A), a compact tree map visualization of the software system (B), and several flaps for accessing various analysis techniques (C).
-Especially, the flaps on the right (C) set PathMap into specific analysis modes for collecting valuable feedback during the execution of test cases. 
-With the activated \emph{fault localization} flap, we automatically record method coverage of test cases, compute spectrum-based anomalies~\cite{Jones2002Vti}, and color the tree map (B) with suspiciousness and confidence scores (the more red the higher the failure cause probability).
+PathMap is an extended unit test runner that does not only verify test cases but
+also localizes failure causes.  Its integral components are from left to right a
+testing control panel (A), a compact tree map visualization of the software
+system (B), and several flaps for accessing various analysis techniques (C).
+Especially, the flaps on the right (C) set PathMap into specific analysis modes
+for collecting valuable feedback during the execution of test cases.  With the
+activated \emph{fault localization} flap, we automatically record method
+coverage of test cases, compute spectrum-based anomalies~\cite{Jones2002Vti},
+and color the tree map (B) with suspiciousness and confidence scores (the more
+red the higher the failure cause probability).
 %PathFinder
-PathFinder is our lightweight back-in-time debugger for exploring specific test case executions with a special focus on fault localization. 
-Not only does it provide immediate access to run-time information~\cite{Perscheid2010}, but also classifies traces with suspicious behavior~\cite{Perscheid} and anomalous state~\cite{Perscheid14aFtp}. 
-Its main components are a control panel on the top (1) and the test case execution history in form of a call tree (2) below.
-From top to bottom, each node represents one method call and their subtrees describe its called methods. 
-Developers can follow traces in both directions and explore more details on demand.
-After indicating interest in a specific argument, receiver, or return object, we reexecute the test case, make a deep copy of the requested object, and present it in an object explorer on the right (2). 
-To integrate anomalies into the execution history, we reuse the colors from PathMap and map violated contracts by adding small exclamation marks (3) to methods.
+PathFinder is our lightweight back-in-time debugger for exploring specific test
+case executions with a special focus on fault localization.  Not only does it
+provide immediate access to run-time information~\cite{Perscheid2010}, but also
+classifies traces with suspicious behavior~\cite{Perscheid} and anomalous
+state~\cite{Perscheid14aFtp}.  Its main components are a control panel on the
+top (1) and the test case execution history in form of a call tree (2) below.
+From top to bottom, each node represents one method call and their subtrees
+describe its called methods.  Developers can follow traces in both directions
+and explore more details on demand.  After indicating interest in a specific
+argument, receiver, or return object, we reexecute the test case, make a deep
+copy of the requested object, and present it in an object explorer on the right
+(2).  To integrate anomalies into the execution history, we reuse the colors
+from PathMap and map errors into the call tree by adding small exclamation marks
+(3) to methods.
 %Analysis framework
-Finally, the Path analysis framework provides the basis for our tools on top of the SUnit testing framework\footnote{We consider unit test frameworks as a technique for implementing different kinds of test cases such as acceptance, integration, and module tests.} and implements our  \emph{incremental dynamic analysis} that ensure a feeling of immediacy when debugging with our approach~\cite{Perscheid13}.
-Based on reproducible entry points such as test cases that always ensure the same execution path, this analysis interactively splits the expensive dynamic analyses over multiple runs.
-So, we can ensure a high degree of automation, scalability, and performance during debugging with our tools.
-For a more detailed description of our tools and how to debug with them, we refer to \cite{Perscheid14bFtp}. 
+Finally, the Path analysis framework provides the basis for our tools on top of
+the SUnit testing framework\footnote{We consider unit test frameworks as a
+  technique for implementing different kinds of test cases such as acceptance,
+  integration, and module tests.} and implements our \emph{incremental dynamic
+  analysis} that ensure a feeling of immediacy when debugging with our
+approach~\cite{Perscheid13}.  Based on reproducible entry points such as test
+cases that always ensure the same execution path, this analysis interactively
+splits the expensive dynamic analyses over multiple runs.  So, we can ensure a
+high degree of automation, scalability, and performance during debugging with
+our tools.  For a more detailed description of our tools and how to debug with
+them, we refer to \cite{Perscheid14bFtp}.
 
 One important requirement of our test-driven fault navigation is the reproducibility of failures.
 Unfortunately, the bug report from above contains the word ``sometimes'', indicating that the failure did not occur consistently, because of one or more sources of
@@ -490,42 +514,57 @@ Before we present the extension to our Path Tools framework, we first introduce 
 \caption{\label{fig:pathArchitecture}The Path Tools framework is integrated into the Squeak/Smalltalk development environment and consists of a dynamic analysis framework and our tool suite.}
 \end{figure*}
 
-At the top, our \emph{Path Tool suite} consists of the small helper tool PathProject, the extended test runner PathMap and the lightweight back-in-time debugger PathFinder. 
-\emph{PathProject} defines the scope of all further Path Tools and our incremental dynamic analysis. 
-Therefore, this tool requires access to the source code in order to specify the system under observation. 
-\emph{PathMap} needs Smalltalk’s testing \ac{api} to control the underlying unit test framework, the reflection \ac{api} to determine a tree map of the system’s structure, and the incremental dynamic analysis \ac{api} to reveal anomalies with the refined coverage and inductive analysis. 
-\emph{PathFinder} applies the testing and reflection \ac{api} to control specific test runs and to show source code in corresponding call trees. 
-Such call trees are built with the help of our incremental dynamic analysis \ac{api} that starts step-wise run-time analysis~\cite{Perscheid2010} and assigns anomalies.
+At the top, our \emph{Path Tool suite} consists of the small helper tool
+PathProject, the extended test runner PathMap and the lightweight back-in-time
+debugger PathFinder.  \emph{PathProject} defines the scope of all further Path
+Tools and our incremental dynamic analysis.  Therefore, this tool requires
+access to the source code in order to specify the system under observation.
+\emph{PathMap} needs Smalltalk’s testing \ac{api} to control the underlying unit
+test framework, the reflection \ac{api} to determine a tree map of the system’s
+structure, and the incremental dynamic analysis \ac{api} to reveal anomalies.
+\emph{PathFinder} applies the testing and reflection \ac{api} to control
+specific test runs and to show source code in corresponding call trees.  Such
+call trees are built with the help of our incremental dynamic analysis \ac{api}
+that starts step-wise run-time analysis~\cite{Perscheid2010} and assigns
+anomalies.
 
 
-In the middle of our architecture, the \emph{Path analysis framework} supports the observation of unit test behavior by implementing our incremental dynamic analysis. 
-The \emph{refined coverage analysis} rapidly records the relationship between unit tests and executed methods and refines statement coverage of selected methods on demand by re-executing their corresponding test cases. 
-With the help of this analysis, PathMap reveals behavior anomalies within a short amount of time and at different levels of detail. 
-\emph{Step-wise run-time analysis} divides the dynamic analysis of one specific test case over multiple runs. 
-PathFinder applies this analysis to record a simple method call tree, highlight anomalies in the execution history, and refine additional behavioral information. 
-\emph{Inductive analysis} harvests generic object properties and generates dynamic contracts of passing test cases for revealing state anomalies. 
-We rely on method wrappers and Smalltalk’s interpreter simulation for recording run-time information. 
-At the level of methods, we collect run-time information with flexible method wrappers~\cite{Brant1998wtr}: 
-	a wrapper introduces new behavior before and after the execution of a specific method without changing its original behavior. 
-Depending on the chosen analysis technique, wrappers collect among others coverage, method calls, and state refinements. 
-To record statements of a specific method, a special wrapper starts and stops Smalltalk’s simulation engine that analyzes dedicated byte codes only. 
-Both analysis techniques are necessary since a full simulation would slow down the execution by a factor of at least 100. 
-Finally, the framework stores all collected measurements and makes this data available to any interested tool. 
+In the middle of our architecture, the \emph{Path analysis framework} supports
+the observation of unit test behavior by implementing our incremental dynamic
+analysis.  The \emph{refined coverage analysis} rapidly records the relationship
+between unit tests and executed methods and refines statement coverage of
+selected methods on demand by re-executing their corresponding test cases.  With
+the help of this analysis, PathMap reveals behavior anomalies within a short
+amount of time and at different levels of detail.  \emph{Step-wise run-time
+  analysis} divides the dynamic analysis of one specific test case over multiple
+runs.  PathFinder applies this analysis to record a simple method call tree,
+highlight anomalies in the execution history, and refine additional behavioral
+information. We rely on method wrappers and Smalltalk’s interpreter simulation
+for recording run-time information.  At the level of methods, we collect
+run-time information with flexible method wrappers~\cite{Brant1998wtr}: a
+wrapper introduces new behavior before and after the execution of a specific
+method without changing its original behavior.  Depending on the chosen analysis
+technique, wrappers collect among others coverage, method calls, and state
+refinements.  To record statements of a specific method, a special wrapper
+starts and stops Smalltalk’s simulation engine that analyzes dedicated byte
+codes only.  Both analysis techniques are necessary since a full simulation
+would slow down the execution by a factor of at least 100.  Finally, the
+framework stores all collected measurements and makes this data available to any
+interested tool.
 
 
 Our Path Tools framework only requires source code and unit tests from the Squeak/Smalltalk system. 
 We access and analyze these two program artifacts with our three different \ac{api}s. 
 First, the \emph{testing and reflection \ac{api}} is required by all Path Tools in order to access unit tests and the structure of the system. 
-It controls test executions, introspects program entities, and activates dynamic contracts. 
+It controls test executions and introspects program entities.
 Second, the \emph{method wrappers and simulation \ac{api}} summarizes all meta-programming features for our incremental dynamic analysis. 
 It offers a flexible way to implement arbitrary tracers and data structures that record run-time behavior such as call trees and invariants. 
-Third, the \emph{code generation \ac{api}} is only required after harvesting invariants and allows for creating corresponding dynamic contracts in source code.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\section{Record and Refinement}
+\section{\toolname --- Record and Refinement in Squeak/Smalltalk}
 \label{sec:approach}
 
 Recall the original bug report for the flight booking service failure
@@ -685,7 +724,7 @@ successful executions will ensure that the anomaly detection can
 exclude variances that have little or no impact on the failure. If the
 servers exhibit other non-determinism, additional detection of such is
 required to discards unsuitable executions, \eg if a load balancer is
-present, the test script has to fail if a different server is used
+present, the test script has to fail if a different server is used.
 
 \toolname uses the PathFinder tool from the Path Tools suite to
 display anomalies. After data for a test case has been recorded,
@@ -937,7 +976,7 @@ information that developers request.
 % % re-implementation of setup in Smalltalk, debugging with our tools
 
 
-\section{Scoping Core Library Modifications} %Context-oriented Programming in Smalltalk: ContextS}
+\subsection{Scoping Core Library Modifications} %Context-oriented Programming in Smalltalk: ContextS}
 %\subsection{Context/S for Scoping Core Changes}
 \label{sec:cont-scop-core}
 
@@ -1026,40 +1065,161 @@ systems and record method arguments and return values on the remote
 system. Currently, such detailed information is only provided for the
 local system.
 
-\section{Discussion}
-\label{sec:discussion}
+\section{Distilled Concepts of Record and Refinement}
+\label{sec:dist-conc-record}
 
-We argue that our approach can easily be adapted to other object-oriented programming languages that include a unit test framework. 
-To implement our Path Tools framework, the language and its libraries have to support dynamic and static analysis techniques. 
-While the dynamic analysis can easily be implemented with aspect-oriented programming~\cite{gschwind2003idd}, 
-static analysis can be done with external analysis tools or reflection capabilities of the host language.
-For \toolname, we additionally require \ac{cop} in order to scope changes in core libraries. 
-This language extension is nowadays available for a range of programming languages~\cite{Appeltauer2009}.
+We argue that our approach can easily be adapted to other object-oriented
+programming languages. We have embedded our prototype in the Path Tools
+framework, showing that it is not necessary to support an entire back-in-time
+debugger to implement our approach. The Path Tools framework only relies on some
+dynamic analysis techniques, that can be easily implemented, for example, with
+aspect-oriented programming~\cite{gschwind2003idd} or reflection capabilities of
+the host language. For \toolname, we used \ac{cop} to scope recording and
+traffic shaping in core libraries. This language extension is available for a
+range of programming languages~\cite{Appeltauer2009}, and thus an implementation
+in another programming system could use a similar approach.
 
-The presented approach currently has two main limitations. First, our
-low-overhead recording and schedule shaper depend on the determinism
-of each server. Consequently, if other sources of non-determinism,
-such as system calls to \texttt{random} or \texttt{gettimeofday}, have
-an impact on the failure, we cannot currently reproduce it. This can
-be fixed by recording more sources of non-determinism, at the expense
-of increased overhead. This can be easily implemented with additional
-layered methods around such non-determinism. However, our scheduler
-could still use that additional data to constrain the live system to
-reliably reproduce a failure, and the rest of our approach still
-applies.
+\subsection{Identifying Entry Points for Debugging}
 
-Second, our approach currently only works in the \emph{closed-world}
-case, in which all processes that participate in the distributed
-system include our recording and scheduler layers. If that is not the
-case, we need to extend our approach in two ways to support an
-\emph{open-world} case: first, we need to use a discovery mechanism to
-tell participating processes from non-participating processes. Second,
-for non-participating processes, we need to record the message
-contents besides what we currently record. If a schedule is later
-applied to the live system, events from and to non-participating
-systems are replayed from the recorded data. Note that this may not
-work if data returned from non-participating servers is
-time-dependent, in which case our approach is not applicable.
+Our implementation uses a script similar to a test case, which we call a
+\emph{diagnosis script}. More generally, any program that acts as a client in
+the distributed system and that can be run over a longer period of time while
+the participating nodes are recording network events is suitable for our
+approach. One has to ensure that the execution of the script itself does not
+disrupt the system so much as to cause a denial of service. As the script is
+running, the participating nodes record only the most basic information to
+recreate the order of messages that was sent.
+
+To aid developers establish causal relationships between different program
+states, events, and subsequent failures, we have implemented logical schedules
+for this in \toolname (\cf{Section~\ref{sec:minimal-recording}}), and we argue that
+this is the most suited approach at communication recording, given that it is
+still widely used~\cite{Konuru2000,Stanley2009,Geels2006Replay,altekar2009odr}
+and extension such as Vector Clocks~\cite{Mattern1988}, Version
+Vectors~\cite{Parker1983}, and Interval Tree Clocks~\cite{Paulo} exist for more
+specific scenarios.
+
+Note that our approach only works under the assumption that each server in the
+network is in itself deterministic, and that any non-determinism is introduced
+by access-races to shared resources, i.e. the network and other servers. If each
+node is indeed deterministic, that means that if network requests arrive in the
+same order, the same \emph{class} of output---correct or incorrect---is
+produced. Furthermore, we assume that nodes and the network are well-behaved,
+meaning, that nodes do not suddenly change their \textsc{IP} addresses, and
+network segments do not suddenly disappear, making nodes unreachable. This may
+preclude usage of our approach for less dependable networks.
+
+We correlate events from the live system over multiple runs to help developers
+understand the reasons why one particular log ends with a failure while another
+exhibits none, and reduce the entry points into the distributed program that the
+developer has to check. We find that sequence diagrams are well suited to model
+network schedules as a \emph{call tree}, with requests and responses
+representing asynchronous message sends and returns. To compare these network
+schedules, we have used the the \ac{lcs} algorithm in our prototype. While it
+seems to give good results, we lack experience with the approach to fully
+recommend it, and alternative differencing algorithms should be explored.
+
+In the implementation, we also weigh differences in communication schedules
+according to the following heuristic, where $N$ is a function that maps from
+network events to sets of traces that include them, $P$ is a function that maps
+from network events to sets of passing traces that include them, and $W$ is a
+function that assigns each event a probability from $0$ to $1$ to be good entry
+point for debugging.
+\begin{align*}
+  \label{eq:1}
+  T & = \text{set of trace event sets} \\
+  N(event) & = \{ T_{i} \in T | event \in T_{i} \} \\
+  P(event) & = \{ T_{i} \in N(event) | T_{i} \text{ is pass} \} \\
+  W(event) & = \left\{
+    \begin{array}{l l}
+      \left(1 - \frac{|N(event)|}{|T|}\right)^2 & \qquad \text{if } N(event) = P(event) \\
+      \sqrt[12]{\left|0.5 - \frac{|P(event)|}{|N(event)|}\right|} & \qquad \text{else}
+    \end{array}
+  \right.
+\end{align*}
+
+The heuristic considers interesting sequences to be critical regions in the
+communication schedule, where even slight variations may cause a failure. These
+are typically sequences that vary little between successful runs, but are
+different for failing runs. The variations that occur within successful runs can
+be considered robust regions of communication, where variance has little or no
+impact on the successful execution. If we compare successful schedules against
+the failing schedules, and subtract the variances within the successful
+schedules themselves, we can find sequences that vary only between the passing
+and the failing schedules. Those may be of particular interest to the developer,
+because they are likely to be related to the failure. When failing schedules
+have variances within themselves, we can further use this to mark these
+variances as less likely causes than others.  Variances within the failure
+schedules that also vary against all of the passing schedules are more likely to
+be only on the path of the infected state of the program, not the cause of the
+defect itself. Finally events that occur late in the schedule are less likely to
+be the original cause of a failure. To express this in our heuristic, we adjust
+the probabilities linearly with respect to the sequence number of the event
+within the schedule. The main issue with our heuristic is that it needs a large
+number of test runs with a sufficient number of both passes and failures.
+
+\subsection{Incremental Refinement of Distributed Debugging Data}
+
+The final piece to our approach is the combination of \emph{traffic
+  shaping}~\cite{IetfShaper} with incremental recording and refinement of
+debugging data. Traffic shaping is a commonly used approach to influence network
+communication, and our work recording and refinement in the context of
+test-driven fault navigation~\cite{Perscheid} is combined here to constrain the
+communication in the system to failing communication schedules. The traffic
+shaping is implemented in \toolname as the \emph{scheduler}, inserted between
+the application framework code responsible for sending and receiving, and the
+underlying language or operating system primitives.
+
+The use of a traffic shaper means that our approach can only be used in
+scenarios where all participants that were active during recording are active
+during replay as well. A practical implementation should communicate to the
+developers when this is not the case, so the developer can take appropriate
+action, such as choosing another schedule or ensuring the required servers are
+indeed online. Generally, such a traffic shaper has to control all points in a
+given framework where application layer requests are received and released. A
+possible algorithm for such a scheduler is given in
+Section~\ref{fig:reorder-sched}. Such a scheduler will have to distinguish whether
+the framework is using multiple threads of execution or just one.
+
+For our assumption of determinism on each server to hold, multi-threaded servers
+need to be synchronized on send and receive events, by using some kind of
+synchronization mechanism such as, for example, semaphores. When a request is
+received, the scheduler checks whether all requests that are expected to arrive
+before this request have been received. If they have, the requests can be
+released into the framework. Otherwise, the current thread of execution has to
+be suspended until all previously scheduled requests have been received. Upon
+release of a request into the framework, all threads waiting on this request can
+be released, too. Similarly, for sending responses, the scheduler holds those
+responses until all previously scheduled responses have been sent by the
+framework.
+
+Single threaded servers as they are used, for example, for event loops, cannot
+be stopped if a request arrives too early, as that would prevent any other
+requests from being processed. In this case, the scheduler will receive requests
+into a buffer, and keep receiving until the currently scheduled requests
+arrives, which is then returned. Once the server is ready to process the next
+request, it may be released directly from the buffer, if it was previously
+received, skipping the network access altogether. In single-threaded mode we can
+ignore outgoing requests. Under the assumption that the server works
+deterministically, it will send the responses in the correct order if it
+receives all requests in the correct order.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.9\linewidth]{diagrams/scheduler-ablaufdiagramm}
+  \caption{FlowChart~\cite{Bohm1966} of Re-ordering Scheduler}
+  \label{fig:reorder-sched}
+\end{figure}
+
+If communication timing dependencies are the source of a non\-/deterministic
+failure, then the system will fail consistently when constrained to failing
+communication schedules. Once developers reviewed and understood the high-level
+dependencies, they need to understand how they are expressed at the source code
+level to fix the failure. To that end, they can now use the approach of
+test-driven fault-navigation to record more debugging data. The only requirement
+here is that the test-driven fault-navigation is again available in all nodes
+that should be inspected, and that they allow access to record further data
+through a network-transparent debugging interface like \ac{jdi}.
 
 \section{Related Work}
 \label{sec:related-work}
@@ -1127,9 +1287,7 @@ method to debug non\-/deterministic failures in the timing\-/dependent
 communication of distributed applications. The tools provide
 low-overhead recording and anomaly analysis of network events in the
 live system, and refining of run-time data during
-debugging. Additionally, they use context-oriented programming to
-control modifications to the core system without impacting unrelated
-network communication.
+debugging.
 
 Since the overhead of our recording approach is low, it can be enabled
 in a deployed system continuously and record data about failures that
@@ -1154,24 +1312,45 @@ information. We achieve this by constraining the system to a
 particular communication schedule and wrapping method executions to
 record run-time data.
 
-Future work is two-fold. First, recording and scheduling should be
-extended to other sources of non-determinism, to show that our
-approach is applicable not only to timing\-/dependent
-communication. Second, we are investigating how to integrate
-non-participating servers into our approach. Furthermore, beyond
-debugging of timing\-/dependent communication, we may investigate how
-\toolname allows developers to gain an overview of a distributed
-system. By connecting code locations on different servers via network
-events it emphasizes the implicit programming interfaces between
-servers and helps developers to understand how communication is 
-performed in the code.
+The presented approach currently has two main limitations. First, our
+low-overhead recording and schedule shaper depend on the determinism of each
+server. Consequently, if other sources of non-determinism, such as system calls
+to \texttt{random} or \texttt{gettimeofday}, have an impact on the failure, we
+cannot currently reproduce it. This can be fixed by recording more sources of
+non-determinism, at the expense of increased overhead. This can be easily
+implemented with additional layered methods around such
+non-determinism. However, our scheduler could still use that additional data to
+constrain the live system to reliably reproduce a failure, and the rest of our
+approach still applies.
 
-Despite these future work, our approach is already usable to debug
+Second, our approach currently only works in the \emph{closed-world} case, in
+which all processes that participate in the distributed system include our
+recording and scheduler layers. If that is not the case, we need to extend our
+approach in two ways to support an \emph{open-world} case: first, we need to use
+a discovery mechanism to tell participating processes from non-participating
+processes. Second, for non-participating processes, we need to record the
+message contents besides what we currently record. If a schedule is later
+applied to the live system, events from and to non-participating systems are
+replayed from the recorded data. Note that this may not work if data returned
+from non-participating servers is time-dependent, in which case our approach is
+not applicable.
+
+Future work thus is two-fold. First, recording and scheduling should be extended
+to other sources of non-determinism, to show that our approach is applicable not
+only to timing\-/dependent communication. Second, we are investigating how to
+integrate non-participating servers into our approach. Furthermore, beyond
+debugging of timing\-/dependent communication, we may investigate how \toolname
+allows developers to gain an overview of a distributed system. By connecting
+code locations on different servers via network events it emphasizes the
+implicit programming interfaces between servers and helps developers to
+understand how communication is performed in the code.
+
+Despite these avenues for future work, our approach is already usable to debug
 failures in distributed systems. We have evaluated in a case study how
-developers can approach failures without prior knowledge of the
-concrete distributed system. Our approach does not require the system
-to stop, it allows debugging on the live system, and it allows
-navigation on both network and implementation level.
+developers can approach failures without prior knowledge of the concrete
+distributed system. Our approach does not require the system to stop, it allows
+debugging on the live system, and it allows navigation on both network and
+implementation level.
 
 % Future work:
 % limitations of scheduler, open/closed world, local reproduction

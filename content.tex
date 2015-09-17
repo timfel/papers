@@ -5395,24 +5395,58 @@ decision procedure. As described above, there may be solvers that have
 exactly the same capabilities, and that only differ in their
 performance or in the quality of their results.
 
-Some of the solvers' properties, such as performance and the quality
-of the result, can be determined automatically. For others, this
-solver selection procedure requires solvers to come annotated with
-\emph{capabilities}, such as the types and operations it supports, for
-which theories it is complete or incomplete, or whether it supports
-finite as well as infinite domains.
+Some of the solvers' properties, such as performance and the quality of the
+result, can be determined automatically. For others, this solver selection
+procedure requires solvers to come annotated with \emph{capabilities}, such as
+the types and operations it supports, for which theories it is complete or
+incomplete, or whether it supports finite as well as infinite domains.
 
-As in the selection by preference, we execute the constraint
-expression once for solver, and in addition we let each solver solve
-the constraint once, but without updating the environment and heap
-with the solution. Using the preference and the below heuristics in
-conjunction, we can then select the best solver and add the constraint
-to it. As constraints are added, we regularly re-evaluate the metrics
-for existing constraints to check if they should be moved for better
-performance or better results. Similarly, when a constraint becomes
-unsatisfiable, but the current solver is annotated as being
-incomplete, we also re-evaluate the metrics to search for another
+The simplest example would be a constraint a string and the choice between a
+finite domain solver and an local propagation solver:
+\begin{verbatim}
+x := "Good Morning"
+y := "G'day"
+always x = y
+\end{verbatim}
+We can tell from the types that the simplex solver will not be able to find a
+solution to this constraint and that we should pick the local propagation
 solver.
+
+However, even a slightly more complex example may make our decision much more
+difficult. Suppose we hand the following constraint over the reals to both a
+simplex solver like Cassowary and a relaxation solver:
+\begin{verbatim}
+a := 2.0
+b := 2.0
+always a * a = b
+\end{verbatim}
+Again reject the simplex solver, this time because it is not equipped to deal
+with non-linear equalities. The relaxation solver, on the other hand,
+approximates a solution to this constraint by linearizing it, but it would be an
+approximation only. More worrisome is that the solving algorithm can diverge, so
+even if this constraint can be solved once, it may not be possible if we change
+either \verb!a! or \verb!b! too much in one step. Suppose a relaxation solver
+approximates the solution $a\mapsto 2.0$ and $b\mapsto 3.9999999999998$ for the
+above constraint; because the relaxation method using numerical approximation,
+it is prone to round-off errors. If we have a solver like \gls{z3} available, we
+might want to select it instead, both for higher precision, and because the
+solving theory is more robust (albeit not complete) for non-linear arithmetic
+over the reals. However, \gls{z3} may pick another (valid) solution
+$a\mapsto 1.4$ and $b\mapsto 1.96$. This solution means less the sum of the
+changes to the variables is smaller than with the relaxation method, but for
+some applications, we may prefer a solution which modifies the least number of
+variables instead.
+
+Our heuristic selection attempts to weigh these different criteria. As in the
+selection by preference, we execute the constraint expression once for solver,
+and in addition we let each solver solve the constraint once, but without
+updating the environment and heap with the solution. Using the preference and
+the below heuristics in conjunction, we can then select the best solver and add
+the constraint to it. As constraints are added, we regularly re-evaluate the
+metrics for existing constraints to check if they should be moved for better
+performance or better results. Similarly, when a constraint becomes
+unsatisfiable, but the current solver is annotated as being incomplete, we also
+re-evaluate the metrics to search for another solver.
 
 \paragraph*{Precision} As an example, Cassowary is complete for linear
 equalities over reals, but its implementation uses float values to

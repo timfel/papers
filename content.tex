@@ -5598,288 +5598,395 @@ minimum two functions:
 \part{Implementations of Object-Constraint Programming}
 \label{part:impl-object-constr}
 
-Given the specification and test suite for the Babelsberg design, we
-consider different implementation strategies for concrete
-\acrlong{ocp} languages. We implemented the Babelsberg design as a
-prototype in the Topaz\footnote{TODO} \ac{vm} for
-Ruby\cite{flanagan2008ruby}, called Babelsberg/R. This implementation
-depends on a custom \ac{vm}, but provides full integration with all
-types of variables in Ruby, the \ac{jit}, and the meta-object
-protocol. A second implementation in \javascript, called
-Babelsberg/JS, is implemented as a library. This implementation runs
-on a variety of \javascript \acp{vm}, at the cost of requiring a
-source transformation and not fully supporting local variables in
-constraints. A third implementation in Squeak/Smalltalk\cite{}, called
-Babelsberg/S, provides \ac{ocp} as a library without requiring source
-transformation and including debugging support.
+In this part, we present different implementation strategies for concrete
+\acrlong{ocp} languages that implement the Babelsberg design with a focus on
+three main issues in implementing the design as presented in
+\autoref{sec:design}:
+\begin{description}
+\item[Creating Constraints] We need to extend the syntax and implement the
+  \acrlong{ccm} mode to declare constraints and translate expressions from the
+  host language into the solver languages.
+\item[Maintaining Constraints] When executing imperative code, Babelsberg implementations
+  need to intercept variable accesses to re-solve constraints.
+\item[Adding Solvers] We want to interfacing with multiple solvers in a way that
+  supports our designs for solver selection and cooperating constraint solvers,
+  and allows solvers to be written and executed in the same language runtime as
+  the program code.
+\end{description}
 
-\paragraph{VM-based Implementations}
-\label{sec:goals-babelsbergr}
-A full implementation of object-constraint programming requires deep
-integration with the underlying language to support all features of
-the host language, including different kinds of variables and full
-access to closure scopes to correctly construct constraints from
-constraint expressions. We present a technique for implementing
-Babelsberg in the \ac{vm} that adds a primitive to switch the
-interpreter between imperative evaluation, constraint construction,
-and constraint solving modes. In constraint construction mode, the
-expression that defines the constraint is evaluated, not for its
-value, but rather to build up a network of primitive constraints that
-represent the constraint being added by using the \ac{vm} internal
-representations of objects and scopes to access variables directly
-while ignoring encapsulation in the \ac{vm}. The interpreter keeps
-track of dependencies in the process, so that, as needed, the solver
-can be activated or the code to construct the constraint can be
-re-evaluated.
-
-Furthermore, while the design specifies that constraints are handed to
-the solver and solved at each step of the execution, prior work on
-Kaleidoscope and Turtle has shown that this is detrimental to
-performance.  Thus, another goal of a practical implementation of
-Babelsberg is to provide performance close to the unmodified language
-runtime if no constraints are used, and minimize the performance
-impact if they are. We present an extension to the imperative
-evaluation mode of the underlying language, the interpreter operates
-in the standard fashion, except that \textsc{Load} and \textsc{Store}
-operations on variables check for constraints, and if present, obtain
-the variable's value from the constraint solver or send the new value
-to the solver (which may trigger a cascade of other changes to satisfy
-the constraints). Thus, if no constraints dynamically relate variables
-in a particular piece of code and that code is optimized by the
-\ac{jit}, it can then be executed without calling out to the solver,
-eliminating any overhead.
-
-Finally, since our design for cooperating solvers enables a wider
-range of applications by combining specialized solvers, a third goal
-of a practical implementation is to make it easy to add multiple
-constraint solvers. We describe an architecture that makes it
-straightforward to add new solvers and which does not privilege the
-solvers provided with the basic implementation (they are simply the
-solvers that are in the initial library).
-
-\paragraph{Library-based Implementations}
-\label{sec:goals}
-
-- Avoid limitations of in-VM approach
-
-- Allow richer tools
-
-- easier introspection support
-
-- Available everywhere
-
-- Toolbox approach
-
-- Don't pay for what you don't use
-
+To discuss these issues, we show three prototype implementations: the first is
+based on the Topaz Ruby
+\ac{vm}\cite{FelgentreffTopazWroclove2013,Seaton:2014:DFS:2617548.2617550,FelgentreffDLS2015},
+called Babelsberg/R\cite{FelgentreffJOT14}. This implementation depends on a
+custom \ac{vm}, but provides full integration with all types of variables in
+Ruby, the \ac{jit}, and the meta-object protocol. The second implementation in
+\javascript, called Babelsberg/JS\cite{FelgentreffECOOP14}, is implemented as a
+library. This implementation runs on a variety of \javascript \acp{vm}, at the
+cost of requiring a source transformation and not fully supporting local
+variables in constraints. A third implementation in
+Squeak/Smalltalk\cite{Ingalls1997Squeak}, called
+Babelsberg/S\cite{GraberREBLS2014}, provides \ac{ocp} as a library without
+requiring a source transformation and includes extended debugging support.
 
 \chapter{Object-Constraint Programming as \textsc{vm} Extension}
 \label{part:babelsb-object-const}
 
-The Ruby \ac{vm} we use as a basis for Babelsberg/R is
-\emph{Topaz}~\cite{FelgentreffTopazWroclove2013}, an experimental
-\ac{vm} built using the \emph{PyPy/RPython}
-toolchain~\cite{rigo2006pypy}. While Topaz is a Ruby interpreter, the
-RPython toolchain provides it with a fast \ac{jit} compiler and
-garbage collector. We have extended the interpreter, and inherit the
-\ac{jit} and garbage collector from RPython. In this section, we first
-provide an overview of the key features of the implementation before
-plunging into the details.
+A full implementation of object-constraint programming requires deep integration
+with the underlying language to support all features of the host language,
+including different kinds of variables and full access to closure scopes to
+correctly construct constraints from constraint expressions. One way of ensuring
+this kind of access is a \ac{vm}-based implementation. With Babelsberg/R, we
+present such a \ac{vm} extension. In this section, we first provide an overview
+of the key concepts of the implementation before plunging into the details.
 
-The Topaz Ruby \ac{vm} is written in a restricted, object-oriented
-subset of Python called RPython. Topaz executes Ruby by compiling Ruby
-source code into bytecodes and interpreting the bytecodes. The interpreter is
-written in an object oriented fashion, with each bytecode implemented
-as a method of the class \lstinline{Interpreter}. Topaz also
-represents Ruby language constructs such as references and scopes as
-instances of RPython classes. As an example, local variables are
-represented by \lstinline{Cell} objects, which provide methods to
-access and update the variable's value.  In Babelsberg/R, we leverage the
-object-oriented design of Topaz to implement \ac{ocp}.
+The basis of Babelsberg/R is Topaz Ruby, an experimental \ac{vm} built using the
+\emph{PyPy/RPython} toolchain\cite{rigo2006pypy}, a restricted, object-oriented
+subset of Python. Topaz is a Ruby bytecode interpreter. It is written in an
+\acrlong{oo} fashion, with each bytecode implemented as a method of the
+\ac{vm}-level class \lstinline{Interpreter}. Topaz also represents Ruby language
+constructs such as references and scopes as instances of RPython classes. As an
+example, local variables are represented by \lstinline{Cell} objects, which
+provide methods to access and update the variable's value. The RPython
+translation annotates the interpreter to combine it with a fast, generic
+\ac{jit} compiler and garbage collector. In Babelsberg/R, we leverage the
+object-oriented design of Topaz to implement \ac{ocp} and inherit the \ac{jit}
+and garbage collector from RPython. The semantic model is thus a pure extension
+of Ruby's, and supports all of the existing Ruby constructs such as classes,
+instances, methods, message sends, and blocks (closures).
 
-The changes we made to the Topaz \ac{vm} are two-fold.  First, we
-modified the interpreter to support a \emph{constraint construction
-  mode} (\cf {\autoref{sec:constraint-construction-impl}}) and a
-primitive to enter this mode.  Second, we extended the cells to
-support \emph{constrained variables} (\cf
-{\autoref{sec:constrained-variables-impl}}) by allowing the same name
-to refer to multiple objects, one an object-oriented value and the
-other a \emph{solver object}.  (Note that this use of the same name to refer
-to multiple objects is a feature of the implementation only --- it is
-not visible to the programmer.)
+Babelsberg/R requires two semantic changes to support constraint creation and
+solving. First, we extend the Ruby standard library with the \lstinline{always}
+primitive that receives a closure, and creates a constraint from it. The
+constraint is, that the last expression in the closure should return true. The
+closure can reference objects, invoke methods on them, express assertions about
+their identity, type, or protocol, and use assignments and control
+structures. The syntax to invoke this primitive is the same as for an ordinary
+global method that receives a block closure argument. The restrictions on what
+kinds of expressions can be used in the closure are the same as in the formal
+design (\cf{\ref{sec:additional-constraint-restrictions}}), and are dynamically
+checked during \gls{ccm}.
 
-\section{Imperative and Declarative Execution}
-\label{sec:constrained-variables-impl}
-Ruby provides five types of variables: locals, instance variables,
-class variables, globals, and constants.  (While constants should be
-assigned only once, this is simply a convention in Ruby, and is not
-checked by the interpreter.)  Of these variable types, we allow three
-as \emph{constrained variables}, \ie variables that can be solved for
-in constraints: locals, instance variables, and class variables.
+As the second extension we add subclasses of the Topaz \lstinline{Interpreter}
+that implement the different interpreter modes for constraint construction,
+imperative evaluation, and constraint solving. In constraint construction mode,
+the expression that defines the constraint is evaluated, not for its value, but
+rather to build up a network of primitive constraints that represent the
+constraint being added by using the \ac{vm} internal representations of objects
+and scopes to access variables directly while ignoring encapsulation in the
+\ac{vm}. The interpreter keeps track of dependencies in the process, so that, as
+needed, the solver can be activated or the code to construct the constraint can
+be re-evaluated. In imperative evaluation mode the interpreter operates in the
+standard fashion, except that \textsc{Load} and \textsc{Store} operations on
+variables check for constraints, and if present, obtain the variable's value
+from the constraint solver or send the new value to the solver (which may
+trigger a cascade of other changes to satisfy the constraints). Finally, in
+constraint solving mode, the interpreter operates in the fashion of an
+unmodified Ruby \ac{vm}, that is, it does not intercept variable accesses to
+trigger constraint solving. Since our design for cooperating solvers enables a
+wider range of applications by combining specialized solvers, a goal of a
+practical implementation is to make it easy to add multiple constraint solvers
+as libraries to the host language. When these are used for solving constraints,
+however, the inner workings of the solvers should not recursively trigger
+constraint solving. We describe an architecture that makes it straightforward to
+add new solvers and which does not privilege the solvers provided with the basic
+implementation (they are simply the solvers that are in the initial library).
 
-Ordinary   variables  are   converted  automatically   to  constrained
-variables if  they are used  in a constraint expression.  A constraint
-expression  is  passed  to  the  \lstinline{always}  primitive  as  an
-ordinary block  closure. All locals  referenced in the  expression are
-stored as \emph{Cells} in the \ac{vm}---Cells being the representation
-of a scope.  In Babelsberg/R, these  cells have an additional field to
-store a solver  object for the variable. Instance  and class variables
-in   Topaz  are   stored  in   maps~\cite{chambers1989efficient}.  For
-Babelsberg/R, we have  extended these to store solver  objects as well
-as ordinary  objects, so that  once the  \ac{jit} has warmed  up, read
-access to solver objects is no slower than access to ordinary objects.
-
-Converting ordinary variables into constrained variables has an impact
-on garbage  collection.  Solver  objects usually have  more references
-pointing to  them than  ordinary objects ---  besides their  scope and
-owner (in the case of instance or class variables), solver objects are
-also referenced from  one or more constraints.  Because solver objects
-can also be implemented in the host language, this means that they may
-only be garbage collected if no more active constraints refer to them.
-
-To implement the interpretation of constraint expressions we use two
-different execution modes: \emph{imperative execution}, and
-\emph{constraint construction}. The first is the normal Ruby execution
-mode and for the latter, we created a subclass of the default
-interpreter, \lstinline{ConstraintInterpreter}. The
-\lstinline{ConstraintInterpreter} class changes how locals, instance
-variables, and class variables are accessed so operations on them can
-be tracked as the constraint expression is evaluated to create the
-constraint.
-
-\subsection*{Imperative Execution}
-This  is  the normal  execution  mode,  as  implemented in  the  Topaz
-interpreter.  We  have extended  the \textsc{Store}  and \textsc{Load}
-bytecode methods  with an additional  check whether a  variable refers
-just to  an ordinary  object or to  a solver object  as well.   In the
-latter case, instead of reading or changing the value of the variable,
-the   solver   object  for   the   variable   receives  the   messages
-\lstinline{value}  or  \lstinline{suggest_value},  respectively  (this
-additional check has only a  small impact on performance, as described
-in  \autoref{sec:ruby-performance}). As  long as  all constraints  are
-satisfied, this difference is not  visible to the programmer. However,
-while  direct,   destructive  assignment  to  a   normal  variable  in
-imperative   programs   always   succeeds,   \lstinline{suggest_value}
-triggers  one or  more solvers.  If any  solver fails  to satisfy  its
-constraints  using  the  new  value,  an  exception  is  raised.  This
-exception is propagated  by the \ac{vm}, and should  either be handled
-by the programmer or allowed to  halt execution of the program.  If an
-assignment fails in this way, the variable retains its original value.
-
-\todo{inline the reasoning for the constraint duration and activation}
-As described in \autoref{sec:constraint-durations-and-activation}, in
-Babelsberg/R, if multiple variables that have constraints on them are
-assigned using multi-assignment, all values are assigned before a
-solver is triggered, and all assignments are undone if an exception is
-raised during solving. This way, if the exception is caught, the
-program is not in violation of any constraints.
-
-\subsection*{Constraint Construction}
+\section{Creating Constraints}
 \label{sec:constraint-construction-impl}
 \todo{explain backwards compatibility mode}
-The initializer for constraint objects --- usually called through
-\lstinline{always} --- activates an execution context for constraint
-construction. In this mode, variable values are replaced with their
-associated solver objects in \textsc{Load} instructions. These solver
-objects are created by sending \lstinline{for_constraint} to the
-current variable value. This method should return an object that
-responds to \lstinline{value} and \lstinline{suggest_value}.  The
-\lstinline{value} method extracts the value from a solver's internal
-representation, while \lstinline{suggest_value} sends the candidate
-value to a solver and requests that it re-satisfy the constraints.
-For values that do not respond to \lstinline{for_constraint}, a
-generic solver object is returned that removes and recalculates all
-constraints in which it occurs whenever its value changes.
 
-\textsc{Store} instructions in this mode create equality
-constraints. This is necessary to support constructing new objects in
-the predicates that connect values (for example, a 2d point with x and
-y values that were constructed in the constraint.) However, this also
-means that all code blocks encountered during constraint construction
-must be in single assignment form.\todo{here -- backwards compat}
+Babelsberg/R includes new primitive methods \lstinline{always} and
+\lstinline{once}. These take an ordinary Ruby block closure argument, which is
+used as the constraint. Besides those new methods, we only include a minor
+syntactic extension to conveniently mark variables as read-only in constraints.
+This is expressed by sending the question-mark method ({\bfseries\emph{?}}) to a
+value in a constraint expression\footnote{Outside of a constraint expression,
+  this method raises an exception, since it does not have sensible semantics.}.
+As in the design, a read-only variable can only be assigned to, but cannot be
+changed by the solver to satisfy a constraint it appears in. This is useful, for
+example, for parameterized constraints so the solver knows not to change the
+parameter:
+\begin{lstlisting}
+class Rectangle
+  def fix_size(area)
+    always { self.area == area.? }
+  end
+end
+\end{lstlisting}
+Without the annotation, a solver may choose to change the local variable
+\lstinline{area} rather than the possibly the the \lstinline{x} and
+\lstinline{y} values of one of the corners of the receiver, if, for example, the
+solver tries to minimize the number of variables that are adjusted to satisfy a
+constraint (as is often desired).
 
-To support solvers written in the host language, the \ac{vm} needs a
-way to distinguish code that should be executed in this mode from code
-that should not.  To support this, solvers written in the host
-language should be subclasses of \lstinline{ConstraintObject}.  This
-class serves as a marker to leave constraint execution mode when we
-enter solver code.
+To implement the interpretation of constraint expressions passed to
+\lstinline{always} or \lstinline{once}, we use a subclass of the default
+interpreter, the \lstinline{ConstraintInterpreter}. The \lstinline{always}
+method activates an execution context that uses this interpreter. This mode
+works almost like ordinary Ruby interpretation, with a few changes.
+
+\paragraph*{Converting Variables in Constraints}
+\label{sec:conv-vari-constr}
+First, whenever a variable is accessed in a constraint for the first time, it is
+automatically converted into a so-called \emph{constrained variable}, \ie
+variables that can be solved for in constraints. Ruby provides five types of
+variables: locals, instance variables, class variables, globals, and constants.
+(While constants should be assigned only once, this is simply a convention in
+Ruby, and is not checked by the interpreter.)  Of these variable types, we allow
+three as constrained variables: locals, instance variables, and class variables.
+
+This conversion is done by attaching an additional \emph{solver object} to the
+variable --- thus, the same name can refer to two objects in the \ac{vm}, one an
+ordinary Ruby value and the other a solver object. (Note that this use of the
+same name to refer to multiple objects is a feature of the implementation only
+--- it is not visible to the programmer.) These solver objects are \ac{vm}
+objects that keep track of solver-specific representations of the current
+variable value.
+
+\begin{figure}
+  \centering
+  \missingfigure[width=0.98\linewidth]{}
+  \caption{Objects are connected through instance variables. When a constraint
+    is constructed, their parts become connected through constraints.}
+\label{fig:architecture}
+\end{figure}
+
+How the solver object is attached internally depends on the type of
+variable. Locals are stored as \emph{Cells} in the \ac{vm} --- Cells being the
+representation of a scope.  In Babelsberg/R, these cells have an additional
+field to store a \emph{solver object} for the variable. Instance and class
+variables in Topaz are stored in maps\cite{chambers1989efficient}.  For
+Babelsberg/R, we have extended these maps to the store solver objects as well as
+ordinary objects. Both storage extensions are implemented in a way that once the
+\ac{jit} has warmed up, read access to solver objects is no slower than access
+to ordinary objects (\cf{\autoref{sec:ruby-performance}}).
+
+Converting ordinary variables into constrained variables has an impact on
+garbage collection.  Solver objects usually have more references pointing to
+them than ordinary objects --- besides their scope and owner (in the case of
+instance or class variables), solver objects are also referenced from one or
+more constraints.  Because solver objects can also be implemented in the host
+language, this means that they may only be garbage collected if no more active
+constraints refer to them.
+
+\paragraph*{Reading and Assigning Variables}
+\label{sec:read-assign-vari}
+When a variable is read, rather than returning its value, its associated
+\emph{solver object} is returned. These objects would respond to the same
+messages as the ordinary variable value, but instead of just executing the
+original code, they would construct the relations between variables that make up
+the constraint, as per the inlining rules in \autoref{tab:obj-judgments}. These
+objects also implement our dynamic type checking, so accessing any field that
+does not yet exist on an object would raise an exception.
+
+Although in Ruby the booleans, integers, or reals are proper objects, in this
+mode, they are treated as primitive values, since identity is not important for
+them. That also means that operations on them that in Ruby are implemented as
+methods are here simply translated to the solver language, rather than executed.
+
+Another issue is that Ruby does not include value classes. Thus, we include some
+support for using and creating ordinary objects in constraints, as described in
+\autoref{sec:value-classes-as-syntactic-sugar}. \textsc{Store} instructions in
+ordinary class constructors used in constraints create additional equality
+constraints. This allows us to support constructing new objects in the
+predicates that connect values (for example, a 2d point with x and y values that
+were constructed in the constraint.) However, this also means that all code in
+constructors encountered during constraint construction must be in single
+assignment form.
 
 \paragraph*{Constraint Construction Example}
 \label{sec:constraint-construction-example}
-To illustrate how our implementation supports the combination of
-objects and constraints, consider the Window example in Babelsberg
-from \autoref{sec:unif-imper-decl-1}.  The code asserts that the area
-of the Window should always be greater than or equal to 100.  The
-assertion is expressed by sending the \lstinline{area} method, and
-then sending the \lstinline{>=} method to the result.  The only
-variable named explicitly in the constraint is \lstinline{rect}, but
-there are other variables that play a role in it.
+To illustrate how our implementation supports the combination of objects and
+constraints, recall the Window example in Babelsberg from
+\autoref{sec:unif-imper-decl-1} and consider the following constraint:
+\begin{lstlisting}
+always { window.area >= 100 }
+\end{lstlisting}
+This constraint asserts that the area of a Window should always be greater than
+or equal to 100. The assertion is expressed by sending the \lstinline{area}
+method, and then sending the \lstinline{>=} method to the result.  The only
+variable named explicitly in the constraint is \lstinline{rect}, but there are
+other variables that play a role in it.
 
-In constraint construction mode, the \lstinline{rect} variable is
-replaced with a generic solver object, since the class
-\lstinline{Rectangle} does not implement the method
-\lstinline{for_constraint}. This placeholder delegates the message
-\lstinline{area} to the rectangle. During the execution of the
-\lstinline{area} method, the points are replaced with generic solver
-objects, and their x and y values (floats) are replaced with specific
-solver objects (for example \gls{z3} variables, \cf
-{\autoref{fig:architecture}}).\todo{architecture} In this mode, the
-messages to the float values return symbolic expressions rather than
-calculating the current area of the rectangle.  The expression
-representing the area of the rectangle is then sent the message
-\lstinline{>=} with 100 as its argument and returns an inequality
-constraint.
-
-% \begin{figure}
-%   \centering
-%   \includegraphics[width=0.98\linewidth]{architecture}
-%   \caption{Objects are connected through instance variables. When a
-%     constraint is constructed, their parts become connected through
-%     constraints.}
-% \label{fig:architecture}
-% \end{figure}
+In constraint construction mode, the \lstinline{window} variable is replaced
+with a generic solver object, since it is unlikely that we have a solver that
+supports such objects natively. This generic solver object asserts that the
+window variable cannot change and delegates the message \lstinline{area} to the
+window object, as per our semantic rules for calling methods. The
+\lstinline{area} simply returns the expression \lstinline{extent.x * extent.y},
+so we use it to create a multi-way constraint. The \lstinline{extent} is also
+replaced with a generic solver object, and the x and y values (floats) are
+replaced with solver objects that have a solver-specific representation
+associated with them (for example \gls{z3} variables, \cf
+{\autoref{fig:architecture}}). The message \lstinline{*} to the float values
+return symbolic expressions rather than calculating the current area of the
+rectangle.  The expression representing the area of the rectangle is then sent
+the message \lstinline{>=} with 100 as its argument and returns an inequality
+expression.
 
 The constraint construction is complete when the block passed to
-\lstinline{always} returns. The values and relations among them
-produced by this symbolic execution are gathered into a
-\emph{Constraint} object containing specific solver objects and
-generic solver objects.  Specific solver objects are objects that are
-connected in a way that the solver can reason about (\eg floats
-connected via equalities or inequalities or arithmetic relations, or
-booleans connected via boolean operations).  Generic solver objects
-are all other objects that contribute to the constraint but about
-which the solver cannot reason directly.
+\lstinline{always} returns. The values and relations among them produced by this
+symbolic execution are gathered into a \emph{Constraint} object containing
+specific solver objects and generic solver objects, as well as the constructed
+expressions. The specific solver objects and expressions are handed to a solver,
+whereas the generic solver objects are passed as constants to the solver. The
+constraint solver then updates specific solver objects directly to satisfy the
+constraints. If it cannot, it raises an exception, otherwise the new value is
+written to the solver object and can be accessed in the normal execution mode as
+the value of the variable.
 
-The constraint solvers operate on specific solver objects directly to
-solve the constraint. Changes made by the solver to these objects show
-up in the \ac{oo} view on the next access to the variables from
-imperative code, at which point their values are copied to their
-\ac{oo} counterparts. Assignments to any variable encountered during
-the constraint construction will trigger the solver to re-satisfy the
-constraint (and potentially raise an error if the assignment is
-inconsistent with the constraint).
+\section{Maintaining Constraints}
+\label{sec:constrained-variables-impl}
+This is the normal execution mode, and is mostly the same as the standard Ruby
+interpreter. We have extended the \textsc{Store} and \textsc{Load} bytecode
+methods with an additional check whether a variable refers just to an ordinary
+object or to a solver object as well, and if so, we execute additional behavior.
 
-Generic solver objects invalidate the constraint if their \ac{oo}
-value changes through imperative assignment. This invalidation
-retracts all solver objects created during constraint construction and
-re-executes the block to create new solver objects and
-constraints. This means that the block may be re-executed multiple
-times during the run-time of the program.  (This is one reason why any
-side-effects in constraints are disallowed in the design, and should
-at least be benign in this practical implementation.)
+Whenever a variable is read, the \textsc{Load} instruction in Babelsberg/R must
+check if we are dealing with a constrained variable, and if so, read its solver
+object. This additional check has only a small impact on performance, as
+described in \autoref{sec:ruby-performance}. Solver objects respond to
+\lstinline{value} and \lstinline{suggest_value}. For specific solver objects,
+the \lstinline{value} method extracts the value the variable should have from
+the solver's internal representation and, on the first read, copies it to the
+ordinary storage for that variable for faster access. For generic solver
+objects, the \lstinline{value} method just returns the currently stored
+value. As long as all constraints are satisfied, this difference is not visible
+to the programmer and the performance after the first copy from the solver is as
+if there were no constraints in the system.
 
-\subsection*{Constraint Solving}
-This mode is simply a flag that is active whenever code runs in the
-dynamic extent of a method of a \lstinline{ConstraintObject}. It
-prevents nested sends of \lstinline{suggest_value} from causing
-recursive calls to 
-the solver. This is necessary to support solvers written in
-Ruby, but implies that solvers themselves cannot use constraints in
-their implementation.\footnote{If we wanted to support other
-  cooperating paradigms in addition to constraint-oriented
-  programming, we would generalize this technique to support additional
-  execution contexts.}
+For assignments, if variables do relate to constraints, instead of changing the
+value of the variable, the solver object for the variable receives the messages
+\lstinline{suggest_value}. Although semantically all Babelsberg constraints are
+handed to the solver on each assignment, prior work on Kaleidoscope and Turtle
+has shown that this is detrimental to performance.  One way this practical
+implementation of Babelsberg is able to achieve performance close to the
+unmodified language runtime if no constraints are used is by omitting the
+solving step if no constraints dynamically relate variables in a particular
+piece of code and that code is optimized by the \ac{jit}. In that case, the code
+can be executed without calling out to the solver, eliminating any overhead.
+
+In contrast to direct, destructive assignment in a normal imperative programs
+that always succeeds, \lstinline{suggest_value} may raise an exception. This
+exception is propagated by the \ac{vm}, and should be handled by the
+programmer. If an assignment fails in this way, the variable retains its
+original value. We distinguish two cases for assignment:
+\begin{enumerate}
+\item[a)] Assignment to specific solver objects, \ie variables with values for
+  which a solver is available, triggers one or more solvers to re-satisfy the
+  constraints. If any solver fails to satisfy its constraints using the new
+  value, an exception is raised.
+\item[b)] Assignment to generic solver objects, \ie variables with values for
+  which no solver is available, invalidates all constraints these objects
+  participate in. Since their values were treated as constants when creating
+  constraints involving them, these constraints need to be re-evaluated. The
+  invalidation retracts all constraints and re-executes their expression
+  closures to create new constraints. This means that the constraint expression
+  may be re-executed multiple times during the run-time of the program.  (This
+  is one reason why any side-effects in constraints are disallowed in the
+  design, and should at least be benign in this practical implementation.)
+\end{enumerate}
+
+The default behavior is thus to invoke constraint satisfaction immediately
+whenever there is a change to a variable, as per the semantics. However, an
+important issue identified in previous \ac{ocp} languages is that in practical
+applications, we sometimes want to update to variables at the same time, and
+only then invoke solving. One way to do this is to use a \lstinline{once}
+constraint, that constrains both variables to their new value. Kaleidoscope
+allowed the programmer to write blocks of code during which constraints could be
+temporarily violated, to update multiple variables and only afterwards invoke
+the solver. This can be problematic, if the constraints cannot afterwards be
+satisfied --- depending on the complexity of the code in the block, it is not
+always clear if the system can be returned to a consistent state. To avoid this
+problem, but still allow a sequence of assignments to be made with solving
+invoked only after all assignments are made, Babelsberg/R uses
+multi-assignments.  Ruby's multi-assignments are used to store values into
+multiple variables in a single statement. If multiple variables that have
+constraints on them are assigned in this fashion, all new values are used at
+once when the solver is triggered. If any constraints cannot be satisfied, all
+assignments fail. This way, if the exception is caught, the program is not in
+violation of any constraints.
+
+\section{Adding Solvers}
+\label{sec:solver-interface}
+
+Babelsberg/R implements explicit solver selection as well as eager selection by
+type described in \autoref{sec:autom-solv-select}. If no solver was explicitly
+selected, the \ac{vm} sends the \lstinline{for_constraint} message to each
+variable value encountered during constraint construction. User code can add
+solvers to the system by dynamically adding a \lstinline{for_constraint} method
+to those classes for which the solver is applicable, making use of Ruby's open
+classes. This method takes the name under which the variable is accessed as an
+argument, and should return an object that implements a subset of the interfaces
+that the solver can reason about, as well as the methods \lstinline{value} and
+\lstinline{suggest_value}. For example, the Cassowary solver extends the Float
+class:
+\begin{lstlisting}
+  def for_constraint(name)
+    v = Cassowary::Variable.new(name: name, value: self)
+    Cassowary::SimplexSolver.instance.add_stay(v)
+    v
+  end
+\end{lstlisting}
+This method creates a new variable, adds implicit, low-priority stay constraint
+(\cf{\autoref{sec:constr-mutable-state}}), and returns the solver-specific
+variable object. The \ac{vm}'s solver object then sends messages to this object
+instead of the Float object in the context of the constraint execution.
+
+To support solvers written in the host language, the \ac{vm} needs a way to
+distinguish code that should be executed in this mode from code that should not.
+To support this, solvers written in the host language should be subclasses of
+\lstinline{ConstraintObject}. This class serves as a marker to enter
+\emph{constraint solving} mode. This mode is the original, unmodified Ruby
+interpreter. It is used whenever code runs in the dynamic extent of a method of
+a \lstinline{ConstraintObject} and prevents nested sends of
+\lstinline{suggest_value} from causing recursive calls to the solver. This is
+necessary to support solvers written in Ruby, but implies that solvers
+themselves cannot use constraints in their implementation.
+
+In the case of objects for which identity is not important (such as floats and
+integers), the \ac{vm} can directly return the value as determined by the
+solver.  However, for mutable objects, solver libraries must provide the method
+\lstinline{assign_constraint_value} to update the original object with new
+content, to keep its identity intact. Babelsberg/R provides a solver over
+numeric arrays, which uses \lstinline{assign_constraint_value} to update the
+array contents. In the \lstinline{for_constraint} method for arrays, it returns
+a \lstinline{NumericArrayConstraintVariable} if all elements in the array are
+instances of a subclass of \lstinline{Numeric}.
+\begin{lstlisting}
+class Array
+  def for_constraint(name)
+    if self.all? { |e| e.is_a? Numeric }
+      return NumericArrayConstraintVariable.new(self)
+    end
+  end
+
+  def assign_constraint_value(val)
+    self.replace(val)
+  end
+end
+\end{lstlisting}
+This illustrates how the solvers provided by Babelsberg/R are simply Ruby
+libraries that extend core classes. The
+\lstinline{NumericArrayConstraintVariable}, for example, allows element access,
+provides the Ruby collection \ac{api} (each, map, inject, \dots), the
+\lstinline{sum} method (which calculates the sum of elements) and the message
+\lstinline{length}, to solve constraints over the length of arrays. These are
+implemented to generate constraints as defined in our semantics for constraints
+on collections of objects (\cf{\autoref{sec:records-with-ident}}).
+
+Below is an example that uses this to assert constraints on
+\textsc{TWP}-encoded\footnote{\url{http://www.dcl.hpi.uni-potsdam.de/teaching/mds/twp3.txt}}
+short strings (represented as an array of bytes). \textsc{TWP} short strings are
+at most 110 bytes, with the first byte giving the length of the string plus a
+tag. Line 3 constrains this particular string to contain only capital letters
+(the \lstinline{?A} Ruby syntax gives the byte value of a character).
+\begin{lstlisting}
+twp_str = []
+always { twp_str.length == twp_str[0] + 17 }
+always { twp_str.length <= 109 }
+always { twp_str.each {|byte| byte >= ?A \&\& byte <= ?Z} }
+\end{lstlisting}
 
 \section{Performance}
 \label{sec:ruby-performance}
@@ -6007,85 +6114,24 @@ dealing with its x and y coordinates separately, and the data flow
 plan would update the objects constrained to be equal to the point
 that represents the mouse location.
 
-\section{Adding New Solvers}
-\label{sec:solver-interface}
-
-\todo{Figure out if we want to move this}
-
-During constraint construction, the \ac{vm} sends the
-\lstinline{for_constraint} message to each variable value encountered during
-the execution. User code can add solvers to the system by dynamically
-adding a \lstinline{for_constraint} method to those classes for which the
-solver is applicable, making use of Ruby's open classes. This method
-takes the name under which the variable is accessed as an argument,
-and should return an object that implements a subset of the interfaces
-that the solver can reason about, as well as the methods
-\lstinline{value} and \lstinline{suggest_value} (as described in
-\cf{\autoref{sec:constraint-construction-impl}}.)
-
-The Cassowary solver extends the Float class:
-\begin{lstlisting}
-  def for_constraint(name)
-    v = Cassowary::Variable.new(name: name, value: self)
-    Cassowary::SimplexSolver.instance.add_stay(v)
-    v
-  end
-\end{lstlisting}
-
-This method  creates a new  variable, adds the  implicit, low-priority
-stay constraint (\cf{\autoref{sec:constr-mutable-state}}), and returns
-the constraint object. The \ac{vm}  then sends messages to this object
-instead  of  the  Float  object  in  the  context  of  the  constraint
-execution.
-
-In the case of immutable objects (such as floats and integers), the
-\ac{vm} directly returns the variable value determined by the solver.
-However, for mutable objects, solver libraries can provide
-the method \lstinline{assign_constraint_value} to update the ordinary
-object. Babelsberg/R provides a solver over numeric arrays, which uses
-\lstinline{assign_constraint_value} to update the array contents. In
-the \lstinline{for_constraint} method for arrays, it returns a
-\lstinline{NumericArrayConstraintVariable} if all elements in the
-array are instances of a subclass of \lstinline{Numeric}.
-\begin{lstlisting}
-class Array
-  def for_constraint(name)
-    if self.all? { |e| e.is_a? Numeric }
-      return NumericArrayConstraintVariable.new(self)
-    end
-  end
-
-  def assign_constraint_value(val)
-    self.replace(val)
-  end
-end
-\end{lstlisting}
-
-This illustrates how the solvers provided by Babelsberg/R are simply
-constraint solver libraries that extend core classes. The
-\lstinline{NumericArrayConstraintVariable}, for example, allows
-element access, provides the Ruby collection \ac{api} (each, map,
-inject, \dots), the \lstinline{sum} method (which calculates the sum
-of elements) and the message \lstinline{length}, to solve constraints
-over the length of arrays.
-
-Below is an example that asserts constraints on
-\textsc{TWP}-encoded\footnote{\url{http://www.dcl.hpi.uni-potsdam.de/teaching/mds/twp3.txt}}
-short strings (represented as an array of bytes). \textsc{TWP} short
-strings are at most 110 bytes, with the first byte giving the length
-of the string plus a tag. Line 3 constrains this particular string to
-contain only capital letters (the \lstinline{?A} Ruby syntax gives the
-byte value of a character).
-\begin{lstlisting}
-twp_str = []
-always { twp_str.length == twp_str[0] + 17 }
-always { twp_str.length <= 109 }
-always { twp_str.each {|byte| byte >= ?A \&\& byte <= ?Z} }
-\end{lstlisting}
-
 \chapter{Object-Constraint Programming as a Library}
 \label{part:object-constr-progr-1}
 \label{sec:implementation-1}
+
+\paragraph{Library-based Implementations}
+\label{sec:goals}
+
+- Avoid limitations of in-VM approach
+
+- Allow richer tools
+
+- easier introspection support
+
+- Available everywhere
+
+- Toolbox approach
+
+- Don't pay for what you don't use
 
 We have implemented Babelsberg/JS \cite{FelgentreffECOOP14} in the
 Lively Kernel \javascript environment \cite{lively-kernel-2008} and

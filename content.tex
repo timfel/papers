@@ -6241,16 +6241,7 @@ always { twp_str.each {|byte| byte >= ?A \&\& byte <= ?Z} }
 \label{sec:ruby-performance}
 \label{cha:performance}
 
-Although semantically all Babelsberg constraints are handed to the solver on
-each assignment, prior work on Kaleidoscope and Turtle has shown that this is
-detrimental to performance.  One way our practical implementations of Babelsberg
-are able to achieve performance close to the unmodified language runtime if no
-constraints are used is by omitting the solving step if no constraints
-dynamically relate variables in a particular piece of code and that code is
-optimized by the \ac{jit}. In that case, the code can be executed without
-calling out to the solver, eliminating any overhead.
-
-\paragraph{Fast Execution without Constraints}
+\section{Fast Execution without Constraints}
 A goal  of object-constraint programming  with Babelsberg was  that it
 should be a language extensions, but with full backwards compatibility
 to plain object-oriented code. As  a consequence, it is desirable that
@@ -6260,6 +6251,7 @@ objects.   To achieve  this  in Babelsberg/R,  we  interface with  the
 RPython meta-tracing \ac{jit} compiler framework to remove the runtime
 overhead of the language extension for code that does not need it.
 
+\subsection*{Reading Variables}
 The  first  step to  achieve  better  performance is  the  distinction
 between constrained  variables and ordinary variables  as described in
 {\ref{sec:constrained-variables-impl}}.   This  way,  the  interpreter
@@ -6269,9 +6261,11 @@ than having  to ask the  solver for  the current value.  However, this
 check is performed at every  variable access, which still represents a
 performance issue.
 
-RPython  includes debugging  support to  print the  generated \ac{jit}
-code  for loops  in  the  interpreter.  In  vanilla  Topaz, reading  a
-variable is translated into the following \ac{jit} code:
+\paragraph*{VM-based Solution}
+\label{sec:vm-based-solution}
+Babelsberg/R is written in RPython, which includes debugging support to print
+the generated \ac{jit} code for loops in the interpreter.  In vanilla Topaz,
+reading a variable is translated into the following \ac{jit} code:
 \begin{lstlisting}[language=pypytrace]
 guard_nonnull_class(p1, 12345, descr=<Guard0xcaffee123456>)
 p2 = getfield_gc(p1, descr=<FieldP Cell.inst_w_value>)
@@ -6325,22 +6319,32 @@ Thus, access to variables that do  not use constraints is, after it is
 \ac{jit} compiled, just  as  fast  as in  the  base language  without
 constraints.
 
+\paragraph*{Libary-based Access}
+The library-based implementations trivially avoid any performance impact when
+constraints are not used, but relies on the underlying \ac{jit} to optimize
+access to constrained variables. with the help of property accessors, access to
+variables without constraints is trivially as fast as native access. On the
+other hand, compare to a \ac{vm}-based solution, we cannot rely on access to the
+\ac{jit} to optimize the case where we use constraints. Our design still aims to
+provide good performance for a variety of applications that use constraints or
+access constrained variables. As in Babelsberg/R, reading a variable from the
+solver calls \verb!value! on the ConstrainedVariable in the property wrapper,
+instead of returning the original variable. We cache the value returned from the
+solver, and rely on the underlying \ac{vm} to optimize read accesses when the
+cache is not invalidated.
+
+\subsection*{Assigning to Constrained Variables}
+Although semantically all Babelsberg constraints are handed to the solver on
+each assignment, prior work on Kaleidoscope and Turtle has shown that this is
+detrimental to performance.  One way our practical implementations of Babelsberg
+are able to achieve performance close to the unmodified language runtime if no
+constraints are used is by omitting the solving step if no constraints
+dynamically relate variables in a particular piece of code and that code is
+optimized by the \ac{jit}. In that case, the code can be executed without
+calling out to the solver, eliminating any overhead.
+
 \paragraph*{Fast Access to Variables With and Without Constraints}
 
-This trivially avoids any performance impact when constraints are not used, but
-relies on the underlying \ac{jit} to optimize access to constrained
-variables. As in Babelsberg/R, reading a variable from the solver calls
-\verb!value! on the ConstrainedVariable in the property wrapper, instead of
-returning the original variable. Writing calls \verb!suggestValue!, which raises
-an exception if an assignment would make existing constraints unsatisfiable.
-
-With Babelsberg implemented as a library and constraints on variables
-added with the help of property accessors, access to variables without
-constraints is trivially as fast as native access. On the other hand,
-compare to a \ac{vm}-based solution, we cannot rely on access to the
-\ac{jit} to optimize the case where we use constraints. Our design
-still aims to provide good performance for a variety of applications
-that use constraints or access constrained variables.
 
 To evaluate the performance, we investigated two scenarios: how
 object-oriented performance is affected by our extension.

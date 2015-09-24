@@ -6193,17 +6193,29 @@ as arguments the objects, names of their fields, and new values for these
 fields, and then explicitly creates a set of equality constraints that are
 handed to the solver at once.
 
-\section{Solving for Mutable Objects}
+\section{Encapsulation and Solving for Objects}
 \label{sec:solv-mutable-objects}
 In the case of objects for which identity is not important (such as floats and
 integers), we have seen that the \ac{vm} can directly return the value as
-determined by the solver.  However, for mutable objects, solver libraries must
-provide the method \lstinline{assign_constraint_value} to update the original
-object with new content, to keep its identity intact. Babelsberg/R provides a
-solver over numeric arrays, which uses \lstinline{assign_constraint_value} to
-update the array contents. In the \lstinline{for_constraint} method for arrays,
-it returns a \lstinline{NumericArrayConstraintVariable} if all elements in the
-array are instances of a subclass of \lstinline{Numeric}.
+determined by the solver. However, for mutable objects, identity is important
+and as per the semantics, the solver should only be able to update the primitive
+leaves of objects when solving value constraints. Furthermore, we do not want to
+allow the solver to disregard object-encapsulation when changing parts of
+objects. In some cases, such as \ac{vm} objects that only expose an \ac{oo}
+\ac{api} (\textsc{dom} objects, file handles, \dots), it is not even possible
+for a solver written in the host language to disregard encapsulation---instead,
+it must call the appropriate \ac{api} methods to mutate the object.
+
+\paragraph*{Default Propagation Methods}
+\label{sec:expl-prop-meth}
+Solver libraries can provide the method \lstinline{assign_constraint_value} to
+update the original object with new content, to keep its identity intact. This
+basically provides a default local propagation method to let solutions flow into
+objects. For example, Babelsberg/R provides a solver over numeric arrays, which
+uses \lstinline{assign_constraint_value} to update the array contents. In the
+\lstinline{for_constraint} method for arrays, it returns a
+\lstinline{NumericArrayConstraintVariable} if all elements in the array are
+instances of a subclass of \lstinline{Numeric}.
 \begin{lstlisting}
 class Array
   def for_constraint(name)
@@ -6236,6 +6248,24 @@ always { twp_str.length == twp_str[0] + 17 }
 always { twp_str.length <= 109 }
 always { twp_str.each {|byte| byte >= ?A \&\& byte <= ?Z} }
 \end{lstlisting}
+
+\paragraph*{Heuristic Propagation}
+When no default propagation method is given, we use a heuristic that attempts to
+discover and use the appropriate setter methods. For example, consider the
+following constraint that the 2d-point positions of objects \lstinline!a!  and
+\lstinline!b! should be equal (where the equals method on points returns a
+conjunction of the equality checks for the \lstinline!x!  and \lstinline!y!
+parts):
+\begin{lstlisting}[language=JavaScript]
+always: { a.getPosition().equals(b.getPosition()) }
+\end{lstlisting}
+Our heuristic is based on the idiom for getters and setters to start with
+\lstinline!get! and \lstinline!set!, respectively. In this case, we check if a
+method \lstinline!setPosition! exists. Suppose it does, and the solver wants to
+change the \lstinline!x! and \lstinline!y! parts of \lstinline!a!'s position.
+Rather than updating the object directly, it will create a new object of the
+same type (a point) with the correct values, and set that using
+\lstinline!a.setPosition(newPoint)!.
 
 \chapter{Performance}
 \label{sec:ruby-performance}
@@ -6534,26 +6564,51 @@ the same version of \gls{z3}.
 \chapter{Summary of Implementation Approaches}
 \label{cha:comp-impl-appr}
 
-Compared to the \ac{vm}-based approach, this implementation is more limited,
-since we cannot put constraints on local variables, only on fields. Furthermore,
-where in Babelsberg/R we optimized the storage for constrained variables to work
-well with the \ac{jit}, in this approach we have to use language-level
-facilities to wrap property accesses and hope that modern \acp{vm} can optimize
-these wrappers.
+We have presented two implementation approaches for Babelsberg. Their
+differentiating property is whether they are based on a custom \ac{vm} or are
+done as a library. The main advantage of the library-based approach seems to be
+its applicability to existing runtimes, and that it thus integrates well with
+existing applications. A second advantage, which we will discuss in more detail
+in \autoref{sec:tools}, seems to be that with the meta-constraint \ac{api} being
+entirely implemented in the language, it is straightforward to create tools for
+it.
 
-- Host Language requirements (intercession)
+However, our experience with library-based implementations is limited by the
+fact that we have based our Babelsberg libraries on \javascript and
+Squeak/Smalltalk, both dynamic, object-oriented languages languages. These
+languages are dynamic enough to allow three specific features, which we rely on
+in our implementations.
 
-- in-language interpreter+parser
+First, both languages support (through property accessors or method wrappers) a
+means to intercept (field) variable lookup, so access to constrained variables
+can be redirected to solver objects. Compared to the \ac{vm}-based approach, the
+Babelsberg libraries are more limited, since we cannot put constraints on local
+variables, only on fields. Furthermore, with access to the \ac{vm} we can
+optimize the storage for solver objects to work well with a specific
+\ac{jit}. When running on different \acp{vm}, however, we need to rely on more
+general optimizations.
 
-- custom vm
+Second, a \ac{vm}-based implementation of Babelsberg could opt for a simpler
+implementation and ignore encapsulation to modify data structures
+directly. However, a Babelsberg library must use a more complicated
+implementation. For Smalltalk and \javascript, access to fields of ordinary
+mutable is possible, but for opaque \ac{vm} objects like files, library-based
+implementations have to call the appropriate \ac{api} functions to manipulate
+the data structures.
 
-- limitations on syntax (?)
+Third, the host language must provide a means to modify interpretation of a
+block of code to implement the constraint construction mode. This is most easily
+done in languages that provide closures, or where the language provides
+reflective access to the bytecode of a method. In pre-compiled languages,
+however, it is not clear if this is possible.
 
-- comparison against in-language solutions
-
-- benchmarks when using/not-using
-
-- introspection / debugging
+From our limited experience with building Babelsberg applications, which we
+present in \autoref{part:pract-object-constr}, we cannot give a clear
+recommendation as to which implementation strategy is more suitable. Both
+approaches have advantages. Furthermore, the limitations on syntax and not
+constraining local variables seem not to be strong disadvantages. (The latter
+actually makes the implementation of inlining collection predicates easier,
+because the loop counter is just used as a constant in each iteration.)
 
 \part{Applications with Object-Constraint Programming}
 \label{part:pract-object-constr}

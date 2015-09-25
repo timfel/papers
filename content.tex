@@ -6438,15 +6438,18 @@ has little bearing on these results.
 \section*{Fast Incremental Constraint Solving}
 \label{sec:implementing-edit-constraints}
 Besides providing fast read and write access to both ordinary and constrained
-variables, performance of the solving algorithm is most important.  As described
-in \ref{sec:incr-re-satisf}, edit constraints are used to support incremental
-constraint satisfaction, and are important for achieving good performance in
-interactive applications that use constraints.  The \lstinline{edit} method
-provided as part of Babelsberg/R adds edit constraints and repeatedly updates
-them with values from a stream running in a separate thread. In Babelsberg/JS,
-to support edit constraints within a single thread, the edit method returns a
-callback to input new values into the solvers, rather than taking a stream of
-values. Babelsberg/S does not support edit constraints.
+variables, performance of the solving algorithm is most important. This is
+particularly apparent when few variables change with high frequency and
+constraints have to re-satisfied in response, for example, when a graphical
+object should follow the mouse cursor. As described in \ref{sec:incr-re-satisf},
+edit constraints are used to support incremental constraint satisfaction, and
+are important for achieving good performance in interactive applications that
+use constraints.  The \lstinline{edit} method provided as part of Babelsberg/R
+adds edit constraints and repeatedly updates them with values from a stream
+running in a separate thread. In Babelsberg/JS, to support edit constraints
+within a single thread, the edit method returns a callback to input new values
+into the solvers, rather than taking a stream of values. Babelsberg/S does not
+support edit constraints.
 
 Since the language design supports cooperating solvers, the solvers have to
 provide a specific edit constraint \ac{api}\@. If a variable is added to an edit
@@ -6527,11 +6530,78 @@ previously optimal solution.
 
 \section{Automatic Edit Constraints}
 
-\todo{- JIT description}
+Babelsberg is a design to introduce constraints into standard object-oriented
+languages. The integration of state and object-oriented behavior with constraint
+declaration, as well as the cooperating solvers and solver selection heuristics
+are aimed at making constraints a useful tool for developers not familiar with
+constraint solvers. The performance advantage of incremental re-satisfaction
+makes constraints more useful in applications where variables change
+frequently. However, only few solvers support incremental satisfaction, and thus
+developers need to be aware of this particular feature.
+
+Rather than requiring \ac{oo} developers to learn about incremental solvers, in
+Babelsberg we have added heuristics for two solvers, DeltaBlue and Cassowary, to
+recognize variables that change frequently and use automatically apply
+incremental re-satisfaction to speed up solving.
+
+The solving process of DeltaBlue when a variable is assigned involves creating a
+new equality constraint, creating an execution plan, executing that plan to
+solve the constraints, and finally to remove the equality constraint and the
+associated plan. As a simple optimization heuristic, we can keep the last $n$
+equality constraints and plans in a cache; if one of the $n$ variables changes
+again, we can just update the equality constraint and re-use the execution plan,
+rather than re-creating it.
+
+For Cassowary, the simplex tableau has to be prepared for incremental
+re-solving, and all variables that will be assigned have to be known
+beforehand. This preparation is potentially slow, and it is not possible with
+the implementation of the algorithm to keep multiple optimized versions of the
+tableau around. Thus, the heuristic we use for Cassowary is more akin to a
+\ac{jit}: for each variable known to Cassowary, we keep a counter that tracks
+how often the variable has been assigned recently. In regular intervals, we
+check which $n$ variables were assigned to most frequently, and optimize the
+tableau for changes coming from those variables. At the same time, we ``decay''
+the counters either by a fixed percentage or value. This ensures that variables
+that have been assigned to a lot in the past, but not much in the recent history
+of the program, are no longer considered for incremental re-satisfaction.
 
 \subsection*{Benchmark Results}
 
+We present two sets of benchmarks, one each for DeltaBlue and Cassowary. In our
+benchmarks, we measure a chain of variables that should be equal to a fixed sum,
+a horizontal drag of a slider where only one variable changes, a mouse drag
+where two variables changes alternate, a mouse drag where one dimension changes
+more frequently than the other, and finally a mouse drag where each dimension
+changes five times, and then the other changes five times.
+
+For DeltaBlue, we only provide one heuristic, which is to keep the last edit
+constraint. At any time, if there is no current edit constraint, we create
+one. If the current edit constraint is for another variable, we throw the old
+one away and create the new one. This implementation could easily be extended to
+cache the last $n$ edit constraints, rather than just the last one. However,
+even as it is, we can see in our benchmark that this heuristic is almost always
+as fast as writing edit constraints directly, and is never slower than not using
+edit constraints at all.
+
 \todo{results}
+
+For Cassowary, we provide three heuristics: the \emph{Classic JIT} strategy
+decays counters and changes or creates edit constraints in fixed intervals. A
+second strategy, \emph{Additive Adaptive}, increments the interval any time the
+most frequently used variable did not change, and decrements the interval any
+time it did. Thus, when an edit constraint is well chosen and can stay in effect
+for a long time, we reduce the overhead of checking and decaying counters
+linearly with time. A third strategy, \emph{Multiplicative Adaptive}, modifies
+this behavior and, rather than incrementing or decrementing the interval, it
+multiplies or divides the interval by two. This has the advantage that we can
+avoid re-checks for longer periods of time if the edit constraint stays in
+effect.
+
+\todo{results}
+
+Our benchmarks show that all our heuristics are faster than using no edit
+constraints at all. The adaptive strategies generally work better than the
+\emph{Classic JIT} strategy.
 
 \section{Performance Compared to Other Constraint-Languages}
 

@@ -146,7 +146,7 @@ developers to work backwards from a failure to a root cause. In
 addition, for distributed systems, they provide no high-level view on
 communication between processes and network nodes.
 
-More state-of-the-art approaches to debug non-deterministic failures
+State-of-the-art approaches to debug non-deterministic failures
 use either expensive recording for post-mortem debugging
 ~\cite{Stanley2009} or hard to understand record-and-replay 
 techniques~\cite{Geels2006Replay}. Post-mortem debugging
@@ -160,12 +160,11 @@ access to shared memory are replaced by their recorded outcomes
 and allow developers to replay the distributed system. 
 
 The aim of both approaches is to present recorded data for
-inspection. Post-mortem debugging records during one execution at
-comparatively high overhead, while record-and-replay records only
-enough data to ensure future runs are equivalent, and then uses
-multiple executions to record a little more data each time. However,
-both approaches have limitations for debugging distributed network
-applications:
+inspection. Post-mortem debuggers record data during one execution at
+comparatively high overhead, while record-and-replay approaches record only
+enough data to ensure future runs are equivalent, and then uses multiple
+executions to incrementally record more data on each subsequent run. However,
+both approaches have limitations for debugging distributed network applications:
 %with timing\-/dependent network communication:
 
 \begin{enumerate}[(a)]
@@ -225,7 +224,7 @@ Our combined approach imposes low overhead, provides a top-down view on
 timing\-/dependent communication, and still allows developers to inspect
 run-time data from the live system during debugging. In this paper, we describe
 the implementation of these techniques in our prototype \toolname and its
-integration with our Path Tools framework. The contribution of this approach are:
+integration with our Path Tools framework. The contributions of this approach are:
 \begin{itemize}
 \item A combination of communication recording and anomaly detection techniques
   help developers identify failing communication schedules.
@@ -241,9 +240,9 @@ Squeak/Smalltalk~\cite{Ingalls1997} are:
 \item An architectural overview of our Path Tools framework that provides the
   debugging tools used for our incremental refinement and test-driven fault
   navigation.
-\item The description of \toolname that implements our record and refinement
-  approach, and which extends the Path Tools framework for debugging
-  non-deterministic failures.
+\item The description of our \toolname debugger that implements our record and
+  refinement approach, and which is integrated into the Path Tools framework and
+  extends it for debugging non-deterministic failures.
 \end{itemize}
 
 Our approach is heavily driven by a concrete non-deterministic failure that we
@@ -364,8 +363,8 @@ Squeak is almost entirely written in Smalltalk. This gives us extensive access t
 Furthermore, its self-sustaining environment makes it possible to enrich arbitrary objects with additional information such as their execution in network communications and to preserve this knowledge for later purposes. 
 Even if Squeak already provides more debugging features than other development environments, it still faces several challenges with respect to localizing failure causes. 
 
-The standard symbolic debugger as it is included in almost all development environments is not well-suited for localizing failure causes. 
-It suffers from missing advice on what is going wrong and back-in-time capabilities.
+Standard symbolic debuggers as are available for most programming languages (with the exception only of exotic or experimental languages) are not well-suited for localizing failure causes. 
+They suffer from missing advice on what is going wrong and back-in-time capabilities.
 A symbolic debugger only allows developers to stop a program and to access the run-time stack at a particular point in time. 
 After that, they can experiment with the system only in the forward direction even though the defect is located in the past. 
 To make things worse, the breakpoint and stepping functionality strongly influence non-deterministic failures by changing their timing behavior. 
@@ -420,9 +419,11 @@ In the case of our non-deterministic motivating example, a test case that (``som
     self assert: (reservation endsWith: price asString).
 \end{lstlisting}
 
-The purpose of this script is to create \ac{http} traffic that might trigger the failure.
-It mimics the behavior of a customer who reserves a seat on an airplane, communicates with the Web server via \ac{http}, and asserts that the returned data has the correct rates. 
-We use assertions to classify recorded network communication schedules in relation to whether they produce a failure. 
+The purpose of this script is to create \ac{http} traffic that might trigger the
+failure.  It mimics the behavior of a customer who reserves a seat on an
+airplane, communicates with the Web server via \ac{http}, and asserts that the
+returned data has the correct rates.  We use assertions to classify recorded
+network communication schedules in relation to whether they produce a failure.
 
 %%%---------------------------------------------------------------------------------------------------%%%
 
@@ -579,7 +580,20 @@ communication timing dependencies are the source of this
 non\-/deterministic failure, using \emph{communication recording},
 \emph{anomaly analysis}, and \emph{refinement of remote data}.
 
-For implementing \toolname, we extended in particular the PathMap
+In this section we will show, starting with the test script from
+Section~\ref{sec:bugreport}, how a developer can use the \toolname extension in
+Path Tools to execute the script a number of times. \toolname will, during each
+execution, record a communication trace and our anomaly detection then analyses
+these traces and presents the developer with a selection of network events that
+are likely to be on the path to the failure. The developer can then, by selecting an
+anomalous event, trigger \toolname to re-execute the script, this time enforcing
+the same order of network events and recording more data about the selected
+event. With that additional data, \toolname determines the code that is executed
+around the selected network event, and thus guides the developer from the high
+level communication to the code, where the developer can then inspect program
+state to learn if and how the anomalous network event causes the failure.
+
+For implementing \toolname, we extend in particular the PathMap
 test runner and the PathFinder back-in-time debugger. First, we
 add diagnosis scripts as new entry points into reproducible
 behavior.
@@ -1244,28 +1258,42 @@ to these approaches, our record and refinement enables developers to
 continuously use it on the live system to debug failures that occur
 very rarely or never in development.
 
-Our recording technique is similar to the record and replay as
-presented in liblog~\cite{Geels2006Replay}, DejaVu~\cite{Konuru2000},
-RecPlay~\cite{Gent1999}, and Jockey~\cite{Saito2005}, all of which
-also use Lamport clocks and intercept \io to establish partial
-ordering of network events. However, these approaches focus on
-low-level network events and intercept \io at the level of systems
-calls. They also require either a custom \ac{vm} or additional dynamic
-libraries that cannot be deactivated at run-time. The low-level events
-recorded by these approaches are further removed from the application,
-which makes it difficult for developers to understand where they
-originate in their application code. As the kind of data that is
-recorded by these approaches is predetermined, developers cannot
-easily test whether a given non\-/deterministic failure originates
-from timing dependencies in network access. Compared to these
-approaches, record and refinement is more flexible in what it records,
-and does so at a higher level abstraction.
+Our recording technique is similar to the record and replay as presented in
+liblog~\cite{Geels2006Replay}, DejaVu~\cite{Konuru2000},
+RecPlay~\cite{Gent1999}, and Jockey~\cite{Saito2005}, all of which also use
+Lamport clocks and intercept \io to establish partial ordering of network
+events. However, these approaches focus on low-level network events and
+intercept \io at the level of systems calls. They also require either a custom
+\ac{vm} or additional dynamic libraries that cannot be deactivated at
+run-time. The low-level events recorded by these approaches are further removed
+from the application, which makes it difficult for developers to understand
+where they originate in their application code. As the kind of data that is
+recorded by these approaches is predetermined, developers cannot easily test
+whether a given non\-/deterministic failure originates from timing dependencies
+in network access. Compared to these approaches, record and refinement is more
+flexible in what it records, and does so at a higher level abstraction. The
+additional guidance provided in the Path Tools frameworks helps developers
+connect high-level network events with low-level code on the different servers.
 
 R2~\cite{guo2008r2} is an application-level record-and-replay approach
 which offers more control to the developers about what is recorded,
 and can be used to test for multiple sources of non\-/deterministic
 failures. However, unlike our approach, R2 does not allow replay in
 the live system.
+
+The limited recording approach we take can also be seen in relation to scalable
+back-in-time debugging
+techniques~\cite{Pothier:2007:SOD:1297105.1297067,Lienhard:2008:POB:1428508.1428542}. However,
+those scalable techniques often rely on infrastructure to record program traces
+efficiently, and even if they are efficient enough to record in the live system
+(as is our approach), in our approach we are looking specifically at rare,
+non-deterministic failures. Since these occur only very rarely, the data that
+has to be recorded for these back-in-time debugging techniques can still grow
+very large, requiring extra storage on each node in the network. With our
+approach, on the other hand, the recorded communication schedules and debugging
+data on each run is small, with additional runs used to record additional data
+slices. These small data slices can be immediately transferred to the debugging
+machine, and storage requirements on the distributed servers are limited.
 
 Our record and refinement can be seen as an extension of dynamic
 memory access race\-/detection in parallel programs such as
@@ -1349,11 +1377,18 @@ implicit programming interfaces between servers and helps developers to
 understand how communication is performed in the code.
 
 Despite these avenues for future work, our approach is already usable to debug
-failures in distributed systems. We have evaluated in a case study how
-developers can approach failures without prior knowledge of the concrete
-distributed system. Our approach does not require the system to stop, it allows
-debugging on the live system, and it allows navigation on both network and
-implementation level.
+failures in distributed systems. Our approach does not require the system to
+stop, it allows debugging on the live system, and it allows navigation on both
+network and implementation level. We have evaluated in a small case study with
+five developers how they can use \toolname to approach failures without prior
+knowledge of the concrete distributed system. Our preliminary findings indicate
+that, while the tool is of limited use for examples with very few network events
+and communication partners, it is more helpful to understand traces with
+hundreds of events in long running applications. This is as expected, because
+our heuristic anomaly analysis works better with more variance in network
+events. Our users reported that for large traces, the anomalous communication
+event that helped them to understand and fix a bug was usually clearly among the
+highest ranked, whereas for small traces, the ranking was often less clear.
 
 % Future work:
 % limitations of scheduler, open/closed world, local reproduction

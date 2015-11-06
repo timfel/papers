@@ -894,7 +894,18 @@ to specify constraints and avoid boilerplate code to trigger
 constraint solving and has found widespread adoption, particularily
 through the Mac OS X layout system. However, these approaches require
 the developer to use an additional language when programming the
-system.
+system. The following is an example of an \emph{Enaml} specification for our
+problem:
+\begin{code}[language=python]
+enameldef Main(Window):
+    Container:
+        constraints = [
+            # the rectangle area is called contents in enamel
+            contents_top >= 0, contents_left >= 0,
+            (contents_bottom - contents_top) *
+              (contents_right - contents_left) >= 100
+        ]
+\end{code}
 
 \paragraph{Data-Flow and Functional Reactive Programming}
 Some languages have built-in support for data flow, which allows
@@ -903,9 +914,22 @@ their parts. Examples of such systems are ThingLab \cite{borning-phd},
 Scratch \cite{resnick2009scratch}, the LivelyKernel/Webwerkstatt \cite{lively-kernel-2008}, or
 KScript \cite{ohshima2013onward}. (Of these, only ThingLab includes a planner for
 propagation that breaks cycles automatically. In the other systems the
-programmer has to break cycles explicitely.)
+programmer has to break cycles explicitely.) The following listing shows 
+an example of one-way data-flow in the LivelyKernel/Webwerkstatt:
+\begin{code}[language=JavaScript]
+connect(Window, "origin", Window, "origin",
+        function(origin, prevOrigin) {
+            if (!this.isVisible()) return prevOrigin;
+            else return origin;
+        })
+connect(Window, "extent", Window, "extent",
+        function(extent, prevExtent) {
+            if (this.area() < 100) return prevExtent;
+            else return extent;
+        })
+\end{code}
 
-Such data-flow connections can observe changes to our window's
+These data-flow connections can observe changes to our window's
 \lstinline{origin} and \lstinline{extent}.  On each change, a
 transformation function is executed with the current and the previous
 value and returns the new value for the field. Although these systems
@@ -7325,26 +7349,150 @@ heuristics for automatic solver selection as presented in
 \chapter{Related Work}
 \label{sec:hist-constr-progr}
 
-Structured as a sort of ``History of constraint programming''
+In this chapter, we present the related work on using constraint programming
+systems. The chapter follows the the different guises of constraint programming
+as they began to appear historically, starting with purely constraint-based
+systems, over multi-paradigm languages for \acrlong{clp} and \acrlong{cip}, to
+more recent data-flow constraints (often used in functional-reactive programming
+systems), and purely library- or \ac{dsl}-based constraint programming.
 
 \section{Constraint Programming Systems}
 \label{sec:constr-progr-syst}
 
-Sketchpad
+One of the earliest examples of a programming system that makes use of
+constraints was Sketchpad \cite{sutherland-ifips-1963}, created by Ivan
+Sutherland in the course of his PhD thesis. Besides pioneering computer-aided
+design, object-oriented programming, graphical user interfaces, and
+demonstrating the use of pens as a novel human-computer interaction technique,
+it is also an example of a system that integrates different constraint solving
+algorithms into the system to solve problems that may be too difficult for
+either one or the other solver. from basic lines and arcs, and could apply a set
+of predefined constraints to them, such as making lines parallel or
+perpendicular. Shapes could also be duplicated and composed, with the original
+shapes becoming ``master copies''. Any further modifications to the masters were
+propagated to the copies.
 
-Waltz Shape Recognition
+Sutherland's thesis describes two solvers, a one-pass solver and an incremental
+method. The first is a local propagation solver that propagates degrees of
+freedom. This is described as the preferred method by Sutherland for much the
+same reasons we have given in \autoref{sec:deltablue}: if it can be applied, it
+is both simple and efficient. This method could very often be used in Sketchpad
+when constraints were defined with read-only variables (called
+``reference-only'' by Sutherland), because that limited the degrees of freedom
+and provided ordering for a particular constraint. However, Sutherland
+recognized the need for simultaneous solving in multiple directions at once, and
+thus presents also an iterative numerical solver that linearizes the constraints
+and then tries to minimize the errors (we have integrated this method into the
+work presented here as ``Sutherland's Relaxation Solver''.)  According to Alan
+Borning, the system also used a third solver not explicitly described in the
+thesis, a simple local propagation solver that propagates known values directly,
+before attempting to use propagation of degrees of freedom
+\cite{borning2012architectures}. In contrast to the work presented here,
+Sketchpad integrated a fixed set of solvers, and users thus had to be careful to
+add constraints in a way that would allow the system to use one of these, as
+Sutherland himself notes in his thesis \cite[p.112ff]{sutherland-ifips-1963}.
 
-ThingLab
+David L. Waltz in his PhD dissertation presents a system that uses finite domain
+constraints to interpret two-dimensional drawings of three-dimensional scenes
+with shadows \cite{waltz1972generating}. Do so, he defines a vocabulary of
+possible line intersections that can be present in such drawings. These are
+assigned to the drawings as labels, and each label adds constraints on how what
+labels can be at connected lines. Waltz' system then searches for matches of
+intersection types that describe a valid three-dimensional structure. Compared
+to this work, this early use of constraint solving is very specific to the
+problem domain. The interpretations generated by Waltz' system are concise
+because they can omit many implicit constraints that are specific to the domain,
+a feature that in some way we have attempted to emulate with implicitly
+generated stay constraints and our principled limitations on constraints over
+object structures and identity.
 
-\section{Constraint Logic Programming}
+ThingLab was a ``constraint-oriented simulation laboratory'' implemented as an
+extension to Smalltalk-76 \cite{ingalls1978smalltalk}. Although not meant as a
+general-purpose programming tool, it did allow the definition of constraints on
+objects' parts, and those constraint definitions could be inherited and composed
+in an object-oriented manner. ThingLab had many similarities to Sketchpad
+including the use of the same three solving mechanisms
+\cite{borning2012architectures}, and the graphical construction of objects and
+object-compositions. It's integration with the Smalltalk programming language,
+however, made it easier to create custom constraint-satisfaction methods that
+could be used for local propagation. ThingLab also pioneered some uses of
+constraints for simulations, animation, unit conversions, and spreadsheet
+programming, and we have re-created some of these applications as an evaluation
+of the work presented here. ThingLab also optimized solving performance by
+compiling Smalltalk methods that implement the re-satisfaction plan for
+constraints given a change to a particular field. A similar mechanism could be
+applied to our work to improve the performance for some solvers that do not
+support edit constraints.
+
+\section{Constraint Programming in General Purpose Languages}
 \label{sec:logic-constr-progr}
 
-CLP(R)
+One of the earliest examples for supporting constraints within a general-purpose
+programming paradigm is the \acrlong{clp} scheme \cite{jaffar-popl-1987}, which
+evolved from logic programming. \ac{clp} can be seen as a generalization of
+logic programming, where the constraint domain of pure logic languages is the
+set of terms available in that language. Jaffar and Lassez introduced a family
+of CLP($\mathcal{X}$) languages, where $\mathcal{X}$ stands for the domain on
+which the constraints in the language work. One instance,
+CLP($\cal R$)~\cite{jaffar-toplas-1992}, provides constraints over real numbers
+in Prolog. Another language of this kind is Concurrent Constraint
+Programming~\cite{saraswat-book}. These languages are in the logic programming
+family, and in their standard form have no notion of state or state change, in
+contrast to the work presented here. \ac{clp} languages have significant
+advantages, such as a clean semantics, but they sacrifice the familiar
+capabilities and programming style of the more mainstream imperative
+paradigm. In contrast, our goal in this work was support an imperative,
+object-oriented programming style that integrates constraints syntactically and
+semantically.
 
-Concurrent Constraint Programming
+The Kaleidoscope language by Freeman-Benson, Lopez, and Borning is a first
+example of a \acrlong{cip} language
+\cite{freeman-benson-ecoop-1992}. Kaleidoscope supported Smalltalk-like classes
+and instances, and in addition, integrated constraints with the language
+itself. This integration included built-in constraints over primitive objects
+(such as floats) and constraints over user-defined objects, which were provided
+by \emph{constraint constructors}.  For example, the \lstinline{+} constraint
+for Points could be defined using a constraint constructor \lstinline{a+b=c}
+that expanded into constraints on the \lstinline{x} and \lstinline{y} instance
+variables of the three points \lstinline{a}, \lstinline{b}, and \lstinline{c}.
+Separately, the language also provided \ac{oo} methods.  Both constraint
+constructors and \ac{oo} methods were selected using multi-method semantics.
+This accommodated, for example, the case of a constraint constructor call
+\lstinline{a+b=c} in which \lstinline{b} and \lstinline{c} were known and
+\lstinline{a} was unknown. In contrast to the work presented here, were only
+``ordinary'' imperative methods exist and are used both in constraints and
+imperative code, Kaleidoscope keeps the abstractions for constraint solving and
+object-oriented behavior separate.
 
-\section{Constraint Imperative Programming}
-\label{sec:constr-imper-progr}
+Other \ac{cip} systems include Siri \cite{horn-oopsla-1992}, Turtle
+\cite{grabmuller2004turtle}, and \textsc{Soul} \cite{d2004seamless}. These
+languages provide constraints with syntactic integration into an object-oriented
+language and allow expressing constraints on all object-oriented values in their
+language. ....
+
+BackTalk~\cite{roy1997reifying} and Ilog Solver~\cite{puget1994c++,ilogmanual}
+are other systems that aim to integrate a rich set of constraint solvers with
+imperative languages, but without full syntactic integration or re-using of
+object-oriented method definitions. Rather, they provide a library for unified
+access to a wide range of solvers to be able to express various constraints, and
+methods to combine these solvers with boolean operators or propagation.  More
+recently, Kaplan~\cite{koksal2012constraints} syntactically integrated
+constraints with Scala, but again, does not allow programmers to re-use
+object-oriented method definitions to express constraints, and requires objects
+to be wrapped as \emph{logical variables} to use them in constraints. All three
+systems allow the programmer to enumerate possible solutions to constraints, a
+goal \ac{cip} languages and the work presented here do not share.
+
+There is also a body of work that uses constraints in other ways in
+general-purpose programming languages.  For example, in Plan B, Samimi, Aung,
+and Millstein \cite{samimi-ecoop-2010} use specifications as ``reliable
+alternatives'' to implementations, so that if an assertion fails, the system can
+use the specification as input to a constraint solver and continue execution.
+Similarly, Demsky and Rinard~\cite{demsky2006goal} use constraint solvers to
+correct a faulty program state automatically and continue running.  (Thus, by
+replacing assertions with constraints, undesirable program states can be
+corrected by the runtime.)
+
 
 kaleidoscope
 
@@ -7392,6 +7540,8 @@ Plan B
 Squander
 
 Demsky + Rinard
+
+Lighthouse
 
 \chapter{Summary and Outlook}
 

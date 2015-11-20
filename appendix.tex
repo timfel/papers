@@ -1,8 +1,1919 @@
 \part{Appendix}
 \label{part:appendix}
 
-\chapter{First Unimportant stuff.}
-\label{cha:first-unimp-stuff}
+\chapter{Benchmarks}
+\label{sec:benchmarks-appendix}
+
+\lstset{basicstyle=\tiny\ttfamily}
+
+This section gives the source code listings for the benchmarks that we used to
+evaluate the performance of our \ac{ocp} implementations.
+
+\subsection*{Read Access to Constrained Variables}
+\label{sec:read-access}
+
+The following code listings show how we measured read access performance in
+Ruby, \javascript, and Squeak/Smalltalk.
+
+\begin{lstlisting}[language=ruby]
+require "mybenchmark"
+require "libcassowary"
+
+class MockObject
+  attr_accessor :a, :b, :c, :d, :e
+
+  def initialize
+    @a,@b,@c,@d,@e = 1,1,1,1,1
+  end
+end
+
+obj, constraint = nil, nil
+
+Resetter = Proc.new do |label|
+  obj = MockObject.new
+  if label.start_with? "Constrained"
+    constraint.disable if constraint
+    constraint = always do
+      obj.a == 1 &&
+        obj.b == 1 &&
+        obj.c == 1 &&
+        obj.d == 1 &&
+        obj.e == 1
+    end
+    constraint.disable if label.end_with? "(disabled)"
+  end
+end
+
+class SetupSuite
+  def warming(label, *args)
+    Resetter[label]
+  end
+  def warmup_stats(*); end
+  alias_method :add_report, :warmup_stats
+  alias_method :running, :warming
+end
+suite = SetupSuite.new
+
+benchmark = Proc.new { |t| t.times { obj.a + obj.b + obj.c + obj.d + obj.e } }
+
+Benchmark.ips do |x|
+  x.config(:suite => suite)
+  x.report('Unconstrained Read', &benchmark)
+  x.report('Constrained Read', &benchmark)
+  x.report('Constrained Read (disabled)', &benchmark)
+  x.compare!
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript]
+var suite = new Benchmark.Suite;
+
+benchf = function() {
+    obj.a + obj.b + obj.c + obj.d + obj.e
+}
+benchmarks = {
+    "Unconstrained Read": [initf = function() {
+        obj = {a: 1, b: 1, c:1, d:1, e:1};
+    }, benchf],
+    "Properties Read": [function() {
+        obj = {
+            get a() { return this.$$a }, $$a: 0,
+            get b() { return this.$$b }, $$b: 0,
+            get c() { return this.$$c }, $$c: 0,
+            get d() { return this.$$d }, $$d: 0,
+            get e() { return this.$$e }, $$e: 0,
+        }
+    }, benchf],
+    "Constrained Read": [constrainf = function() {
+        initf()
+        constraint = bbb.always({solver: new ClSimplexSolver(), ctx: {obj: obj}}, function () {
+            return obj.a == 1 &&
+                obj.b == 1 &&
+                obj.c == 1 &&
+                obj.d == 1 &&
+                obj.e == 1
+        });
+    }, benchf],
+    "Constrained Read (disabled)": [disablef = function() {
+        constrainf()
+        constraint.disable();
+    }, benchf],
+    "Constrained Read (disabled, unconstrained)": [function() {
+        disablef();
+        bbb.unconstrainAll(obj);
+    }, benchf]
+}
+
+for (var k in benchmarks) {
+    suite.add(k, benchmarks[k][1], {setup: benchmarks[k][0]})
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Squeak]
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 30 September 2015 at 11:09:18 am'!
+Object subclass: #ConstraintMockObject
+	instanceVariableNames: 'a b c d e'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Constraints-Benchmarks'!
+
+"... accessors and initializers for the mock object ..."
+
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 30 September 2015 at 10:53:31 am'!
+Benchmark subclass: #ConstraintsBenchmarks
+	instanceVariableNames: 'obj constrObj constraints'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Constraints-Benchmarks'!
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:42'!
+benchConstrainedReadAccess
+
+	1000 timesRepeat: [
+		constrObj a + constrObj b + constrObj c + constrObj d + constrObj e
+	]! !
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:47'!
+benchConstrainedReadAccessDisabled
+
+	constraints do: #disable.
+	1000 timesRepeat: [
+		constrObj a + constrObj b + constrObj c + constrObj d + constrObj e
+	]! !
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:39'!
+benchReadAccess
+
+	1000 timesRepeat: [
+		obj a + obj b + obj c + obj d + obj e
+	]! !
+
+
+!ConstraintsBenchmarks methodsFor: 'running' stamp: 'tfel 9/23/2015 15:46'!
+setUp
+
+	obj := ConstraintMockObject new.
+	constrObj := ConstraintMockObject new.
+	constraints := OrderedCollection new.
+	constraints add: [constrObj a = 1] alwaysTrue.
+	constraints add: [constrObj b = 1] alwaysTrue.
+	constraints add: [constrObj c = 1] alwaysTrue.
+	constraints add: [constrObj d = 1] alwaysTrue.
+	constraints add: [constrObj e = 1] alwaysTrue.
+! !
+\end{lstlisting}
+
+\subsection*{Write Access to Constrained Variables}
+\label{sec:write-access-constr}
+
+The following code listings show how we measured write access performance in
+Ruby, \javascript, and Squeak/Smalltalk.
+
+\begin{lstlisting}[language=ruby]
+require "mybenchmark"
+require "libcassowary"
+
+class MockObject
+  attr_accessor :a, :b, :c, :d, :e
+
+  def initialize(a=1,b=1,c=1,d=1,e=1)
+    @a,@b,@c,@d,@e = a,b,c,d,e
+  end
+end
+
+obj, constraint = nil, nil
+
+Resetter = Proc.new do |label|
+  obj = MockObject.new
+  if label.start_with? "Constrained"
+    constraint.disable if constraint
+    constraint = always do
+      obj.a >= 1 &&
+        obj.b >= 1 &&
+        obj.c >= 1 &&
+        obj.d >= 1 &&
+        obj.e >= 1
+    end
+    constraint.disable if label.end_with? "(disabled)"
+  end
+end
+
+class SetupSuite
+  def warming(label, *args)
+    Resetter[label]
+  end
+  def warmup_stats(*); end
+  alias_method :add_report, :warmup_stats
+  alias_method :running, :warming
+end
+suite = SetupSuite.new
+
+benchmark = Proc.new { |t| t.times { obj.a += 1; obj.b += 1; obj.c += 1; obj.d += 1; obj.e += 1 } }
+
+Benchmark.ips do |x|
+  x.config(:suite => suite)
+  x.report('Unconstrained Write', &benchmark)
+  x.report('Constrained Write', &benchmark)
+  x.report('Constrained Write (disabled)', &benchmark)
+  x.report('Constrained Write (edit)') do |times|
+    class MyStream
+      def initialize(times)
+        @times = times
+      end
+      def next
+        raise StopIteration if @times == 0
+        o = MockObject.new(@times, @times, @times, @times, @times)
+        @times -= 1
+        o
+      end
+    end
+    edit(stream: MyStream.new(times), accessors: ["a", "b", "c", "d", "e"]) { obj }
+  end
+  x.compare!
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript]
+var suite = new Benchmark.Suite;
+
+var suite = new Benchmark.Suite;
+
+benchf = function() {
+    obj.a += 1;
+    obj.b += 1;
+    obj.c += 1;
+    obj.d += 1;
+    obj.e += 1;
+}
+benchmarks = {
+    "Unconstrained Write": [initf = function() {
+        obj = {a: 1, b: 1, c:1, d:1, e:1};
+    }, benchf],
+    "Properties Write": [function() {
+        obj = {
+            get a() { return this.$$a }, $$a: 0,
+            get b() { return this.$$b }, $$b: 0,
+            get c() { return this.$$c }, $$c: 0,
+            get d() { return this.$$d }, $$d: 0,
+            get e() { return this.$$e }, $$e: 0,
+        }
+    }, benchf],
+    "Constrained Write": [constrainf = function() {
+        initf();
+        constraint = bbb.always({solver: new ClSimplexSolver(), ctx: {obj: obj}}, function () {
+            return obj.a >= 1 &&
+                obj.b >= 1 &&
+                obj.c >= 1 &&
+                obj.d >= 1 &&
+                obj.e >= 1
+        });
+    }, benchf],
+    "Constrained Write (disabled)": [disablef = function() {
+        constrainf();
+        constraint.disable();
+    }, benchf],
+    "Constrained Write (disabled, unconstrained)": [function() {
+        disablef();
+        bbb.unconstrainAll(obj);
+    }, benchf],
+    "Constrained Write (edit)": [function() {
+        constrainf();
+        cb = bbb.edit(obj, ["a", "b", "c", "d", "e"]);
+    }, function() {
+        cb([obj.a + 1, obj.b + 1, obj.c + 1, obj.d + 1, obj.e + 1]);
+    }]
+}
+
+for (var k in benchmarks) {
+    suite.add(k, benchmarks[k][1], {setup: benchmarks[k][0]})
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Squeak]
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 30 September 2015 at 11:09:18 am'!
+Object subclass: #ConstraintMockObject
+	instanceVariableNames: 'a b c d e'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Constraints-Benchmarks'!
+
+"... accessors and initializers for the mock object ..."
+
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 30 September 2015 at 10:53:31 am'!
+Benchmark subclass: #ConstraintsBenchmarks
+	instanceVariableNames: 'obj constrObj constraints'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Constraints-Benchmarks'!
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:42'!
+benchConstrainedWriteAccess
+
+	1000 timesRepeat: [
+		constrObj a: constrObj a + 1.
+		constrObj b: constrObj b + 1.
+		constrObj c: constrObj c + 1.
+		constrObj d: constrObj d + 1.
+		constrObj e: constrObj e + 1.
+	]! !
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:47'!
+benchConstrainedWriteAccessDisabled
+
+	constraints do: #disable.
+	1000 timesRepeat: [
+		constrObj a: constrObj a + 1.
+		constrObj b: constrObj b + 1.
+		constrObj c: constrObj c + 1.
+		constrObj d: constrObj d + 1.
+		constrObj e: constrObj e + 1.
+	]! !
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:39'!
+benchWriteAccess
+
+	1000 timesRepeat: [
+		obj a: obj a + 1.
+		obj b: obj b + 1.
+		obj c: obj c + 1.
+		obj d: obj d + 1.
+		obj e: obj e + 1.
+	]! !
+
+
+!ConstraintsBenchmarks methodsFor: 'running' stamp: 'tfel 9/23/2015 15:46'!
+setUp
+
+	obj := ConstraintMockObject new.
+	constrObj := ConstraintMockObject new.
+	constraints := OrderedCollection new.
+	constraints add: [constrObj a >= 1] alwaysTrue.
+	constraints add: [constrObj b >= 1] alwaysTrue.
+	constraints add: [constrObj c >= 1] alwaysTrue.
+	constraints add: [constrObj d >= 1] alwaysTrue.
+	constraints add: [constrObj e >= 1] alwaysTrue.
+! !
+\end{lstlisting}
+
+\subsection*{Edit Constraints}
+\label{sec:edit-constraints}
+
+The following code listings show how we measured the performance impact of edit
+constraints compared to purely imperative code and constraint code that does not
+use edit constraints in Ruby and \javascript. Squeak/Smalltalk is omitted,
+because that prototype did not implement support for edit constraints.
+
+\begin{lstlisting}[language=ruby]
+require "mybenchmark"
+require "libcassowary"
+
+class Mercury
+  def initialize
+    @top = 10
+    @bottom = 0
+  end
+
+  def top=(num)
+    @top = num
+  end
+
+  def top
+    @top
+  end
+
+  def bottom
+    @bottom
+  end
+
+  def height
+    @top - @bottom
+  end
+
+  def inspect
+    "<Mercury: #{@top}->#{@bottom}>"
+  end
+end
+
+class Mouse
+  def initialize
+    @location_y = 10
+  end
+
+  def location_y
+    @location_y
+  end
+
+  def location_y=(arg)
+    @location_y = arg
+  end
+
+  def inspect
+    "<Mouse: #{@location_y}>"
+  end
+end
+
+class Rectangle
+  def initialize(name, top, bottom)
+    @name = name
+    @top = top
+    @bottom = bottom
+  end
+
+  def top
+    @top
+  end
+
+  def top=(arg)
+    @top = arg
+  end
+
+  def bottom
+    @bottom
+  end
+
+  def bottom=(arg)
+    @bottom = arg
+  end
+
+  def inspect
+    "<#{@name} Rectangle: #{@top}->#{@bottom}>"
+  end
+end
+
+class Thermometer < Rectangle
+  def initialize(top, bottom)
+    super("thermometer", top, bottom)
+  end
+
+  def inspect
+    "<Thermometer: #{@top}->#{@bottom}>"
+  end
+end
+
+class Display
+  def initialize
+    @number = 0
+  end
+
+  def number
+    @number
+  end
+
+  def number=(arg)
+    @number = arg
+  end
+
+  def inspect
+    "<Display: #{@number}>"
+  end
+end
+
+mouse = mercury = thermometer = grey = white = temperature = display = nil
+
+Resetter = Proc.new do |label|
+  if label.start_with? "Imperative"
+    mouse = Mouse.new
+    mercury = Mercury.new
+    thermometer = Thermometer.new(200, 0)
+    grey = Rectangle.new("grey", mercury.top, mercury.bottom)
+    white = Rectangle.new("white", thermometer.top, mercury.top)
+    temperature = mercury.height
+    display = Display.new
+  end
+  if label.start_with? "Declarative" or label.start_with? "Edit"
+    mouse = Mouse.new
+    mercury = Mercury.new
+    thermometer = Thermometer.new(200, 0)
+    grey = Rectangle.new("grey", mercury.top, mercury.bottom)
+    white = Rectangle.new("white", thermometer.top, mercury.top)
+    temperature = mercury.height
+    display = Display.new
+
+    always { temperature == mercury.height }
+    always { white.top == thermometer.top }
+    always { white.bottom == mercury.top }
+    always { grey.top == mercury.top }
+    always { grey.bottom == mercury.bottom }
+    always { display.number == temperature }
+    always { mercury.top == mouse.location_y }
+    always { mercury.top <= thermometer.top }
+    always { mercury.bottom == thermometer.bottom }
+  end
+end
+
+class SetupSuite
+  def warming(label, *args)
+    Resetter[label]
+  end
+  def warmup_stats(*); end
+  alias_method :add_report, :warmup_stats
+  alias_method :running, :warming
+end
+suite = SetupSuite.new
+
+Benchmark.ips do |x|
+  x.config(:suite => suite)
+  x.report('Imperative Drag Simulation') do |t|
+    t.times do
+      100.times do |i|
+        mouse.location_y = i
+        old = mercury.top
+        mercury.top = mouse.location_y
+        if mercury.top > thermometer.top
+          mercury.top = thermometer.top
+        end
+        temperature = mercury.top
+        if (old < mercury.top)
+          # moves upwards (draws over the white)
+          grey.top = mercury.top
+        else
+          # moves downwards (draws over the grey)
+          white.bottom = mercury.top
+        end
+        display.number = temperature
+      end
+    end
+  end
+  x.report('Declarative Drag Simulation') do |t|
+    t.times { 100.times { |i| mouse.location_y = i } }
+  end
+  x.report('Edit Drag Simulation') do |t|
+    t.times do
+      edit(stream: 100.times.each, accessors: []) { mouse.location_y }
+    end
+  end
+  x.compare!
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript]
+suite = new Benchmark.Suite;
+
+benchmarks = {
+    "Imperative Drag": [function() {
+        mouse = {location_y: 0},
+        mercury = {top: 0, bottom: 0},
+        thermometer = {top: 0, bottom: 0},
+        temperature = 0,
+        gray = {top: 0, bottom: 0},
+        white = {top: 0, bottom: 0},
+        display = {number: 0};
+    }, function() {
+        for (var i = 0; i < 100; i++) {
+            mouse.location_y = i
+            var old = mercury.top
+            mercury.top = mouse.location_y
+            if (mercury.top > thermometer.top) {
+                mercury.top = thermometer.top
+            }
+            temperature = mercury.top
+            if (old < mercury.top) {
+                // moves upwards (draws over the white)
+                gray.top = mercury.top
+            } else {
+                // moves downwards (draws over the gray)
+                white.bottom = mercury.top
+            }
+            display.number = temperature
+        }
+    }],
+    "Declarative Drag": [resetConstraints = function() {
+        ctx = {
+            mouse: {location_y: 0},
+            mercury: {top: 0, bottom: 0},
+            thermometer: {top: 0, bottom: 0},
+            temperature: {c: 0},
+            gray: {top: 0, bottom: 0},
+            white: {top: 0, bottom: 0},
+            display: {number: 0}};
+        solver = new ClSimplexSolver();
+        bbb.always({solver: solver, ctx: ctx}, function () { return temperature.c == mercury.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return white.top == thermometer.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return white.bottom == mercury.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return gray.top == mercury.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return gray.bottom == mercury.bottom });
+        bbb.always({solver: solver, ctx: ctx}, function () { return display.number == temperature.c });
+        bbb.always({solver: solver, ctx: ctx}, function () { return mercury.top == mouse.location_y });
+        bbb.always({solver: solver, ctx: ctx}, function () { return mercury.top <= thermometer.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return mercury.bottom == thermometer.bottom });
+    }, function() {
+        for (var i = 0; i < 100; i++) {
+            ctx.mouse.location_y = i
+        }
+    }],
+    "Edit Drag": [function() {
+        resetConstraints();
+        cb = bbb.edit(ctx.mouse, ["location_y"]);
+    }, function() {
+        for (var i = 0; i < 100; i++) {
+            cb([i]);
+        }
+    }]
+}
+
+for (var k in benchmarks) {
+    suite.add(k, benchmarks[k][1], {setup: benchmarks[k][0]})
+}
+\end{lstlisting}
+
+\subsection*{Edit Constraint JIT}
+\label{sec:edit-constraint-jit}
+
+The following code listing shows the impact of our prototype edit constraint
+\acp{jit} in \javascript. It shows that the \ac{jit} works for the benchmarks
+shown in \autoref{sec:edit-constraints}, as well as some micro-benchmarks that
+test specific circumstances like changing two variables at different
+frequencies.
+
+\begin{lstlisting}[language=JavaScript]
+var suite = new Benchmark.Suite;
+
+benchmarks = {
+    "Imperative Drag": [function() {
+        mouse = {location_y: 0},
+        mercury = {top: 0, bottom: 0},
+        thermometer = {top: 0, bottom: 0},
+        temperature = 0,
+        gray = {top: 0, bottom: 0},
+        white = {top: 0, bottom: 0},
+        display = {number: 0};
+    }, function() {
+        for (var i = 0; i < 100; i++) {
+            mouse.location_y = i
+            var old = mercury.top
+            mercury.top = mouse.location_y
+            if (mercury.top > thermometer.top) {
+                mercury.top = thermometer.top
+            }
+            temperature = mercury.top
+            if (old < mercury.top) {
+                // moves upwards (draws over the white)
+                gray.top = mercury.top
+            } else {
+                // moves downwards (draws over the gray)
+                white.bottom = mercury.top
+            }
+            display.number = temperature
+        }
+    }],
+    "Declarative Drag (Classic JIT)": [constrainf = function(jit) {
+        ctx = {
+            mouse: {location_y: 0},
+            mercury: {top: 0, bottom: 0},
+            thermometer: {top: 0, bottom: 0},
+            temperature: {c: 0},
+            gray: {top: 0, bottom: 0},
+            white: {top: 0, bottom: 0},
+            display: {number: 0}};
+        solver = new ClSimplexSolver();
+        solver.ecjit = jit || new ClassicECJIT();
+        bbb.always({solver: solver, ctx: ctx}, function () { return temperature.c == mercury.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return white.top == thermometer.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return white.bottom == mercury.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return gray.top == mercury.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return gray.bottom == mercury.bottom });
+        bbb.always({solver: solver, ctx: ctx}, function () { return display.number == temperature.c });
+        bbb.always({solver: solver, ctx: ctx}, function () { return mercury.top == mouse.location_y });
+        bbb.always({solver: solver, ctx: ctx}, function () { return mercury.top <= thermometer.top });
+        bbb.always({solver: solver, ctx: ctx}, function () { return mercury.bottom == thermometer.bottom });
+    }, benchf = function() {
+        for (var i = 0; i < 100; i++) {
+            ctx.mouse.location_y = i
+        }
+    }],
+    "Declarative Drag (Additive JIT)": [
+        function() { constrainf(new AdditiveAdaptiveECJIT()) },
+        benchf
+    ],
+    "Declarative Drag (Multiplicative JIT)": [
+        function() { constrainf(new MultiplicativeAdaptiveECJIT()) },
+        benchf
+    ],
+    "Declarative Drag (Last JIT)": [
+        function() { constrainf(new LastECJIT()) },
+        benchf
+    ],
+}
+
+for (var k in benchmarks) {
+    // suite.add(k, benchmarks[k][1], {setup: benchmarks[k][0]})
+}
+
+ecbenchmarks1 = {
+    'dbAddSim': [
+        function(ecjit) {
+            o = {x: 0, y: 0, z: 0};
+            solver = new DBPlanner();
+            solver.ecjit = ecjit;
+
+            bbb.always({solver: solver, ctx: {o: o}}, function () {
+                return o.x == o.z - o.y &&
+                    o.y == o.z - o.x &&
+                    o.z == o.x + o.y;
+            })
+        }, function(iterations) {
+            for (var i = 0; i < iterations; i++) {
+                o.x = i;
+                console.assert(o.x + o.y == o.z);
+            }
+        }, function(iterations) {
+            cb = bbb.edit(o, ["x"]);
+            for (var i = 0; i < iterations; i++) {
+                cb([i]);
+                console.assert(o.x + o.y == o.z);
+            }
+            cb();
+        }],
+    'clAddSim': [
+        function(ecjit) {
+            o = {x: 0, y: 0, z: 0};
+            solver = new ClSimplexSolver();
+            solver.ecjit = ecjit;
+            solver.setAutosolve(false);
+            bbb.always({solver: solver, ctx: {o: o}}, function () { return o.x + o.y == o.z; });
+        }, function(iterations) {
+            for (var i = 0; i < iterations; i++) {
+                o.x = i;
+                console.assert(o.x + o.y == o.z);
+            }
+        }, function() {
+            cb = bbb.edit(o, ["x"]);
+        }, function (iterations) {
+            for (var i = 0; i < iterations; i++) {
+                cb([i]);
+                console.assert(o.x + o.y == o.z);
+            }
+        }],
+    'clDragSim': [
+        function(ecjit) {
+            ctx = {
+                mouse: {location_y: 0},
+                mercury: {top: 0, bottom: 0},
+                thermometer: {top: 0, bottom: 0},
+                temperature: {c: 0},
+                gray: {top: 0, bottom: 0},
+                white: {top: 0, bottom: 0},
+                display: {number: 0}},
+            solver = new ClSimplexSolver();
+            solver.ecjit = ecjit;
+            solver.setAutosolve(false);
+
+            bbb.always({solver: solver, ctx: ctx}, function () { return temperature.c == mercury.top });
+            bbb.always({solver: solver, ctx: ctx}, function () { return white.top == thermometer.top });
+            bbb.always({solver: solver, ctx: ctx}, function () { return white.bottom == mercury.top });
+            bbb.always({solver: solver, ctx: ctx}, function () { return gray.top == mercury.top });
+            bbb.always({solver: solver, ctx: ctx}, function () { return gray.bottom == mercury.bottom });
+            bbb.always({solver: solver, ctx: ctx}, function () { return display.number == temperature.c });
+            bbb.always({solver: solver, ctx: ctx}, function () { return mercury.top == mouse.location_y });
+            bbb.always({solver: solver, ctx: ctx}, function () { return mercury.top <= thermometer.top });
+            bbb.always({solver: solver, ctx: ctx}, function () { return mercury.bottom == thermometer.bottom });
+        }, function(iterations) {
+            for (var i = 0; i < iterations; i++) {
+                ctx.mouse.location_y = i;
+                console.assert(ctx.mouse.location_y == i);
+            }
+        }, function() {
+            cb = bbb.edit(ctx.mouse, ["location_y"]);
+        }, function(iterations) {
+            for (var i = 0; i < iterations; i++) {
+                cb([i]);
+                console.assert(ctx.mouse.location_y == i);
+            }
+        }],
+}
+
+jits = ['EmptyECJIT', 'ClassicECJIT', 'AdditiveAdaptiveECJIT', 'MultiplicativeAdaptiveECJIT', 'LastECJIT']
+iterations = 1;
+
+var idx = 0
+function wrap(options, fn) {
+    var str = fn.toString();
+    for (var k in options) {
+        window[k + idx] = options[k];
+        str = str.replace(RegExp("([^a-zA-Z])" + k + "([^a-zA-Z0-9])", "g"), "$1" + k + idx + "$2");
+        idx += 1;
+    }
+    return eval("(" + str + ")");
+}
+
+for (var k in ecbenchmarks1) {
+    jits.each(function (jit) {
+        ecjit = eval(jit)
+        suite.add(k + " " + jit, wrap({k: k, iterations: iterations}, function() {
+            ecbenchmarks1[k][1](iterations)
+        }), {setup: wrap({k: k, ecjit: ecjit}, function() {
+            ecbenchmarks1[k][0](new ecjit)
+        })})
+    });
+    suite.add(k + " Edit Constraints", wrap({k: k, iterations: iterations}, function() {
+        ecbenchmarks1[k][3](iterations)
+    }), {setup: wrap({k: k, ecjit: ecjit}, function() {
+        ecbenchmarks1[k][2]()
+    })})
+}
+
+[1, 3].each(function(sheer) {
+    jits.each(function(jit) {
+        var ecjit = new (eval(jit))
+        var numIterations = iterations;
+        var setup = function() {
+            ctx = {
+                mouse: {x: 100, y: 100},
+                wnd: {w: 100, h: 100},
+                comp1: {w: 70, display: 0},
+                comp2: {w: 30, display: 0}
+            };
+            var solver = new ClSimplexSolver();
+            solver.ecjit = ecjit;
+            solver.setAutosolve(false);
+
+            bbb.always({solver: solver, ctx: ctx}, function () { return wnd.w == mouse.x });
+            bbb.always({solver: solver, ctx: ctx}, function () { return wnd.h == mouse.y });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.w <= 400; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.w+comp2.w == wnd.w; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.display == wnd.w; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp2.display == wnd.h; });
+        };
+        suite.add('clDrag2DSim' + sheer + " " + jit,
+                  wrap({sheer: sheer, numIterations: numIterations, ecjit: ecjit}, function() {
+                      for(var i = 0; i < numIterations; i++) {
+                          ctx.mouse.x = 100+i;
+                          if(i % sheer == 0) {
+                              ctx.mouse.y = 100+i;
+                          }
+                          console.assert(ctx.mouse.x == 100+i);
+                          if(i % sheer == 0) {
+                              console.assert(ctx.mouse.y == 100+i);
+                          }
+                      }
+                  }),
+                  {setup: wrap({sheer: sheer, numIterations: numIterations, ecjit: ecjit}, setup)});
+        suite.add('clDrag2DSimEdit' + sheer + " " + jit,
+                  wrap({sheer: sheer, numIterations: numIterations, ecjit: ecjit}, function(numIterations, sheer) {
+                      for(var i = 0; i < numIterations; i++) {
+                          cb([100+i, Math.floor((100+i)/sheer)*sheer]);
+                          console.assert(ctx.mouse.x == 100+i);
+                          console.assert(ctx.mouse.y == Math.floor((100+i)/sheer)*sheer);
+                      }
+                  }),
+                  {setup: wrap({sheer: sheer, numIterations: numIterations, ecjit: ecjit}, function() {
+                      setup();
+                      cb = bbb.edit(ctx.mouse, ["x", "y"]);
+                  })});
+    });
+});
+
+[iterations / 2, iterations / 10].each(function(numSwitch) {
+    jits.each(function(jit) {
+        var ecjit = new (eval(jit))
+        var numIterations = iterations;
+        var setup = wrap({numSwitch: numSwitch, numIterations: numIterations, ecjit: ecjit}, function() {
+            ctx = {
+                mouse: {x: 100, y: 100},
+                wnd: {w: 100, h: 100},
+                comp1: {w: 70, display: 0},
+                comp2: {w: 30, display: 0}
+            };
+            var solver = new ClSimplexSolver();
+            solver.ecjit = ecjit;
+            solver.setAutosolve(false);
+
+            bbb.always({solver: solver, ctx: ctx}, function () { return wnd.w == mouse.x });
+            bbb.always({solver: solver, ctx: ctx}, function () { return wnd.h == mouse.y });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.w <= 400; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.w+comp2.w == wnd.w; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.display == wnd.w; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp2.display == wnd.h; });
+        });
+        suite.add('clDrag2DSimChange' + numSwitch + " " + jit,
+                  wrap({numSwitch: numSwitch, numIterations: numIterations, ecjit: ecjit}, function() {
+                      for(var i = 0; i < numIterations; i++) {
+                          if(i < numSwitch) {
+                              ctx.mouse.x = 100+i;
+                              console.assert(ctx.mouse.x == 100+i);
+                          } else {
+                              ctx.mouse.y = 100+(i-numSwitch);
+                              console.assert(ctx.mouse.x == numSwitch-1);
+                              console.assert(ctx.mouse.y == 100+(i-numSwitch));
+                          }
+                      }
+                  }),
+                  {setup: setup});
+        suite.add('clDrag2DSimChangeEdit' + numSwitch + " " + jit,
+                  wrap({numSwitch: numSwitch, numIterations: numIterations, ecjit: ecjit}, function() {
+                      for(var i = 0; i < numIterations; i++) {
+                          if(i < numSwitch) {
+                              cb([100+i]);
+                              console.assert(ctx.mouse.x == 100+i);
+                          } else {
+                              if(i == numSwitch) {
+                                  cb();
+                                  cb = bbb.edit(ctx.mouse, ["y"]);
+                              }
+                              cb([100+(i-numSwitch)]);
+                              console.assert(ctx.mouse.x == numSwitch-1);
+                              console.assert(ctx.mouse.y == 100+(i-numSwitch));
+                          }
+                      }
+                  }),
+                  {setup: function() {
+                      setup();
+                      cb = bbb.edit(ctx.mouse, ["x"]);
+                  }});
+    });
+});
+
+[5, 10].each(function(switchFreq) {
+    jits.each(function(jit) {
+        var ecjit = new (eval(jit))
+        var numIterations = iterations;
+        var setup = wrap({switchFreq: switchFreq, numIterations: numIterations, ecjit: ecjit}, function() {
+            ctx = {
+                mouse: {x: 100, y: 100},
+                wnd: {w: 100, h: 100},
+                comp1: {w: 70, display: 0},
+                comp2: {w: 30, display: 0}
+            };
+            var solver = new ClSimplexSolver();
+            solver.ecjit = ecjit;
+            solver.setAutosolve(false);
+
+            bbb.always({solver: solver, ctx: ctx}, function () { return wnd.w == mouse.x });
+            bbb.always({solver: solver, ctx: ctx}, function () { return wnd.h == mouse.y });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.w <= 400; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.w+comp2.w == wnd.w; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp1.display == wnd.w; });
+            bbb.always({solver: solver, ctx: ctx}, function () { return comp2.display == wnd.h; });
+        });
+        suite.add('clDrag2DSimFreqChange' + switchFreq + " " + jit,
+                  wrap({switchFreq: switchFreq, numIterations: numIterations, ecjit: ecjit}, function() {
+                      for(var i = 0; i < numIterations; i++) {
+                          if(i % (switchFreq*2) < switchFreq) {
+                              ctx.mouse.x = 100+i;
+                              console.assert(ctx.mouse.x == 100+i);
+                          } else {
+                              ctx.mouse.y = 100+i;
+                              console.assert(ctx.mouse.y == 100+i);
+                          }
+                      }
+
+                  }),
+                  {setup: setup});
+        suite.add('clDrag2DSimChangeEdit' + switchFreq + " " + jit,
+                  wrap({switchFreq: switchFreq, numIterations: numIterations, ecjit: ecjit}, function() {
+                      for(var i = 0; i < numIterations; i++) {
+                          if(i % (switchFreq*2) < switchFreq) {
+                              cb([100+i, 100+i/(switchFreq*2)]);
+                              console.assert(ctx.mouse.x == 100+i);
+                          } else {
+                              cb([100+i/(switchFreq*2), 100+i]);
+                              console.assert(ctx.mouse.y == 100+i);
+                          }
+                      }
+                  }),
+                  {setup: function() {
+                      setup();
+                      cb = bbb.edit(ctx.mouse, ["x", "y"]);
+                  }});
+    });
+});
+\end{lstlisting}
+
+\subsection*{Constraint-* Language Comparisons}
+\label{sec:constraint--language}
+
+In the following subsections, we show the code listings for the three
+cross-language constraint benchmarks that we ran to compare Babelsberg
+performance to Prolog, Kaplan, and Turtle. Each subsection presents the code in
+Babelsberg/R in Ruby, Babelsberg/JS in \javascript, Babelsberg/S in
+Squeak/Smalltalk, Prolog using the constraint-logic programming library, Kaplan,
+and Turtle. Depending on the language, repetitions are sometimes hard coded and
+at other times were injected by an outside benchmark runner. Each of these
+benchmarks were run 1, 3, 5, 10, 50, and 100 times, either by configuring
+the benchmark runner or tweaking the hard coded repetitions.
+
+\subsubsection*{Animals Puzzle}
+\label{sec:animals-puzzle}
+
+\begin{lstlisting}[language=ruby]
+require "libz3"
+
+CENTS = 10000
+ANIMALS = 100
+DOGC = 1500
+CATC = 100
+MICEC = 25
+
+def action
+  cents, animals, dogc, catc, micec = [0.0] * 5
+
+  always { cents == CENTS &&
+          animals == ANIMALS &&
+          dogc == DOGC &&
+          catc == CATC &&
+          micec == MICEC }
+
+  dog, cat, mouse = 0, 0, 0
+  c1 = always { dog >= 1 && cat >= 1 && mouse >= 1 }
+  c2 = always { dog + cat + mouse == animals }
+  c3 = always {dog * dogc + cat * catc + mouse * micec == cents }
+  puts "Dogs: #{dog}, cats: #{cat}, mice: #{mouse}"
+  [c1,c2,c3].each(&:disable)
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript]
+CENTS = 10000
+ANIMALS = 100
+DOGC = 1500
+CATC = 100
+MICEC = 25
+TIME_ = 0
+REPEATS = 10
+
+function action() {
+    var solver = new EmZ3();
+    var oldPM = solver.postMessage;
+    solver.postMessage = function(string) {
+        return oldPM.apply(solver, [string.replace(/Real/g, "Int")]);
+    }
+
+    setTimeout(function () {
+        var start = Date.now();
+        var obj = {cents: 0, animals: 0, dogc: 0, catc: 0, micec: 0};
+        bbb.always({
+            solver: solver,
+            ctx: {obj: obj}}, function () {
+                return obj.cents == CENTS &&
+                    obj.animals == ANIMALS &&
+                    obj.dogc == DOGC &&
+                    obj.catc == CATC &&
+                    obj.micec == MICEC });
+
+        var obj2 = {dog: 0, cat: 0, mouse: 0};
+        bbb.always({
+            solver: solver,
+            ctx: {obj2: obj2}}, function () { return obj2.dog >= 1 && obj2.cat >= 1 && obj2.mouse >= 1 });
+        bbb.always({
+            solver: solver,
+            ctx: {obj: obj, obj2: obj2}}, function () { return obj2.dog + obj2.cat + obj2.mouse == obj.animals });
+        bbb.always({
+            solver: solver,
+            ctx: {obj: obj, obj2: obj2}}, function () {
+               return obj2.dog * obj.dogc + obj2.cat * obj.catc + obj2.mouse * obj.micec == obj.cents
+            });
+        console.log("Dogs: " + obj2.dog + ", cats: " + obj2.cat + ", mice: " + obj2.mouse)
+        TIME_ += (Date.now() - start);
+
+        if (REPEATS > 0) {
+            REPEATS -= 1;
+            setTimeout(action, 0);
+        } else {
+            console.log("THIS IS THE TIME:" + TIME_);
+            alert.original.apply(window, ["CLOSE ME"])
+        }
+    }, 3000);
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Squeak]
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 5 October 2015 at 11:56:17 am'!
+!ConstraintZ3Variable methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:33'!
+initialize
+    "Use integers"
+    varName := 'noName'.
+    type := 'Int'.! !
+
+Object subclass: #AnimalsObject
+        instanceVariableNames: 'cents animals dogc catc micec dog cat mouse'
+        classVariableNames: ''
+        poolDictionaries: ''
+        category: 'Constraints-Benchmarks'!
+
+"... accessors and initializers for the animals object ..."
+
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 5 October 2015 at 12:01:34 pm'!
+Benchmark subclass: #ConstraintsBenchmarks
+        instanceVariableNames: 'obj'
+        classVariableNames: ''
+        poolDictionaries: ''
+        category: 'Constraints-Benchmarks'!
+
+!ConstraintsBenchmarks methodsFor: 'nil' stamp: 'tfel 10/5/2015 12:01'!
+benchAnimals
+10 timesRepeat: [
+        | solver |
+        obj := AnimalsObject new.
+        solver := ConstraintSolver newZ3Solver.
+        [ (obj cents = 10000) &
+                (obj animals = 100) & (
+                        obj dogc = 1500) & (
+                                obj catc = 100) & (
+                                        obj micec = 25) ] alwaysSolveWith: solver.
+        [ obj dog >= 1 & ( obj cat >= 1 ) & ( obj mouse >= 1) ] alwaysSolveWith: solver.
+        [ obj dog + obj cat + obj mouse = obj animals ] alwaysSolveWith: solver.
+        [ (obj dog * obj dogc) + (obj cat * obj catc) + (obj mouse * obj micec) = obj cents ] alwaysSolveWith: solver.
+        FileStream stdout nextPutAll: 'Dogs: ', obj dog, ', cats: ', obj cat , ', mice: ', obj mouse; cr; flush].
+! !
+\end{lstlisting}
+
+\begin{lstlisting}[language=prolog]
+:- use_module(library(clpfd)).
+ 
+animals(Vars) :-
+    Animals is 100,
+    Cents is 10000,
+    Dogc is 1500,
+    Catc is 100,
+    Micec is 25,
+    Vars = [Dog,Cat,Mouse],
+    Vars ins 1..Animals,
+    Dogc*Dog + Catc*Cat + Micec*Mouse #= Cents,
+    Dog + Cat + Mouse #= Animals.
+
+bench(Count) :-
+    T1 is cputime,
+    dobench(Count),
+    T2 is cputime,
+    report(Count, T1, T2).
+
+dobench(Count) :-
+    nrepeat(Count),
+    Vars = [Dog,Cat,Mouse],
+    animals(Vars),
+    label(Vars),
+    write(Vars),
+    nl,
+    fail.
+dobench(_).
+
+nrepeat(_).
+nrepeat(N) :-
+   N>1,
+   N1 is N-1,
+   nrepeat(N1).
+
+report(Count, T1, T2) :-
+    Time is T2-T1,
+    nl,
+    write('THIS IS THE TIME: '),
+    write(Time),
+    nl.
+\end{lstlisting}
+
+\begin{lstlisting}[language=scala]
+import z3.scala._
+import cp.Definitions._
+import cp.Terms._
+import cp.LTrees._
+import cp.ConstraintSolving
+import purescala.FairZ3Solver
+
+object Animals extends App {
+  object Example {
+    val name = "Animals"
+
+    def run : Unit = {
+      println("*** Running " + name + " ***")
+      action
+    }
+
+    def asserting(c : Constraint0) : Unit = {
+      var entered = false
+      for(i <- c.lazyFindAll) {
+        entered = true
+      }
+      if(!entered) { throw new Exception("Asserting failed.") }
+    }
+
+    def action : Unit = {
+      val anyInt : Constraint1[Int] = ((n : Int) => true)
+
+      val cents = anyInt.lazySolve
+      val animals = anyInt.lazySolve
+      val dogc = anyInt.lazySolve
+      val catc = anyInt.lazySolve
+      val micec = anyInt.lazySolve
+
+      asserting( cents == 10000 )
+      asserting( animals == 100 )
+      asserting( dogc == 1500 )
+      asserting( catc == 100 )
+      asserting( micec == 25 )
+
+      val dog = anyInt.lazySolve
+      val cat = anyInt.lazySolve
+      val mouse = anyInt.lazySolve
+
+      asserting( dog >= 1 )
+      asserting( cat >= 1 )
+      asserting( mouse >= 1 )
+      asserting( animals == dog + cat + mouse  )
+      asserting( cents == dog * dogc + cat * catc + mouse * micec )
+
+      println("Dogs: " + dog.value + ", cats: " + cat.value + ", mice: " + mouse.value)
+    }
+  }
+}  
+\end{lstlisting}
+
+\begin{lstlisting}[language=turtle]
+module animals;
+
+import io, sys.times;
+
+fun test0()
+  var cents: !int := var 0;
+  var animals: !int := var 0;
+  var dogc: !int := var 0;
+  var catc: !int := var 0;
+  var micec: !int := var 0;
+
+  require cents = 10000;
+  require animals = 100;
+  require dogc = 1500;
+  require catc = 100;
+  require micec = 25;
+
+  var dog: !int := var 0;
+  var cat: !int := var 0;
+  var mouse: !int := var 0;
+
+  require dog >= 1;
+  require cat >= 1;
+  require mouse >= 1;
+  require dog < animals;
+  require cat < animals;
+  require mouse < animals;
+  require dog + cat + mouse = animals;
+  require dog * dogc + cat * catc + mouse * micec = cents;
+
+  io.put ("Dogs: "); io.put (!dog);
+  io.put (", cats: "); io.put (!cat);
+  io.put (", mice: "); io.put (!mouse); io.nl ();
+end;
+\end{lstlisting}
+
+\subsubsection*{Layout Constraints}
+\label{sec:layout-constraints}
+
+\begin{lstlisting}[language=ruby]
+require "libz3"
+
+def fun
+  gap, pw, lw, rw = [0]*4
+
+  c1 = always { pw == 40000 }
+  c2 = always { gap == pw / 20000 }
+  c3 = always { lw + gap + rw == pw }
+  c4 = always { lw >= 0 }
+  c5 = always { rw >= 0 }
+
+  puts "gap #{gap}, left column #{lw}, right column #{rw}, page width #{pw}"
+  [c1,c2,c3,c4,c5].each(&:disable)
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript]
+function fun() {
+    var solver = new ClSimplexSolver();
+    var obj = {gap: 0,
+               pw: 0,
+               lw: 0,
+               rw: 0};
+    bbb.always({solver: solver,  ctx: {obj: obj}}, function () { return obj.pw == 40000 });
+    bbb.always({solver: solver,  ctx: {obj: obj}}, function () { return obj.gap == obj.pw / 20000 });
+    bbb.always({solver: solver,  ctx: {obj: obj}}, function () { return obj.lw + obj.gap + obj.rw == obj.pw });
+    bbb.always({solver: solver,  ctx: {obj: obj}}, function () { return obj.lw >= 0 });
+    bbb.always({solver: solver,  ctx: {obj: obj}}, function () { return obj.rw >= 0 });
+    console.log("gap " + obj.gap + ", left column " + obj.lw + ", right column " + obj.rw + ", page width " + obj.pw)
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Squeak]
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 30 September 2015 at 11:09:18 am'!
+Object subclass: #ConstraintMockObject
+        instanceVariableNames: 'gap pw lw rw'
+        classVariableNames: ''
+        poolDictionaries: ''
+        category: 'Constraints-Benchmarks'!
+
+"... accessors and initializers for the mock object ..."
+
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 30 September 2015 at 10:53:31 am'!
+Benchmark subclass: #ConstraintsBenchmarks
+        instanceVariableNames: 'obj constrObj constraints'
+        classVariableNames: ''
+        poolDictionaries: ''
+        category: 'Constraints-Benchmarks'!
+
+!ConstraintsBenchmarks methodsFor: 'benchmarks' stamp: 'tfel 9/23/2015 15:42'!
+benchLayout
+
+  10 timesRepeat: [
+    obj := ConstraintMockObject new.
+    [ obj pw = 40000 ] alwaysTrue.
+    [ obj gap = (obj pw / 20000) ] alwaysTrue.
+    [ obj lw + obj gap + obj rw = obj pw ] alwaysTrue.
+    [ obj lw >= 0 ] alwaysTrue.
+    [ obj rw >= 0 ] alwaysTrue.
+    FileStream stdout
+      nextPutAll: 'gap = ', obj gap, ', pw = ', obj pw, ' lw = ', obj lw, ' rw = ', obj rw;
+      crlf; flush.
+  ]
+! !
+\end{lstlisting}
+
+\begin{lstlisting}[language=prolog]
+:- use_module(library(clpfd)).
+ 
+layout(Vars) :-
+    Vars = [Gap,Pw,Lw,Rw],
+    Pw #= 40000,
+    Gap * 20000 #= Pw,
+    Lw + Gap + Rw #= Pw,
+    Lw #>= 0,
+    Rw #>= 0,
+    Gap #= 2,
+    Lw #= 0.
+
+bench(Count) :-
+    T1 is cputime * 1000,
+    dobench(Count),
+    T2 is cputime * 1000,
+    report(Count, T1, T2).
+
+dobench(Count) :-
+    nrepeat(Count),
+    Vars = [Gap,Pw,Lw,Rw],
+    layout(Vars),
+    label(Vars),
+    write(Vars),
+    nl,
+    fail.
+dobench(_).
+
+nrepeat(_).
+nrepeat(N) :-
+   N>1,
+   N1 is N-1,
+   nrepeat(N1).
+
+report(Count, T1, T2) :-
+    Time is T2-T1,
+    nl,
+    write('THIS IS THE TIME: '),
+    write(Time),
+    nl.
+\end{lstlisting}
+
+\begin{lstlisting}[language=scala]
+import z3.scala._
+import cp.Definitions._
+import cp.Terms._
+import cp.LTrees._
+import cp.ConstraintSolving
+import purescala.FairZ3Solver
+
+object Layout extends App {
+  object Example {
+    val name = "Turtle Layout"
+
+    def run : Unit = {
+      println("*** Running " + name + " ***")
+      action
+    }
+
+    def asserting(c : Constraint0) : Unit = {
+      var entered = false
+      for(i <- c.lazyFindAll) {
+        entered = true
+      }
+      if(!entered) { throw new Exception("Asserting failed.") }
+    }
+
+    def action : Unit = {
+      val anyReal : Constraint1[Int] = ((n : Int) => true)
+
+      val gap = anyReal.lazySolve
+      val pw = anyReal.lazySolve
+      val rw = anyReal.lazySolve
+      val lw = anyReal.lazySolve
+
+      asserting( pw == 40000 )
+      asserting( gap == pw / 20000 )
+      asserting( pw == lw + gap + rw )
+      asserting( lw >= 0 )
+      asserting( rw >= 0 )
+
+      println("gap " + gap.value + ", left column " + lw.value + ", right column " + rw.value + ", page width " + pw.value)
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=turtle]
+// layout.t -- A simple layout example.
+// Copyright (C) 2003 Martin Grabmueller <mgrabmue@cs.tu-berlin.de>
+module layout;
+
+import io, sys.times;
+
+fun test0()
+  // Gap between the columns.
+  var gap: !real := var 0.0;
+  // Page width.
+  var pw: !real := var 0.0;
+  // Left and right column.
+  var lw: !real := var 0.0;
+  var rw: !real := var 0.0;
+
+  require pw = 40000.0;
+  require gap = (pw / 20000.0);
+  require lw + gap + rw = pw;
+  require lw >= 0.0;
+  require rw >= 0.0;
+
+  io.put ("gap = "); io.put (!gap); io.nl ();
+  io.put ("lw = "); io.put (!lw); io.nl ();
+  io.put ("rw = "); io.put (!rw); io.nl ();
+  io.put ("pw = "); io.put (!pw); io.nl ();
+end;
+\end{lstlisting}
+
+\subsubsection*{Send+More=Money Puzzle}
+\label{sec:smm-puzzle}
+
+\begin{lstlisting}[language=ruby]
+require "libz3"
+require "libarraysolver"
+
+class Array
+  def ins(range)
+    return true if self.empty?
+    self[1..-1].ins(range) &&
+      self[0] >= range.first &&
+      self[0] <= range.last
+  end
+end
+
+def action
+  s,e,n,d,m,o,r,y = [0]*8
+
+  # each digit is between 0 and 9
+  c = always { [s,e,n,d,m,o,r,y].ins(0..9) }
+
+  c1 = always { [s,e,n,d,m,o,r,y].alldifferent? }
+
+  c2 = always do
+    s*1000 + e*100 + n*10 + d +
+    m*1000 + o*100 + r*10 + e ==
+    m*10000 + o*1000 + n*100 + e*10 + y
+  end
+
+  c3 = always { s>0 && m>0 }
+
+  puts ("solution: [s,e,n,d,m,o,r,y] = " + [s,e,n,d,m,o,r,y].to_s)
+  [c, c1, c2, c3].each(&:disable)
+end
+\end{lstlisting}
+
+\begin{lstlisting}[language=JavaScript]
+CENTS = 10000
+ANIMALS = 100
+DOGC = 1500
+CATC = 100
+MICEC = 25
+TIME_ = 0
+REPEATS = 10
+
+function action() {
+    var solver = new EmZ3();
+    var oldPM = solver.postMessage;
+    solver.postMessage = function(string) {
+        return oldPM.apply(solver, [string.replace(/Real/g, "Int")]);
+    }
+
+    setTimeout(function () {
+        var start = Date.now();
+        var obj = {s: 0, e: 0, n: 0, d: 0, m: 0, o: 0, r: 0, y:0};
+        var names = ["s", "e", "n", "d", "m", "o", "r", "y"];
+        var fo;
+        names.forEach(function (f) {
+            bbb.always({
+                solver: solver,
+                ctx: {obj: obj, f: f}}, function () {
+                    return obj[f] <= 9 && obj[f] >= 0 });
+        });
+        bbb.always({
+            solver: solver,
+            ctx: {obj: obj}}, function () {
+                return obj.s != 0 && obj.m != 0 });
+        names.forEach(function (f) {
+            names.forEach(function (fo) {
+                if (f !== fo) {
+                    bbb.always({
+                        solver: solver,
+                        ctx: {obj: obj, f: f, fo: fo}}, function () {
+                            return obj[f] != obj[fo] });
+                }
+            })
+        })
+
+        bbb.always({
+            solver: solver,
+            ctx: {obj: obj}}, function () {
+                return obj.s * 1000 + obj.e * 100 + obj.n * 10 + obj.d +
+                    obj.m * 1000 + obj.o * 100 + obj.r * 10 + obj.e ==
+                    obj.m * 10000 + obj.o * 1000 + obj.n * 100 + obj.e * 10 + obj.y });
+
+        console.log("solution: [s,e,n,d,m,o,r,y] = " + [obj.s,obj.e,obj.n,obj.d,obj.m,obj.o,obj.r,obj.y])
+        TIME_ += (Date.now() - start);
+
+        if (REPEATS > 0) {
+            REPEATS -= 1;
+            setTimeout(action, 0);
+        } else {
+            console.log("THIS IS THE TIME:" + TIME_);
+            alert.original.apply(window, ["CLOSE ME"])
+        }
+    }, 3000);
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Squeak]
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 5 October 2015 at 11:56:17 am'!
+!ConstraintZ3Variable methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:33'!
+initialize
+    "Use integers"
+    varName := 'noName'.
+    type := 'Int'.! !
+
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 5 October 2015 at 1:48:46 pm'!
+Object subclass: #SMM
+	instanceVariableNames: 'ary'
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Constraints-Benchmarks'!
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+initialize
+
+	ary := {0. 0. 0. 0. 0. 0. 0. 0}! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+d
+
+	^ ary at: 4! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+e
+
+	^ ary at: 2! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+m
+
+	^ ary at: 5! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+n
+
+	^ ary at: 3! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+o
+
+	^ ary at: 6! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+r
+
+	^ ary at: 7! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+s
+
+	^ ary at: 1! !
+
+!SMM methodsFor: 'initialize-release' stamp: 'tfel 10/5/2015 13:45'!
+y
+
+	^ ary at: 8! !
+
+!SMM methodsFor: 'as yet unclassified' stamp: 'tfel 10/5/2015 13:46'!
+ary
+
+	^ ary! !
+
+!SMM methodsFor: 'as yet unclassified' stamp: 'tfel 10/5/2015 13:46'!
+ary: anArray
+
+	ary := anArray.! !
+
+'From Squeak4.5 of 19 February 2014 [latest update: #13680] on 5 October 2015 at 1:48:48 pm'!
+Benchmark subclass: #ConstraintBenchmarks
+	instanceVariableNames: ''
+	classVariableNames: ''
+	poolDictionaries: ''
+	category: 'Constraints-Benchmarks'!
+
+!ConstraintBenchmarks methodsFor: 'as yet unclassified' stamp: 'tfel 10/5/2015 13:48'!
+benchSendMoreMoney
+	| solver p |
+	50 timesRepeat: [
+		p := SMM new.
+		solver := ConstraintSolver newZ3Solver.
+		[p ary allSatisfy: [:ea | (ea <= 9) & (ea >= 0)]] alwaysSolveWith: solver.
+		[p ary allDifferent] alwaysSolveWith: solver.
+		[		((p s * 1000) + (p e * 100) + (p n * 10) + (p d) +
+				(p m * 1000) + (p o * 100) + (p r * 10) + (p e)) =
+		((p m * 10000) + (p o * 1000) + (p n * 100) + (p e * 10) + (p y))
+		] alwaysSolveWith: solver.
+		[(p s > 0) & (p m > 0)] alwaysSolveWith: solver.
+		FileStream stdout nextPutAll: 'solution: ', p ary; cr; flush.
+	]
+! !
+\end{lstlisting}
+
+\begin{lstlisting}[language=prolog]
+:- use_module(library(clpfd)).
+ 
+sendmoremoney(Vars) :-
+    Vars = [S,E,N,D,M,O,R,Y],
+    Vars ins 0..9,
+    S #\= 0,
+    M #\= 0,
+    all_different(Vars),
+                 1000*S + 100*E + 10*N + D
+    +            1000*M + 100*O + 10*R + E
+    #= 10000*M + 1000*O + 100*N + 10*E + Y.
+
+bench(Count) :-
+    T1 is cputime,
+    dobench(Count),
+    T2 is cputime,
+    report(Count, T1, T2).
+
+dobench(Count) :-
+    nrepeat(Count),
+    Vars = [S,E,N,D,M,O,R,Y],
+    sendmoremoney(Vars),
+    label(Vars),
+    write(Vars),
+    nl,
+    fail.
+dobench(_).
+
+nrepeat(_).
+nrepeat(N) :-
+   N>1,
+   N1 is N-1,
+   nrepeat(N1).
+
+report(Count, T1, T2) :-
+    Time is T2-T1,
+    nl,
+    write('THIS IS THE TIME: '),
+    write(Time),
+    nl.
+\end{lstlisting}
+
+\begin{lstlisting}[language=scala]
+import z3.scala._
+import cp.Definitions._
+import cp.Terms._
+import cp.LTrees._
+import cp.ConstraintSolving
+import purescala.FairZ3Solver
+
+object Sendmoremoney extends App {
+  object Example {
+    val name = "SEND+MORE=MONEY"
+
+    def run : Unit = {
+      println("*** Running " + name + " ***")
+      action
+    }
+
+    def asserting(c : Constraint0) : Unit = {
+      var entered = false
+      for(i <- c.lazyFindAll) {
+        entered = true
+      }
+      if(!entered) { throw new Exception("Asserting failed.") }
+    }
+
+    def action : Unit = {
+      val anyInt : Constraint1[Int] = ((n : Int) => true)
+
+      val letters @ Seq(s,e,n,d,m,o,r,y) = Seq.fill(8)(anyInt.lazySolve)
+
+      for(l <- letters) {
+        asserting(l >= 0 && l <= 9) 
+      }
+
+      when(distinct[Int](s,e,n,d,m,o,r,y)) {
+        println("Letters now have distinct values.")
+      } otherwise {
+        println("Letters can't have distinct values.")
+      }
+
+      val fstLine = anyInt.lazySolve
+      val sndLine = anyInt.lazySolve
+      val total = anyInt.lazySolve
+
+      asserting(fstLine == 1000*s + 100*e + 10*n + d)
+      asserting(sndLine == 1000*m + 100*o + 10*r + e)
+      asserting(total   == 10000*m + 1000*o + 100*n + 10*e + y)
+
+      asserting(s >= 1)
+      asserting(m >= 1) 
+
+      println("Solution: " + letters.map(_.value) + " (" + fstLine.value + " + " + sndLine.value + " = " + total.value + ")")
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=turtle]
+// sendmory2.t -- Demonstration for Constraint Programming in Turtle.
+// Copyright (C) 2003 Martin Grabmueller <mgrabmue@cs.tu-berlin.de>
+
+module sendmory2;
+
+import io, sys.times;
+
+constraint all_different (l: list of !int)
+  while tl l <> null do
+    var ll: list of !int := tl l;
+    while ll <> null do
+      require hd l <> hd ll;
+      ll := tl ll;
+    end;
+    l := tl l;
+  end;
+end;
+
+constraint domain (v: !int, min: int, max: int)
+  require v >= min and v <= max;
+end;
+
+fun test0()
+  var s: !int := var 0;
+  var e: !int := var 0;
+  var n: !int := var 0;
+  var d: !int := var 0;
+  var m: !int := var 0;
+  var o: !int := var 0;
+  var r: !int := var 0;
+  var y: !int := var 0;
+
+  require domain (s, 0, 9) and domain (e, 0, 9) and domain (n, 0, 9) and
+    domain (d, 0, 9) and domain (m, 1, 9) and domain (o, 0, 9) and
+    domain (r, 0, 9) and domain (y, 0, 9) and
+    all_different ([s, e, n, d, m, o, r, y]) and
+    (s * 1000 + e * 100 + n * 10 + d) +
+    (m * 1000 + o * 100 + r * 10 + e) =
+    (m * 10000 + o * 1000 + n * 100 + e * 10 + y)
+  in
+    io.put ("s = "); io.put (!s); io.nl ();
+    io.put ("e = "); io.put (!e); io.nl ();
+    io.put ("n = "); io.put (!n); io.nl ();
+    io.put ("d = "); io.put (!d); io.nl ();
+    io.put ("m = "); io.put (!m); io.nl ();
+    io.put ("o = "); io.put (!o); io.nl ();
+    io.put ("r = "); io.put (!r); io.nl ();
+    io.put ("y = "); io.put (!y); io.nl ();
+  end;
+end;
+\end{lstlisting}
+
+\chapter{Constraint Hierarchies}
+\label{sec:constraint hierarchies}
+
+This is a reproduction of the theory of constraint hierarchy relevant to this
+work, originally published in \cite{FelgentreffJOT14} and given here for
+convenience.
+
+\ParSep
+
+Formally, a constraint is a relation over some domain $\cal D$\@.  The
+domain $\cal D$ determines the constraint predicate symbols $\Pi_{\cal
+  D}$ of the language, so that a constraint is an expression of the
+form $p(t_{1} , \ldots , t_{n} )$ where $p$ is an $n$-ary symbol in
+$\Pi_{\cal D}$ and each $t_{i}$ is a term.
+
+A \emph{labeled constraint} is a constraint labeled with a priority,
+written \mbox{$p c$}, where $p$ is a priority and $c$ is a constraint.
+For clarity in writing labeled constraints, we give symbolic names to
+the different priorities.  We then map each of these names onto the
+integers $0 \ldots n$, where $n$ is the number of non-required
+priorities.  Priority 0, with the symbolic name \lstinline{required}, is
+always reserved for required constraints.
+
+A constraint system is a multiset $H$ of labeled constraints.  Let
+$H_0$ denote the required constraints in $H\!$, with their labels
+removed.  In the same way, we define the sets $H_1, H_2, \ldots, H_n$
+for levels $1, 2, \ldots, n$.  We also define $H_k = \emptyset$ for
+$k>n$.
+
+A \emph{solution} to a set of labeled constraints $H$ is a valuation
+for the free variables in $H\!$, i.e., a function that maps the free variables
+in $H$ to elements in the domain $\cal D$.  We wish to define the set $S$
+of all solutions to $H\!$.  Clearly, each valuation in $S$ must be such that,
+after it is applied, all the required constraints hold.  In addition, we desire
+each valuation in $S$ to be such that it satisfies the non-required
+constraints as well as possible, respecting their relative strengths.  To
+formalize this desire, we first define the set $S_{0}$ of valuations such
+that all the $H_{0}$ constraints hold.  Then, using $S_{0}$, we define the
+desired set $S$ by eliminating all potential valuations that are worse than
+some other potential valuation using the comparator predicate \emph{better}.
+(In the definition, $c \theta$ denotes the boolean result of applying the
+valuation $\theta$ to $c$, and we say that ``$c \theta$ holds'' if $c
+\theta = \mbox{\bf true}$. Note that this is a specification of $S$,
+not an algorithm for computing it!)
+\begin{eqnarray*}
+S_{0} & = &
+  \left\{ \theta \mid \forall c \in H_{0} \; c \theta \mbox{ holds} \right\} \\
+S & = & 
+  \left\{ \theta \mid \theta \in S_{0} \wedge
+       \forall \sigma \in S_{0} \; \neg \mbox{\em better\/}(\sigma, \theta,H)
+       \right\}
+\end{eqnarray*}
+
+We now define the locally-predicate-better and weighted-sum-better
+comparators.  As also noted above, we use an error function $e(c
+\theta)$ that returns a non-negative real number indicating how nearly
+constraint $c$ is satisfied for a valuation $\theta$.  This function
+must have the property that $e(c \theta) = 0$ if and only if $c
+\theta$ holds.  For any domain $\cal D$, we can use the trivial error
+function that returns 0 if the constraint is satisfied and 1 if it is
+not.  A comparator that uses this error function is a \emph{predicate}
+comparator.  For a domain that is a metric space, we can use its
+metric in computing the error instead of the trivial error function.
+Such a comparator is a \emph{metric} comparator.
+
+The first of the comparators, \emph{locally-better}, considers each
+constraint in $H$ individually to find Pareto-optimal solutions.
+
+{\bf Definition.}  A valuation $\theta$ is \emph{locally-better} than
+another valuation $\sigma$ if, for each of the constraints through some
+level $k-1$, the error after applying $\theta$ is equal to that after
+applying $\sigma$, and at level $k$ the error is strictly less for at least
+one constraint and less than or equal for all the rest.
+\begin{eqnarray*}
+\lefteqn{\mbox{\em locally-better\/} (\theta,\sigma,H) \equiv } \\
+  &  \lefteqn{\exists k>0 \mbox{\rm \ \ such that}} \\
+  & & \forall i \in 1 \ldots k-1 \; \forall p \in H_i \;\;
+          e(p \theta) = e(p \sigma) \\
+  & & \wedge \;\; \exists q \in H_k \;\; e(q \theta) < e(q \sigma)  \\
+  & & \wedge \;\; \forall r \in H_k \;\; e(r \theta) \leq e(r \sigma)
+\end{eqnarray*}
+
+\emph{Locally-predicate-better} is then \emph{locally-better} using
+the trivial error function that returns 0 if the constraint is
+satisfied and 1 if it is not.
+
+Next, we define a schema \emph{globally-better} for global comparators.
+The schema is parameterized by a function $g$ that combines the errors
+of all the constraints $H_i$ at a given level.
+
+{\bf Definition.}  A valuation $\theta$ is \emph{globally-better} than
+another valuation $\sigma$ if, for each level through some level $k-1$, the
+combined errors of the constraints after applying $\theta$ is
+equal to that after applying $\sigma$, and at level $k$ it is strictly less.
+\begin{eqnarray*}
+\lefteqn{\mbox{\em globally-better\/}(\theta,\sigma,H,g) \equiv } \\
+  & \lefteqn{\exists k > 0 \mbox{\rm \ \ such that}} \\
+  & & \forall i \in 1 \ldots k-1 \;\;
+      g(\theta,H_i) = g(\sigma,H_i) \\
+  & & \wedge \;\; g(\theta,H_k) < g(\sigma,H_k)
+\end{eqnarray*}
+
+Using \emph{globally-better}, we now define \emph{weighted-sum-better}
+by selecting a particular combining function $g$.  The weight for
+constraint $p$ is denoted by $w_p$.  Each weight is a positive real
+number.
+
+\begin{eqnarray*}
+\mbox{\em weighted-sum-better\/}(\theta,\sigma,H)  & \equiv &
+  \mbox{\em globally-better\/}(\theta,\sigma,H,g)  \\
+  \mbox{\rm where\ \ } g(\tau,H_i) & \equiv & 
+	\sum_{p \in H_i} w_p e(p \tau) \\
+\end{eqnarray*}
+
+Different constraint solvers find solutions for different comparators.
+In our work to date, the two solvers we use that accommodate soft
+constraints are DeltaBlue, which finds locally-predicate-better
+solutions, and Cassowary, which finds weighted-sum-better solutions.
+(When there are infinitely many solutions, as in the above example
+with the two medium constraints $x=0$ and $y=0$, Cassowary has the
+additional property that it finds solutions that ``tilt'' toward one
+constraint or the other, so that it would find either the solution
+$x=0$, $y=10$ or else $x=10$, $y=0$ --- but not for example $x=3.6$
+and $y=6.4$, even though that is also a weighted-sum-better solution.)
+
 
 \blindtext
 
@@ -10,4 +1921,5 @@
 
 %%% Local Variables: 
 %%% mode: latex
+%%% TeX-master: "Felgentreff_2015_Babelsberg"
 %%% End: 

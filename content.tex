@@ -5041,24 +5041,76 @@ system can create the order without the programmer's support.
 
 \begin{figure}
   \centering
-  \missingfigure[figheight=8cm]{}
+  \includegraphics[page=2,width=\linewidth]{figures/figures}
   \caption{A Graph of Constraints in our Cooperating Solvers Architecture}
   \label{fig:coop-architecture}
 \end{figure}
 
-\autoref{fig:coop-architecture} shows an example configuration. Once
-the solver regions are sorted, solving proceeds from the furthest
-upstream region.  Each region will determine values for the variables
-it can write to, and the downstream regions will adjust to accommodate
-the new values propagated to their read-only variables from higher
-level regions. Soft constraints are solved for just within each region
---- in keeping with the theory of hard and soft constraints in the
-presence of read-only variables \cite{borning1992constraint}, if a
-soft constraint in an upstream region restricts a variable to a
-certain value, then a downstream region must use that value and can in
-fact not distinguish if this value was determined by a required or a
-soft constraint. If constraints in a downstream region cannot be
-satisfied due to an upstream soft constraint, we do not backtrack.
+\autoref{fig:coop-architecture} shows an example configuration. In this example,
+we are looking at a set of constraints for determining the thermal expansion of
+a metal rod. Such a system is useful to run in multiple directions, to find the
+expansion given certain temperature ranges, to find safe temperature ranges
+given maximum and minimum lengths of the metal rod, or to select the most
+suitable metal given some temperature and expansion. In addition, we also want
+to allow entering lengths and temperatures in the metric or the imperial system.
+
+Converting between Centimeters and Inches as well as between Fahrenheit and
+Celsius is done by means of a linear equation, thus the constraints to do so
+could be handed to Cassowary. Converting textual input fields to float values
+and back must be done via a local propagation solver such as DeltaBlue. The
+calculation of the thermal expansion is a non-linear equation that multiples the
+temperature, the base-length at zero degrees Celsius, and the coefficient of
+thermal expansion specific to the selected metal. This equation is not linear,
+and thus cannot be solved by Cassowary, but Sutherland's relaxation solver, for
+example, can find a solution. Finally, the coefficient of thermal expansion is
+determined by the type of metal, a finite list of associations. To solve for
+such a value, we need to choose a finite domain solver such as BackTalk.
+
+User input always arrives via one or more of the input fields. Depending on
+which input variable(s) are provided by the user, the corresponding DeltaBlue
+regions are sorted first. For example, if we want to determine what length an
+Iron rod has at 60 degrees Fahrenheit, if its length is 100cm at zero degrees
+Celsius, DeltaBlue$_2$, DeltaBlue$_3$, and the BackTalk region are sorted to be
+solved first. They determine $L_0$, $F$, and $\alpha$ from the user input,
+consequently these variables will become read-only for all downstream
+regions. Since both $C$ and $cm$ are still undetermined now, the region for
+Sutherland's relaxation has more unknowns than Cassowary$_1$. Thus, the latter
+is sorted to be solved next. Now Relaxation and DeltaBlue$_1$ both have one
+unknown left. We proceed sorting these regions with the fewest degrees of
+freedom first, and end up with the following solving plan:
+\[
+  \left.\begin{aligned}
+      \text{DeltaBlue}_2\\
+      \text{DeltaBlue}_3\\
+      \text{BackTalk}
+    \end{aligned}\right\rangle
+  \left.
+    \phantom{\begin{aligned}~\\~\\\end{aligned}}
+    \text{Cassowary}_1
+  \right\rangle
+  \left.\begin{aligned}
+      \text{DeltaBlue}_1\\
+      \text{Relaxation}
+    \end{aligned}\right\rangle
+  \left.\begin{aligned}
+      \text{DeltaBlue}_4\\
+      \text{Cassowary}_2\\
+    \end{aligned}\right\rangle
+  \text{DeltaBlue}_5
+\]
+
+Once the solver regions are sorted, solving proceeds from the furthest upstream
+region.  Each region will determine values for the variables it can write to,
+and the downstream regions will adjust to accommodate the new values propagated
+to their read-only variables from higher level regions. Soft constraints are
+solved for just within each region --- in keeping with the theory of hard and
+soft constraints in the presence of read-only variables
+\cite{borning1992constraint}, if a soft constraint in an upstream region
+restricts a variable to a certain value, then a downstream region must use that
+value and can in fact not distinguish if this value was determined by a required
+or a soft constraint. If constraints in a downstream region cannot be satisfied
+due to an upstream soft constraint, we do not backtrack and instead fail solving
+entirely.
 
 This architecture imposes severe limitations on the kinds of
 constraints that can be solved. For example, there is no support for

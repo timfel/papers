@@ -2823,7 +2823,7 @@ $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & y4 & \Deref(self4).y\,/\,arg2
 \end{array}$\vspace{-0.5\baselineskip}
 \begin{flushright}
-\mycskip\mathrm{// point constructor for the static point
+// point constructor for the static point
 \end{flushright}\vspace{-0.5\baselineskip}
 $\begin{array}{rr@{\;=\;}l}
 \mathrm{required} & \Deref(r_{s}) & \{x:x5,\,y:y5\}\\
@@ -5173,6 +5173,50 @@ incremental re-solving within those regions is fast, but we do not
 prohibit also using solvers for which no fast incremental re-solving
 strategy is available.
 
+\section{User-defined Constraint Solvers}
+\label{sec:user-defined-constraint-solvers}
+
+In the Babelsberg design, all solvers use the same interface to
+communicate with the \ac{vm} so developers can add new solvers and
+replace existing ones. Besides allowing users to add new solvers, it
+also provides encapsulation. Prior \ac{ocp} languages such as
+Kaleidoscope treated the solving processes specially and allowed the
+solvers to ignore encapsulation and manipulate the contents of objects
+directly. Solvers in Babelsberg, on the other hand, receive the
+current objects as values and can return new objects, but also send
+messages to those objects to mutate them in place. This is
+particularly useful, for example, when complex objects such as files
+or methods that need \ac{vm} support are used in constraints.
+
+A solver can be written in the host language itself, but has to
+provide an interface to the runtime. A solver should declare its
+capabilities (to announce to the system which types of constraints it
+supports), but can also omit it (and must then be used explicitly,
+without any automatic selection). Solvers further need to provide at
+minimum two functions:
+\begin{description}
+\item[Solve] A function should be available to trigger solving. This
+  method should return all variable names known to the solver and
+  their new values.
+\item[Add/Remove Constraint] Functions must be available to add and
+  remove constraint expression to and from a solver. These function
+  should not to solve immediately (so that the performance heuristics
+  can measure solving and \gls{ccm} independently). Furthermore,
+  removing constraints must be possible, even if the design does not
+  include user-level support for disabling an \verb!always! constraint
+  once it has been enabled. Removing constraints is required to
+  retract \verb!once! constraints after solving, and to update
+  variable values in the solver. The latter is used both for
+  assignments and for propagating the values of read-only variables in
+  the cooperating solvers architecture.
+\end{description}
+
+User-defined constraint solvers in combination with our cooperating solvers
+architecture are key to the kind of flexibility in constraint solving that we
+hope to achieve with this system, by giving the user the power to write simple,
+highly specialized solvers that can be combined with powerful, general solving
+strategies.
+
 \section{Automatic Solver Selection}
 \label{sec:autom-solv-select}
 
@@ -5449,50 +5493,12 @@ dynamically throughout the run-time of the program, to avoid the
 performance overhead. We present implementations of all selection
 procedures in \autoref{part:impl-object-constr}.
 
-\section{User-defined Constraint Solvers}
-\label{sec:user-defined-constraint-solvers}
-
-In the Babelsberg design, all solvers use the same interface to
-communicate with the \ac{vm} so developers can add new solvers and
-replace existing ones. Besides allowing users to add new solvers, it
-also provides encapsulation. Prior \ac{ocp} languages such as
-Kaleidoscope treated the solving processes specially and allowed the
-solvers to ignore encapsulation and manipulate the contents of objects
-directly. Solvers in Babelsberg, on the other hand, receive the
-current objects as values and can return new objects, but also send
-messages to those objects to mutate them in place. This is
-particularly useful, for example, when complex objects such as files
-or methods that need \ac{vm} support are used in constraints.
-
-A solver can be written in the host language itself, but has to
-provide an interface to the runtime. A solver should declare its
-capabilities (to announce to the system which types of constraints it
-supports), but can also omit it (and must then be used explicitly,
-without any automatic selection). Solvers further need to provide at
-minimum two functions:
-\begin{description}
-\item[Solve] A function should be available to trigger solving. This
-  method should return all variable names known to the solver and
-  their new values.
-\item[Add/Remove Constraint] Functions must be available to add and
-  remove constraint expression to and from a solver. These function
-  should not to solve immediately (so that the performance heuristics
-  can measure solving and \gls{ccm} independently). Furthermore,
-  removing constraints must be possible, even if the design does not
-  include user-level support for disabling an \verb!always! constraint
-  once it has been enabled. Removing constraints is required to
-  retract \verb!once! constraints after solving, and to update
-  variable values in the solver. The latter is used both for
-  assignments and for propagating the values of read-only variables in
-  the cooperating solvers architecture.
-\end{description}
-
-\begin{figure}
-  \centering
-  \missingfigure[figheight=8cm]{}
-  \caption{Interactions Between Imperative Code and Solvers}
-  \label{fig:solver-interaction}
-\end{figure}
+% \begin{figure}
+%   \centering
+%   \missingfigure[figheight=8cm]{}
+%   \caption{Interactions Between Imperative Code and Solvers}
+%   \label{fig:solver-interaction}
+% \end{figure}
 
 % - define the common interface we use for solvers
 
@@ -5804,14 +5810,6 @@ is a feature of the implementation only --- it is not visible to the
 programmer.)  These solver objects are \ac{vm} objects that keep track of
 solver-specific representations of the current variable value.
 
-\begin{figure}
-  \centering
-  \missingfigure[figwidth=0.98\linewidth]{}
-  \caption{Objects are connected through instance variables. When a constraint
-    is constructed, their parts become connected through constraints.}
-\label{fig:architecture}
-\end{figure}
-
 Internally in Babelsberg/R, the solver object is attached to the \ac{vm}
 structure for the type of variable. Locals are stored as \emph{Cells} in the
 \ac{vm} --- a group of Cells being the representation of a scope. In
@@ -5838,6 +5836,15 @@ instance or class variables), solver objects are also referenced from one or
 more constraints.  Because solver objects can also be implemented in the host
 language, this means that they may only be garbage collected if no more active
 constraints refer to them.
+
+\begin{figure}
+  \centering
+  \includegraphics[page=4,width=\textwidth]{figures/figures}
+  \caption{Objects are connected through instance variables. When a constraint
+    is constructed, their parts become connected to solver objects. A variable
+    that is connected to a solver object delegates all accesses to that object.}
+  \label{fig:architecture}
+\end{figure}
 
 \section{Operations on Variables}
 \label{sec:read-assign-vari}
@@ -5975,6 +5982,31 @@ all constraints are satisfied, this difference is not visible to the programmer.
 \section{Assignment}
 \label{sec:assignment-1}
 
+\begin{figure}
+  \centering
+  % \begin{subfigure}[b]{0.71\textwidth}
+  %   \includegraphics[page=4,width=\textwidth]{figures/figures}
+  % \end{subfigure}
+  \begin{subfigure}[b]{\textwidth}
+    \includegraphics[page=7,width=\textwidth]{figures/figures}
+    \caption{Assigning an object that has a specific solver object forwards the
+      assignment \textcircled{1}, asks the solver to re-satisfy the constraints
+      \textcircled{2}, and then propagates any new values \textcircled{3}.}
+    \label{fig:assigning-specific}
+  \end{subfigure}
+  \begin{subfigure}[b]{\textwidth}
+    \includegraphics[page=8,width=\textwidth]{figures/figures}
+    \caption{Assigning a generic object \textcircled{1} requires retranslating
+      the constraint \textcircled{2}, creating new solver objects and collecting
+      old ones along the way \textcircled{3}. Afterwards, solving
+      \textcircled{4} and propagating new values \textcircled{5} proceeds as
+      before.}
+    \label{fig:assigning-generic}
+  \end{subfigure}
+  \caption{Two cases for assigning to constrained variables.}
+  \label{fig:assign-architecture}
+\end{figure}
+
 Whenever a constrained variable is assigned to, we need to re-satisfy the
 constraints. In the \ac{vm}-based implementation, we can intercept any
 assignment and check if the left-hand-side is a constrained variable, but an
@@ -6022,7 +6054,9 @@ cases:
 \item[a)] Assignment to specific solver objects, \ie variables with values for
   which a solver is available, triggers the defining solver to re-satisfy the
   constraints. If it fails to satisfy its constraints using the new value, an
-  exception is raised.
+  exception is raised. This case is shown in \autoref{fig:assigning-specific},
+  where a write to a float simply causes \gls{z3} to check the update against
+  the corresponding real representation in the solver.
 \item[b)] Assignment to generic solver objects, \ie variables with values for
   which no solver is available, invalidates all constraints these objects
   participate in. Since their values were treated as constants when creating
@@ -6031,7 +6065,10 @@ cases:
   closures to create new constraints. This means that the constraint expression
   may be re-executed multiple times during the run-time of the program.  (This
   is one reason why any side-effects in constraints are disallowed in the
-  design, and should at least be benign in this practical implementation.)
+  design, and should at least be benign in this practical implementation.) This
+  case is shown in \autoref{fig:assigning-generic}, where replacing a
+  \lstinline{Point} requires re-translating the constraint to construct new
+  specific solver objects the float fields of the new \lstinline{Point} object.
 \end{enumerate}
 
 For variables with only one or no solvers that handle its type, we end

@@ -587,7 +587,57 @@ use differs between those two types of applications.
 \section{Outline}
 \label{sec:outline}
 
-~1 page
+The rest of this thesis is structured as follows. The next chapter
+\ref{sec:relev-theory} concludes the introductory part and presents and overview
+of the state of the art in three areas relevant to this work: First, we present
+common techniques in constraint solvers that are used to make interaction with
+mutable, imperative state easier. Second, we present how current approaches
+enable the use of constraints in imperative languages. Third, we give a general
+overview of different constraint solving techniques and the theory of satisfying
+hierarchies of competing constraints.
+
+In \autoref{part:object-constr-progr} we present the design and semantics of
+\acrlong{ocp}. In that part, \autoref{sec:design} first introduce the guiding
+principles and goals of our design using examples of various cases of how
+constraints and imperative structures interact. We start by explaining how
+constraints interact with primitive imperative structures and types, and
+incrementally build our design to integrate with a full object-oriented
+language, including methods, object identity, and higher-order functions.
+Afterwards, \autoref{sec:semantics} formalizes our design into a big-step
+operational semantics. The formalization follows the same incremental steps of
+the design, and is meant to clarify ambiguity and serve as a guide to language
+implementers. Finally, \autoref{sec:a-coop-arch} present our approach for using
+multiple, cooperating constraint solvers to tackle problems that are too hard
+for any one solver, how the set of constraint solvers can be extended by users
+of an \ac{ocp} language, and how the system supports users when choosing between
+solvers.
+
+
+\autoref{part:impl-object-constr} describes the implementation strategies that
+were used in our three prototype implementations of \ac{ocp}. In particular, we
+highlight pros and cons for implementing \ac{ocp} as a \ac{vm} extension versus
+a user-level library. In \autoref{part:babelsb-object-const} we describe how
+constraint expressions are converted into constraints that can be passed to
+actual solvers, how these solvers are selected, and how operations and methods
+are transformed. In \autoref{cha:solv-maint-constr} we show how state mutation
+is intercepted to trigger constraint solving as necessary, and highlight some
+optimizations that we have made in practical implementations for performance
+reasons. Finally, \autoref{cha:performance} presents benchmark results to a)
+evaluate the performance overhead of our prototypes in comparison to unmodified,
+object-oriented \acp{vm}, b) compare our languages to other related languages
+that provide constraint solving in a general purpose programming language, and
+c) show the effect of using edit constraints and incremental constraint solving
+to improve the performance of some solvers.
+
+\autoref{part:pract-object-constr} gives an overview of our practical experience
+with \ac{ocp}. \autoref{chap:idioms} explains some coding patterns and idioms
+that we have found to work well in various applications, \autoref{chap:scopes}
+describes a practical proposal for scoping the effect of constraints using
+\acrlong{cop}, and \autoref{chap:tools} presents tools that we have built to
+inspect, debug, and experiment with constraints in interactive applications.
+
+Finally \autoref{part:disc-contr} discusses related work and future work, and
+presents our conclusions.
 
 \chapter{State of the Art}
 \label{sec:relev-theory}
@@ -713,8 +763,8 @@ in such cases to provide the constraint equivalent of ``frame axioms''
 to specify that parts retain their old values as the system
 changes. The mechanism they propose builds on the theory of constraint
 hierarchies which allows the solver to disregard some constraints in
-preference to others (we discuss this concept in more detail in
-\autoref{sec:constr-hier}). These ``frame axioms'' work by adding
+preference to others. (We discuss this concept in more detail in
+\autoref{sec:constr-hier}.) These ``frame axioms'' work by adding
 implicit, low-priority \emph{stay constraints} on every variable in
 the system. As far as the theory of non-required constraints is
 concerned, a stay constraint is simply an equality constraint $v=c$
@@ -843,9 +893,9 @@ seems fairly trivial, there are multiple ways to satisfy the
 constraints. If any of the constraints were only preferential rather
 than strictly required, this will be even harder. In general, without
 a declarative specification, it is not clear if the code finds an
-optimal solution, or just \emph{a} solution (for example, a window
+optimal solution, or just \emph{a} solution. (For example, a window
 with area 200 would also satisfy the minimum area constraint if a user
-tries to resize the window to be smaller than 100 square pixels).
+tries to resize the window to be smaller than 100 square pixels.)
 
 \paragraph{Constraint Libaries}
 We may choose to use a constraint solver library to satisfy the
@@ -1069,41 +1119,39 @@ chosen\footnote{See, for example, this catalog of solvers:
 
 \paragraph{Local Propagation}
 \label{sec:deltablue}
-The simplest algorithm to solve constraints is local propagation.
-DeltaBlue~\cite{freeman-benson-phoenix-1989} is a local propagation solver
-with support for acyclic constraints that uses user-defined functions
-to propagate values. Local propagation is one of the simplest
-techniques to solve constraints, but it is restricted in restricted in
-that it only handles equalities of variables in a general way. For
-more complex relations, local propagation solvers require the user or
-library builder to supply propagation functions for each direction in
-which they wish to satisfy the relation. In contrast to general
-solving strategies, which suffer from increasing complexity and
-decreasing performance as the complexity of the domains they handle
-increases, local propagation solvers like DeltaBlue are especially
-useful for applications where a less general but fast algorithm is
-preferable.
+One of the earliest algorithms to solve constraints is local
+propagation. DeltaBlue~\cite{freeman-benson-phoenix-1989} is a local propagation
+solver with support for acyclic constraints that uses user-defined functions to
+propagate values. Local propagation is one of the simplest techniques to solve
+constraints, but it is restricted in that it only handles equalities of
+variables in a general way. For more complex relations, local propagation
+solvers require the user or library builder to supply propagation functions for
+each direction in which they wish to satisfy the relation. In contrast to
+general solving strategies, which suffer from increasing complexity and
+decreasing performance as the complexity of the domains they handle increases,
+local propagation solvers like DeltaBlue are especially useful for applications
+where a less general but fast algorithm is preferable.
 
-Local propagation solvers model constraint systems as an acyclic
-directed graph of those functions that can be solved one after
-another. To add the constraint $a + b = 10$ to DeltaBlue, the
-programmer has to supply the functions $a = 10 -b$ and $b = 10 - a$.
-When $a$ is then set to 20, the solver determines that the functions
-it should execute are $a := 20$ and then $b := 10 - a$. Since the
-algorithm has no cycles, this solving strategy is in linear time with
-respect to the number of functions. DeltaBlue supports incremental
-resolving by separating the generation of the acyclic graph of solving
-functions from their execution. To incrementally supply multiple
-values to the same variable, the same execution graph can be re-used,
-and only the initially supplied value is updated.
+Local propagation solvers model constraint systems as an acyclic directed graph
+of those functions that can be solved one after another. To add the constraint
+$a + b = 10$ to DeltaBlue, the programmer has to supply the functions
+$a = 10 -b$ and $b = 10 - a$.  When $a$ is then set to 20, the solver determines
+that the functions it should execute are $a := 20$ and then $b := 10 - a$. Since
+the algorithm has no cycles, this solving strategy is in linear time with
+respect to the number of functions once a solving plan has been created (which
+has to happen once per variable, and is in exponential time). DeltaBlue supports
+incremental resolving by separating the generation of the acyclic graph of
+solving functions from their execution. To incrementally supply multiple values
+to the same variable, the same execution graph can be re-used, and only the
+initially supplied value is updated.
 
-One restriction of local propagation solvers including DeltaBlue is
-that, in general, they cannot deal with constraints that have multiple
-outputs, as these could lead to cycles in the propagation graph. This
-case arises if we tried to model $a + b = c$ as a set of functions
-$a = 10 - b$, $b = 10 - a$, and $c = a + b$. When just one variable
-changes, DeltaBlue will refuse to decide whether to update $b$ or $c$
-in response. An extension of DeltaBlue, SkyBlue~\cite{sannella1993skyblue}, does support multiple outputs, but at the
+One restriction of local propagation solvers including DeltaBlue is that, in
+general, they cannot deal with constraints that have multiple outputs, as these
+could lead to cycles in the propagation graph. This case arises if we tried to
+model $a + b = c$ as a set of functions $a = 10 - b$, $b = 10 - a$, and
+$c = a + b$. When only $a$ changes, DeltaBlue cannot decide whether to update
+$b$ or $c$ (or both) in response. An extension of DeltaBlue,
+SkyBlue~\cite{sannella1993skyblue}, does support multiple outputs, but at the
 cost of instability in the linearization of the graph and resulting
 non-determinism in the solutions.
 
@@ -1122,22 +1170,19 @@ example, dragging a window and thus manipulating its position, but not
 its extent) and optimizes the solving algorithm for inputs that flow
 from these variables.
 
-To solve a set of linear constraints, Cassowary uses the Simplex
-method, in which the constraints are first brought into a form where
-each equation is an equality between one variable and a formula and
-where the variable does not occur in any other equation. To support
-inequalities in this scheme, Cassowary inserts a slack variable to
-replace the inequality with an equality. To support non-required
-constraints, Cassowary then adds error variables which take the
-difference from the optimal solution. Once the constraints are in this
-form, called a \emph{tableau}, they can already be solved or deemed
-unsatisfiable. As an example, consider the constraint
-$x \leq y - 5 \leq 20$.  This is transformed first into
-$x + s_1 = y - 5$ and $x + s_2 = 20$, and then in simplex form becomes
-$x = 20 - s_2$ and $y = 20 - s_2 + s_1 + 5$. To optimize this
-solution, Cassowary incrementally minimizes the sum of the squares of
-the error and slack variables. In this case, setting both $s_1$ and
-$s_2$ to 0 gives the solution $x = y = 20$.
+To solve a set of linear constraints, Cassowary first transforms the constraint
+system into a form where each equation is an equality between one variable and a
+formula and where the variable does not occur in any other equation. To support
+inequalities in this scheme, Cassowary inserts a slack variable to replace the
+inequality with an equality. To support non-required constraints, Cassowary then
+adds error variables which take the difference from the optimal solution. Once
+the constraints are in this form, called a \emph{tableau}, they can already be
+solved or deemed unsatisfiable. As an example, consider the constraint
+$x \leq y - 5 \leq 20$.  This is transformed first into $x + s_1 = y - 5$ and
+$x + s_2 = 20$, and then in simplex form becomes $x = 20 - s_2$ and
+$y = 20 - s_2 + s_1 + 5$. To optimize this solution, Cassowary incrementally
+minimizes the sum of the squares of the error and slack variables. In this case,
+setting both $s_1$ and $s_2$ to 0 gives the solution $x = 20 \wedge y = 25$.
 
 For performant, incremental resolving the assumption is that the
 constraints are already known, and only a limited number of variables
@@ -1156,22 +1201,23 @@ the system is disturbed from a state in which all constraints are
 satisfied and the solver is expected to find a nearby state that
 satisfies them again.
 
-Constraints in Sutherland's relaxation algorithm are expressed in
-terms of error functions. Each constraint has error functions for each
-degree of freedom it removes, that is, one error function for each
-variable it will determine. The error functions return a real value
-which indicates how far constraint is from being satisfied. For
-example, a constraint $2x = y^2$ would have the error function
-$2x - y^2$. Sketchpad solves constraints by iterating over variables
+Constraints in Sutherland's relaxation algorithm are expressed in terms of error
+functions. Each constraint has error functions for each degree of freedom it
+removes, that is, one error function for each variable it will determine. The
+error functions return a real value which indicates how far constraint is from
+being satisfied. For example, a constraint $2x = y^2$ would have the error
+function $2x - y^2$. Sketchpad solves constraints by iterating over variables
 one by one. For each variable, the errors for all its constraints are
-calculated. Then the variable is modified by a small $\delta$, and the
-errors are recalculated. The resulting two data points per constraint
-serve to approximate the constraints as linear equations. In our
-example, given that $x$ is initially 5 and $y$ is initially 3, the
-error is 1. We tweak $x$ by, for example, 0.001 and find the new error
-as 1.002. We determine the approximate coefficient to be 2, and thus
-subtract from $x$ half the error and get 4.5. Now the error is 0 and
-we are finished.
+calculated. Then the variable is modified by a small $\delta$, and the errors
+are recalculated. The resulting two data points per constraint serve to
+approximate the constraints as linear equations. In our example, given that $x$
+is initially 5 and $y$ is initially 3, the error is 1. We tweak $x$ by, for
+example, 0.001 and find the new error as 1.002. We determine the approximate
+coefficient to be 2 by dividing the difference of the errors by our tweaking
+value. We subtract from $x$ the original error divided by the coefficient and
+get $4.5$ as new value for $x$. Since the error is now 0, we are finished,
+otherwise we iterate until we either converge to an error below some small
+$\epsilon$ or we give up.
 
 When variables participate in multiple constraints, the sum of the
 squares of the errors for each variable is used. In any case, the
@@ -1296,7 +1342,7 @@ still derive from fundamental ideas that were already present in Ivan
 Sutherland's Sketchpad system~\cite{sutherland-ifips-1963}. Furthermore, the
 constraint solvers that have been built tend to be limited to specific
 application domains, making it hard to choose the right solver given a specific
-problem. \autoref{tab:tab:constraint-solvers-overview} gives an overview of the
+problem. \autoref{tab:constraint-solvers-overview} gives an overview of the
 presented types of solvers and their properties relevant for this work.
 
 \paragraph{Constraint Hierarchies}
@@ -1436,16 +1482,15 @@ quickly, without reducing responsiveness to user input.
 % - refer to state of the art in JIT, and that JITing  solvers is hard (PyPy)
 % - show charts comparing hand-written algo with solving
 
-Kaleidoscope provides a declarative semantics for assignment, type
-declaration and sub-classing, all of which are handed to a
-solver. However, this declarative semantics, while clean, only models
-the ordinary object-oriented semantics for consumption by the solver,
-and thus does not add to the expressiveness of these
-constructs. Furthermore, this declarative semantics is also used if no
-actual constraints are in the program. In \ac{ocp}, we decided to only
-use a declarative semantics for assignments of variables that are also
-used in constraints. This means that the performance of purely
-imperative code is the same as on a purely imperative \ac{vm}.
+Kaleidoscope provides a declarative semantics for assignment, type declaration,
+and subclassing, where all of these are handled by a solver. However, this
+declarative semantics, while clean, only models the ordinary object-oriented
+semantics for consumption by the solver, and thus does not add to the
+expressiveness of these constructs. Furthermore, this declarative semantics is
+also used if no actual constraints are in the program. In \ac{ocp}, we decided
+to only use a declarative semantics for assignments of variables that are also
+used in constraints. This means that the performance of purely imperative code
+is the same as on a purely imperative \ac{vm}.
 
 If the constraint system is in a satisfied state, and most variables
 that are being manipulated are not referenced from constraints, the
@@ -1739,7 +1784,7 @@ described in \autoref{sec:stay-constraints}, this desire is commonly
 expressed using stay constraints. As mentioned above, we assume in the
 design that the solver supports low-priority stay constraints,
 although in practice not all do. (We describe later how we deal with
-this in the practical implementations).
+this in the practical implementations.)
 
 After the second statement, the solver finds the the solution $x=4$,
 resulting in a new environment $\texttt{x} \mapsto \texttt{4}$.  The
@@ -2082,7 +2127,7 @@ Since ordinary objects cannot be created in constraint expressions,
 Babelsberg/Objects includes \emph{value classes} as well as ordinary,
 full-featured, classes. Instances of value classes \emph{can} be
 created in constraints. They are immutable after object
-creation\footnote{For use with e.g.\ distributed systems applications,
+creation\footnote{For use with \eg\ distributed systems applications,
   we would also want to restrict instances of value classes to only
   hold references to primitive types or to other value class, but this
   restriction is not needed for our purposes here.}, and object
@@ -2230,8 +2275,8 @@ which the solver could come up with an undesired or surprising
 solution. In this section, we will use \verb|Point| and
 \verb|Rectangle| as value classes.  To distinguish them from ordinary
 classes, we will create instances just by supplying the arguments,
-e.g., \verb|Point(10, 20)|, whereas instances of ordinary classes will
-be created using the \verb|new| message, e.g., \verb|new Window(...)|.
+\eg \verb|Point(10, 20)|, whereas instances of ordinary classes will
+be created using the \verb|new| message, \eg \verb|new Window(...)|.
 Finally, to foreshadow the formal semantics, for simplicity we omit
 details about object creation, method lookup, and inheritance (which
 are completely standard and inherited from the host language).
@@ -2580,9 +2625,9 @@ always y = x.double();
 y := 20
 \end{verbatim}
 
-After the program runs, \verb|y| will be 20 and \verb|x| will be 10.
-For this program, the constraint \verb|y = x.double()| explodes into
-the following network:
+After the program runs, \verb|y| will be 20 and \verb|x| will be 10.  During the
+execution if the \verb|always| statement, the constraint expression
+\verb|y = x.double()| explodes into the following network of constraints:
 \begin{center}
   \begin{tabular}{rl}
     required & $self = x$\\
@@ -2661,17 +2706,18 @@ of it in the constraint expression itself (``\verb|Point(10, 20)|''),
 and also in the \verb|center| method, since we are doing point
 addition and division in that method.
 
-The constraint is evaluated in the following way.  The code for the
-rectangle's \verb|center| method is found via standard method lookup.
-It is inlined to construct an equality constraint between a new point
-with \verb|x = 10|, \verb|y = 20| and the result of evaluating
-\verb|(self.upper_left + self.lower_right) / 2|. Constructing the
-center point from the first expression, as well as looking up and
-inlining the \verb|=| method on it, explodes into a network of simpler
-constraints, all required, that can then be handed to the solver in
-one conjunction. The table below shows how the constraints are
-constructed, and in particular how the local names are translated into
-a global solver environment by making them unique.
+\begin{sloppypar}
+The constraint is evaluated in the following way.  The code for the rectangle's
+\verb|center| method is found via standard object-oriented method lookup.  It is
+inlined to construct an equality constraint between a new point with
+\verb|x=10| and \verb|y=20| and the result of evaluating
+\verb|(self.upper_left + self.lower_right) / 2|. Constructing the center point
+from the first expression, as well as looking up and inlining the \verb|=|
+method on it, explodes into a network of simpler constraints, all required, that
+can then be handed to the solver in one conjunction. The table below shows how
+the constraints are constructed, and in particular how the local names are
+translated into a global solver environment by making them unique.  
+\end{sloppypar}
 
 \begin{flushright}
 // constraint for the receiver of the center method
@@ -2947,7 +2993,7 @@ x := stack.pop()
 This works, because the RHS of the assignment is evaluated first, and
 then we set up a \verb|once| constraint using the value popped from
 the stack.  (Thus the RHS of an assignment can have side effects, in
-contrast to \verb|always| or \verb|once| constraints). In contrast,
+contrast to \verb|always| or \verb|once| constraints.) In contrast,
 this fragment is not allowed, because we cannot repeatedly evaluate
 the constraint expression as a test:
 \begin{verbatim}
@@ -2992,7 +3038,7 @@ always y = test(x)
 \end{verbatim}
 
 Suppose we are using a least-squares solver.  Every time we evaluate
-the expression \verb|y = test(x)|, we add another medium constraint
+the expression \verb|y=test(x)|, we add another medium constraint
 that \verb|x = 5|.  Since we are finding a least squares solution,
 this nudges \verb|x| more toward 5 each time, diminishing the
 influence of the \verb|x = 10| constraint. However, if we used a local
@@ -3032,7 +3078,7 @@ could suddenly return a value smaller than \verb!10! (in this case
 \paragraph*{Assignments}
 Methods called by constraints can assign to variables. If there are
 assignments, the method can only be used in the forward direction in
-constraints that call it (i.e., to compute the result given the
+constraints that call it (\ie to compute the result given the
 inputs). However, programmers must be careful with assignments that
 would be visible outside the method. A valid use-case for global
 assignment is caching and lazy initialization, but it would produce
@@ -3316,12 +3362,12 @@ strings.
 \end{tabular}
 }}
 
-The language includes a set of boolean and base type constants (e.g., reals), ranged over by metavariable \texttt{c}. A
+The language includes a set of boolean and base type constants (\eg reals), ranged over by metavariable \texttt{c}. A
 finite set of operators on expressions is ranged over by $\oplus$. This includes
 operations on the reals such as \texttt{+} and \texttt{*},
 a set of {\em predicate} operators (\texttt{$=$} and \texttt{$\neq$},
 $\leq$, $<$, $=$, and so on. It also includes a set of logical operators for combining
-boolean expressions (e.g., \texttt{$\wedge$}, \texttt{$\vee$}).  The
+boolean expressions (\eg \texttt{$\wedge$}, \texttt{$\vee$}).  The
 predicate operations are assumed to include at least an equality
 operator \texttt{=} for each primitive type in the language, and the
 logical operations are assumed to include at least conjunction \texttt{$\wedge$}.
@@ -3446,13 +3492,13 @@ one that is optimal according to the solver's semantics, as discussed earlier).
 
 Our helper judgments \mbox{\gstay{x=v}{$\rho$}{C}} and
 \mbox{\gstay{\Scope}{$\rho$}{C}} define how to translate an environment into a
-source-level ``stay'' constraint. It takes a priority as an argument, which is
-not used at this stage of the semantics. It will, however, be used in all the
-later languages.
+source-level ``stay'' constraint. They take a priority as an argument, which is
+not used at this stage of the semantics, but will be used in all the later
+stages.
 
 \infrule[StayEnv]{
   \mbox{
-    \Scope = \texttt{ \{(x$_1$, v$_1$), $\ldots$, (x$_n$, v$_n$)\}}}\\
+    \texttt{\Scope} = \texttt{\{(x$_1$, v$_1$), $\ldots$, (x$_n$, v$_n$)\}}}\\
   \mbox{
     \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$   \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$}}
 }{\mbox{
@@ -4234,7 +4280,7 @@ and pass it to the solver. Note that we execute the argument
 expressions and receiver for their value (potentially executing
 through other methods), and also inline them, potentially executing
 the same methods twice (once through \textsc{I-Call} and once through
-\textsc{E-Call}.)  Although not ideal in terms of providing the
+\textsc{E-Call}).  Although not ideal in terms of providing the
 cleanest possible semantics, in practical terms this should 
 not be a problem, because we prohibit
 side-effects in these methods.
@@ -4513,10 +4559,11 @@ well-formed configuration where all identity constraints are satisfied):
 \section{Collections of Objects}
 \label{sec:records-with-ident}
 
-In this extension to Babelsberg/Objects, we support a limited number
-of predicates on collections. The semantics for this extension are a
-straight extension from the full object-oriented language, and we
-present only the additional rules and syntax.
+In this final extension to Babelsberg/Objects, we support a limited number of
+predicates on collections. These additional rules illustrate the facilities to
+support higher-order functions in this design. The semantics are a straight
+extension from the full object-oriented language, and we present only the
+additional rules and syntax.
 
 \subsection{Syntax}
 
@@ -5879,7 +5926,7 @@ ordinary objects in constraints, as described in
 ordinary class constructors used in constraints is allowed and creates
 additional equality constraints that are added to the constraint system. This
 allows us to support constructing new objects in the predicates that connect
-values (for example, a 2d point with x and y values that were constructed in the
+values. (For example, a 2d point with x and y values that were constructed in the
 constraint.) However, this also means that all code in constructors encountered
 during constraint construction must be in single assignment form, because
 otherwise we will very likely create multiple contradicting equality
@@ -6047,7 +6094,7 @@ constraints with the new value, an exception is generated and the assignment
 fails.
 
 \section{Changing the Type of Variables}
-Most solvers only provide support for a limited number of type domains (such as
+Most solvers only provide support for a small number of type domains (such as
 reals or booleans).  When variables are used in constraints, their current
 values determine how they are handled by the solvers.  Changing the type of a
 variable, although possible in a dynamic language, is a relatively uncommon
@@ -6056,12 +6103,12 @@ is removed from all solvers, all its constraints are disabled, and its
 constraint expressions are re-executed in constraint construction mode, thus
 creating new solver-specific representations.
 
-This makes changing the type of a constrained variable potentially slow. Our
-\lstinline{ConstraintInterpreter} is not optimized for performance (because it
-is run only at constraint construction) -- recalculating many constraints is
-much slower than running the same code natively. If any of the constraints fail,
-we have to re-assign the old value and recalculate all constraints on the
-variable once more.
+This makes changing the type of a constrained variable potentially slow. In our
+prototype implementations the \lstinline{ConstraintInterpreter} is not optimized
+for performance (because it is run only at constraint construction) ---
+recalculating many constraints is much slower than running the same code
+natively. If any of the constraints fail, we have to re-assign the old value and
+recalculate all constraints on the variable once more.
 
 We believe this performance penalty to be acceptable for two reasons: first, it
 is likely to be infrequent, as even in dynamic languages most variables are only
@@ -6119,14 +6166,15 @@ it must call the appropriate \ac{api} methods to mutate the object.
 
 \paragraph*{Default Propagation Methods}
 \label{sec:expl-prop-meth}
-Solver libraries can provide the method \lstinline{assign_constraint_value} to
-update the original object with new content, to keep its identity intact. This
-basically provides a default local propagation method to let solutions flow into
-objects. For example, Babelsberg/R provides a solver over numeric arrays, which
-uses \lstinline{assign_constraint_value} to update the array contents. In the
-\lstinline{for_constraint} method for arrays, it returns a
-\lstinline{NumericArrayConstraintVariable} if all elements in the array are
-instances of a subclass of \lstinline{Numeric}.
+Solver libraries can provide a hook on their solver objects, called
+\lstinline{assign_constraint_value}, that will be used to update the original
+object with new content, this way keeping object identity intact. This provides
+a default local propagation method to let solutions flow into objects. For
+example, Babelsberg/R provides a solver over numeric arrays, which uses
+\lstinline{assign_constraint_value} to update the array contents. In the
+\lstinline{for_constraint} method for arrays, it returns a solver object of the
+type \lstinline{NumericArrayConstraintVariable} exactly if all elements in the
+array are instances of a subclass of \lstinline{Numeric}.
 \begin{lstlisting}
 class Array
   def for_constraint(name)
@@ -6566,7 +6614,7 @@ To use, for example, Cassowary as the solver, all edit variables must be Floats
 object-oriented way that respects encapsulation. To support this, the client
 passes an array of method names for the return values that should be updated in
 the edit constraint (\eg \lstinline{x} and \lstinline{y} for a point --- those
-values may be calculated or direct accessors.)  The system creates fresh edit
+values may be calculated or direct accessors).  The system creates fresh edit
 variables, and adds an equality constraint to the return values of the
 methods. Thus, the internal storage layout of the class is not visible to the
 programmer from outside the object, because the equality constraint is simply
@@ -6722,6 +6770,7 @@ strategy, but the developer can select a different strategy manually.
 \label{part:pract-object-constr}
 
 \chapter{Using Constraints in Object-oriented Applications}
+\label{chap:idioms}
 Using our prototype implementations of this design, we have written or extended
 a number of applications, including some from the domains of load balancing,
 electrical and mechanical simulation, puzzle solving, unit conversion, games,
@@ -6781,7 +6830,8 @@ class Resistor extends TwoLeadedObject {
     super();
     this.resistance = resistance;
     always {
-      this.lead2.voltage - this.lead1.voltage == this.lead2.current * ro(resistance)
+      this.lead2.voltage - this.lead1.voltage == \
+          this.lead2.current * ro(resistance)
     }
   }
 }
@@ -6942,6 +6992,7 @@ branches and their expected effect, and explicitly encode them in the semantics.
 % any one object, it is unclear where these constraints should be declared.
 
 \chapter{Constrained Scopes, Behavior, and Events}
+\label{chap:scopes}
 
 In this chapter, we present a larger applications, a clone of the game \emph{Wii
   Play/Tanks!}\footnote{\textcopyright 2007 by Nintendo\textregistered,
@@ -7009,7 +7060,10 @@ pointcuts match all message sends that may be relevant. With Babelsberg,
 however, we can formulate a constraint that connects the activation state of a
 layer to an expression:
 \begin{lstlisting}[language=JavaScript]
-always: { game.time < powerUp.creationTime + powerUp.timeout == powerUpLayer.isActive() }
+always: { 
+  game.time < powerUp.creationTime + powerUp.timeout == \
+      powerUpLayer.isActive() 
+}
 \end{lstlisting}
 This constraint is used in the game to to change the behavior of the game as
 long as power up is active, that is, as long as its creation time and timeout
@@ -7158,6 +7212,7 @@ future work, we are investigating ways to combine, for example, Prolog-style
 backtracking with Babelsberg.
 
 \chapter{Debugging and Understanding Constraints}
+\label{chap:tools}
 
 A secondary goal of the Babelsberg design is to improve programmer productivity
 by allowing developers to use constraints instead of object-oriented code where
@@ -7360,7 +7415,7 @@ when constraints were defined with read-only variables (called
 and provided ordering for a particular constraint. However, Sutherland
 recognized the need for simultaneous solving in multiple directions at once, and
 thus presents also an iterative numerical solver that linearizes the constraints
-and then tries to minimize the errors (we have integrated this method into the
+and then tries to minimize the errors. (We have integrated this method into the
 work presented here as ``Sutherland's Relaxation Solver''.)  According to Alan
 Borning, the system also used a third solver not explicitly described in the
 thesis, a simple local propagation solver that propagates known values directly,
@@ -7618,7 +7673,7 @@ Lively to route user interaction events such as button presses or drags to
 trigger interface updates. Both these systems use one-way data-flow in a
 localized manner, triggering each event and reaction separately, and do not
 analyze, for example, the topology of connections (whereas a local propagation
-solver would do so to detect cyclic dependencies.)
+solver would do so to detect cyclic dependencies).
 
 \emph{Flapjax}~\cite{meyerovich2009flapjax}, \emph{Elm}~\cite{czaplicki2013asynchronous}, and \emph{Fran}~\cite{elliott:1997:fran} are
 recent examples of \ac{frp} systems. Flapjax is an extension to \javascript that
@@ -7630,7 +7685,7 @@ discrete event streams and allow events to be handled asynchronously. Fran, on
 the other hand, motivated in part by animations of physical processes, provides
 both continuous and discrete streams of values, and the systems takes care to
 sample continuous streams at the rate required to avoid missing important events
-(such as a bouncing ball hitting the floor.) In these languages, the focus is on
+(such as a bouncing ball hitting the floor). In these languages, the focus is on
 data dependencies, although programmers can use constraint solvers to calculate
 downstream values in the functions triggered by a new value.
 

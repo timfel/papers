@@ -1,6 +1,1575 @@
 \part{Appendix}
 \label{part:appendix}
 
+\chapter{Full Formal Development}
+\label{cha:semantics-appendix}
+This chapter presents the complete semantics of our Babelsberg design
+that can be used to guide practical implementations~\cite{FelgentreffOOPSLA2015}.
+It is self-contained and repeats relevant passages from \autoref{sec:semantics}
+so there is no need to skip back to the main thesis.
+
+This semantics is meant to as simple as possible, while still encompassing the
+major aspects of \gls{ocp} and the important design decisions in its Babelsberg
+form. Because Babelsberg integrates constraints in an existing object-constraint
+host language, the semantics omits constructs such as exception handling for
+constraint solver failures, class and method definitions, and syntactic sugar,
+that are intended to be inherited from the host language. Our semantics instead
+focuses on the expression of standard object-oriented constructs that need to be
+modified to support the Babelsberg design. We present the semantics in the same
+increments as we did the design in \autoref{sec:design}. First,
+\autoref{sec:primitive-types-appendix} presents the semantics of a simple
+imperative language that has only primitive reals, integers, and
+booleans. Second, \autoref{sec:constr-with-mess-appendix} adds the rules for method
+lookup and dispatch, identity constraints, and the interaction with the heap,
+and presents theorems for key properties, proofs for which have been previously
+published~\cite{felgentreff:2014:semantics}. Third,
+\autoref{sec:records-with-ident-appendix} presents the rules for constraints over
+collections.
+
+Finally, \autoref{sec:exec-spec} presents an executable form of the
+complete semantics that passes a language test suite. We use this
+executable form to demonstrate the validity of our rules, and provide
+a mechanism to generate test suites that can be run against Babelsberg
+implementations to assert their compliance to the semantics.
+
+\section{Primitive Types}
+\label{sec:primitive-types-appendix}
+
+\renewcommand{\Scope}{E\xspace}
+
+We start with the basic language Babelsberg/PrimitiveTypes that has
+only primitive values. The boolean type is required to make meaningful
+Babelsberg programs, since by definition constraint expressions must
+return either true or false (with the solvers task to make them
+true). For this initial language, we also add reals, integers, and
+strings.
+
+\subsection{Syntax}
+\label{sec:babelsberg-primitivetypes-syntax}
+
+{\texttt{
+\begin{tabular}{lrrl}
+\textrm{Statement} & s & ::= & skip $\mid$ x := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
+  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+\textrm{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
+\textrm{Expression} & e & ::= & c $\mid$ x $\mid$ e $\oplus$ e\\
+\textrm{Constant} & c & ::= & true $\mid$ false $\mid$ \textrm{base type constants}\\
+\textrm{Variable} & x & ::= & \textrm{variable names} \\ & & &\\
+\textrm{Value} & v & ::= & c
+\end{tabular}
+}}\\[\baselineskip]
+
+The language includes a set of boolean and base type constants (\eg reals), ranged over by metavariable \texttt{c}. A
+finite set of operators on expressions is ranged over by $\oplus$. This includes
+operations on the reals such as \texttt{+} and \texttt{*},
+a set of {\em predicate} operators (\texttt{$=$} and \texttt{$\neq$},
+$\leq$, $<$, $=$, and so on. It also includes a set of logical operators for combining
+boolean expressions (\eg \texttt{$\wedge$}, \texttt{$\vee$}).  The
+predicate operations are assumed to include at least an equality
+operator \texttt{=} for each primitive type in the language, and the
+logical operations are assumed to include at least conjunction \texttt{$\wedge$}.
+The syntax of this language does have some limitations as compared
+with that of a practical language --- for example, there are only
+binary operators (not unary or ternary), and the result must have the
+same type as the arguments.  We make these simplifications since the
+purpose of Babelsberg/PrimitiveTypes is to elucidate the semantics of
+such languages as a step toward Babelsberg/Objects, rather than to
+specify a real language.
+
+For constraints, the symbol $\rho$ ranges over a finite and totally
+ordered set of constraint {\em priorities} and is assumed to include a
+bottom element \texttt{ weak}
+% , an intermediate element {\em strong},
+and a top element \texttt{ required}. While syntax requires the priority to be
+explicit, for simplicity we sometimes omit it in this semantics. A
+constraint with no explicit priority implicitly has the priority \texttt{
+  required}.  Finally, for simplicity we do not model read-only
+annotations in the formal semantics.
+%% commented out 'strong' since I don't think we make use of it in the
+%% formal semantics
+
+The syntax is thus that of a simple, 
+standard imperative language except for the
+\texttt{always} and \texttt{once} statements, which declare constraints.
+An \texttt{always} constraint must
+hold for the rest of the programs execution, whereas a \texttt{once}
+constraint is satisfied by the solver and then retracted. 
+%
+Note that for simplicity this semantics implicitly gets stuck whenever
+the solver cannot satisfy a constraint, either due to an unsatisfiable
+constraint or due to the solver being unable to determine whether the
+constraint is satisfiable. In a practical implementation, we would
+likely want to differentiate between 
+these cases, since it's useful if we can
+inform the programmer that the constraints are truly not satisfiable.
+We could also add standard exception handling to remove the
+unsatisfiable or unknown constraint and continue, but omit this here
+for simplicity.
+
+\subsection{Semantics}
+
+\begin{table*}
+  \caption{Judgments and Intuitions of Semantic Rules}
+  \label{tab:prim-judgments}
+  \centering
+  \begin{tabularx}{\textwidth}{r X}
+    \multicolumn{2}{l}{\textbf{\textit{Expression Evaluation}}}\\
+    \eval{\Scope}{e}{v} & Expression \texttt{e} evaluates to value \texttt{v} in the context of environment \texttt{\Scope}.\\
+    \multicolumn{2}{l}{\textbf{\textit{Constraint Solving}}}\\
+    \solve{\Scope}{C} & Environment \Scope represents a solution to constraint \texttt{C} \\
+    \gstay{x=v}{$\rho$}{C} & Constraint \texttt{C} is a weak stay constraint for \texttt{x} to equal \texttt{v}\\
+    \gstay{\Scope}{$\rho$}{C} & Constraint \texttt{C} is a conjunction of stay constraints on variables in environment \Scope \\
+    \multicolumn{2}{l}{\textbf{\textit{Statement Evaluation}}}\\
+    \step{\Scope}{C}{s}{\Scope$'$}{C$'$} & Execution starting from configuration \texttt{<\Scope|C|s>} ends in state \texttt{<\Scope$'$|C$'$>}.\\
+    % \stepH{\E}{\H}{\C}{\I}{s}{\E$'$}{\H$'$}{\C$'$}{\I$'$} & Execution starting from configuration \texttt{<\E|\H|\C|\I|s>} ends in the state \texttt{<E$'$|\H$'$|C$'$|\I$'$>}\\
+  \end{tabularx}
+\end{table*}
+
+The semantics is defined by several judgments, given in
+\autoref{tab:prim-judgments}.  These judgments depend on the notion of an {\em
+  environment}, which is a partial function from program variables to program
+values. Metavariable \texttt{\Scope} ranges over environments. When convenient
+we also view an environment as a set of (program variable, program value) pairs.
+For each operator $\oplus$ in the language we assume the existence of a
+corresponding semantic function denoted $\llbracket \oplus \rrbracket$.
+
+% \judgment{\eval{\Scope}{e}{v}}
+
+% ``Expression \texttt{e} evaluates to value \texttt{v} in the context of environment \texttt{
+%   \Scope}.''
+
+\inferax{E-Const}{\eval{\Scope}{c}{c}}
+
+\inferrule{E-Var}{
+  \texttt{\Scope(x) = v}
+}{
+  \eval{\Scope}{x}{v}
+}
+
+
+% \inferrule{E-ReadOnly}{
+%   \texttt{\Scope(x) = v}
+% }{
+%   \eval{\Scope}{x?}{v}
+% }
+
+\inferrule{E-Op}{
+  \eval{\Scope}{e$_1$}{v$_1$} \andalso
+  \eval{\Scope}{e$_2$}{v$_2$} \andalso
+  \texttt{v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = \texttt{v}
+}{
+  \eval{\Scope}{e$_1$ $\oplus$ e$_2$}{v}
+}
+
+% \inferrule{E-Compare}{
+%   \eval{\Scope}{e$_1$}{v$_1$} \andalso
+%   \eval{\Scope}{e$_2$}{v$_2$} \andalso
+%   \texttt{v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = \texttt{v}
+% }{
+%   \eval{\Scope}{e$_1$ $\olessthan$ e$_2$}{v}
+% }
+
+% \inferrule{E-Combine}{
+%   \eval{\Scope}{e$_1$}{v$_1$} \andalso
+%   \eval{\Scope}{e$_2$}{v$_2$} \andalso
+%   \texttt{v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = \texttt{v}
+% }{
+%   \eval{\Scope}{e$_1$ $\ovee$ e$_2$}{v}
+% }
+
+% \judgment{\solve{\Scope}{C}}
+
+Solving is represented by a call to the constraint solver, which we treat as a
+black box.  The proposition \mbox{\solve{\Scope}{C}} denotes that environment
+\texttt{\Scope} is a {\em solution} to the constraint \texttt{C} (and further
+one that is optimal according to the solver's semantics, as discussed earlier).
+
+% \judgment{\gstay{x=v}{$\rho$}{C}}
+% \judgment{\gstay{\Scope}{$\rho$}{C}}
+
+Our helper judgments \mbox{\gstay{x=v}{$\rho$}{C}} and
+\mbox{\gstay{\Scope}{$\rho$}{C}} define how to translate an environment into a
+source-level ``stay'' constraint. They take a priority as an argument, which is
+not used at this stage of the semantics, but will be used in all the later
+stages.
+
+\infrule[StayEnv]{
+  \mbox{
+    \texttt{\Scope} = \texttt{\{(x$_1$, v$_1$), $\ldots$, (x$_n$, v$_n$)\}}}\\
+  \mbox{
+    \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$   \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$}}
+}{\mbox{
+  \gstay{\Scope}{$\rho$}{\texttt{C}$_1$ $\wedge$ $\cdots$ $\wedge$ \texttt{C}$_n$}
+}}
+
+\inferax{StayConst}{\gstay{x=c}{$\rho$}{weak x=c}}
+
+% \judgment{\step{\Scope}{C}{s}{\Scope$'$}{C$'$}}
+
+% ``Execution starting from configuration \texttt{<\Scope|C|s>} ends in state \texttt{<\Scope$'$|C$'$>}.''
+
+The rules for evaluating statements are given below. A ``configuration''
+defining the state of an execution includes a concrete context, represented by
+the environment, a symbolic context, represented by the constraint, and a
+statement to be executed.  The environment and statement are standard, while the
+constraint is not part of the state of a computation in most languages.
+Intuitively, the environment comes from constraint solving during the evaluation
+of the immediately preceding statement, and the constraint records the
+\verb|always| constraints that have been declared so far during execution. Note
+that our execution implicitly gets stuck if the solver cannot produce a model.
+
+\inferrule{S-Asgn}{
+  \eval{\Scope}{e}{v} \andalso
+  \gstay{\Scope}{$\rho$}{C$_s$} \andalso
+  \solve{\Scope$'$}{(C $\wedge$ C$_s$ $\wedge$ x = v)}
+}{
+  \step{\Scope}{C}{x := e}{\Scope$'$}{C}
+}
+
+\inferrule{S-Once}{
+  \gstay{\Scope}{$\rho$}{C$_s$} \andalso
+  \solve{\Scope$'$}{(C $\wedge$ C$_s$ $\wedge$ C$_0$)}
+}
+{\step{\Scope}{C}{once C$_0$}{\Scope$'$}{C}}
+
+\inferrule{S-Always}{
+  \step{\Scope}{C}{once C$_0$}{\Scope$'$}{C} \andalso \texttt{C$'$ = C $\wedge$ C$_0$}
+}{
+  \step{\Scope}{C}{always C$_0$}{\Scope$'$}{C$'$}
+}
+
+\inferax{S-Skip}{
+  \step{\Scope}{C}{skip}{\Scope}{C}
+} 
+
+\inferrule{S-Seq}{
+  \step{\Scope}{C}{s$_1$}{\Scope$'$}{C$'$} \andalso
+  \step{\Scope$'$}{C$'$}{s$_2$}{\Scope$''$}{C$''$}
+}{
+  \step{\Scope}{C}{s$_1$;s$_2$}{\Scope$''$}{C$''$}
+}
+
+\inferrule{S-IfThen}{
+  \eval{\Scope}{e}{true} \andalso
+  \step{\Scope}{C}{s$_1$}{\Scope$'$}{C$'$}
+}{
+  \step{\Scope}{C}{if e then s$_1$ else s$_2$}{\Scope$'$}{C$'$}%
+}
+
+\inferrule{S-IfElse}{
+  \eval{\Scope}{e}{false} \andalso
+  \step{\Scope}{C}{s$_2$}{\Scope$'$}{C$'$}
+}{
+  \step{\Scope}{C}{if e then s$_1$ else s$_2$}{\Scope$'$}{C$'$}%
+}
+
+\inferrule{S-WhileDo}{
+  \eval{\Scope}{e}{true} \andalso
+  \step{\Scope}{C}{s}{\Scope$'$}{C$'$} \andalso
+  \step{\Scope$'$}{C$'$}{while e do s}{\Scope$''$}{C$''$}
+}{
+  \step{\Scope}{C}{while e do s}{\Scope$''$}{C$''$}
+}
+
+\inferrule{S-WhileSkip}{
+  \eval{\Scope}{e}{false}
+}{
+  \step{\Scope}{C}{while e do s}{\Scope}{C}
+}
+
+\section{Objects and Messages}
+\label{sec:constr-with-mess-appendix}
+
+\renewcommand{\Scope}{\ensuremath{\mathbb{S}}\xspace}
+
+The solver must now also handle objects which are modeled as simple
+records.  To tame the power of the solver so that it adheres to the
+principles presented in \ref{sec:design}, we add the two-phase
+solving, structural type checks, and inlining rules on constraints
+described in \ref{sec:determinism}. These structural compatibility
+checks are assertions that are checked dynamically before sending the
+constraints involving objects to the solver, for example, checking
+whether a variable is bound to an object, and whether the object has
+the necessary fields.  While these assertions are checked, unlike
+constraints the system will never change anything to enforce them ---
+if one is violated it's just an error.  Instead, the programmer must
+ensure that an object with the expected fields is first assigned to a
+variable used in object constraints, just as a programmer would need
+to ensure that an object with the expected fields was assigned to a
+object-valued variable in a standard language.
+
+The semantic rules are still mostly standard imperative rules, with
+the addition of rules to assert and maintain constraints. The
+semantics for this language, although omitting collections and
+cooperating constraint solvers, illustrates the key principles we want
+for an \ac{ocp} language. The semantics still treats the solver as a
+black box, but we assume it supports our primitive types, records,
+uninterpreted functions, as well as hard and soft constraints~\cite{borning1992constraint}. Many practical examples use read-only
+variables, but this is not relevant for this semantics.
+
+\subsection{Syntax}
+
+The syntax is augmented to support creating instances of objects (both
+for value classes and ordinary classes) as well as method
+invocation. We introduce syntax for the method body.
+
+{\texttt{
+\begin{tabular}{lrrl}
+\textrm{Statement} & s & ::= & skip $\mid$ L := e $\mid$ always C $\mid$ once C $\mid$ s;s \\
+  & & & $\mid$ if e then s else s $\mid$ while e do s \\
+\textrm{Constraint} & C & ::= & $\rho$ e $\mid$ C $\wedge$ C\\
+\textrm{Expression} & e & ::= & v $\mid$ L $\mid$ e $\oplus$ e $\mid$ I \\
+%$\mid$ e $\olessthan$ e $\mid$ e $\ovee$ e \\
+ & & & $\mid$ e.l(e$_1$,$\ldots$,e$_n$) $\mid$ o $\mid$ new o $\mid$ D\\
+\textrm{Identity} & I & ::= & e == e\\
+\textrm{Object Literal} & o & ::= &  \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\} \\
+\textrm{L-Value} & L & ::= & x $\mid$ e.l \\
+\textrm{Constant} & c & ::= & true $\mid$ false $\mid$ nil $\mid$ \textrm{base type constants}\\
+\textrm{Variable} & x & ::= & \textrm{variable names} \\
+\textrm{Label} & l & ::= & \textrm{record label names} \\
+\textrm{Reference} & r & ::= & \textrm{references to heap records} \\
+\textrm{Dereference} & D & ::= & \Deref(e) \\ & & &\\
+\textrm{Method Body} & b & ::= & s; return e $\mid$ return e \\
+\textrm{Value} & v & ::= & c $\mid$ r $\mid$ \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}
+\end{tabular}
+}}\\[\baselineskip]
+
+The syntax elements \texttt{c}, $\rho$, and $\oplus$ are mostly
+unchanged.  We add the operator \texttt{==}, which tests for identity
+--- for primitive values this behaves the same as \texttt{=}. We add
+labels for naming fields, and syntax for referencing them. Since we
+now have a heap, in the syntax, we treat \Deref as a keyword used for
+dereferencing.  Source programs will not use expressions of the form
+\texttt{\Deref(e)}, but they are introduced as part of constraints
+given to the solver, which we assume will treat \Deref as an
+uninterpreted function. We also assume that the solver supports
+records and record equality, which we also denote with the \texttt{=}
+operator. We furthermore assume that the set of variable names ranged
+over by metavariable \texttt{x} includes the name \texttt{self}.
+
+\subsection{Semantics}
+
+\begin{sidewaystable*}
+  \centering
+  \begin{tabularx}{\textwidth}{r X}
+    \multicolumn{2}{l}{\textbf{\textit{Method Invocation}}}\\
+    \lookup{v}{l}{b} & Lookup of method \texttt{l} in the object or value \texttt{v} returns the
+                       formal parameter names \texttt{x$_1$} through \texttt{x$_n$} and the method
+                       body \texttt{b} \\
+    \multicolumn{2}{l}{\enter{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{v}{\Env$'$}{\Scope$_m$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}}\\
+                     & Invoking a method on \texttt{v} with argument names \texttt{x$_1$} through
+                       \texttt{x$_n$} and arguments \texttt{e$_1$} through \texttt{e$_n$} constructs
+                       the method scope \texttt{\Scope$_m$} and may update the global state.\\
+    \multicolumn{2}{l}{\textbf{\textit{Expression Evaluation}}}\\
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}
+                     & Evaluating expression \texttt{e} produces the value \texttt{v} and updated state \Env$'$, \Heap$'$, \Cstore$'$, and \Istore$'$\\
+    \multicolumn{2}{l}{\textbf{\textit{Typechecking}}}\\
+    \tcH{\Env}{\Heap}{e}{T} & Expression \texttt{e} has type \texttt{T} in the context of environment
+                              \texttt{\Env} and heap \Heap\\
+    \tcHC{\Env}{\Heap}{C} & Constraint \texttt{C} is well formed in the context of environment
+                            \texttt{\Env} and heap \Heap \\
+    \multicolumn{2}{l}{\textbf{\textit{Constraint Solving}}}\\
+    \solveH{\Env}{\Heap}{C} & Environment \Env and heap \Heap represent a solution to constraint \texttt{C} \\
+    \gstay{\Env}{$\rho$}{C} & Constraint \texttt{C} is a conjunction of stay constraints on variables in environment \Env \\
+    \gstay{\Heap}{$\rho$}{C} & Constraint \texttt{C} is a conjunction of stay constraints on objects in heap \Heap \\
+    \gstay{x=c}{$\rho$}{C} & Constraint \texttt{C} is a weak stay constraint for \texttt{x} to equal \texttt{c}\\
+    \gstay{x=r}{$\rho$}{C} & Constraint \texttt{C} is a stay constraint with priority $\rho$ for \texttt{x} to equal \texttt{r}\\
+    \gstay{r=o}{$\rho$}{C} & Constraint \texttt{C} is a required stay constraint for reference \texttt{r} to refer to the object \texttt{o}\\
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$} & Inlining expression \texttt{e} in \texttt{\Scope} is equivalent to
+                                                                              \texttt{e$'$} in \Env if \texttt{e$_C$} evaluates to true.\\
+    \reinline{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{\Env$'$}{C} & Re-inlining the constraint store \Cstore\ returns a
+                                                                   constraint \texttt{C}\\
+    \reinline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{\Env$'$}{C} & Re-inlining the constraint store \Istore\ returns a
+                                                                   constraint \texttt{C}\\
+    \multicolumn{2}{l}{\textbf{\textit{Statement Evaluation}}}\\
+    % \multicolumn{2}{l}{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s}{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}% }\\
+                     & Execution starting from state \texttt{<\Env|\Scope|\Heap|\Cstore|\Istore|s>} ends in
+                       \texttt{<\Env$'$|\Scope$'$|\Heap$'$|\Cstore$'$|\Istore$'$>}\\
+    \multicolumn{2}{l}{\textbf{\textit{Helper Rules}}}\\
+    \solveConstraints{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{$\rho$}{e}{\Env$'$}{\Heap$'$} & Solving identity constraints and \texttt{$\rho$ e} yields new environment and heap \Env$'$ and \Heap$'$\\
+    \solveConstraints{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{$\rho$}{e}{\Env$'$}{\Heap$'$} & Solving value constraints and \texttt{$\rho$ e} yields new environment and heap \Env$'$ and \Heap$'$\\
+  \end{tabularx}
+  \caption{Judgments and Intuitions of Semantic Rules for Objects}
+  \label{tab:obj-judgments}
+\end{sidewaystable*}
+
+The semantics now include a global \Env\ and a heap \Heap, in addition to method
+local scopes \Scope. The first is a function that maps global variable names to
+values, the second is a function that maps mutable references to ``objects'' of
+the form \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}, and the third now maps
+local variable names to global variable names. When convenient, we also treat
+both \Env\ and \Heap\ as a set of pairs (\texttt{\{(x,v),...\}} and
+\texttt{\{(r,o),...\}}, respectively). The currently active value constraints
+are kept as a compound constraint \Cstore; identity constraints are kept as a
+single conjunction referred to as \Istore.
+
+This semantics requires updated and additional judgments given in
+\autoref{tab:obj-judgments}. The rules for expression evaluation still work on
+the local scope, but since a local scope is now only a mapping from local names
+to globally unique names, the rules are augmented to then look up the value in
+the global environment. Method lookup creates new local environments, and
+constraints are translated to translate local variable names to global variable
+names for the solver. The solver still returns a global environment, and does
+not know about the local environments and their mapping into the global
+environment. In addition, the constraint stores \texttt{I} and \texttt{C} are
+replaced with \Istore\ and \Cstore, respectively. These now store constraints in
+pairs with the local environment they were created in. For readability, we now
+write \Heap\ instead of \texttt{H}, so all the global stores are written in the
+same font.
+
+% \judgment{\lookup{v}{l}{b}}
+
+% ``Lookup of method \texttt{l} in the object or value \texttt{v} returns the
+% formal parameter names \texttt{x$_1$} through \texttt{x$_n$} and the method
+% body \texttt{b}''
+
+% \judgment{\enter{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{v}{\Env$'$}{\Scope$_m$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}}
+
+% ``Invoking a method on \texttt{v} with argument names \texttt{x$_1$} through
+% \texttt{x$_n$} and arguments \texttt{e$_1$} through \texttt{e$_n$} constructs
+% the method scope \texttt{\Scope$_m$} and may update the heap and constraint stores.''
+
+The judgment for method lookup is opaque: our semantics does not depend on how
+method lookup is performed. After lookup we create a fresh scope with the
+evaluated arguments bound to the parameters of the method, the rule for which is
+given below:
+
+\infrule[Enter]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}{v$_1$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \evalBig{\Env$_{n-1}$}{\Scope}{\Heap$_{n-1}$}{\Cstore$_{n-1}$}{\Istore$_{n-1}$}{e$_n$}{\Env$_n$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{v$_n$}}\\
+  \mbox{
+    \stepHO{\Env$_n$}{\Scope$_m$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{self := v}{\Env$_0$}{\Scope$_0$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}}\\
+  \mbox{
+    \stepHO{\Env$_0$}{\Scope$_0$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{x$_1$ := v$_1$}{\Env$_{n+1}$}{\Scope$_1$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \stepHO{\Env$_{2n-1}$}{\Scope$_{n-1}$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{x$_n$ := v$_n$}{\Env$_{2n}$}{\Scope$_n$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}}
+}{\mbox{
+    \enter{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{v}{\Env$_{2n}$}{\Scope$_n$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}
+}}
+
+% \judgment{\evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}}
+
+% ``Evaluating expression \texttt{e} produces the value \texttt{v}, while
+% possibly having side-effects on everything but the local environment.''
+
+Expression evaluation can now have effects on the global environment, heap, and
+the constraint stores (but not on the local scope), because calling methods is
+possible in expressions.
+
+\inferax{E-Const}{\evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{c}{\Env}{\Heap}{\Cstore}{\Istore}{c}}
+
+\inferrule{E-Var}{
+  \texttt{\Scope}(\texttt{x}) = \texttt{x$_g$} \andalso
+  \Env(\texttt{x$_g$}) = \texttt{v}
+}{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{x}{\Env}{\Heap}{\Cstore}{\Istore}{v}
+}
+
+\infrule[E-Field]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{r} \andalso
+    \texttt{\Heap$'$}(\texttt{r}) = \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}\\
+  \mbox{1 $\leq$ $i$ $\leq$ $n$}
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l$_i$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_i$}
+}}
+
+\inferrule{E-ValueField}{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}} \andalso
+  1 $\leq$ $i$ $\leq$ $n$
+}{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l$_i$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_i$}
+}
+
+\inferax{E-Ref}{\evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{r}{\Env}{\Heap}{\Cstore}{\Istore}{r}}
+
+\infrule[E-Op]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v$_1$}}\\
+  \mbox{
+    \evalBig{\Env$_0$}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_2$}}\\
+  \mbox{
+    \texttt{v$_1$ $\llbracket \oplus \rrbracket$ v$_2$} = \texttt{v}}
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ $\oplus$ e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}
+}}
+
+% \infrule[E-Compare]{
+%   \mbox{
+%     \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v$_1$}}\\
+%   \mbox{
+%     \evalBig{\Env$_0$}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_2$}}\\
+%   \mbox{
+%     \texttt{v$_1$ $\llbracket \olessthan \rrbracket$ v$_2$} = \texttt{v}}
+% }{\mbox{
+%   \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ $\olessthan$ e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}
+% }}
+
+% \infrule[E-Combine]{
+%   \mbox{
+%     \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v$_1$}}\\
+%   \mbox{
+%     \evalBig{\Env$_0$}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_2$}}\\
+%   \mbox{
+%     \texttt{v$_1$ $\llbracket \ovee \rrbracket$ v$_2$} = \texttt{v}}
+% }{\mbox{
+%   \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ $\ovee$ e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}
+% }}
+
+
+\infrule[E-IdentityTrue]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v}}\\
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{e$_2$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}}
+}{\mbox{%
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ == e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{true}
+}}
+
+\infrule[E-IdentityFalse]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v$_1$}}\\
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{e$_2$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_2$}}\\
+  \mbox{
+    \texttt{v$_1$} $\neq$ \texttt{v$_2$}}
+}{\mbox{%
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ == e$_2$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{false}
+}}
+
+\infrule[E-Call]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v}}\\
+  \mbox{
+    \lookup{v}{l}{s; return e}}\\
+  \mbox{
+    \enter{\Env$_0$}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v}{\Env$_1$}{\Scope$_m$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}}\\
+  \mbox{\stepHO{\Env$_1$}{\Scope$_m$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}{s}{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}}\\
+  \mbox{
+    \evalBig{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{e}{\Env$''$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}{v$_r$}}
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l(e$_1$,$\ldots$,e$_n$)}{\Env$''$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}{v$_r$}
+}}
+
+\infrule[E-CallSimple]{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$_0$}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v}}\\
+  \mbox{\lookup{v}{l}{return e}}\\
+\mbox{
+  \enter{\Env$_0$}{\Scope}{\Heap$_0$}{\Cstore$_0$}{\Istore$_0$}{v}{\Env$_1$}{\Scope$_m$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}}\\
+\mbox{
+  \evalBig{\Env$_1$}{\Scope$_m$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_r$}}
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l(e$_1$,$\ldots$,e$_n$)}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v$_r$}
+}}
+
+\infrule[E-New]{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}{v$_1$}}\\
+\mbox{$\cdots$}\\
+\mbox{
+  \evalBig{\Env$_{n-1}$}{\Scope}{\Heap$_{n-1}$}{\Cstore$_{n-1}$}{\Istore$_{n-1}$}{e$_n$}{\Env$_n$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{v$_n$}}\\
+\mbox{
+\texttt{\Heap$_n$}(\texttt{r})$\uparrow$ \andalso  \texttt{\Heap$'$} = (\texttt{\Heap$_n$} $\bigcup$ \{(\texttt{r}, \texttt{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}})\})}
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{new \{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\Env$_n$}{\Heap$'$}{\Cstore$_n$}{\Istore$_n$}{r}
+}}
+
+\infrule[E-Value]{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$}{v$_1$}}\\\mbox{$\cdots$}\\\mbox{
+  \evalBig{\Env$_{n-1}$}{\Scope}{\Heap$_{n-1}$}{\Cstore$_{n-1}$}{\Istore$_{n-1}$}{e$_n$}{\Env$_n$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{v$_n$}}\\
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\Env$_n$}{\Heap$_n$}{\Cstore$_n$}{\Istore$_n$}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}
+}}
+
+% \judgment{\tcH{\Env}{\Heap}{e}{T}}
+% \judgment{\tcHC{\Env}{\Heap}{C}}
+
+We now typecheck expressions and constraints with respect to the global
+environments \Env$\,$.  Method calls do not typecheck: even though we allow
+method calls in expressions and thus in constraints syntactically, our rules for
+creating constraints given below inline method invocations.  Identity
+constraints also do not typecheck: they are solved separately and should not
+appear in ordinary constraints (see the rules for statement evaluation below).
+Finally, new (non-value) object construction does not typecheck, since
+constraints must be side-effect-free.
+
+Types distinguish between primitive values and objects, and for
+objects the type keeps track of their fields:
+
+{\texttt{
+\begin{tabular}{lrrl}
+\textrm{Type} & T & ::= & PrimitiveType $\mid$
+\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\} 
+\end{tabular}
+}}
+
+\inferax{T-Const}{
+  \tcH{\Env}{\Heap}{c}{PrimitiveType}
+}
+
+
+\inferrule{T-Ref}{
+  \texttt{\Heap}(\texttt{r})=\texttt{o} \andalso
+  \tcH{\Env}{\Heap}{o}{T} 
+}{
+  \tcH{\Env}{\Heap}{r}{T}
+}
+
+\inferrule{T-Var}{
+  \Env(\texttt{x}) = \texttt{v} \andalso
+  \tcH{\Env}{\Heap}{v}{T}
+}{
+  \tcH{\Env}{\Heap}{x}{T}
+}
+
+We now transform all local variables to their global names using the
+inlining rules given below before passing them to the solver. Thus,
+only global variable names type.
+
+\inferrule{T-Field}{
+  \tcH{\Env}{\Heap}{e}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+  \andalso $1 \leq i \leq n$
+}{
+  \tcH{\Env}{\Heap}{e.l$_i$}{T$_i$}
+}
+
+We add a typing rule for dereferences. We assume dereferences will not
+appear in source programs, but only in expressions that have been
+generated by our inlining judgment. This ensures that the inlined
+expressions still typecheck, and simplifies the rules for constraint
+solving.
+
+\inferrule{T-Deref}{
+  \tcH{\Env}{\Heap}{e}{T}
+}{
+  \tcH{\Env}{\Heap}{\Deref(e)}{T}
+}
+
+\inferrule{T-Op}{
+  \tcH{\Env}{\Heap}{e$_1$}{PrimitiveType} \andalso \tcH{\Env}{\Heap}{e$_2$}{PrimitiveType}
+}{
+  \tcH{\Env}{\Heap}{e$_1$ $\oplus$ e$_2$}{PrimitiveType}
+}
+
+% \inferrule{T-Compare}{
+%   \tcH{\Env}{\Heap}{e$_1$}{PrimitiveType} \andalso \tcH{\Env}{\Heap}{e$_2$}{PrimitiveType}
+% }{
+%   \tcH{\Env}{\Heap}{e$_1$ $\olessthan$ e$_2$}{PrimitiveType}
+% }
+
+% \inferrule{T-Combine}{
+%   \tcH{\Env}{\Heap}{e$_1$}{PrimitiveType} \andalso \tcH{\Env}{\Heap}{e$_2$}{PrimitiveType}
+% }{
+%   \tcH{\Env}{\Heap}{e$_1$ $\ovee$ e$_2$}{PrimitiveType}
+% }
+
+\inferrule{T-ValueObject}{
+  \tcH{\Env}{\Heap}{e$_1$}{T$_1$} $\cdots$ \tcH{\Env}{\Heap}{e$_n$}{T$_n$}
+}{
+  \tcH{\Env}{\Heap}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\{l$_1$:T$_1$,$\ldots$,l$_n$:T$_n$\}}
+}
+
+\inferrule{T-Priority}{
+  \tcH{\Env}{\Heap}{e}{T}
+}{
+  {\tcHC{\Env}{\Heap}{$\rho$ e}}
+}
+
+\inferrule{T-Conjunction}{
+  \tcH{\Env}{\Heap}{C$_1$}{T} \andalso \tcH{\Env}{\Heap}{C$_2$}{T}
+}{
+  \tcHC{\Env}{\Heap}{C$_1$ $\wedge$ C$_2$}
+}
+
+% \judgment{\gstay{x=v}{$\rho$}{C}}
+% \judgment{\gstay{r=o}{$\rho$}{C}}
+% \judgment{\gstay{\Env}{$\rho$}{C}}
+% \judgment{\gstay{\Heap}{$\rho$}{C}}
+
+The rules for creating stay constraints are simply extended to include rules for
+stay constraints on instances of objects, and adapted to this formalism's
+environment and heap.
+
+% \inferax{StayEmpty}{\stay{$\emptyset$}{true}}
+
+% \inferrule{StayOne}{
+%   \Env$(\texttt{x}) = \texttt{v}$ \andalso
+%   \Env$_0 = $\Env$ \setminus \{(\texttt{x},\texttt{v})\}$ \andalso
+%   \stay{\Env$_0$}{C$_0$} \andalso
+%   \texttt{C}$ = $\texttt{C}$_0$ $\wedge$ \texttt{weak x=v}
+% }{
+%   \stay{\Env}{C}
+% }
+
+% \infrule[StayHeap]{
+%   \mbox{
+%     \Heap$(\texttt{r}) = \texttt{o}$ \andalso  
+%     \Heap$_0 = $\Heap$ \setminus \{(\texttt{r},\texttt{o})\}$ \andalso
+%     \stay{\Heap$_0$}{C$_0$} \andalso
+%     $\texttt{o} = $\{\texttt{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\}}\\
+%   \mbox{C$_w$ $=$ weak x$_{r0}$ = v$_0$ $\wedge$
+%     $\ldots$ $\wedge$
+%     weak x$_{rn}$ = v$_n$}
+% }{\mbox{
+%   \stay{\Heap}{C$_0$ $\wedge$
+%     weak \Deref(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$ C$_w$}
+% }}
+
+% \inferax{IStayEmpty}{\istay{$\emptyset$}{true}}
+% \inferax{IStayConst}{\istay{x=c}{weak x=c}}
+% \infrule[IStayObject]{
+%   \mbox{
+%     \istay{x$_{x0}$=v$_0$}{C$_{x0}$} $\cdots$ \istay{x$_{xn}$=v$_n$}{C$_{xn}$} \andalso
+%     $\texttt{C}_x = \texttt{C}_{x0} \wedge \ldots \wedge \texttt{C}_{xn}$}
+% }{\mbox{
+% \istay{x=\{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$\}}{
+%     \texttt{required x=\{l$_0$:x$_{x0}$,$\ldots$,l$_n$:x$_{xn}$\}} $\wedge$ C$_x$}
+% }}
+% \inferax{IStayRef}{\istay{x=r}{required x=r}}
+
+% \inferrule{IStayOne}{
+%   \Env$(\texttt{x}) = \texttt{v}$ \andalso
+%   \Env$_0 = $\Env$ \setminus \{(\texttt{x},\texttt{v})\}$ \andalso
+%   \istay{\Env$_0$}{C$_0$} \andalso
+%   \istay{x=v}{C$_s$}
+% }{
+%   \istay{\Env}{\texttt{C}$_0$ $\wedge$ \texttt{C}$_s$}
+% }
+
+% \infrule[IStayHeap]{
+%   \mbox{
+%     \Heap$(\texttt{r}) = \texttt{o}$ \andalso  
+%     \Heap$_0 = $\Heap$ \setminus \{(\texttt{r},\texttt{o})\}$ \andalso
+%     \istay{\Heap$_0$}{C$_0$} \andalso
+%     $\texttt{o} = $\{\texttt{l$_0$:v$_0$,$\ldots$,l$_n$:v$_n$}\}}\\
+%   \mbox{
+%     \istay{x$_{r0}$=v$_0$}{C$_{r0}$} $\cdots$ \istay{x$_{rn}$=v$_n$}{C$_{rn}$}}
+% }{\mbox{
+%   \istay{\Heap}{C$_0$ $\wedge$
+%     required \Deref(r) = \{l$_0$:x$_{r0}$,$\ldots$,l$_n$:x$_{rn}$\} $\wedge$
+%     C$_{r0}$ $\wedge$
+%     $\ldots$ $\wedge$
+%     C$_{rn}$ }
+% }}
+
+\inferax{StayConst}{\gstay{x=c}{$\rho$}{weak x=c}}
+
+\inferax{StayRef}{\gstay{x=r}{$\rho$}{$\rho$ x=r}}
+
+\infrule[StayRecord]{
+  \mbox{
+    \texttt{ x$_1$} fresh $\cdots$ \texttt{ x$_n$} fresh \andalso 
+    \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$ \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$}}\\
+  \mbox{
+    \texttt{C$ = $($\rho$ x = \{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\}) $\wedge$ C$_{1}$ $\wedge$ $\cdots$ $\wedge$ C$_{n}$}}
+}{\mbox{
+  \gstay{x = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{C}
+}}
+
+In \textsc{StayRecord} we do not allow records to change their when
+solving for value constraints, record structure can only change
+through assignments.
+
+\infrule[StayObject]{
+  \mbox{
+    \texttt{ x$_1$} fresh $\cdots$ \texttt{ x$_n$} fresh \andalso 
+    \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$ \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$}}\\
+  \mbox{
+    \texttt{C$ = $(required \Deref(r)=\{l$_1$:x$_1$,$\ldots$,l$_n$:x$_n$\}) $\wedge$ C$_{1}$ $\wedge$ $\cdots$ $\wedge$ C$_{n}$}}
+}{\mbox{
+    \gstay{r = \{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}{$\rho$}{C}
+}}
+
+\inferrule{StayEnv}{
+  \Env = \texttt{\{(x$_1$, v$_1$),$\ldots$,(x$_n$, v$_n$)\}} \andalso
+  \gstay{x$_1$=v$_1$}{$\rho$}{C$_1$} $\cdots$   \gstay{x$_n$=v$_n$}{$\rho$}{C$_n$} 
+}{
+  \gstay{\Env}{$\rho$}{\texttt{C}$_1$ $\wedge$ $\cdots$ $\wedge$ \texttt{C}$_n$}
+}
+
+\infrule[StayHeap]{
+  \mbox{
+  \Heap = \texttt{\{(r$_1$, o$_1$),$\ldots$,(r$_n$, o$_n$)\}} \andalso
+  \gstay{r$_1$=o$_1$}{$\rho$}{C$_1$} $\cdots$ \gstay{r$_n$=o$_n$}{$\rho$}{C$_n$} 
+}}
+{\mbox{
+  \gstay{\Heap}{$\rho$}{C$_1$ $\wedge$ $\cdots$ $\wedge$ C$_n$}}}
+
+
+
+% \judgment{\solveH{\Env}{\Heap}{C}}
+
+As before, the call to the solver is opaque. In this semantics, we assume that
+the solver natively supports records and uninterpreted functions (which we use
+to represent the heap).  We do not assume, however, that the solver understands
+methods, which can now be part of constraint expressions. This requires us to
+essentially inline methods before passing constraints to the solver.
+
+% \judgment{\inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$}}
+
+% ``Inlining expression \texttt{e} from the local environment \texttt{\Scope} turns
+% into expression \texttt{e$'$}. To connect variables across method calls,
+% the constraint expression \texttt{e$_C$} is returned.''
+
+In our inlining rules, we translate local variables into their names in the
+global environment and provide a semantics for method calls inside constraints.
+Arguments to method calls are constrained to be equal to the expression that
+generated them. Inlining does not allow updates to the heap, so no new heap is
+returned. We do allow assignments to locals in inlined methods, however, so the
+global environment can change as a result of inlining. Since expressions are
+actually evaluated during inlining, if they do modify the heap, evaluation stops
+and the rules fail.
+
+\inferax{I-Const}{\inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{c}{\Env}{true}{c}}
+
+\inferrule{I-Var}{
+  \texttt{\Scope}(\texttt{x}) = \texttt{x$_g$}
+}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{x}{\Env}{true}{x$_g$}
+}
+
+\inferrule{I-Value}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{e$_{C_1}$}{e$'_1$} $\cdots$ \inline{\Env}{\Scope}{\Heap$_{n-1}$}{\Cstore}{\Istore}{e$_n$}{\Env$_n$}{e$_{C_n}$}{e$'_n$}
+}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{\{l$_1$:e$_1$,$\ldots$,l$_n$:e$_n$\}}{\Env$_n$}{e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{\{l$_1$:e$'_1$,$\ldots$,l$_n$:e$'_n$\}}
+}
+
+\inferrule{I-Field}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$} \andalso
+  \evalBig{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$''$}{\Heap}{\Cstore}{\Istore}{r}
+}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l}{\Env$'$}{e$_C$$\wedge$e$'$=r}{\Deref(e$'$).l}
+}
+
+The \textsc{I-Field} rule translates each expression of the form
+\texttt{e.l}, where \texttt{e} evaluates to a heap reference
+\texttt{r}, into \texttt{\Deref(e$'$).l}
+(recursively translating \texttt{e} into \texttt{e$'$}
+through further inlining). These judgments further ensure that the
+``prefix'' \texttt{e} of an l-value \texttt{e.l} is unchanged through
+the addition of the constraint \texttt{e$'$=r};
+this is necessary to ensure that updates to the value of \texttt{e.l}
+are deterministic. Note that, because we are recursively inlining the
+expression before the label, we also recursively add required stays on
+any prior field accesses. Thus, for example, \texttt{a.b.c = 1} would
+be translated by recursively inlining and returning \texttt{a =
+  r$_a$ $\wedge$ H(a).b = r$_b$ $\wedge$ H(H(a).b).c = 1}.
+
+\infrule[I-ValueField]{
+  \mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$}}\\
+  \mbox{
+    \evalBig{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$''$}{\Heap}{\Cstore}{\Istore}{\{l$_1$:v$_1$,$\ldots$,l$_n$:v$_n$\}}}
+}{\mbox{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l}{\Env$'$}{e$_C$}{e$'$.l}
+}}
+
+\inferax{I-Ref}{\inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{r}{\Env}{true}{r}}
+
+\inferrule{I-Op}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_2$}{\Env$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ $\oplus$ e$_2$}{\Env$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\oplus$ e$_b$}
+}
+
+% \inferrule{I-Compare}{
+%   \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$'$}{e$_{C_a}$}{e$_a$} \andalso
+%   \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_2$}{\Env$''$}{e$_{C_b}$}{e$_b$}
+% }{
+%   \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ $\olessthan$ e$_2$}{\Env$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\olessthan$ e$_b$}
+% }
+
+% \inferrule{I-Combine}{
+%   \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$'$}{e$_{C_a}$}{e$_a$} \andalso
+%   \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_2$}{\Env$''$}{e$_{C_b}$}{e$_b$}
+% }{
+%   \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ $\ovee$ e$_2$}{\Env$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ $\ovee$ e$_b$}
+% }
+
+\inferrule{I-Identity}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$'$}{e$_{C_a}$}{e$_a$} \andalso
+  \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_2$}{\Env$''$}{e$_{C_b}$}{e$_b$}
+}{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$ == e$_2$}{\Env$''$}{e$_{C_a}$$\wedge$e$_{C_b}$}{e$_a$ == e$_b$}
+}
+
+The \textsc{I-Identity} rule ensures that identities cannot change in
+value constraint expressions. Because we inline the expressions on
+either side, these, through \textsc{I-Field} and
+\textsc{I-ValueField}, are forced to stay as they are up to the last
+part. Note that that inlined identity constraints do not type (in
+\textsc{S-Once}), even if both operands have the same type --- this
+prevents adding identity constraints mixed with value constraints.
+
+\infrule[I-Call]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$_0$}{\Heap}{\Cstore}{\Istore}{v}}\\
+  \mbox{
+    \evalBig{\Env$_0$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{\Heap}{\Cstore}{\Istore}{v$_1$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \evalBig{\Env$_{n-1}$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_n$}{\Env$_n$}{\Heap}{\Cstore}{\Istore}{v$_n$}}\\
+  \mbox{
+    \texttt{e$_C$} = (\texttt{e=v $\wedge$ e$_1$=v$_1$ $\wedge$ $\cdots$ $\wedge$ e$_n$=v$_n$})}\\
+  \mbox{
+    \lookup{v}{l}{s; return e}}\\
+  \mbox{
+    \enter{\Env$_n$}{\Scope}{\Heap}{\Cstore}{\Istore}{v}{\Env$'$}{\Scope$_m$}{\Heap}{\Cstore}{\Istore}}\\
+  \mbox{
+    \stepHO{\Env$'$}{\Scope$_m$}{\Heap}{\Cstore}{\Istore}{s}{\Env$''$}{\Scope$'$}{\Heap}{\Cstore}{\Istore}}\\
+  \mbox{
+    \evalBig{\Env$''$}{\Scope$'$}{\Heap}{\Cstore}{\Istore}{e}{\Env$'''$}{\Heap}{\Cstore}{\Istore}{v$_r$}}\\
+}{\mbox{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l(e$_1$,$\ldots$,e$_n$)}{\Env$'''$}{e$_C$}{v$_r$}
+}}
+
+Methods that have any statements at all can only be used in a one-way
+manner. This is ensured by evaluating the return expression and using
+only the value in the constraint. Because we are retranslating all
+constraints on each semantic step, this return value will get updated
+when its dependencies change, it just won't work in the other
+direction.
+
+When inlining a method with more than one statement, the statements
+are simply executed.  In particular, this means that we eagerly choose
+which branch of if-statements to inline and eagerly unroll loops.
+Further, the \textsc{I-Call} rule above and the \textsc{I-MultiWayCall} rule
+below ensure that methods being used in constraints have no side
+effects.  This is accomplished by requiring the initial heap to remain
+unchanged.
+
+Similarly, methods used in constraints cannot declare nested
+constraints; this is accomplished by requiring the initial sets of
+ordinary and identity constraints to remain unchanged.
+
+\infrule[I-MultiWayCall]{
+  \mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_0$}{\Env$'$}{e$_{C_0}$}{e$_0'$}}\\
+  \mbox{
+    \evalBig{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_0$}{\Env$''$}{\Heap}{\Cstore}{\Istore}{v}}\\
+  \mbox{
+    \lookup{v}{l}{return e}}\\
+  \mbox{
+    \enter{\Env$''$}{\Scope}{\Heap}{\Cstore}{\Istore}{v}{\Env$'''$}{\Scope$_m$}{\Heap}{\Cstore}{\Istore}}\\
+  \mbox{
+    \inline{\Env$'''$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{e$_{C_1}$}{e$_1'$}
+    $\cdots$
+    \inline{\Env$_{n-1}$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_n$}{\Env$_n$}{e$_{C_n}$}{e$_n'$}}\\
+  \mbox{
+    \texttt{\Scope$_m$}(\texttt{self}) = \texttt{x$_{g_\texttt{self}}$} \andalso
+    \texttt{\Scope$_m$}(\texttt{x$_1$}) = \texttt{x$_{g_1}$} $\cdots$
+    \texttt{\Scope$_m$}(\texttt{x$_n$}) = \texttt{x$_{g_n}$}}\\
+  \mbox{
+    \texttt{e$_C$} = (\texttt{x$_{g_\texttt{self}}$=e$_0'$ $\wedge$ x$_{g_1}$=e$_1'$ $\wedge$ $\cdots$ $\wedge$ x$_{g_n}$=e$_n'$})}\\
+  \mbox{
+    \inline{\Env$_n$}{\Scope$_m$}{\Heap}{\Cstore}{\Istore}{e}{\Env$_n'$}{e$_{C_m}$}{e$'$}}
+}{\mbox{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_0$.l(e$_1$,$\ldots$,e$_n$)}{\Env$_n'$}{e$_C$$\wedge$e$_{C_m}$$\wedge$e$_{C_0}$$\wedge$e$_{C_1}$$\wedge\cdots\wedge$e$_{C_n}$}{e$'$}
+}}
+
+For methods that only return an expression, we inline the expression
+and pass it to the solver. Note that we execute the argument
+expressions and receiver for their value (potentially executing
+through other methods), and also inline them, potentially executing
+the same methods twice (once through \textsc{I-Call} and once through
+\textsc{E-Call}).  Although not ideal in terms of providing the
+cleanest possible semantics, in practical terms this should 
+not be a problem, because we prohibit
+side-effects in these methods.
+
+
+% \judgment{\reinline{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{\Env$'$}{C}}
+% \judgment{\reinline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{\Env$'$}{C}}
+
+% ``Re-inlining the constraint store \Cstore\ returns a
+% constraint \texttt{C}''
+
+% ``Re-inlining the constraint store \Istore\ returns a
+% constraint \texttt{C}''
+
+We use the below rules to re-translate all constraints in the store using our
+inlining rules before solving.
+
+\inferax{I-ReinlineEmptyC}{\reinline{\Env}{\Scope}{\Heap}{\Istore}{$\emptyset$}{\Env}{true}}
+
+\inferax{I-ReinlineEmptyI}{\reinline{\Env}{\Scope}{\Heap}{\Cstore}{$\emptyset$}{\Env}{true}}
+
+\infrule[I-ReinlineC]{
+  \mbox{
+    \Cstore$_0$ = \Cstore $\;\setminus$ $\{(\texttt{\Scope}, \rho\, \texttt{e})\}$ \andalso
+    \reinline{\Env}{\Scope}{\Heap}{\Istore}{\Cstore$_0$}{\Env$_0$}{C$_0$}}\\
+  \mbox{
+    \inline{\Env$_0$}{\Scope}{\Heap}{\Cstore$_0$}{\Istore}{e}{\Env$'$}{e$_{C_e}$}{e$'$}}
+}{\mbox{
+  \reinline{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{\Env$'$}{C$_0$ $\wedge$ $\rho$ (e$'$ $\wedge$ e$_{C_e}$)}
+}}
+
+\infrule[I-ReinlineI]{
+  \mbox{
+    \Istore$_0$ = \Istore $\;\setminus$ $\{(\texttt{\Scope}, \texttt{required\, e})\}$ \andalso
+    \reinline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore$_0$}{\Env$_0$}{C$_0$}}\\
+  \mbox{
+    \inline{\Env$_0$}{\Scope}{\Heap}{\Cstore}{\Istore$_0$}{e}{\Env$'$}{e$_{C_e}$}{e$'$}}
+}{\mbox{
+  \reinline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{\Env$'$}{C$_0$ $\wedge$ required (e$'$ $\wedge$ e$_{C_e}$)}
+}}
+
+
+% \judgment{\solveConstraints{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{$\rho$}{e}{\Env$'$}{\Heap$'$}}
+% \judgment{\solveConstraints{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{$\rho$}{e}{\Env$'$}{\Heap$'$}}
+
+The rules below are helpers for use in solving constraints. They generate the
+inlined constraint expression from \texttt{e}, re-inline the constraints from
+the identity respectively constraint stores, and to generate the stay
+constraints and solve for these. In the first phase, we use the first judgment
+above to inline the identity constraint store and generate the stays on the heap
+and environment such that the solve can propagate the new equality constraint
+through all existing identity constraints in order to update other variables and
+fields as needed.  In the second phase we use the second judgment above generate
+constraints for the non-identity constraint store, and we typecheck under the
+new environment before solving.
+
+\infrule[SolveIdentityConstraints]{
+  \mbox{
+    \gstay{\Env}{weak}{C$_{E_s}$} \andalso
+    \gstay{\Heap}{weak}{C$_{{H}_s}$}}\\
+  \mbox{
+    \reinline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{\Env$_i$}{C$_i$} \andalso
+  }\\
+  \mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_{e}$}{e$_c$}{e$'$} \andalso
+    \solveH{\Env$'$}{\Heap$'$}{C$_i$ $\wedge$ $\rho$ e$_C$}
+  }
+}{\mbox{
+  \solveConstraints{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{$\rho$}{e}{\Env$'$}{\Heap$'$}
+}}
+
+\infrule[SolveValueConstraints]{
+  \mbox{
+    \gstay{\Env}{required}{C$_{E_s}$} \andalso
+    \gstay{\Heap}{required}{C$_{{H}_s}$}}\\
+  \mbox{
+    \reinline{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{\Env$_c$}{C$_c$} \andalso
+  }\\
+  \mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_{e}$}{e$_c$}{e$'$} \andalso
+    \tcH{\Env$_{e}$}{\Heap}{e$'$}{T} \andalso
+    \solveH{\Env$'$}{\Heap$'$}{C$_c$ $\wedge$ $\rho$ e$_C$}
+  }
+}{\mbox{
+  \solveConstraints{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{$\rho$}{e}{\Env$'$}{\Heap$'$}
+}}
+
+% \judgment{\stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s}{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}}
+
+The statement rules are refactored to work with the local environments
+and the new constraint and identity-constraint stores.
+
+\infrule[S-AsgnNewLocal]{
+  \mbox{
+    \texttt{\Scope}(\texttt{x})$\uparrow$ \andalso
+    \texttt{\Env}(\texttt{x$_g$})$\uparrow$}\\
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}}\\
+  \mbox{
+    $\texttt{\Scope}' = \texttt{\Scope} \bigcup \{(\texttt{x},\texttt{x}_g)\}$ \andalso
+    $\texttt{\Env}'' = \texttt{\Env}' \bigcup \{(\texttt{x}_g,\texttt{v})\}$}\\
+}{\mbox{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{x := e}{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$'$}{\Istore$'$}
+}}
+
+\infrule[S-AsgnLocal]{
+  \mbox{
+    $\texttt{\Scope}(\texttt{x}) = \texttt{x}_g$}\\
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}}\\
+  \mbox{
+    \solveConstraints{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{\texttt{required}}{x$_g$=v}{\Env$''$}{\Heap$'''$}}\\
+  \mbox{
+    \solveConstraints{\Env$''$}{\Scope}{\Heap$''$}{\Istore$'$}{\Cstore$'$}{\texttt{required}}{x$_g$=v}{\Env$'''$}{\Heap$'''$}}
+}{\mbox{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{x := e}{\Env$'''$}{\Scope}{\Heap$'''$}{\Cstore}{\Istore}
+}}
+
+\infrule[S-AsgnLValue]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{v}}\\
+  \mbox{
+    \solveConstraints{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{\texttt{required}}{e$_l$.l=v}{\Env$''$}{\Heap$''$}}\\
+  \mbox{
+    \solveConstraints{\Env$''$}{\Scope}{\Heap$''$}{\Istore$'$}{\Cstore$'$}{\texttt{required}}{e$_l$.l=v}{\Env$'''$}{\Heap$'''$}}
+}{\mbox{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_l$.l := e}{\Env$'''$}{\Scope}{\Heap$'''$}{\Cstore$'$}{\Istore$'$}
+}}
+
+Note that the above rule can only be used in constraint-construction
+mode if \Heap$ = $\Heap$'$\@. % This effectively restricts assignments
+% in constraints to work on values. Note also, that assignments in
+% constraints are just executed, but do not set up a required equality
+% constraint between the LHS and RHS\@.
+% (The current Babelsberg/Ruby
+% includes a ``backwards compatibility mode'' which sets up required
+% equality constraints when assignment occurs, but it's not clear
+% whether we should retain support for that.  See
+% \autoref{sec:constraint-construction-impl}.)
+We also do not allow the use of the following rules for \texttt{once} and
+\texttt{always} in constraint-construction mode, because the inlining
+rules disallow updating the constraint store and heap.  As discussed
+previously (Section~\ref{sec:additional-constraint-restrictions}),
+a practical implementation we might want to support benign side
+effects in methods that are invoked by constraint expressions,
+including methods that themselves create new constraints; but this is
+not modeled by this semantics.
+
+
+\infrule[S-OnceIdentity]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_0$}{\Env$_0$}{\Heap}{\Cstore}{\Istore}{v} \andalso
+    \evalBig{\Env$_0$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{\Heap}{\Cstore}{\Istore}{v}}\\
+  \mbox{
+    \inline{\Env$_1$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_0$}{\Env$_2$}{e$_{C_0}$}{e$_0'$} \andalso
+    \inline{\Env$_2$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_3$}{e$_{C_1}$}{e$_1'$}}\\
+}{\mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{once e$_0$ == e$_1$}{\Env$_3$}{\Scope}{\Heap}{\Cstore}{\Istore}
+}}
+
+Note that the above rule uses the inlining judgment to ensure that the
+expressions adhere to our restrictions on what kind of expressions can
+appear in constraints. Expressions that update the heap, for example,
+will be rejected in the inlining rules.
+
+\infrule[S-AlwaysIdentity]{
+  \mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{once e$_0$ == e$_1$}{\Env$'$}{\Scope}{\Heap$'$}{\Cstore}{\Istore}}\\
+  \mbox{
+    \Istore$'$ = \Istore $\;\bigcup$ $\{($\texttt{\Scope}$,\,$\texttt{e}$_0$ \texttt{==} \texttt{e}$_1)\}$}
+}{\mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{always e$_0$ == e$_1$}{\Env$'$}{\Scope}{\Heap$'$}{\Cstore}{\Istore$'$}
+}}
+
+\infrule[S-Once]{
+  \mbox{
+    \texttt{C$_0$} = $\rho$ \texttt{e} \andalso
+    \solveConstraints{\Env}{\Scope}{\Heap}{\Istore}{\Cstore}{$\rho$}{e}{\Env$'$}{\Heap$'$}
+  }
+}{\mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{once C$_0$}{\Env$'$}{\Scope}{\Heap$'$}{\Cstore}{\Istore}}
+}
+
+\infrule[S-Always]{
+  \mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{once C$_0$}{\Env$'$}{\Scope}{\Heap$'$}{\Cstore}{\Istore}}\\
+  \mbox{
+    \Cstore$'$ = \Cstore $\;\bigcup$ $\{(\texttt{\Scope}, \texttt{C}_0)\}$}
+}
+{\mbox{\stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{always C$_0$}{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore}}}
+
+\inferax{S-Skip}{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{skip}{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}
+}
+
+\infrule[S-Seq]{
+  \mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s$_1$}{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}}\\
+  \mbox{
+    \stepHO{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{s$_2$}{\Env$''$}{\Scope$''$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}}
+}{\mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s$_1$;s$_2$}{\Env$''$}{\Scope$''$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}
+}}
+
+\infrule[S-IfThen]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{true}}\\
+  \mbox{
+    \stepHO{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{s$_1$}{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}}
+}{\mbox{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{if e then s$_1$ else s$_2$}{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}%
+}}
+
+\infrule[S-IfElse]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{false}}\\
+  \mbox{
+    \stepHO{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{s$_2$}{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}}
+}{\mbox{
+    \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{if e then s$_1$ else s$_2$}{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}%
+}}
+
+\infrule[S-WhileDo]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{true}}\\
+  \mbox{
+    \stepHO{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{s}{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}}\\
+  \mbox{
+    \stepHO{\Env$''$}{\Scope$'$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}{while e do s}{\Env$'''$}{\Scope$''$}{\Heap$'''$}{\Cstore$'''$}{\Istore$'''$}}
+}{\mbox{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{while e do s}{\Env$'''$}{\Scope$''$}{\Heap$'''$}{\Cstore$'''$}{\Istore$'''$}
+}}
+
+\inferrule{S-WhileSkip}{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{false}
+}{
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{while e do s}{\Env$'$}{\Scope}{\Heap$'$}{\Cstore$'$}{\Istore$'$}
+}
+
+\subsection{Key Properties}
+\label{sec:proofs}
+
+In prior publications, we have presented and proven two key properties of our
+formalism for a simpler language, called Babelsberg/UID~\cite{FelgentreffOOPSLA2015,felgentreff:2015:oopsla-companion}. Here we state
+the same two key theorems about our formalism, updated for the
+Babelsberg/Objects language presented here. The first theorem formalizes the
+idea that any solution to a value constraint preserves the structures of the
+objects on the environment and heap:
+
+\begin{sloppypar}
+\begin{theorem} (Structure Preservation)
+ If \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{(once|always)
+   C$_0$}{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$} and  \tcHC{\Env}{\Heap}{C$_0$} and
+\tcH{\Env}{\Heap}{x}{T}, then
+  \tcH{\Env$'$}{\Heap$'$}{x}{T}. 
+\end{theorem}
+
+The second theorem formalizes the idea that all solutions to an assignment will
+produce structurally equivalent environments and heaps (provided we start in a
+well-formed configuration where all identity constraints are satisfied):
+
+\begin{theorem} (Structural Determinism)
+  If
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{L := e}{\Env$_1$}{\Scope$_2$}{\Heap$_1$}{\Cstore$_1$}{\Istore$_1$} and
+  \stepHO{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{L := e}{\Env$_2$}{\Scope$_2$}{\Heap$_2$}{\Cstore$_2$}{\Istore$_2$} and
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{I}{true} and 
+  \texttt{x} in dom(\Env),
+  then
+  \tcH{\Env$_1$}{\Heap$_1$}{x}{T} and
+  \tcH{\Env$_2$}{\Heap$_2$}{x}{T}.
+  % $\forall \texttt{x}\in dom(\Env_1):$ \tcH{\Env$_1$}{\Heap$_1$}{x}{T} $\Rightarrow$
+  % \tcH{\Env$_2$}{\Heap$_2$}{x}{T}.
+\end{theorem}
+\end{sloppypar}
+
+\section{Collections of Objects}
+\label{sec:records-with-ident-appendix}
+
+In this final extension to Babelsberg/Objects, we support a limited number of
+predicates on collections. These additional rules illustrate the facilities to
+support higher-order functions in this design. The semantics are a straight
+extension from the full object-oriented language, and we present only the
+additional rules and syntax.
+
+\subsection{Syntax}
+
+The syntax is augmented to include an element \ocollpred, which ranges
+over the core predicates on collections such as \verb!every!,
+\verb!some!, \verb!member!. For languages which support re-definition
+of the methods that come with the language, we assume that the element
+matches only the original implementations, not user-defined
+re-definitions. Furthermore, we augment the syntax to also support
+accessing records using expressions.
+
+{\texttt{
+\begin{tabular}{lrrl}
+\textrm{L-Value} & L & ::= & x $\mid$ e.l $\mid$ e[e] \\
+\textrm{Label} & l & ::= & \textrm{record label names} $\mid$ \ocollpred
+\end{tabular}
+}}\\[\baselineskip]
+
+\subsection{Semantics}
+
+\begin{table*}
+  \caption{Judgments and Intuitions of Additional and Changed Semantic Rules}
+  \label{tab:collection-judgments}
+  \centering
+  \begin{tabularx}{\textwidth}{r X}
+    \multicolumn{2}{l}{\textbf{\textit{Opaque Judgments}}}\\
+    $asLabel(\texttt{c}) = \texttt{l}$ & Constant \texttt{c} converted into a label yields \texttt{l}\\
+    \isArray{T}{c} & When type \texttt{T} corresponds to a known basic collection type
+                     that is supported in constraints with predicates, \texttt{c} is
+                     \texttt{true}.\\
+    \multicolumn{2}{l}{\textbf{\textit{Constraint Solving}}}\\
+    \multicolumn{2}{l}{\inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_0$}{e$'$}}\\
+                                       & Inlining expression \texttt{e} in \texttt{\Scope} is equivalent to
+                                         \texttt{e$'$} in \Env if \texttt{e$_C$} evaluates to true.\\
+    \multicolumn{2}{l}{\inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s}{\Env$'$}{\Scope$'$}{e$_0$}{e$_c$}{e$_d$}}\\
+                                       & Inlining statement \texttt{s} is equivalent to solving 
+                                         conjunction of constraint expressions \texttt{e$_C$} and the
+                                         disjunction of constraint expressions \texttt{e$_D$} if \texttt{e$_0$} evaluates
+                                         to true. This inlining step returns an updated environment
+                                         \texttt{\Env$'$} and scope \texttt{\Scope$'$}.\\
+    \multicolumn{2}{l}{\textbf{\textit{Helper Rule}}}\\
+    \multicolumn{2}{l}{$preparePredicate(\Env,\Scope,\Heap,\Cstore,\Istore,$\texttt{e.l(e$_1$,$\ldots$,e$_n$)}$) = (\Env',\Scope',\texttt{s; return c},\texttt{e}_C)$}\\
+                                       & Preparing the method call \texttt{e.l(e$_1$,$\ldots$,e$_n$)} for inlining
+                                         returns and updated environment \Env$'$, the fresh method scope \Scope$'$,
+                                         the method body \texttt{s; return c}, and is valid if \texttt{e$_C$} evaluates
+                                         to true.
+  \end{tabularx}
+\end{table*}
+
+We add two opaque helper judgments. The first converts constants to label names,
+and the second checks if a constant value refers to an array class type. Both
+are defined in terms of the host language \ac{api}. Note that for languages the
+support re-definition of core classes, the second judgment will return
+\verb!false! if such re-definition has taken place.
+
+Besides those additions, we only add the extended evaluation rules for dynamic
+field access and the special \gls{ccm} for collection \acp{api}.  Note that we
+do not add a typing rule for dynamic field access --- during inlining, such
+access are turned into ordinary field accesses, and their expressions are
+required to stay equal to the current value.
+
+\infrule[E-ExpField]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_l$}{\Env$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{c} \andalso
+    $asLabel(\texttt{c}) = \texttt{l}$}\\
+  \mbox{
+    \evalBig{\Env$'$}{\Scope$'$}{\Heap$'$}{\Cstore$'$}{\Istore$'$}{e.l}{\Env$''$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}{v}}\\
+}{\mbox{
+  \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e[e$_l$]}{\Env$''$}{\Heap$''$}{\Cstore$''$}{\Istore$''$}{v}
+}}
+
+\infrule[I-ExpField]{
+  \mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_l$}{\Env$'$}{e$_{C_l}$}{e$_l'$}}\\
+  \mbox{
+    \evalBig{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_l$}{\Env$''$}{\Heap}{\Cstore}{\Istore}{c} \andalso
+    $asLabel(\texttt{c}) = \texttt{l}$}\\
+  \mbox{
+    \inline{\Env$''$}{\Scope}{\Heap}{\Cstore}{\Istore}{e.l}{\Env$'''$}{e$_C$}{e$'$}}
+}{\mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e[e$_l$]}{\Env$'''$}{e$_{C_l}$$\wedge$e$_C$$\wedge$e$_l'$=c}{e$'$}
+}}
+
+We extend the inlining judgment to also work for statements. This is
+used in the inlining judgment to translate calls to the well-known
+collection predicates. These predicates will not match the previous
+\textsc{I-MultiWayCall} rule, because their implementations have more
+than a single return expression, so that rule is unchanged. Because we
+allow a limited subset of statements, including assignment to locals
+in inlining collection predicates, the inlining rule including
+statements also returns an updated scope. In addition, the constraint
+expressions that are returned by the inlining rule for statements are
+split into groups for conjunctions and disjunctions --- this is
+required to track, based on the early returns that are encountered,
+whether a set of inlined expressions all need to be satisfied or if
+just one needs to be satisfied.
+
+We define a helper judgments to inline collection predicates:
+\infrule[PreparePredicate]{
+  \mbox{
+    \evalBig{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_0$}{\Env$''$}{\Heap}{\Cstore}{\Istore}{v}}\\
+  \mbox{
+    \tcH{\Env}{\Heap}{v}{T} \andalso \isArray{T}{true}}\\
+  \mbox{
+    \evalBig{\Env$_0$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_1$}{\Env$_1$}{\Heap}{\Cstore}{\Istore}{v$_1$}}\\
+  \mbox{$\cdots$}\\
+  \mbox{
+    \evalBig{\Env$_{n-1}$}{\Scope}{\Heap}{\Cstore}{\Istore}{e$_n$}{\Env$_n$}{\Heap}{\Cstore}{\Istore}{v$_n$}}\\
+  \mbox{
+    \texttt{e$_C$} = (\texttt{e=v $\wedge$ e$_1$=v$_1$ $\wedge$ $\cdots$ $\wedge$ e$_n$=v$_n$})}\\
+  \mbox{
+    \lookup{v}{l}{s; return c}}\\
+  \mbox{
+    \enter{\Env$_n$}{\Scope}{\Heap}{\Cstore}{\Istore}{v}{\Env$'$}{\Scope$_m$}{\Heap}{\Cstore}{\Istore}}\\
+}{\mbox{
+    $preparePredicate(\Env,\Scope,\Heap,\Cstore,\Istore,$\texttt{e.l(e$_1$,$\ldots$,e$_n$)}$) = (\Env',\Scope_m,\texttt{s; return c},\texttt{e}_C)$
+}}
+
+This helper rule sets up the required equalities for all the arguments
+and the receiver, and is essentially the same as \textsc{I-Call}. As
+an addition, it limits any inlining to collection predicates that
+return a constant as a final statement. In the two rules that follow,
+this constant is further limited to be either \verb!true! or
+\verb!false!.
+
+\infrule[I-PositivePredicate]{
+  \mbox{
+    $preparePredicate(\Env,\Scope,\Heap,\Cstore,\Istore,$\texttt{e.\ocollpred(e$_1$,$\ldots$,e$_n$)}$) = (\Env',\Scope',\texttt{s; return c},\texttt{e}_0)$}\\
+  \mbox{
+    $\texttt{c} = \texttt{true}$ \andalso
+    \inlineC{\Env$'$}{\Scope$'$}{\Heap}{\Cstore}{\Istore}{s}{\Env$''$}{\Scope$'$}{e$_1$}{e$_C$}{e$_D$}
+  }\\
+}{\mbox{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.\ocollpred(e$_1$,$\ldots$,e$_n$)}{\Env$''$}{e$_0$$\wedge$e$_1$}{$\texttt{e}_C$}
+}}
+
+\infrule[I-NegativePredicate]{
+  \mbox{
+    $preparePredicate(\Env,\Scope,\Heap,\Cstore,\Istore,$\texttt{e.\ocollpred(e$_1$,$\ldots$,e$_n$)}$) = (\Env',\Scope',\texttt{s; return c},\texttt{e}_0)$}\\
+  \mbox{
+    $\texttt{c} = \texttt{false}$ \andalso
+    \inlineC{\Env$'$}{\Scope$'$}{\Heap}{\Cstore}{\Istore}{s}{\Env$''$}{\Scope$'$}{e$_1$}{e$_C$}{e$_D$}
+  }\\
+}{\mbox{
+  \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e.\ocollpred(e$_1$,$\ldots$,e$_n$)}{\Env$''$}{e$_0$$\wedge$e$_1$}{$\texttt{e}_C \wedge \texttt{e}_D$}
+}}
+
+We use two separate rules for inlining through collection predicates
+that return \verb!true! or \verb!false! as their final statement. For
+methods that return \verb!true! any disjunction, which would be
+created by an early return true, does not have to be fulfilled, as
+even without the early return the method would return
+true. Conversely, when the method returns \verb!false!, fulfilling any
+conjunction will not suffice, because that would simply prevent an
+early return \verb!false!, but not the final return statement.
+
+Since we now allow inlining through a limited subset of statements, we
+add inlining rules for those. Note that these rules can only come into
+play through an \textsc{I-*Predicate}. Furthermore, all rules not
+supplied here still lead to a failure to evaluate an
+\textsc{I-*Predicate} rule, and fall back to the previous
+\textsc{I-Call} rule to set up a one-way constraint on the result of
+the call.
+
+\infrule[I-AsgnNewLocal]{
+  \mbox{
+    \texttt{\Scope}(\texttt{x})$\uparrow$ \andalso
+    \texttt{\Env}(\texttt{x$_g$})$\uparrow$}\\
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap}{\Cstore}{\Istore}{v} \andalso
+    \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$''$}{e$_0$}{e$'$}}\\
+  \mbox{
+    $\texttt{\Scope}' = \texttt{\Scope} \bigcup \{(\texttt{x},\texttt{x}_g)\}$ \andalso
+    $\texttt{\Env}''' = \texttt{\Env}'' \bigcup \{(\texttt{x}_g,\texttt{v})\}$}\\
+}{\mbox{
+  \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{x := e}{\Env$'''$}{\Scope$'$}{e$_0$$\wedge$e$'$=v$\wedge$x$_g$=v}{true}{false}
+}}
+
+Assignments are only permitted to local variables. Since we can only
+start the statement inlining rules from a collection predicate
+\ocollpred, we start with a fresh scope and any local variable must be
+newly created first. In this case, assignment is turned into a
+required equality between the fresh variable name and the initial
+value. Note that we are using the expression judgment to evaluate the
+right-hand side, but we disallow any changes to the heap or the
+constraint stores.
+
+\infrule[I-AsgnLocal]{
+  \mbox{
+    $\texttt{\Scope}(\texttt{x}) = \texttt{x}_g$ \andalso
+    \texttt{\Env}(\texttt{x$_g'$})$\uparrow$}\\
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap}{\Cstore}{\Istore}{v} \andalso
+    \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$''$}{e$_0$}{e$'$}}\\
+  \mbox{
+    $\texttt{\Scope}' = \texttt{\Scope} \setminus \{\texttt{x}, \texttt{x}_g\}$ \andalso
+    $\texttt{\Scope}'' = \texttt{\Scope}' \bigcup \{(\texttt{x},\texttt{x}_g')\}$ \andalso
+    $\texttt{\Env}''' = \texttt{\Env}'' \bigcup \{(\texttt{x}_g',\texttt{v})\}$}\\
+}{\mbox{
+    \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{x := e}{\Env$'''$}{\Scope$''$}{e$_0$$\wedge$e$'$=v$\wedge$x$_g'$=v}{true}{false}
+}}
+
+Since we do not allow creating additional constraints even in this
+extended inlining mode, there is no need to solve constraints when we
+re-assign to a local variable. Furthermore, since re-assignments are
+needed for looping over collection indices, and these indices are also
+used to then access the collection, we create a fresh global name for
+every re-assigned variable. This way, every re-assignment turns into a
+new variable for the solver.
+
+\inferax{I-Skip}{\inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{skip}{\Env}{\Scope}{true}{true}{true}}
+
+\infrule[I-Seq]{
+  \mbox{
+    \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s$_1$}{\Env$'$}{\Scope$'$}{e$_1$}{e$_{C1}$}{e$_{D1}$}}\\
+  \mbox{
+    \inlineC{\Env$'$}{\Scope$'$}{\Heap}{\Cstore}{\Istore}{s$_2$}{\Env$''$}{\Scope$''$}{e$_2$}{e$_{C2}$}{e$_{D2}$}}\\
+}{\mbox{
+  \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{s$_1$;s$_2$}{\Env$''$}{\Scope$''$}{$\texttt{e}_{1}\wedge\texttt{e}_{2}$}{$\texttt{e}_{C1}\wedge\texttt{e}_{C2}$}{$\texttt{e}_{D1}\vee\texttt{e}_{D2}$}
+}}
+
+The skip and sequence rules are straightforward. The conjunction and
+disjunction expressions from the sequences are connected
+appropriately.
+
+\infrule[I-IfThenReturnTrue]{\mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$}
+}}{\mbox{
+  \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{if e then return true else s}{\Env}{\Scope}{e$_C$}{true}{e$'$}%
+}}
+
+\infrule[I-IfThenReturnFalse]{\mbox{
+    \inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$}
+}}{\mbox{
+  \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{if e then return false else s}{\Env}{\Scope}{e$_C$}{e$'$=false}{false}%
+}}
+
+We only support if-clauses used as early returns in this extended
+inlining mode. As described in \autoref{sec:constr-coll-pred}, if the
+early return would return \verb!true!, the inlined conditional is used
+in a disjunction, otherwise it is used in a conjunction.
+
+\infrule[I-WhileDo]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap}{\Cstore}{\Istore}{true}}\\
+  \mbox{
+    \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$''$}{e$_0$}{e$'$}}\\
+  \mbox{
+    \inlineC{\Env$''$}{\Scope}{\Heap}{\Cstore}{\Istore}{s}{\Env$'''$}{\Scope$'$}{e$_1$}{e$_{C_1}$}{e$_{D_1}$}}\\
+  \mbox{
+    \inlineC{\Env$'''$}{\Scope$'$}{\Heap}{\Cstore}{\Istore}{while e do s}{\Env$''''$}{\Scope$''$}{e$_r$}{e$_{C_r}$}{e$_{D_r}$}}
+}{\mbox{
+    \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{while e do s}{\Env$''''$}{\Scope$''$}{%
+      e$_0$$\wedge$e$'$$\wedge$e$_1$$\wedge$e$_r$}{%
+      e$_{C_0}$$\wedge$e$_{C_r}$}{%
+      e$_{D_0}$$\vee$e$_{D_r}$}
+}}
+
+\infrule[I-WhileSkip]{
+  \mbox{
+    \evalBig{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{\Heap}{\Cstore}{\Istore}{false}}\\
+  \mbox{
+    \inline{\Env$'$}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$''$}{e$_0$}{e$'$}}\\
+}{\mbox{
+    \inlineC{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{while e do s}{\Env$''$}{\Scope}{e$_0$$\wedge$e$'$=false}{true}{false}
+}}
+
+Finally, the while construct is now supported during inlining. Note
+that the loop condition is inlined and required to stay at its
+value. This prevents the solver from being able to change the loop
+condition to, for example, satisfy the collection predicate only on a
+subset of the collection.
+
+\ParSep
+
+There is a noteworthy problem with these rules: they may generate
+constraints that are too strong. Consider the following method, which
+tests if either at least one element in the array is larger than ten,
+or else all elements are negative:
+\begin{lstlisting}
+def some_or_none()
+  i := 0;
+  while i < self.length do (
+    if self[i] > 10 then return true;
+    if self[i] < 0 then return false;
+    i := i + 1
+  );
+  return true
+end
+
+always array.some_or_none()
+\end{lstlisting}
+Here, the constraint would be satisfied if:
+\[
+  \exists x\in \texttt{array}. x > 10 \vee \forall x\in \texttt{array}. x < 0
+\]
+But the \textsc{I-PositivePredicate} rule would always require the
+conjunction to be satisfied, so the solver would have to solve this
+stronger constraints instead:
+\[
+  \forall x\in \texttt{array}. x < 0
+\]
+We have decided to avoid additional complexity in the rules to support
+generating the proper constraints in these cases. The code above could
+easily be rewritten to use two methods which each test one property,
+and then use these in a disjunction. Since the set of supported
+collection predicates \ocollpred is defined as part of the language,
+such methods may simply not be included in that set.
+
 \chapter{Benchmarks}
 \label{sec:benchmarks-appendix}
 

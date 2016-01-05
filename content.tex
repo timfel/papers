@@ -11,7 +11,7 @@
 
 \chapter{Introduction}
 \label{cha:introduction}
-
+ 
 Imperative programming has become the dominant paradigm, because it works well
 in modeling properties of the real world such as destructive state changes or
 taking actions towards a specific goal, as if following recipe to prepare a
@@ -645,7 +645,7 @@ inspect, debug, and experiment with constraints in interactive applications.
 Finally \autoref{part:disc-contr} discusses related work and future work, and
 presents our conclusions.
 
-\chapter{State of the Art}
+\chapter{State of the Art of Constraint Solving and Constraints in General Purpose Programming}
 \label{sec:relev-theory}
 
 This chapter first gives an overview of the current state of the art
@@ -1565,7 +1565,7 @@ the best performance.
 \part{Object-Constraint Programming}
 \label{part:object-constr-progr}
 
-\chapter{Design}
+\chapter{Design of Object-Constraint Programming Languages}
 \label{sec:design}
 
 An overarching design goal is that in the absence of constraints, an
@@ -3300,7 +3300,7 @@ design patterns such as this in \autoref{part:pract-object-constr}.
 % - collections implemented on top of each other, but breaks down to
 % complex objects problem
 
-\chapter{Semantics}
+\chapter{Key Semantic Rules for Object-Constraint Programming Implementations}
 \label{sec:semantics}
 
 This chapter presents an overview of a formal development of the Babelsberg
@@ -3344,155 +3344,168 @@ The basic language that has only primitive types is modeled using standard
 imperative semantics with an environment to hold bindings from names to values
 and primitive control structures. The boolean type is required to make
 meaningful Babelsberg programs, since by definition constraint expressions must
-return either true or false (with the solvers task to make them true). And for
-this initial language, we also add reals, integers, and strings, including
-operations on them to do arithmetic, comparison, and boolean operations.
+return either true or false (with the solvers task to make them true). For this
+initial language, we also add reals, integers, and strings, including operations
+on them to do arithmetic, comparison, and boolean operations.
 
-The first key extension of a simple imperative language is the addition of a
+The first key extension over a simple imperative language is the addition of a
 global set of active constraints to the state (besides the standard
 environment). The second is the addition of a symbol ($\rho$) to range over a
 finite and totally ordered set of constraint {\em priorities}, which is assumed
-to include a bottom element \texttt{ weak} and a top element \texttt{
-  required}. Although we use read-only annotations in the examples, we do not
-model them in the formal semantics, since their semantics are well understood
-and may easily be added, but are not required to describe an \ac{ocp}
-language. As the second addition over a standard imperative language we must add
-the \texttt{always} and \texttt{once} primitive statements, which declare
-constraints.
+to include a bottom element \texttt{weak} and a top element
+\texttt{required}. Although we used read-only annotations in the examples
+presented throughout \autoref{sec:design}, we do not need them to model an
+\ac{ocp} language. (The semantics of read-only annotations are well understood
+and may easily be added.) As the third addition over a standard imperative
+language we must add the \texttt{always} and \texttt{once} primitive statements,
+which declare constraints.
 
-\paragraph{Translating and Solving}
+\subsection{Translating and Solving}
 
-In addition to a normal imperative judgment to step through statements, we add
-judgments to translate and solve constraints. Translation in the imperative
-language can be straightforward if we define that our solver language is source
-compatible with the imperative language. However, to implement our ``frame
-axioms'' (\cf{\ref{sec:transl-solv-constr}}), we automatically generate low
-priority stay constraints.
+The first issue we must address to add constraint capabilities to a standard
+imperative semantics is to define how expressions in the language are passed to
+the solver and its solutions applied. In addition to a normal imperative
+judgment to execute through statements, we add judgments to translate and solve
+constraints. Translation in the imperative language can be straightforward if we
+define that our solver language is source compatible with the imperative
+language. However, to implement our ``frame axioms''
+(\cf{\ref{sec:transl-solv-constr}}), we automatically generate low priority stay
+constraints on the current state of the world before passing any constraint to
+the solver. This is the purpose of the following two non-standard judgments in
+the formal semantics:
 
 \judgment{\gstay{x=v}{$\rho$}{C}}
 \judgment{\gstay{\Scope}{$\rho$}{C}}
 
 The intuition for these judgments is that, given a current state, they produce a
 compound constraint expression, by going over each variable binding in turn and
-generating a simple equality constraint between the variable and its
-value. Given these, we add them in a conjunction with the constraint expression
-and pass them directly to a solver.
+generating a simple equality constraint between the variable and its value with
+the priority $\rho$. Given these, we add them in a conjunction with the
+constraint expression and pass them directly to a solver, using a second type of
+non-standard judgment:
 
 \judgment{\solve{\Scope}{C}}
 
-The intuition for the solving judgment is that solving a constraint \texttt{C}
-generates a completely new \texttt{\Scope} that has correct bindings to satisfy
-the constraint. Like the syntax for solver and imperative language, we can also
-define the environment generated by the solver to be trivially equal to the
-primitive global environment. Solving itself happens in a call to the constraint
-solver, which we treat as a black box. Our only assumption is that the solution
-is optimal according to the solver's semantics, as discussed earlier.
+The intuition for this judgment is that solving a constraint \texttt{C}
+generates a completely new system state (\texttt{\Scope}) that has correct
+bindings to satisfy the constraint. Like the syntax for solver and imperative
+language, we can also define the environment generated by the solver to be
+trivially equal to the primitive global environment. Solving itself happens in a
+call to the constraint solver, which we treat as a black box. Our only
+assumption is that the solution is optimal according to the solver's semantics,
+as discussed earlier.
 
-\paragraph{Re-satisfying Constraints}
+\subsection{Re-satisfying Constraints}
 
-The second issue is that assignment in an \ac{ocp} language may invalidate
-constraints, and that the solving process must consequently also run during
-assignment. Although optimizations are possible, formally we can just replace
-the ordinary imperative assignment rules. Consider this assignment:
+The second major issue to address an implementation of \ac{ocp} is that
+assignment may invalidate constraints, and that the solving process must
+consequently potentially run during assignment. Although optimizations are
+possible, formally we can just replace the ordinary imperative assignment rules
+entirely and always run the solver for an assignment. Consider the following
+snippet:
 \begin{lstlisting}
 x := 2 + 5
 \end{lstlisting}
-A standard, imperative assignment rule simply evaluate the right-hand side, and
-then update the binding in the environment to reflect that \verb!x! is now
+A standard, imperative assignment rule simply evaluates the right-hand side, and
+then updates the binding in the environment to reflect that \verb!x! is now
 5. However, since \verb!x! may have constraints on it, we replace this rule with
 one that also evaluates the right-hand side first, but then constructs an
-equality constraint \verb!once x=5! and solves that.
+equality constraint \verb!once x=5! and solves that using the translation and
+solving process described above.
 
 \section{Objects and Messages}
 \label{sec:constr-with-mess}
 \renewcommand{\Scope}{\ensuremath{\mathbb{S}}\xspace}
 
-To support objects with identity and message sending in constraints, the solver
-must now also handle objects which are modeled as simple records as well as
-uninterpreted symbols, which we can use to represent object identity. The solver
-does not, however, understand message sending or polymorphic dispatch rules, so
-we must add judgments to translate any messages in constraint expressions into a
-form suitable for the solver. This means that in this iteration of the
-formalism, the solver syntax is no longer trivially the same as the language
-syntax. In fact, the solver syntax is almost unchanged from a primitive
-language, safe for the addition of field access on records and functions over
-uninterpreted symbols. Otherwise the semantics still treats the solver as a
-black box.
-
-To tame the power of the solver so that it adheres to the principles presented
-in \ref{sec:design}, we add the two-phase solving, structural type checks, and
-inlining rules on constraints described in \ref{sec:determinism}. These
-structural compatibility checks are assertions that are checked dynamically
-before sending the constraints involving objects to the solver, for example,
-checking whether a variable is bound to an object, and whether the object has
-the necessary fields.  While these assertions are checked, unlike constraints
-the system will never change anything to enforce them --- if one is violated
-it's just an error.  Instead, the programmer must ensure that an object with the
-expected fields is first assigned to a variable used in object constraints, just
-as a programmer would need to ensure that an object with the expected fields was
-assigned to a object-valued variable in a standard language.
-
-The semantic rules are still mostly standard imperative rules, now including
-rules to create new objects, access fields, send messages, or compare object
-identity. Our additions are still rules to assert and maintain constraints, but
-now also to type-check the constraint expressions. Another important change over
-an ordinary object-oriented languages concerns side-effects in
-expressions. Since message sends are expressions, and method bodies can add
-constraints, both our global constraint store as well as all program state may
-be affected by solving operations that occur within methods. This indicates
-problems regarding modularization of \ac{ocp} programs, which we will discuss in
+In addition to primitive values and control structures, we also want to support
+constraints on objects that live on the heap, have identity, and respond to
+messages. The semantic rules are still mostly standard imperative rules,
+including rules to create new objects, access fields, send messages, or compare
+object identity. In addition to our rules to assert and maintain constraints, we
+also now add slightly non-standard structural typechecking rules to test if the
+constraint expressions are valid. Another important change over an ordinary
+object-oriented languages concerns side-effects in expressions. Since message
+sends are expressions, and method bodies can add constraints, both our global
+constraint store as well as all program state may be affected by solving
+operations that occur within methods. This indicates problems regarding
+modularization of \ac{ocp} programs, which we will discuss in
 \autoref{sec:debugging} and \autoref{cha:future-work}
+
+In the previous section, we assumed our simple primitive language can, for the
+most part, be considered to be the same as the solver language. This is no
+longer possible, since there are no solvers that understand and are able to
+resolve heap allocations and object-oriented message sends. We do impose
+additional requirements on the solver, however. The solver now must be able to
+handle \emph{records} and \emph{uninterpreted symbols}, which we can use to
+represent objects with fields and pointer references, respectively. Otherwise
+the semantics still treats the solver as a black box.
 
 The semantics for this language, although omitting collections and cooperating
 constraint solvers, illustrates the key principles we want for an \ac{ocp}
 language.
 
-\paragraph{Translating and Solving}
+\subsection{Translating and Solving}
 
-The stay constraints are simply extended to also assert identity constraints for
-heap objects. In addition to the stay constraints, we now translate constraint
-expressions by inlining methods and also adding constraints for assumptions
-about object fields and identities along the way. This way, we can eagerly
-unroll loops and inline methods for the solver, by requiring that relevant
-objects and values stay constant.
+To deal with allocations and message sends that may occur in constraint
+expression, we extend the set of implicit actions that occur when a constraint
+is asserted. The stay constraints are simply extended to also assert identity
+constraints for heap objects. As a second step, we add judgments to recursively
+translate message sends in constraint expressions into a form suitable for the
+solver by inlining methods and also adding constraints for assumptions about
+object fields and identities along the way. This way, we can eagerly unroll
+loops and inline methods for the solver, by requiring that relevant objects and
+values stay constant. This is expressed in the formal semantics using the
+following non-standard judgment, which represents a mix of symbolic and ordinary
+execution:
 
 \judgment{\inline{\Env}{\Scope}{\Heap}{\Cstore}{\Istore}{e}{\Env$'$}{e$_C$}{e$'$}}
 
-In our inlining rules, we translate local variables by generating global names
-for them, since we do not want to assume that the solver can use multiple
-scopes. The intuition for this rule would be: Translating expression \verb!e!
-into a form suitable for the solver returns the expression \verb!e$_C$!. To
-ensure the translation is correct, the solver must also satisfy the additional
-constraint expression \verb!e$'$!.
+The intuition for this rule is: Given a global environment (\Env), a current
+local scope (\Scope), a state of the heap (\Heap), and a set of ordinary
+(\Cstore) and identity constraints (\Istore), translating expression \texttt{e}
+for the solver yields an updated global environment (\Env$'$), a set of
+assumptions to make the inlining valid (\texttt{e$_C$}), and an inlined
+expression (\texttt{e$'$}). In our inlining rules, we translate local variables
+by generating global names for them, since we do not want to assume that the
+solver can use multiple scopes. The intuition for this rule would be:
+Translating expression \verb!e!  into a form suitable for the solver returns the
+expression \verb!e$_C$!. To ensure the translation is correct, the solver must
+also satisfy the additional constraint expression \verb!e$'$!. Arguments to
+method calls are constrained to be equal to the expression that generated them,
+and receivers are constrained to stay identical to what they are at the moment.
 
-Arguments to method calls are constrained to be equal to the expression that
-generated them, and receivers are constrained to stay identical to what they are
-at the moment.  Inlining does not allow updates to the heap, but since
-expressions are actually evaluated during inlining, if they do modify the heap,
-inlining must fail and the constraint cannot be used.
+As a third step before solving, we must ensure that no heap updates occur as
+part of executing the constraint expression, because the solver does not know
+about the heap. To do so, we must structurally type check the constraint
+expression. This process enforces our structural compatibility principles
+presented in \autoref{sec:determinism} by checking whether no unbound variables
+occur in the expression and whether all field accesses are valid. These
+assertions are just checked: the system will never change anything to enforce
+them and if one is violated it is just an error. We require the programmer to
+ensure that an object with the expected fields is first assigned to a variable
+used in object constraints, just as a programmer would need to ensure that an
+object with the expected fields was assigned to a object-valued variable in a
+standard language. In the formalism, these checks are represented by the
+following two judgments:
 
 \judgment{\tcH{\Env}{\Heap}{e}{T}}
 \judgment{\tcHC{\Env}{\Heap}{C}}
 
-These two important judgments are now added before handing a constraint to a
-solver. They typecheck expressions and constraints with respect to the global
-environments \Env$\,$. Method calls do not typecheck: even though we allow
-method calls in expressions and thus in constraints syntactically, we have
-already inlined method invocations at this point. Identity constraints also do
-not typecheck: they are solved separately and should not appear in ordinary
-constraints (see the rules for statement evaluation below).  Finally, new
-(non-value) object construction does not typecheck, since constraints must be
-side-effect-free.
+The intuition for the first judgment is that expression \texttt{e} has type
+\texttt{T} if it does typecheck given environment \Env and head \Heap. The
+intuition for the second judgment is that if it passes, the constraint
+\texttt{C} is well formed, that is, its constraint expression is has a boolean
+type. New object construction on the heap does not typecheck, since constraints
+must be side-effect-free. Method calls also do not typecheck: we have already
+inlined method invocations at this point. Finally, identity constraints do not
+typecheck: they are solved separately and should not appear in ordinary
+constraints.
 
-\judgment{\solveH{\Env}{\Heap}{C}}
+Besides these two additional steps, solving essentially proceeds as before, with
+the solver generating a new global environment, and mapping the generated global
+names for local variables back into their local scopes.
 
-As before, the call to the solver is opaque. In this semantics, we assume that
-the solver natively supports records and uninterpreted functions (which we use
-to represent the heap).  We do not assume, however, that the solver understands
-methods, which can now be part of constraint expressions. This requires us to
-essentially inline methods before passing constraints to the solver.
-
-\paragraph{Re-satisfying Constraints}
+\subsection{Re-satisfying Constraints}
 
 As for the primitive semantics, the assignment rules are replaced to invoke the
 solver. The situation is complicated for a full \ac{ocp} language, however, due
@@ -3500,17 +3513,18 @@ to the existence of fields and a heap. For assignment, we now distinguish
 assignments to a new local name, an existing local name, or to a field.
 
 For new locals, we do not invoke the solver at all, and simply use a standard
-rule for creating the bindings in the environment and heap. For assignments to
-existing locals or fields, we use the same scheme as before treating assignment
-like a \verb!once!  constraint, but now we do it twice: the first time we solve,
-we omit the typechecking step. Remember that identity comparisons do not
-typecheck, so if we did the typechecking when assigning an object on the heap
-that has identity, the constraint would be rejected. The first attempt at
-solving thus allows updating variables that store pointers to objects. The
-second solving process then assumes that all identities are fixed, and we
-typecheck under the new environment before allowing the solution to return. This
-ensures that the solver still cannot generate fields or modify the structure of
-objects during solving.
+rule for creating the bindings in the environment and heap. To tame the power of
+the solver, we add the two-phase solving described in \ref{sec:determinism} for
+the other types of assignments. For assignments to existing locals or fields,
+we use the same scheme as before treating assignment like a \verb!once!
+constraint, but now we do it twice: the first time we solve, we omit the
+typechecking step. Remember that identity comparisons do not typecheck, so if we
+did the typechecking when assigning an object on the heap that has identity, the
+constraint would be rejected. The first attempt at solving thus allows updating
+variables that store pointers to objects. The second solving process then
+assumes that all identities are fixed, and we typecheck under the new
+environment before allowing the solution to return. This ensures that the solver
+still cannot generate fields or modify the structure of objects during solving.
 
 \paragraph{Key Properties}
 
@@ -3535,22 +3549,23 @@ inclusion of an element \ocollpred, which ranges over the core predicates on
 collections such as \verb!every!, \verb!some!, \verb!member!. For languages
 which support re-definition of the methods that come with the language, we
 assume that the element matches only the original implementations, not
-user-defined re-definitions. This element reflects that a language implementer
-would have to manually check and decide which collection predicates in the
-language are available and safe to use in constraints.
+user-defined re-definitions.
 
-Besides this additions, supporting collections only requires some fairly minor
-extensions to the rules. We extend the inlining judgment to also work for
-statements. This is used to translate calls to the well-known collection
-predicates. These predicates would not match the previous inlining rules,
-because their implementations usually have more than a single return expression
-(or call some other method that does). This means that we also must allow a
-limited subset of statements for inlining and add rules for those. In addition,
-the constraint expressions that are returned by the inlining rule for statements
-are split into groups for conjunctions and disjunctions --- this is required to
-track, based on the early returns that are encountered, whether a set of inlined
-expressions all need to be satisfied or if just one needs to be satisfied, as
-explained in \autoref{sec:constr-coll-pred}.
+This syntactic element reflects that a language implementer would have to
+manually check and decide which collection predicates in the language are
+available and safe to use in constraints. This means that the main work in
+implementing and \ac{ocp} language with support for collections is to check the
+core language methods and add facilities to recognize and allow relevant
+predicates in constraints.
+
+Besides this addition, supporting collections only requires some fairly minor
+extensions to the rules. We must extend the inlining judgment to also work for
+well-known collection predicates, that must be inlined over multiple
+statements. To support this, the constraint expressions that are returned by the
+inlining rule for statements are split into groups for conjunctions and
+disjunctions --- this is required to track, based on the early returns that are
+encountered, whether a set of inlined expressions all need to be satisfied or if
+just one needs to be satisfied, as explained in \autoref{sec:constr-coll-pred}.
 
 There is a noteworthy problem with our design and formalism to determine
 constraints from early returns: they may generate constraints that are too
@@ -4936,7 +4951,7 @@ Rather than updating the object directly, it will create a new object of the
 same type (a point) with the correct values, and set that using
 \lstinline!a.setPosition(newPoint)!.
 
-\chapter{Performance}
+\chapter{Performance of Practical Object-Constraint Programming Languages}
 \label{sec:ruby-performance}
 \label{cha:performance}
 

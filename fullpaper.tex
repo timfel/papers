@@ -378,6 +378,16 @@ be considered when choosing solvers for a concrete set of constraints. In this
 work we discuss three different implementations for automatic solver selection
 that we used in the practical Babelsberg implementations.
 
+These problems are also present in related approaches that combine constraints
+with general-purpose, imperative languages such as the earlier \ac{cip} language
+Kaleidoscope~\cite{lopez-asi-1994} or
+Rosette~\cite{Torlak:2013:GSL:2509578.2509586}, a solver-aided language based on
+Racket. In the former, the user has no control over which solver is chosen ---
+adding a solver requires the language implementer to extend the solver-selection
+procedure to decide which solver to use. In Rosette, solvers can be added by
+users of the language, but users also have to manually specify which solver to
+use for a particular problem.
+
 Even if a working solver is found for a concrete set of constraints, it may not
 be optimal in terms of performance. Although solving strategies such as
 incremental re-solving~\cite{freeman1990incremental} and re-ordering of
@@ -392,7 +402,17 @@ principled manner --- either at compile-time or using \gls{jit} compilation
 techniques --- so that even unoptimized code provides good performance. To apply
 these techniques to constraint solving, we look at the performance potential of
 edit constraints in Babelsberg, and propose strategies to apply them
-automatically to improve solver performance. The contributions of this work are:
+automatically to improve solver performance.
+
+Surprisingly, these automatic optimization strategies are not commonly applied
+to constraint solvers --- as far as we know, there are no constraint solvers
+optimized for interactive use that optimize their own data structures. Thus, the
+optimization strategies we propose here can also be beneficial to the Cassowary
+and DeltaBlue solvers when used in other contexts. Additionally, our results
+indicate that further research into the optimization potential for constraint
+solvers and their data structures is warranted.
+
+The contributions of this work are:
 \begin{itemize}
 \item Three practical implementations for automatically selecting a constraint
   solver given a concrete set of constraints.
@@ -444,16 +464,16 @@ different default strategies for selecting the solver if none is explicitly
 specified.
 
 \subsection{Eager Selection by Type}
-This is the selection mechanism implemented in Babelsberg/R. For this algorithm,
-the solvers in the system must extend appropriate classes to respond to a solver
-selection message with an instance of themselves. If no solver was explicitly
-selected, the \ac{vm} sends the \lstinline{for_constraint} message to each
-variable value encountered during constraint construction. User code can add
-solvers to the system by dynamically adding a \lstinline{for_constraint} method
-to those classes for which the solver is applicable, making use of Ruby's open
-classes. This method should return a solver-specific variable wrapper object
-that implements a subset of the interfaces that the solver can reason about. For
-example, the Cassowary solver extends the Float class:
+This is the selection mechanism implemented in Babelsberg/R. The mechanism
+specifies which solver to use per class, ignoring any relations between
+variables. To select a solver, the \ac{vm} sends the \lstinline{for_constraint}
+message to each variable value encountered during constraint construction. User
+code can add solvers to the system by dynamically adding a
+\lstinline{for_constraint} method to those classes for which the solver is
+applicable, making use of Ruby's open classes. This method should return a
+solver-specific variable wrapper object that implements a subset of the
+interfaces that the solver can reason about. For example, the Cassowary solver
+extends the Float class:
 \begin{lstlisting}
 def for_constraint(name)
   v = Cassowary::Variable.new(name: name, value: self)
@@ -570,9 +590,10 @@ types and operations it supports. Based on an initial analysis of the types and
 operations encountered in the dynamic extent of the constraint expression,
 solvers are filtered, and the remaining solvers all run to solve the
 constraint. The solvers to finish without error are compared first for accuracy
-of the result and then performance to select the final solver. Currently, no
-further heuristics are implemented, but the order of the trade-off (performance
-versus accuracy) can be swapped by the user.
+of the result (which might be application specific) and then performance to
+select the final solver. Currently, no further heuristics are implemented, but
+the order of the trade-off (performance versus accuracy) can be swapped by the
+user.
 
 The preferential solver selection presented before is already heuristic: it
 selects the first solver that can work with at least some of the variables that

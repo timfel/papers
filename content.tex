@@ -1289,7 +1289,7 @@ find a valid solution.
 \paragraph{Satisfiability Modulo Theories}
 \label{sec:z3}
 \gls{z3}~\cite{de2008z3} is a fast and comprehensive \gls{smt} solver
-from Microsoft Research designed for theorem proving, and with support
+from Microsoft Research designed for theorem proving and with support
 for a wide range of type domains, including constraints over booleans,
 integers, reals, and finite domains. In recent years, \gls{smt}
 solvers have seen significant use for program analysis, verification,
@@ -1367,7 +1367,7 @@ hard to choose the right solver given a specific
 problem. \autoref{tab:constraint-solvers-overview} gives an overview of the
 presented types of solvers and their properties relevant for this work.
 
-\paragraph{Constraint Hierarchies}
+\section{Constraint Hierarchies}
 \label{sec:constr-hier}
 Orthogonal to the solving strategies above is the theory for trading
 of competing, but non-required constraints. We noted in the
@@ -3280,6 +3280,29 @@ it can work both ways, and it can even be assigned and the array
 changes to satisfy the constraints. We will discuss additional useful
 design patterns such as this in \autoref{part:pract-object-constr}.
 
+\SummarySep
+Our design captures design principles to control the power of the solver in
+object-constraint programming languages to avoid surprising or non-deterministic
+behavior. These restrictions force developers to declare identity constraints
+and value constraints separately, but in return they guarantee that object
+structure cannot change when solving for values. We achieve this by using
+two-phase solving approach where first identities and structures are determined
+to satisfy any identity constraints and, in a second phase, value constraints
+are solved without further changes to the object structures. This remove
+non-determinism and surprising behavior with respect to the structure of objects
+--- structure can only change through identity constraints or assignments.
+
+These restrictions are motivated from experience with earlier \acrlong{cip}
+languages. However, more experience with this style of programming may uncover
+the need for additional rules or some rules may turn out to be too strict for
+certain application domains. Some applications may want to have some way to
+backtrack over or continue execution concurrently for multiple different
+solutions. In future work we plan to investigate Prolog-style backtracking to
+make multiple solutions accessible from the imperative paradigm. Additionally,
+our design supports primitive types such as strings, numbers, or booleans as
+well as objects with named and indexable fields. However, additional support may
+be required for constraints over dictionaries, streams, or other structures.
+
 % ~4 pages
 % - collection apis
 % - sets are a nice declarative feature
@@ -3662,15 +3685,30 @@ the tests. The framework provides a template for the source transformation in
 form of \gls{rml} rules. A language only needs to complete these rules to
 generate a test suite.
 
-\ParSep
-
-We have presented the key rules of \ac{ocp} languages and where their semantics
-differ from well-known imperative and object-oriented semantics. We have found
-it useful to approach these key properties incrementally and in conjunction with
-an executable version of the semantics to run our design examples as tests. The
-full formal development that lists the key rules embedded into full imperative
-and full object-oriented operational semantics is given in
+\SummarySep
+The key rules of \ac{ocp} languages and where their semantics differ from
+well-known imperative and object-oriented semantics are very few. The rules we
+presented here implement the translation of expressions into constraints and the
+interaction of the imperative environment and heap with the constraint
+solver. The full formal development that lists these key rules embedded into a
+full imperative and object-oriented operational semantics is given in
 \autoref{cha:semantics-appendix}.
+
+We have found it useful to approach these key properties incrementally and
+develop them in conjunction with an executable version of the semantics that can
+run our design examples as tests. The executable version maps directly to the
+formal rules. Thus, any changes to the design and semantics were verified by
+running example programs against the executable version of the semantics as well
+as against our implementations, besides a formal analysis of our rules. We
+expect that future extensions to the semantics to formalize our design for
+cooperating solvers (presented in \autoref{sec:a-coop-arch}) can be developed in
+the same manner.
+
+The semantics given here and in the appendix defines a useful subset of the
+language. However, some of its restrictions may be too conservative for
+implemented Babelsberg example programs and some more complexity in the
+semantics may be warranted to enable some more general use cases for
+multi-directional constraints or constraints over collections.
 
 \chapter{An Architecture For Using Multiple Constraint Solvers}
 \label{sec:a-coop-arch}
@@ -4201,8 +4239,6 @@ into account how fast a solver was able to satisfy a constraint, and
 continues to monitor solvers to notice drops in performance when
 constraints are added.
 
-\ParSep
-
 In practice we have found a mixture of manual and eager selection to
 produce good results once the user has a basic understanding of the
 available solvers and is aware of the eager selection process (in
@@ -4224,6 +4260,27 @@ revert to manual and eager selection when many constraints are added
 dynamically throughout the run-time of the program, to avoid the
 performance overhead. We present implementations of all selection
 procedures in \autoref{part:impl-object-constr}.
+
+\SummarySep
+
+Cooperating solvers make constraint programming useful for a wider range of
+problems. Our design is simpler than other schemes for cooperating solvers and
+supports black box solvers with very few requirements on the solvers
+themselves. Any solver that supports soft-constraint and making variables
+read-only can be used with this design. This comes at the cost of flexibility in
+the solving process, because solvers communicate only via absolute variable
+values and cannot, for example, propagate ranges of valid variable values across
+regions. For performance reasons we also do not backtrack over solver regions
+and instead fail solving entirely. We plan to revisit this decision in future
+work to see if backtracking may be viable for some problem domains.
+
+An advantage of our architecture is that it makes it easy to add solvers for
+special domains and have them work in conjunction with more general ones. This
+makes it possible to have a large number of solvers in a system, some of which
+may be able to address similar problems. We presented mechanisms for
+automatically deciding which solver to use for a particular constraint. How
+these mechanisms can be integrated with development tools is also an area of
+future work.
 
 % \begin{figure}
 %   \centering
@@ -4689,6 +4746,32 @@ updates specific solver objects directly to satisfy the constraints. If it
 cannot, it raises an exception, otherwise the new value becomes the value of the
 variable.
 
+\SummarySep
+
+Our prototype implementations each use a customized interpreter for the host
+language to partially execute and translate constraint expressions into a form
+suitable for the solver. This design works well for us, but comes with
+significant overhead and thus the initial creation of constraints can be
+slow. In future work, we will investigate mechanisms such as context- or
+aspect-oriented programming to replace the custom interpretation of constraint
+expressions. One issue to address here is the question of control structures
+that in most languages do not correspond to message sends that can be easily
+layered. Even in Smalltalk, the \lstinline{ifTrue:ifFalse:} and
+\lstinline{whileTrue:} messages are compiled to a jump bytecodes and thus cannot
+be easily layered.
+
+A second potential issue of our implementation is that it relies on the
+existence of a parallel hierarchy of constraint object types that corresponds to
+the host languages primitive types. The classes in the parallel hierarchy
+respond to a subset of the corresponding host language type's interface. This
+ensures that, during constraint construction, these objects can be used
+interchangeably for valid constraints. While this makes it easy to add user
+defined constraint types, this correspondence makes it cumbersome to express
+additional properties that are not supported on the host language types. For
+example, while most object-oriented languages hide the precision of numeric
+types, many solvers explicitly allow the user to configure the desired precision
+of solutions.
+
 \chapter{Solving and Maintaining Constraints}
 \label{cha:solv-maint-constr}
 
@@ -4943,6 +5026,32 @@ change the \lstinline!x! and \lstinline!y! parts of \lstinline!a!'s position.
 Rather than updating the object directly, it will create a new object of the
 same type (a point) with the correct values, and set that using
 \lstinline!a.setPosition(newPoint)!.
+
+\SummarySep
+
+We solve all constraints whenever a new constraint is added or a constrained
+variable is re-assigned. To intercept the latter, our current prototypes rely
+either on access to the \ac{vm} or property wrappers in the language. An
+alternative implementation strategy using proxy objects was not explored due to
+the perceived overhead of full proxies versus wrapping just the necessary
+fields.
+
+Simply intercepting assignments to trigger solving is enough to satisfy our
+design, but the practical implementations highlight other issues. The design
+translates all constraints for the solver every time. In the practical
+implementation, we can avoid the performance overhead of this process when the
+structures and types of variables used in constraints have not changed. Thus, we
+only have to do the full translation in the comparatively rare case where the
+type of a variable or the definition of a method used in a constraint changes.
+
+Another issue we address only in the implementations is the question of
+encapsulation. Our design and semantics assumes that the solving process can
+ignore encapsulation and update object fields directly. In practice, external
+data or primitive behavior often necessitate the use of accessor methods. The
+implementations allow solvers to define default propagation methods in such
+cases, which will be called with the new values. We also use a simple,
+language-specific heuristic to find accessors and we will investigate how to
+improve it in future work.
 
 \chapter{Performance of Practical Object-Constraint Programming Languages}
 \label{sec:ruby-performance}
@@ -5530,6 +5639,21 @@ constraints at all. The adaptive strategies generally work better than the
 \emph{classic JIT} strategy, and by default we use the \emph{additive adaptive}
 strategy, but the developer can select a different strategy manually.
 
+\SummarySep
+
+Our benchmarks illustrate that the performance penalty of using constraints
+intermingled with ordinary object-oriented code is quite very large. This issue
+is particularly relevant if we spent a lot of time in pure object-oriented code
+that only reads from many constrained variables. It is less of a problem for
+code that reads a few variables, but spends the majority of time on calculations
+or IO. The overhead is also less relevant for applications that have constraint
+solving at its core, since our benchmarks also show that the Babelsberg
+prototypes compare favorably to other constraint-imperative programming
+systems. Nonetheless, there is potential for improvement. Making use of edit
+constraints can significantly improve performance, but only for solvers which
+support them. Adding additional optimization strategies for other types of
+constraint solvers is part of our future work.
+
 \part{Applications with Object-Constraint Programming}
 \label{part:pract-object-constr}
 
@@ -5739,7 +5863,7 @@ and add a read-only annotations only on the return value of the
 \lstinline{entropyPerVolPromille} method, but we would like to avoid this code
 duplication.
 
-\ParSep
+\SummarySep
 
 We have presented three usage patterns and the most common issue that can be
 found throughout our and our students' example applications. This work is young,
@@ -5960,7 +6084,7 @@ var solver = new ReactiveSolver(function() {
 This extension demonstrates how functional reactive programming is contained in
 \ac{ocp}, and also shows a method of scoping constraints in time.
 
-\ParSep
+\SummarySep
 
 In this larger application, we found that our design lacks fine-grained control
 over the scope of constraints, as well as a mechanism to group constraints into
@@ -6142,14 +6266,13 @@ heuristics for automatic solver selection as presented in
   \label{fig:playground}
 \end{figure}
 
-\ParSep
+\SummarySep
 
-Overall, these tools have already proven useful when developing Babelsberg
-applications, although without any alternative tools to compare them to, this
-says very little about their quality. It is clear that more work is required to
-understand which additional problems these tools need to address, where they
-could be made better, and how they should be integrated into the development
-process.
+Our tools have already proven useful when developing Babelsberg applications,
+although without any alternative tools to compare them to, this says very little
+about their quality. It is clear that more work is required to understand which
+additional problems these tools need to address, where they could be made
+better, and how they should be integrated into the development process.
 
 \part{Discussion and Conclusion}
 \label{part:disc-contr}

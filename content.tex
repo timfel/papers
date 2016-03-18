@@ -1053,14 +1053,18 @@ possible benefits of using a constraint solver. In particular:
   both finite and infinite domains.
 \end{itemize}
 
-Instead, in this work we propose an integration of constraint-solvers
-with \ac{oo} languages that we call \acrlong{ocp} (\acrshort{ocp}) to emphasize the
-focus on keeping \ac{oo} programming as the primary paradigm. \ac{ocp}
-keeps desirable properties from other approaches and is, for the most
-part, a continuation of \ac{cip} as originally presented in~\cite{freeman-benson-oopsla-1990}. Table~\ref{tab:cmp-constraint-lang-approaches}
-shows these properties and compares \ac{ocp} to the approaches
-presented above. Using an \ac{ocp} language, we can express the above
-problem using the methods already defined for the Rectangle class:
+Instead, in this work we propose an integration of constraint-solvers with
+\ac{oo} languages that we call \acrlong{ocp} (\acrshort{ocp}) to emphasize the
+focus on keeping \ac{oo} programming as the primary paradigm. \ac{ocp} keeps
+desirable properties from other approaches and is, for the most part, a
+continuation of \ac{cip} as originally presented
+in~\cite{freeman-benson-oopsla-1990}. Table~\ref{tab:cmp-constraint-lang-approaches}
+shows these properties as presented above.
+
+The goal of the work presented here is provide tighter integration of
+constraints with object-oriented languages. Using such an \acrlong{ocp}
+language, we should be able to express the above problem using the methods
+already defined for the Rectangle class:
 \begin{lstlisting}
 rect = Rectangle.new
 always { rect.area == 100 }
@@ -1582,7 +1586,64 @@ developers to anticipate whether a variable will only change more or
 less often, and use the appropriate interface if they want to achieve
 the best performance.
 
-\part{Object-Constraint Programming}
+\SummarySep
+
+Developers trying to make use of constraint solving in stateful, imperative
+applications face trade-offs that influence the choice of how to interface with
+solvers and which solvers to use.
+
+First, the spectrum of solver interfaces ranges from specialized \acp{dsl} for
+GUI applications, over general constraint \acp{dsl} such as the standardized
+SMT-LIB language~\cite{BarFT-RR-15}, object-oriented libraries, to full
+language-level integration in \ac{frp} and \ac{cip} languages. The trade-offs
+here lie in how easy it is to re-use abstractions and integrate with existing
+imperative code versus how well the constraint code and thus its interactions
+with the system state is separated from the rest of the application. A
+shortcoming of all of these state the art approaches is that they do not
+integrate well with object-oriented concepts of encapsulation and behavioral
+abstraction.
+
+Second, the solvers that are available vary wildly in their capabilities,
+performance, precision, and the potential to find surprising solutions. Features
+such as constraint hierarchies, stay and identity constraints, read-only
+annotations, and incremental resolving which provide more control over the
+solving process and performance are not universally available. They must also be
+applied explicitly, but there is little guidance or even principled rules of
+when they are needed. This problem is exacerbated in systems that attempt to
+integrate constraints at a language-level, because the requirements of concrete
+applications influence how these features should be used, while at the same time
+encapsulation and abstraction may make it hard to determine what features are
+needed in the first place.
+
+The work presented here is motivated by the belief that there is room for a
+language design with tighter integration of constraints and object-oriented
+features such as methods and inheritance. This design should allow using
+multiple solvers and solver-specific features in a principled manner without
+breaking encapsulation and without requiring intimate knowledge of the different
+solving procedures that are available in the system.
+
+% core tension
+
+% non-determinism: stay constraints, read-only annotations, identity constraints
+%  -> can sufficiently restrict solver
+%  -> must be applied explicitly
+%  -> no principled rules to apply these to imperative structures in constraints
+%  -> surprising solutions?
+
+% uniformity of code and abstractions: DSLs, special types, special abstractions
+%  -> non-uniform access, different encapsulation paradigms
+%  -> table 2.1
+
+% different solvers have different properties
+%  -> table 2.2
+
+% constraint hierarchies are necessary to trade-off conflicts, optimize towards
+% goals
+
+% performance optimizations are specific to solver implementations - again,
+% developers need to understand the trade-offs of different solvers or
+
+\part{Object-Constraint Programming: Design and Semantics}
 \label{part:object-constr-progr}
 
 \chapter{Design of Object-Constraint Programming Languages}
@@ -6283,11 +6344,17 @@ better, and how they should be integrated into the development process.
 \label{sec:hist-constr-progr}
 
 In this chapter, we present the related work on using constraint programming
-systems. The chapter roughly follows the historic procession of constraint
-programming systems, starting with purely constraint-based systems, over
-multi-paradigm languages for \acrlong{clp} and \acrlong{cip}, to more recent
-data-flow constraints (often used in functional-reactive programming systems),
-and purely library- or \ac{dsl}-based constraint programming.
+systems. The chapter groups the presented systems by how derive from each other
+or some common previous systems, starting with purely constraint-based systems,
+over multi-paradigm languages for \acrlong{clp} and \acrlong{cip}, to more
+recent data-flow constraints (often used in functional-reactive programming
+systems), and purely library- or \ac{dsl}-based constraint programming. We think
+this grouping is useful in talking about some of the design decisions and
+trade-offs that set these systems apart from Babelsberg-style \acrlong{ocp}
+languages. At the end of this chapter we will also describe some design
+dimensions which we think are useful to consider with these systems and thus
+provide a different classification of them in relation to the work presented
+here.
 
 \section{Constraint Programming Systems}
 \label{sec:constr-progr-syst}
@@ -6327,7 +6394,7 @@ add constraints in a way that would allow the system to use one of these% , as
 % Sutherland himself notes in his thesis
 ~\cite[p.112ff]{sutherland-ifips-1963}.
 
-Another early example of a constraint-based system was used \emph{finite domain
+Another early example of a constraint-based system used \emph{finite domain
   constraints} to interpret two-dimensional drawings of three-dimensional scenes
 with shadows~\cite{waltz1972generating}. % This system was implemented by David
 % L. Waltz in his PhD dissertation. 
@@ -6616,6 +6683,114 @@ using a different paradigm, rather than integrated with imperative code. The
 power to resolve variable names any time a new value arrives is not available in
 Babelsberg, and it would be interesting to see if such a feature could be used
 to make constraint expressions more re-usable.
+
+\section{Classifiers for Systems with Constraints and Related Mechanisms}
+
+While the paradigmatic perspective presented above is helpful in understanding
+the motivations behind systems that use constraints, we think it is useful to
+consider more basic classification dimensions if the goal is to compare
+languages directly in terms of features for certain practical applications. We
+find that there are seven dimensions that are useful to consider in this case:
+
+\paragraph*{Constraint Building Blocks}
+The first thing to consider is which are the basic building blocks for
+expressing constraints in a particular system. All systems have some primitive
+relations (such as linear equations) that they support through some underlying
+solving mechanism. The first question is whether these are expressed on special
+\emph{symbolic variables} or directly on the \emph{basic variables} of the
+underlying system. Second, is it possible to abstract over these primitive
+relations and provide \emph{user-defined relations}. Finally, can constraint
+expressions include \emph{functions}, \emph{methods}, or \emph{procedures} that
+are not designated constraint relations.
+\paragraph*{Constrained Variables}
+When variables have constraints on them, there is a question if and how these
+can be used with functions in the system that do not use constraints. In
+reactive programming, this is sometimes referred to as \emph{lifting} with
+respect to the functions that work on ordinary and reactive variables. In this
+classification, we say that access can be \emph{implicit}, meaning that
+variables can simply be passed to ordinary functions and then exhibit one
+particular value that satisfies the current constraints. Alternatively, access
+can be \emph{explicit}, meaning that the programmer has to get a concrete value
+from the constrained variable before using it in non-declarative parts of the
+program.
+\paragraph*{Multi-directionality}
+Most of the presented languages can solve some constraints
+multi-directionally. However, some languages have restrictions on which kinds of
+constraint expressions can be solved this way. For some, only the
+\emph{primitive relations} can be solved multi-directionally, while others can
+also solve for \emph{user-defined relations} or even some \emph{functions},
+\emph{methods}, or \emph{procedures} that are not designated constraint
+relations.
+\paragraph*{Solving Strategies}
+Each constraint language needs at least one solving strategy, but many come with
+multiple solvers to improve the expressiveness of the possible constraints. In
+some systems, the number of solvers is \emph{fixed}, for others it is
+\emph{extensible} by the user. A related issue is whether, if there are multiple
+solvers, these can be used cooperatively to solve constraints which are
+connected through shared variables or if these need to be satisfied separately
+and any connection has to be dealt with by the user.
+\paragraph*{Constraint Model}
+Constraints may be viewed as \emph{problems} to be solved or as relations to be
+maintained. Systems which do the latter react to some changes in the system by
+integrating the update state with the active set of constraints. In that
+category there are systems that allow only those updates to the state that
+\emph{refine} what is already known, leading to ever tighter bounds on the
+possible values of variables, whereas other systems react to
+\emph{perturbations} of values by possibly changing some other state in the to
+keep the constraints satisfied.
+\paragraph*{Answers or Solutions}
+Under-constrained systems occur often in practice, and a design decision to make
+is whether the system should produce \emph{solutions} with concrete assignments
+for variables, or if it should provide \emph{answers}, \ie results such as
+$10 \leq x \leq 20$ rather than a single value for $x$. Related to this if there
+are multiple solutions, is the system capable of \emph{enumerating} them or will
+it choose one by some mechanism and return that.
+\paragraph*{Object Identity}
+A final question pertains the interaction of object identity with
+constraints. For some systems where the underlying language is also declarative
+or functional, object identity is not relevant. For systems that do have it,
+however, the question whether objects with identity are \emph{supported} and
+solved for in constraints or if the system \emph{ignores} them and possibly
+replaces objects used in constraint expressions with equivalent but not
+identical ones.
+
+\begin{sidewaystable}
+  \centering
+  \tableinsidecommand
+  \caption{A categorization of constraint systems}
+  \label{tab:categorization}
+  \begin{tabular}{l | l | l | l | l | l | l | l}
+    & Constraint Building Blocks & Constrained Variables & Multi-directionality & Solving Strategies & Constraint Model & Answers or Solutions & Object Identity \\ 
+    \hline
+    $\alpha$Rby & symbolic variables, user-defined relations & manual & user-defined relations & fixed & solving & answers & ignored \\ 
+    Auckland & primitive variables & implicit & primitive relations & fixed & perturbation & solutions & n/a \\ 
+    Babelsberg & variables, methods & implicit & all$^2$ & extensible, coop & perturbation & solutions & supported \\ 
+    Backtalk & symbolic variables, user-defined relations, methods & manual & all & extensible, coop & solving & enumerable solutions & ignored \\ 
+    CLP($\mathcal{X}$) & variables, procedures & implicit & all & extensible & solving & answers & n/a \\ 
+    Data-structure Repair & symbolic variables & implicit & primitive relations & fixed & solving & solutions & not supported \\ 
+    Elm & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation & solutions & n/a \\ 
+    Enaml & primitive variables & implicit & primitive relations & fixed & perturbation & solutions & n/a \\ 
+    Flapjax & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation & solutions & supported \\ 
+    Fran & behaviors, events, user-defined relations, functions & explicit & none & fixed & perturbation & solutions & n/a \\ 
+    Ilog & symbolic variables, user-defined relations, methods & manual & user-defined relations & fixed & solving & enumerable solutions & not supported \\ 
+    Kaleidoscope & variables, user-defined relations & implicit & user-defined relations & fixed, coop & perturbation & solutions & supported \\ 
+    Kaplan & symbolic variables, user-defined relations, methods & manual & user-defined relations & fixed & perturbation$^1$ & solutions & not supported \\ 
+    Kscript & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation & solutions & supported \\ 
+    Lively & variables, methods & implicit & none & fixed & perturbation & solutions & supported \\ 
+    Mozart/Oz & variables, user-defined relations & implicit & user-defined relations & extensible, coop & refinement & answers & supported \\ 
+    Cocoa Layout & primitive variables & implicit & primitive relations & fixed & perturbation & solutions & n/a \\ 
+    Plan B & symbolic variables, user-defined relations & implicit & user-defined relations & fixed & solving & solutions & supported \\ 
+    Rosette & symbolic variables, user-defined relations, functions & explicit & user-defined relations & fixed & solving & solutions & not supported \\ 
+    Scratch & events, functions & implicit & none & fixed & perturbation & solutions & n/a \\ 
+    Siri & variables, user-defined relations & implicit & user-defined relations & fixed & perturbation & solutions & ? \\ 
+    Sketchpad & primitive variables & implicit & primitive relations & fixed, coop & perturbation & solutions & n/a \\ 
+    Squander & symbolic variables, user-defined relations & implicit & user-defined relations & fixed & solving & enumerable solutions & ignored \\ 
+    ThingLab & variables, user-defined relations & implicit & user-defined relations & fixed, coop & perturbation & solutions & n/a \\ 
+    Turtle & symbolic variables, user-defined relations, methods & explicit & user-defined relations & fixed, coop & perturbation$^1$ & solutions & ignored
+  \end{tabular}
+\end{sidewaystable}
+
+TODOOO 
 
 \chapter{Summary and Outlook}
 

@@ -6697,51 +6697,58 @@ the related work as well as the work presented here in terms of these design
 dimensions.
 
 \paragraph*{Constraint Building Blocks}
-The first thing to consider is which are the basic building blocks for
-expressing constraints in a particular system. All systems have some primitive
-relations (such as linear equations) that they support through some underlying
-solving mechanism. The first question is whether these are expressed on special
+We first consider the basic building blocks for expressing constraints. All
+systems have some primitive relations (such as linear equations) that they
+support. A first question is whether these are expressed on special
 \emph{symbolic variables} or directly on the \emph{basic variables} of the
 underlying system. Second, is it possible to abstract over these primitive
 relations and provide \emph{user-defined relations}. Finally, can constraint
 expressions include \emph{functions}, \emph{methods}, or \emph{procedures} that
-are not designated constraint relations.
-\paragraph*{Lifting}
+are not designated constraint relations, and that are automatically transformed
+into a form suitable for the solver by the system.
+\paragraph*{Lowering}
 When variables have constraints on them, there is a question if and how these
 can be used with functions in the system that do not use constraints. In
-reactive programming, this is referred to as lifting with respect to the
-functions that work on ordinary and reactive variables. In this classification,
-we say that variable access can be \emph{implicit}, meaning that variables with
-constraints on them can be passed to ordinary functions and then exhibit one
-particular value that satisfies the current constraints. Alternatively, access
-can be \emph{explicit}, meaning that the programmer has to get a concrete value
-from the constrained variable before using it in non-declarative parts of the
-program.
+reactive programming we talk about lifting with respect to the functions that
+work on ordinary and reactive variables. In this classification, we say that we
+lower constrained variables to concrete values. Lowering can be \emph{implicit},
+meaning that variables with constraints on them can be passed to ordinary
+functions and then exhibit one particular value that satisfies the current
+constraints. Alternatively, lowering can be \emph{explicit}, meaning that the
+programmer has to get a concrete value from the constrained variable using some
+function before using it in non-declarative parts of the program.
 \paragraph*{Multi-directionality}
-Most of the presented languages can solve some constraints
-multi-directionally. However, some languages have restrictions on which kinds of
-constraint expressions can be solved this way. For some, only the
-\emph{primitive relations} can be solved multi-directionally, while others can
-also solve for \emph{user-defined relations} or even some \emph{functions},
-\emph{methods}, or \emph{procedures} that are not designated constraint
-relations.
+Most of the presented languages can solve at least some kinds of constraints
+multi-directionally. For some, this is true only for \emph{primitive relations},
+while others can also solve \emph{user-defined relations} or even ordinary
+\emph{functions}, \emph{methods}, or \emph{procedures} in multiple directions.
 \paragraph*{Solving Strategies}
 Each constraint language needs at least one solving strategy, but many come with
-multiple solvers to improve the expressiveness of the possible constraints. In
-some systems, the number of solvers is \emph{fixed}, for others it is
-\emph{extensible} by the user. A related issue is whether, if there are multiple
-solvers, these can be used cooperatively to solve constraints which are
-connected through shared variables or if these need to be satisfied separately
-and any connection has to be dealt with by the user.
+multiple solvers to allow solving more complex problems or to improve
+performance for specific types of constraints. The number of solvers is either
+\emph{fixed} or \emph{extensible} by the user. A related issue is whether, if
+there are multiple solvers, these can be used cooperatively (\eg to solve
+constraints which are connected through shared variables) or if constraints in
+different solvers need to be satisfied separately.
 \paragraph*{Constraint Model}
 Constraints may be viewed as \emph{problems} to be solved or as relations to be
 maintained. Systems which do the latter react to some changes in the system by
-integrating the update state with the active set of constraints. In that
+integrating the updated state with the active set of constraints. In that
 category there are systems that allow only those updates to the state that
 \emph{refine} what is already known, leading to ever tighter bounds on the
 possible values of variables, whereas other systems react to
-\emph{perturbations} of values by possibly changing some other state in the to
-keep the constraints satisfied.
+\emph{perturbations} of values by possibly changing some other state to keep the
+constraints satisfied or by rejecting the changed values.
+
+An aspect to consider for the last group is how they deal with the frame
+problem, \ie if and how parts of the system that do not need to change in
+response to constraint solving are kept at their current values. Some systems
+ignore this and any perturbation of the system may cause all state to change. A
+second option is to rely on a memory model where memory is unchanged if
+variables referring to it are not used during constraint solving. A more
+explicit formalization that does not rely on this assumption is to use soft
+constraints on the entire system state to ask that all variables keep their
+current values unless a higher priority constraint contradicts this.
 % \paragraph*{Frame Axioms}
 % TODO FIXME: ignored, n/a, soft constraints, machine artifact (memory doesn't
 % just change)
@@ -6767,60 +6774,70 @@ it choose one by some mechanism and return that.
   \tableinsidecommand
   \caption{A categorization of constraint systems}
   \label{tab:categorization}
-   \begin{tabular}{l | l | l | l | l | l | l }
-    & Constraint Building Blocks & Lifting & Multi-directionality & Solving Strategies & Constraint Model & Answers or Solutions % & Object Identity
+  \begin{threeparttable}
+    \begin{tabular}{l | l | l | l | l | l | l }
+    & Constraint Building Blocks & Lowering & Multi-directionality & Solving Strategies & Constraint Model & Answers or Solutions % & Object Identity
      \\ 
     \hline
     $\alpha$Rby & symbolic variables, user-defined relations & manual & user-defined relations & fixed & solving & answers % & ignored
      \\ 
-    ALE & primitive variables & implicit & primitive relations & fixed & perturbation & solutions % & n/a
+    ALE & primitive variables & implicit & primitive relations & fixed & perturbation\tnote{1} & solutions % & n/a
      \\ 
     AOC & symbolic variables & implicit & primitive relations & fixed & solving & solutions % & not supported
      \\ 
-    Auto Layout & primitive variables & implicit & primitive relations & fixed & perturbation & solutions % & n/a
+    Auto Layout & primitive variables & implicit & primitive relations & fixed & perturbation\tnote{1} & solutions % & n/a
      \\ 
-    Babelsberg & variables, methods & implicit & all\footnote{Multi-directional solving through methods is limited as per our design (\cf{\ref{sec:constr-with-mess}})} & extensible, co-op & perturbation & solutions % & supported
+    Babelsberg & variables, methods & implicit & all\tnote{4} & extensible, coop & perturbation\tnote{1} & solutions % & supported
      \\ 
-    Backtalk & symbolic variables, user-defined relations, methods & manual & all & extensible, co-op & solving & enumerable solutions % & ignored
+    Backtalk & symbolic variables, user-defined relations, methods & manual & all & extensible, coop & solving & enumerable solutions % & ignored
      \\ 
     CLP($\mathcal{X}$) & variables, procedures & implicit & all & extensible & solving & answers % & n/a
      \\ 
-    Elm & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation & solutions % & n/a
+    Elm & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation\tnote{2} & solutions % & n/a
      \\ 
-    Enaml & primitive variables & implicit & primitive relations & fixed & perturbation & solutions % & n/a
+    Enaml & primitive variables & implicit & primitive relations & fixed & perturbation\tnote{1} & solutions % & n/a
      \\ 
-    Flapjax & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation & solutions % & supported
+    Flapjax & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation\tnote{2} & solutions % & supported
      \\ 
-    Fran & behaviors, events, user-defined relations, functions & explicit & none & fixed & perturbation & solutions % & n/a
+    Fran & behaviors, events, user-defined relations, functions & explicit & none & fixed & perturbation\tnote{3} & solutions % & n/a
      \\ 
     Ilog (CPLEX) & symbolic variables, user-defined relations, methods & manual & user-defined relations & fixed & solving & enumerable solutions % & not supported
      \\ 
-    KScript & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation & solutions % & supported
+    KScript & behaviors, events, user-defined relations, functions & implicit & none & fixed & perturbation\tnote{2} & solutions % & supported
      \\ 
-    Kaleidoscope & variables, user-defined relations & implicit & user-defined relations & fixed, co-op & perturbation & solutions % & supported
+    Kaleidoscope & variables, user-defined relations & implicit & user-defined relations & fixed, coop & perturbation\tnote{1} & solutions % & supported
      \\ 
-    Kaplan & symbolic variables, user-defined relations, methods & manual & user-defined relations & fixed & perturbation\footnote{Perturbation only of symbolic variables, ordinary variables are frozen by-value into the constraints} & solutions % & not supported
+    Kaplan & symbolic variables, user-defined relations, methods & manual & user-defined relations & fixed & perturbation\tnote{4,6} & solutions % & not supported
      \\ 
-    Lively & variables, methods & implicit & none & fixed & perturbation & solutions % & supported
+    Lively & variables, methods & implicit & none & fixed & perturbation\tnote{2} & solutions % & supported
      \\ 
-    Mozart/Oz & variables, user-defined relations & implicit & user-defined relations & extensible, co-op & refinement & answers % & supported
+    Mozart/Oz & variables, user-defined relations & implicit & user-defined relations & extensible, coop & refinement & answers % & supported
      \\ 
     Plan B & symbolic variables, user-defined relations & implicit & user-defined relations & fixed & solving & solutions % & supported
      \\ 
     Rosette & symbolic variables, user-defined relations, functions & explicit & user-defined relations & fixed & solving & solutions % & not supported
      \\ 
-    Scratch & events, functions & implicit & none & fixed & perturbation & solutions % & n/a
+    Scratch & events, functions & implicit & none & fixed & perturbation\tnote{2} & solutions % & n/a
      \\ 
-    Siri & variables, user-defined relations & implicit & user-defined relations & fixed & perturbation & solutions % & supported
+    Siri & variables, user-defined relations & implicit & user-defined relations & fixed & perturbation\tnote{2} & solutions % & supported
      \\ 
-    Sketchpad & primitive variables & implicit & primitive relations & fixed, co-op & perturbation & solutions % & n/a
+    Sketchpad & primitive variables & implicit & primitive relations & fixed, coop & perturbation\tnote{2} & solutions % & n/a
      \\ 
     Squander & symbolic variables, user-defined relations & implicit & user-defined relations & fixed & solving & enumerable solutions % & ignored
      \\ 
-    ThingLab & variables, user-defined relations & implicit & user-defined relations & fixed, co-op & perturbation & solutions % & n/a
+    ThingLab & variables, user-defined relations & implicit & user -defined relations & fixed, coop & perturbation\tnote{2} & solutions % & n/a
      \\ 
-    Turtle & symbolic variables, user-defined relations, methods & explicit & user-defined relations & fixed, co-op & perturbation$^b$ & solutions % & ignored
-  \end{tabular}
+    Turtle & symbolic variables, user-defined relations, methods & explicit & user-defined relations & fixed, coop & perturbation\tnote{1,6} & solutions % & ignored
+    \end{tabular}
+    \begin{tablenotes}
+    \item[1] Soft constraints as frame axioms
+    \item[2] Implicit reliance on memory model for frame axioms
+    \item[3] Constraints over time as frame axioms
+    \item[4] No frame axioms
+    \item[5] Multi-directional solving through imperative methods is limited as per our design (\cf{\autoref{sec:constr-with-mess}})
+    \item[6] Perturbation only of symbolic variables, ordinary variables are frozen by-value into the constraints
+    \end{tablenotes}
+  \end{threeparttable}
 \end{sidewaystable}
 
 ~\\

@@ -20,32 +20,125 @@
 \titlebanner{Pen-based Programming}        % These are ignored unless
 \preprintfooter{Paper about Pens and Morphs}   % 'preprint' option specified.
 
-\title{Where the Pen is mightier than the Key}
-\subtitle{Sketching Interactive Graphical Programs}
+\title{How to Build a High-Performance VM for Squeak/Smalltalk in Your Spare Time}
+\subtitle{An Experience Report of Using the RPython Toolchain}
 
-\authorinfo{Tim Felgentreff\and Jens Lincke\and Robert Hirschfeld}
+\authorinfo{Tim Felgentreff\and Tobias Pape\and Robert Hirschfeld}
            {Hasso Plattner Institute}
            {\{firstname.lastname\}@hpi.de}
+
+\authorinfo{Carl Friedrich Bolz}
+           {Software Development Team,\\King's College, London}
+           {cfbolz@gmx.de}
 
 \maketitle
 
 \begin{abstract}
-This is the text of the abstract.
+...
 \end{abstract}
 
-\category{CR-number}{subcategory}{third-level}
+\category{D.3.4}{Programming Languages}{Processors\---code generation,optimization}
 
-% general terms are not compulsory anymore,
-% you may leave them out
-\terms
-term1, term2
-
-\keywords
-keyword1, keyword2
+\keywords Tracing JIT, Squeak/Smalltalk, RPython
 
 \section{Introduction}
 
-The text of the paper begins here.
+We present our experience in creating the RSqueak/VM, a fast \ac{vm} for
+executing Squeak/Smalltalk based on the RPython \ac{vm} toolchain. RSqueak/VM
+runs faster in many benchmarks than the standard Cog \ac{vm} that is commonly
+used for Squeak and is competitive in many others. The RSqueak/VM \ac{jit} can
+target x86 (both 32 and 64 bits), PowerPC64, ARMv6 and ARMv7 (32bit), and IBM's
+Z architecture (specifically its current incarnation s390x for 64 bit).
+
+Our experience shows that we can achieve performance that is competitive with
+the Cog \ac{vm} that is being developed full-time, even though most RSqueak/VM
+development takes place during part-time student projects (where most students
+have never taken a \ac{vm} course, never looked at the Squeak \ac{vm} source
+code before, and have little knowledge of Squeak internals besides those
+required for usage of the Squeak development tools). We see this in stark
+contrast to the requirements for participating in development and optimization
+of the standard Cog \ac{vm} for Squeak, where a good knowledge of the Squeak
+object format, its garbage collector, its meta-programming facilities (such as
+\lstinline!become:!), as well as C and assembly programming is required.
+
+In our experience, the RSqueak/VM architecture and toolchain makes it easy for
+new students to experiment with new features in the \ac{vm} without sacrificing
+performance. Among such features students experimented with were \ac{stm} (which
+gives RSqueak/VM the ability to scale Squeak to multi-core systems), replacing
+\ac{vm} plugins with pure Squeak code (which allows RSqueak/VM to execute
+Balloon and BitBlt Slang-code directly in Smalltalk without requiring a
+translation to C), or supporting multiple Squeak image formats in the same
+\ac{vm} (starting with the Squeak 1.2 release all the way to the new Spur-format
+Squeak 5.0 release) without sacrificing run-time performance.
+
+RSqueak/VM takes many of its ideas from the PyPy project, with which it shares
+its implementation language and development toolchain \emph{RPython}. This also
+means that, like Squeak, the \ac{vm} can be developed, simulated, and debugged
+in a high-level language (Python). Just like for Squeak, we think this lowers
+the barrier of entry for new \ac{vm} developers. Unlike Squeak, however, the
+simulation of RSqueak/VM extends all the way to the \ac{jit}, so even
+optimizations in that area do not require any knowledge of assembly language or
+the machine-level object format.
+
+\subsection{Squeak VM Development so far}
+\label{sec:sque-vm-devel}
+
+A fast \ac{vm} is a core concern for many Smalltalk implementations to make the
+Smalltalk language competitive in real-world application scenarios. Although the
+success of a language also depends on many other factors, newcomers to a
+language will often use simple, well known programming tasks to test both the
+expressiveness of the language, as well as the effectiveness of its runtime. If
+the execution is slow, many people will not be swayed by arguments for the
+beauty and expressiveness of the Smalltalk language, and instead move on to
+other programming systems.
+
+The Squeak virtual machine was created as a simple byte-code
+interpreter\todo{cite}. The initial goals for the \ac{vm} were to be reasonably
+efficient, while still being easily extensible so that continued \ac{vm}
+development could take place as the Squeak-dialect of Smalltalk evolves. To that
+end the \ac{vm} and its plugins were developed largely in Slang, a subset of
+Smalltalk amendable to static compilation C, so that \ac{vm} developers could
+use the Smalltalk environment to develop, simulate, and debug the Squeak
+\ac{vm}. Originally only some platform specific code was hand-written in C.
+
+Since early 2011, the open-source Squeak \ac{vm} was branched to create
+\emph{Cog}. Cog adds a stack-to-register-mapping just-in-time compiler, inline
+message caching, and optimizations for Smalltalk’s first-class context
+objects. Much a Cog's performance comes from hand-written and optimized
+assembler for a number of Squeak primitives and bytecodes. Because the original
+Squeak object format was not optimized for this use case, the complexity of some
+primitives was too high to convert them into assembler and variable object
+header sizes made the assembler for probing the inline cache larger than it
+should be, costing additional performance on every send. Since 2014, Squeak also
+uses a new object format called \emph{Spur} that allows more primitives to be
+implemented in optimized assembler and that simplifies the inline cache code.
+
+The community around Squeak, Pharo, and Pharo continue to evolve their various
+Smalltalk dialects. This includes evolving the core class library (such as
+changing the internal structure of collections\footnote{} or the hierarchy of
+numeric classes\footnote{}) adding mechanisms that can be used to improve the
+expressiveness of the language (like \ac{aop} or \ac{cop}), or evolving the
+tools to be offer more powerful features and introspection capabilities. As
+these mechanisms and language extensions evolve during use, new critical paths
+in the \ac{vm} become apparent that need to be optimized, and old optimizations
+become superfluous.
+
+Due to the evolving nature of the systems that use the Cog \ac{vm}, the
+malleability with which the original Squeak interpreter was created is still
+important to continue to support language-level experiments. As we argued above,
+one important question for any language feature is whether it will have an
+impact on the efficiency of the system as a whole. However, if new developers
+cannot easily adapt the \ac{vm} it is hard to judge weather a new language
+extension can eventually be optimized appropriately. A problem we see with the
+approach Cog and Spur take is the reliance on hand written assembler and
+intimate knowledge of the object layout to make the \ac{vm} fast. This leads to
+a situation were a large, performance-critical part of the \ac{vm} is no longer
+written in Slang (reducing the benefit of simulating the \ac{vm} in Smalltalk)
+and where new developers interested in working on the \ac{vm} and extending it
+with new \ac{vm}-level objects or primitives must consider how these will
+translate into assembler. Given that a goal of the Squeak \ac{vm} is to run on a
+multitude of platforms, this means considering not only x86 assembler, but also
+possibly ARM, MIPS, PowerPC, or more architectures in the future.
 
 \appendix
 \section{Appendix Title}

@@ -508,9 +508,9 @@ the environment.
 
 \subsection*{Optimizing for Primitive Simulations}
 We have previously shown that the performance of simulating BitBlt primitives on
-\rsqueak is within one order of magnitude of the performance of the standard
-Squeak \ac{vm}s binary plugin. We have since been able to improve this relation
-for some use cases.
+\rsqueak is within one orders of magnitude of the performance of the standard
+Squeak \ac{vm}s binary plugin and simulating Balloon primitives is within two
+orders of magnitude.
 
 The BitBlt code does calculations on word-sized chunks of the display and the
 forms it renders to. When the Slang code is translated to C, these calculations
@@ -536,10 +536,45 @@ by the large integer plugin. In \rsqueak, all arithmetic primitives succeed
 also for the special 1-word positive integers, allowing fast arithmetic on any
 integer that fits into a machine word.
 
-The disadvantage of this architecture is the addition of checks in the method
-that wraps machine integers into smalltalk integers: the \ac{vm}-level class that has
-to be used depends on if the result fits into a small integer, a word-sized
-unsigned integer, or needs to be represented as bytes.
+This optimized representation of word-sized positive integers has improved the
+relative performance of the simulation on \rsqueak compared to the C plugins% , as
+% shown in \autoref{fig:blit}
+. For the BitBlt Blue Book benchmark that renders the
+first 16 combination rules to the screen, the simulation in \rsqueak is now
+faster than the generated plugin in C by about one order of magnitude. For
+Balloon, our previous worst case rendering performance for TrueType fonts was
+more than 180 times slower than the Balloon plugin compiled to C
+(c.f.~{\cite{FelgentreffICOOOLPS2015}}). The optimization detailed above has
+reduced this to less than 20 times.
+
+% \begin{figure}
+%   \centering
+%   \begin{tikzpicture}[scale=.7]
+%     \begin{axis}[%
+%       ybar,
+%       legend style={at={(0.5,-0.15)},
+%         anchor=north,legend columns=-1},
+%       xmin=0.5,xmax=2.5,xtick=data,%
+%       ymin=0,ymax=18,
+%       xticklabels from table={bltbench.data}{method},%
+%       ylabel={\Large Relative performance normalized to Spur}, ylabel near ticks]
+%       \addplot table [x=position,y=rsqueak] {bltbench.data};
+%       \addplot table [x=position,y=cog] {bltbench.data};
+%     \end{axis}
+%   \end{tikzpicture}
+%   \caption{Relative performance of Blue Book BitBlt combination rules and
+%     TrueType font rendering between \rsqueak (blue) and the Spur Squeak \ac{vm}
+%     (red).}
+%   \label{fig:blit}
+% \end{figure}
+
+The disadvantage of this architecture is the addition of checks in the wrapping
+method that converts RPython integers into Smalltalk integers: the \ac{vm}-level
+class that has to be used depends on if the result fits into a small integer, a
+word-sized unsigned integer, or needs to be represented as bytes. Forgetting to
+go through the wrapping method and instead instantiating classes directly (for
+example in the implementation of primitives) undoes the effect of the
+optimization.
 
 \section{Inexperienced Developers and \rsqueak}
 \label{sec:exper-with-rsqu}
@@ -577,6 +612,36 @@ selector and sending it. % Overall, adding objects as methods support to the
 
 \paragraph{Benchmarks}
 
+\begin{figure}
+  \centering
+  \begin{tikzpicture}[scale=.7]
+    \begin{axis}[%
+      ybar,
+      legend style={at={(0.5,-0.15)},
+        anchor=north,legend columns=-1},
+      xmin=0.5,xmax=4.5,xtick=data,%
+      ymin=0,ymax=2000,ymode=log,
+      xticklabels from table={oambench.data}{method},%
+      ylabel={\Large Number of executions per second}, ylabel near ticks]
+      \addplot table [x=position,y=rsqueak] {oambench.data};
+      \addplot table [x=position,y=cog] {oambench.data};
+    \end{axis}
+  \end{tikzpicture}
+  \caption{Send performance comparison between \rsqueak (blue) and the
+    Spur Squeak \ac{vm} (red).}
+  \label{fig:oambench}
+\end{figure}
+
+\autoref{fig:stmbench} shows the performance of the students' implementation. We
+compare the send performance for a method doing simple arithmetic (returning the
+result of 1 + 1), a method that calls the identity hash primitive, a method that
+simply returns self, and an object as method that also returns the receiver.
+
+Without any prior experience or specific optimization, the students achieved
+roughly the same performance as the standard Squeak \ac{vm}, and have the same
+comparative slowdown of about one order of magnitude. For us, this demonstrates
+that experiments with lookup, for example, could be done cheaply on \rsqueak and
+be evaluated immediately without having to spend much time on performance.
 
 \subsection{Multi-core with Software Transactional Memory}
 \label{sec:multi-core-with}
@@ -679,18 +744,18 @@ Smalltalk array. Without any further annotations, these lead to a lot of
 conflicts, rollbacks, and re-calculations in the different threads, a problem
 that gets worse as more threads are added.
 
-\subsection{Supporting Images with and without Closures, Spur and pre-Spur}
+% \subsection{Supporting Images with and without Closures, Spur and pre-Spur}
 
-- spur project
-- image tracer
+% - spur project
+% - image tracer
 
 \section{Discussion and Conclusions}
 \label{sec:disc-concl}
 
-All three student projects showed us that it is possible for students with no
-prior \ac{vm} development experience to extend \rsqueak, and for two of those
-projects the extensions were worth including in the main branch of development
-without any further refactoring.
+These and other student projects showed us that it is possible for students with
+no prior \ac{vm} development experience to extend \rsqueak and create extensions
+that are worth including in the main branch of development without much further
+refactoring.
 
 While the changes to the code base were straightforward thanks to the
 abstractions we have in \rsqueak architecture, other parts of the development
@@ -711,6 +776,10 @@ compiled interpreters in parallel testing ("How is this version different from
 the others?"). As a consequence, while the students found it easy to extend the
 \ac{vm} in appropriate places, they found it harder than on Cog to test and
 correct errors.
+
+In conclusion we can say that our goals for \rsqueak seem to work out: it is
+easy to introduce new developers to the code base and have those developers
+extend the \ac{vm} while achieving promising performance in some use cases.
 
 \acks
 

@@ -276,10 +276,14 @@ or more architectures in the future.
 
 \ParSep
 
-The rest of this paper presents what we found to be interesting aspects of
-\rsqueak development as compared to the traditional way of building \acp{vm}.
-
-TODO
+The rest of this paper presents the current state of \rsqueak architecture and
+performance, and what we found to be interesting aspects of \rsqueak development
+as compared to the traditional way of building \acp{vm}. Section 3 presents the
+core object model. Section 4 describes how we use strategies to deal with
+different object layouts efficiently. Section 5 discusses optimizations we had
+to do to make simulation of primitives in Smalltalk fast and presents
+benchmarks. Section 6 discusses two example projects by students that worked on
+\rsqueak and Section 7 concludes.
 
 \section{\rsqueak Model Classes}
 \label{sec:rsqu-arch}
@@ -400,15 +404,15 @@ standard \ac{vm} to support different image formats. This means that even as the
 longer supported are left to use older \ac{vm}s.
 
 With \rsqueak, we wanted to aviod this tight coupling. To still get good
-performance, we employ a combination of strategies (todo cfbolz) and shadows
-(todo spy) to translate in-image object layouts into formats that can be
-flexibly used and optimized in RPython.
+performance, we employ a combination of strategies~\cite{strategies} and
+shadows~\cite{rsqueak} to translate in-image object layouts into formats that
+can be flexibly used and optimized in RPython.
 
 \paragraph{Strategies}
-Strategies are a technique that was originally presented for PyPy (todo) to
-avoid memory allocations for simple objects stored in lists. In PyPy, this is
-usefulto improve both the memory and runtime overhead of homogenous lists, for
-example lists that store only integers and floats.
+Strategies are a technique that was originally presented for PyPy to avoid
+memory allocations for simple objects stored in lists. In PyPy, this is usefulto
+improve both the memory and runtime overhead of homogenous lists, for example
+lists that store only integers and floats.
 
 \paragraph{Shadows}
 Shadows were originally proposed for SpyVM, the precursor to \rsqueak, and were
@@ -575,6 +579,48 @@ word-sized unsigned integer, or needs to be represented as bytes. Forgetting to
 go through the wrapping method and instead instantiating classes directly (for
 example in the implementation of primitives) undoes the effect of the
 optimization.
+
+\ParSep
+
+\autoref{fig:benchmarks} presents various benchmarks specific to Squeak or taken
+from the computer language shootout. The entire suite of benchmarks is
+available\footnote{\url{http://hpi.de/swa/squeaksource/BenchmarkRunner},
+  accessed May 20, 2016}. The benchmark results represent the average of the
+middle 95\% measured over 100 benchmark runs and normalized to the Spur Squeak
+\ac{vm} version 16.18.3692. The \rsqueak version we used was c6487cb7d1. All
+benchmarks were run on an otherwise idle Ubuntu machine with an Intel Core
+i5-3470 @ 3.2 GHz and 8 GB of RAM. The benchmarks show that while \rsqueak is
+much slower for some applications, it is competitive and sometimes even faster
+than Spur for others. The areas where \rsqueak is much slower are of three
+types: First, benchmarks such as Blowfish and font rendering rely on in-image
+fallback code where the Spur \ac{vm} uses a plugin that was compiled to C and is
+linked into the \ac{vm}. Second, benchmarks such as Graph Search and Binary
+Trees are recursive, and the RPython \ac{jit} is bad at optimizing recursive
+algorithms. Third, benchmarks such as megamorphic sends or NBody do not work
+well with the \ac{jit}, because a lot of the performance of \rsqueak comes from
+speculating that most call sites have very different receivers, but these
+benchmarks exercise polymorphic dispatch performance.
+
+\begin{figure*}
+  \centering
+  \begin{tikzpicture}[scale=.65]
+    \begin{axis}[%
+      width=1.5\textwidth,
+      height=0.7\textwidth,
+      ybar,
+      xmin=-0.5,xmax=65.5,xtick=data,%
+      ymin=0,ymax=20,
+      xticklabels from table={codespeed.data}{method},%
+      xticklabel style={rotate=90},
+      ylabel={\Large Execution time relative to Spur}, ylabel near ticks]
+      \addplot table [x=position,y=rsqueak] {codespeed.data};
+      \addplot table [x=position,y=cog] {codespeed.data};
+    \end{axis}
+  \end{tikzpicture}
+  \caption{Relative runtime of various benchmarks for \rsqueak (blue) and Spur
+    \ac{vm} (red).}
+  \label{fig:benchmarks}
+\end{figure*}
 
 \section{Inexperienced Developers and \rsqueak}
 \label{sec:exper-with-rsqu}

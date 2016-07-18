@@ -168,7 +168,15 @@ collector, its meta-programming facilities, as well as C and assembly
 programming to participate in optimization tasks on the \ac{vm}-level. However,
 \rsqueak is not production ready and is worse in terms of stability and
 performance in many areas than the highly optimized Cog. It also only supports
-Squeak, whereas Cog can also run Pharo and Cuis.
+Squeak, whereas Cog can also run Pharo and Cuis\footnote{There is no fundamental
+  reason for not supporting Pharo and Cuis on RSqueak --- both of these dialects
+  are simply missing fallback code for primitives that are optional in Squeak
+  and not implemented at all in RSqueak, so execution fails when these
+  primitives are hit. One example is primitive 105 which replaces part of a
+  string with another string. On RSqueak, the fallback code is actually faster
+  in many cases than the primitive so we omitted the primitive
+  implementation. Pharo removed the fallback code, failing in a non-recoverable
+  way early during startup.}.
 
 A goal for \rsqueak is to support experiments that extend the Squeak system or
 the language in particular for researchers without prior experience in \ac{vm}
@@ -183,13 +191,18 @@ the Squeak 1.2 release all the way to the new Spur-format Squeak 5.0 release)
 without sacrificing run-time performance.
 
 \rsqueak takes many of its ideas from the PyPy project, with which it shares its
-implementation language and development toolchain RPython. This also means that,
-like Squeak, the \ac{vm} can be developed, simulated, and debugged in a
-high-level language (Python). Just like how the Squeak \ac{vm} is developed
-using Slang (a subset of Smalltalk), we think this lowers the barrier of entry
-for new \ac{vm} developers. The simulation of \rsqueak extends all the way to
-the \ac{jit}, so even optimizations in that area do not require any knowledge of
-assembly language or the machine-level object format.
+implementation language and development toolchain RPython. \acp{vm} written in
+RPython automatically get garbage collection and a generic \ac{jit} generated
+for them. Also, RPython is a true subset of Python. This also means that, like
+Squeak, the \ac{vm} can be developed, simulated, and debugged in a high-level
+language (Python). Just like how the Squeak \ac{vm} is developed using Slang (a
+subset of Smalltalk), we think this lowers the barrier of entry for new \ac{vm}
+developers. The simulation of \rsqueak extends all the way to the \ac{jit}, so
+even optimizations in that area do not require any knowledge of assembly
+language or the machine-level object format. We thus argue that RPython is a
+more friendly \ac{vm} development platform for novices than Slang/VMMaker. In
+particular, many optimizations and platform interfaces can be developed using
+high-level RPython \acp{api}.
 
 Although the Cog \ac{vm} offers very good performance and its development
 process clearly works well when a full-time \ac{vm} developer is available, we
@@ -238,9 +251,9 @@ Since early 2011, the open-source Squeak \ac{vm} has a branch to develop the Cog
 variant of the \ac{vm}. Cog is a very high performance \acrlong{vm} for Squeak,
 Pharo, Cuis, and Newspeak that adds a stack-to-register-mapping just-in-time
 compiler, inline message caching, and optimizations for Smalltalk's first-class
-context objects. Much of Cog's performance comes from compiling Smalltalk methods
-by stitching pieces of hand-written and optimized assembler for a number of
-Squeak primitives and bytecodes together. Because the original Squeak object
+context objects. Much of Cog's performance comes from compiling Smalltalk
+methods by stitching pieces of hand-written and optimized assembler for a number
+of Squeak primitives and bytecodes together. Because the original Squeak object
 format was not developed for this use case, the complexity of some primitives
 was too high to convert them into assembler. For example, the variable object
 header format meant to improve interpreter performance and memory requirements
@@ -248,7 +261,8 @@ made Cog's assembler for probing the inline cache larger than it should be,
 costing additional performance on every send. As a result, Squeak's object
 format was changed to a new object format called \emph{Spur} that (among other
 optimizations) allows more primitives to be implemented in optimized assembler
-and that simplifies the inline cache code.
+and that simplifies the inline cache
+code~\cite{Miranda:2015:PRB:2754169.2754186}.
 
 The communities around Squeak, Pharo, and Cuis continue to evolve their various
 Smalltalk dialects. This includes evolving the core class library (such as
@@ -337,6 +351,43 @@ different storage types that Smalltalk developers can use when
 subclassing. Finally, \lstinline!W_CompiledMethod! represents the special format
 of Squeak's CompiledMethod that mixes pointer and byte fields.
 
+One nice effect of the abstraction using model classes is that features can be
+implemented in an object-oriented manner. For example, accessing fields is
+simply implemented in subclass-specific \lstinline!at0! and \lstinline!atput0!
+methods. Even a feature as specific as \lstinline!become! is easily implemented
+for objects of the same structure: rather than doing a full GC scan and changing
+all pointers, we merely need to exchange the RPython model objects' fields. For
+example, our \lstinline!become! implementation for a variable words object that
+is represented on RPython as a \lstinline!W_WordsObject! simply needs to
+exchange the fields of these objects: a words array, an optional object to
+represent the words array as a native C-level array (used for interoperability
+with existing Squeak plugins), the object hash, and the class reference. The
+latter two fields are implemented in the abstract model classes
+\lstinline!W_AbstractObjectWithIdentityHash! and
+\lstinline!W_AbstractObjectWithClassReference!,
+respectively. \lstinline!W_WordsObject! inherits from these and specializes
+their become implementation.
+
+\begin{lstlisting}[language=Python]
+# from W_WordsObject
+def _become(self, w_other):
+    assert isinstance(w_other, W_WordsObject)
+    self.words, w_other.words = w_other.words, self.words
+    self.native_words, w_other.native_words = w_other.native_words, self.native_words
+    W_AbstractObjectWithClassReference._become(self, w_other)
+
+# from W_AbstractObjectWithClassReference
+def _become(self, w_other):
+    assert isinstance(w_other, W_AbstractObjectWithClassReference)
+    self.w_class, w_other.w_class = w_other.w_class, self.w_class
+    W_AbstractObjectWithIdentityHash._become(self, w_other)
+
+# from W_AbstractObjectWithIdentityHash
+def _become(self, w_other):
+    assert isinstance(w_other, W_AbstractObjectWithIdentityHash)
+    self.hash, w_other.hash = w_other.hash, self.hash
+\end{lstlisting}
+
 \paragraph{Immediate Classes}
 All Squeak \ac{vm}s use pointer tagging for SmallInteger, and recently the Spur
 and Spur64 object memory formats have introduced tagging also for Characters and
@@ -387,7 +438,17 @@ object-oriented fashion made it easier for new developers to contribute to its
 development. We had the same experience with SqueakJS. However, in RPython the
 additional performance that can be achieved by a few well-placed \ac{jit}
 annotations allows even new developers to extend the \ac{vm} and immediately
-achieve very good performance.
+achieve very good performance. The most important \ac{jit} annotations so far
+have been \lstinline!elidable! and \lstinline!promote!. The former tells that
+\ac{jit} that a certain RPython method is \emph{pure}, that is, its return value
+will be the same if all arguments are the same. The second tells the \ac{jit}
+that an object is likely to be constant in a given execution trace. The
+students, just knowing this abstract description, used these annotations
+extensively in many parts of the \ac{vm} when they knew that many objects that
+are theoretically mutable in Squeak (method dictionaries, compiled methods,
+literals, strings, ...) nonetheless are unlikely to change. Thus, these
+annotations completely avoid any infrastructure for caching (such as method
+caches) and offload this work to the \ac{jit}.
 
 Another lesson we learned from avoiding pointer tagging was that it made the
 transition to Spur much easier --- adding support for immediate float and
@@ -437,7 +498,6 @@ fields in that shadow, and subsequently direct all read and write operations
 through that shadow, which acts as an adapter to provide a more \ac{vm}-friendly
 interface. In Potato, shadows were used to represent large positive integers
 also as Java big integers for primitive operations.
-
 
 \begin{figure*}
   \centering
@@ -495,6 +555,31 @@ and a model object for each Smalltalk object, the JIT that is generated for the
 RPython sources removes almost all of these allocations in loops. For example,
 fields of context parts are mapped to registers or they are omitted entirely if
 they are found to not escape the loop.
+
+\subsection{Shadows for the Meta-object Protocol}
+Shadows make the implementation of RSqueak/VM more complex than we would like in
+some cases. A major reason for this complexity (and some lost performance that
+comes with it) is how Squeak's meta-object protocol is used in the system. In
+particular the ``special'' objects that are ordinary objects from the point of
+view of the \ac{vm} can and are manipulated as such. This includes method
+dictionaries, method literals, compiled methods, strings, large integers,
+floats, classes. This mutability is actually used by the development tools. For
+example, method dictionaries are manipulated by writing directly into the
+underlying arrays that implement the dictionary, but there is no explicit
+\ac{vm} callback that passes this object. Thus, RSqueak/VM uses a special shadow
+to notice such manipulation to selectively invalidate \ac{jit} code involving
+those method dictionaries. Without such special shadows, it is very easy to have
+too coarse grained caching in the \ac{jit}, leading to frequent invalidation of
+machine code during development.
+
+Shadows abstract from the Squeak object layout for these special objects to
+provide object-oriented, RPython-level methods for tasks such as method lookup
+or temporary variable access. A benefit of them is that, since these shadows are
+still ordinary RPython objects, they can be returned and handed around as
+such. This makes, for example, the implementation of Squeak's meta-object
+protocol for accessing the current context trivial to implement. All bytecodes
+are implement as methods on the class \lstinline!ContextPartShadow!. The
+bytecode to access the active context simply pushes self on to the stack.
 
 \section{Simulated Primitives in \rsqueak}
 
@@ -614,9 +699,9 @@ distinction.
 
 \ParSep
 
-\autoref{fig:benchmarks} presents various benchmarks specific to Squeak or taken
-from the computer language shootout. The entire suite of benchmarks is
-available\footnote{\url{http://hpi.de/swa/squeaksource/BenchmarkRunner},
+\autoref{fig:benchmarks} presents various benchmarks specific to Squeak and
+taken from the computer language shootout. The entire suite of benchmarks is
+available online\footnote{\url{http://hpi.de/swa/squeaksource/BenchmarkRunner},
   accessed May 20, 2016}. The benchmark results represent the average of the
 middle 95\% measured over 100 benchmark runs and normalized to the Spur Squeak
 \ac{vm} version 16.18.3692. The \rsqueak version we used was c6487cb7d1. All

@@ -351,6 +351,8 @@ Since this is a feature of the RPython framework and not of any specific
 language implementation, the same principle should also work with any other
 interpreter written in RPython.
 
+\tfel{We haven't shown anything up to this point, need to do it}
+
 Now, that we have shown how we can switch between interpreters, we need to find
 a way to schedule loop switches.
 Smalltalk has a concept of processes which can be scheduled
@@ -364,6 +366,8 @@ Smalltalk.
 
 \subsection{Bridging between Squeak and PyPy}
 \label{sec:bridg-betw-sque}
+
+\tfel{needs graphic}
 
 With this new virtual machine, we can open a \Squeak image and make it aware
 that the \ac{vm} also supports the Python programing language.
@@ -466,7 +470,7 @@ This is possible, because the Python frame contains the current line number
 With this information, a helper method can read the right file and parse out the
 corresponding Python code which is then displayed in the browser.
 To further improve usability, we automatically adjust indentation, because
-Python has strong indentation rules.
+in Python, indentation is part of the syntax.
 
 Moreover, we have overriden the method in \lstinline{PythonContext} that returns
 a list of temporary Smalltalk variables, so that it returns
@@ -488,12 +492,12 @@ This can be done by making new \lstinline{PythonToolSet} the new default, which
   \label{fig:flask_debugger}
 \end{figure}
 
+\tfel{This debugger has different frames compared to the other figure (the other is better)}
+
 \autoref{fig:flask_debugger} shows the \lstinline{PythonDebugger} after an user
 interrupt.
-The Python application running is a HelloWorld Flask-based web server.
-Even though Flask claims to be a lightweight web framework, the number of Python
-frames is surprisingly high.
-That is, because one can now explore the current control flow starting from the
+The Python application running is a HelloWorld ``Flask''-based web server.
+We can now explore the current control flow starting from the
 \lstinline{DoIt} Smalltalk frame which started the application up to the topmost
 Python frame including the latest line being executed at the time of the user
 interrupt.
@@ -502,8 +506,10 @@ Flask's main entry point, request handling in Werkzeug (one of Flask's few
 dependencies), as well as the \lstinline{SocketServer} module which is part of the
 Python standard library.
 This immediately gives developers a lot of information to understand the
-running application, such as that Flask uses Werkzeug which then uses
-\lstinline{SocketServer} in order to serve requests and in which files and lines
+running application. For example, Flask is considered to be a lightweight web
+framework. Developers can now interactively experience what that means, and
+discover that Flask uses a library called ``Werkzeug'' which in turn uses
+``SocketServer'' in order to serve requests and in which files and lines
 the corresponding functions can be found.
 
 \begin{figure*}
@@ -560,26 +566,81 @@ code.
 \section{Discussion}
 \label{sec:discussion}
 
-\tfel[inline]{your input}
+Our goal was to provide the best of two previously separate worlds: the
+framework approach to \ac{ide} development provided by environments such as
+Eclipse or NetBeans, and the live and immediate debugging nature of systems such
+as Squeak/Smalltalk. As a second dimension, we attempted to create an approach
+that impedes performance of the integrated languages as little as possible to be
+considered useful.
 
-\todolist{Discussion}{
-\item vgl Eclipse.
-  \begin{itemize}
-  \item was?
-  \end{itemize}
-\item Performance
-  \begin{itemize}
-  \item Compare with Eclipse
-  \item Ideas to improve performance?
-  \item Start Python scripts directly from cmd and open Squeak on error
-  \end{itemize}
-\item positive side-effect: framework/library reuse in Smalltalk for free
-% Lastly, this approach provide another benefit for free: it also allows to reuse
-% libraries and frameworks written in Python inside a Smalltalk project and vice
-% versa.
-\item Call Smalltalk from Python -> Debugger with Smalltalk/Python/Smalltalk frames?
-\item multiple interpreters: Python+Ruby+Prolog+Smalltalk interaction
-}
+\paragraph{Tool Frameworks and Live Development}
+We have shown that our Python debugger is implemented as a subclass of the
+default Squeak debugger. Through the multi-language interface, this debugger can
+adapt the Python runtime state to the expectations of the Squeak tools. The
+implementation of the debugger was straightforward as described in
+Section~\ref{subsec:debugger-adaptation}. Other languages can provide their own
+adapter to interface with the Squeak debugger, allowing for an architecture
+similar to that of Eclipse, NetBeans, or similar \acp{ide}.
+
+However, a debugger alone does not an \ac{ide} make. We also wrote adapters for
+Squeak's code browser, the ``workspace'' (a tool to evaluate short code
+snippets), and object inspector to write and evaluate Python code and to
+interactively explore Python objects.
+
+Our experience in writing those tools was as enjoyable to us as writing
+Smalltalk tools \--- the interactive environment allowed us to adapt the tools
+as we went along, implementing features in the moment we wanted them. These
+advantages, inherent to live development environments \tfel{cite marcel}, are
+thus made available to Python developers, allowing them to adapt tools at
+run-time, without having to restart the \ac{ide} or re-execute a running program
+to iterate over them. Since the tools work on the Python objects directly, there
+was little need for proxy objects, since the tools could directly interact with
+the live Python state.
+
+\paragraph{Performance of the combined languages}
+The RPython toolchain makes it simple to combine multiple interpreters, but
+there is a performance impact in doing so. There are two reasons, one inherent
+to the RPython toolchain, the other due to our approach.
+
+The first reason is a current limitation in the RPython framework: only one
+language can have its frames ``virtualized'' on the stack, the others can only
+remove the frame allocations if the \ac{jit} can prove they are not used. In our
+case, this means that while RSqueak/VM runs at full speed, there as an overhead
+to each PyPy method call. \tfel{can we measure it? just a ballpark figure would
+  be alright}
+
+The second reason is that our approach relies on a simple cooperative scheduling
+mechanism based on Squeak/Smalltalk processes to concurrently execute code in
+different interpreter loops. Each interpreter maintains counters to decide when
+to give the other interpreter a chance to run. At minimum, the Squeak UI process
+will get a chance to handle user input, but there may also be other processes
+running concurrently at the same or higher priority that get scheduled
+instead. At minimum, this means that there is the overhead of maintaining the
+counters \--- at the moment at each bytecode dispatch in PyPy. This overhead can
+be reduced if we switch to counters only for back-jumps (for when we are
+executing in a loop) or method calls. Another possible improvement could be to
+optionally deactivate the Squeak UI process and only start it when a Python
+error needs to be handled or the user interrupted the Python process with a
+signal.
+
+% \todolist{Discussion}{
+% \item vgl Eclipse.
+%   \begin{itemize}
+%   \item was?
+%   \end{itemize}
+% \item Performance
+%   \begin{itemize}
+%   \item Compare with Eclipse
+%   \item Ideas to improve performance?
+%   \item Start Python scripts directly from cmd and open Squeak on error
+%   \end{itemize}
+% \item positive side-effect: framework/library reuse in Smalltalk for free
+% % Lastly, this approach provide another benefit for free: it also allows to reuse
+% % libraries and frameworks written in Python inside a Smalltalk project and vice
+% % versa.
+% \item Call Smalltalk from Python -> Debugger with Smalltalk/Python/Smalltalk frames?
+% \item multiple interpreters: Python+Ruby+Prolog+Smalltalk interaction
+% }
 
 
 \section{Related Work}

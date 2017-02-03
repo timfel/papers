@@ -240,10 +240,10 @@ reproduced for other programming systems have been written from ground up.
 \end{figure*}
 
 
-We propose an architecture for constructing a multi-language
-runtime that attempts to combine the benefits of both approaches: a common
-code-base for tool developers and live, immediate access to the running
-application for inspecting and manipulating state.
+We propose an architecture for constructing a multi-language runtime that
+attempts to combine the benefits of both approaches: a common code-base for tool
+developers and live, immediate access to the running application for inspecting
+and manipulating state.
 
 Our contributions are as follows:
 \begin{itemize}
@@ -276,12 +276,14 @@ process running Smalltalk. This gives developers full control over the running
 applications and therefore allows for very comprehensive debugging tools.
 
 We propose the idea to use a Smalltalk environment as an \ac{ide} for other
-languages and perform the integration on interpreter-level.
-This can be achieved by composing a Smalltalk interpreter with another
-language's interpreter. Interpreter composition is especially
-convenient when both languages are implemented in the same interpreter
-framework, such as RPython~\cite{Ancona:2007:RST:1297081.1297091}, as
-demonstrated in section~\ref{sec:implementation}.
+languages and perform the integration on interpreter-level. This way, our
+architecture avoids the n-to-m problems of interfacing multiple languages by
+mapping all languages into the language of the live environment. This can be
+achieved by composing a Smalltalk interpreter with another language's
+interpreter. Interpreter composition is especially convenient when both
+languages are implemented in the same interpreter framework, such as
+RPython~\cite{Ancona:2007:RST:1297081.1297091}, as demonstrated in
+section~\ref{sec:implementation}.
 
 However, this kind of composition states the problem of how to run two or more
 interpreters at the same time. Smalltalk has a concept of processes which can be
@@ -367,7 +369,7 @@ Smalltalk.
 \subsection{Bridging between Squeak and PyPy}
 \label{sec:bridg-betw-sque}
 
-\tfel{needs graphic}
+\tfel{needs architectural graphic?}
 
 With this new virtual machine, we can open a \Squeak image and make it aware
 that the \ac{vm} also supports the Python programing language.
@@ -573,34 +575,40 @@ as Squeak/Smalltalk. As a second dimension, we attempted to create an approach
 that impedes performance of the integrated languages as little as possible to be
 considered useful.
 
-\paragraph{Tool Frameworks and Live Development}
+\subsection{Tool Frameworks and Live Development}
 We have shown that our Python debugger is implemented as a subclass of the
-default Squeak debugger. Through the multi-language interface, this debugger can
-adapt the Python runtime state to the expectations of the Squeak tools. The
-implementation of the debugger was straightforward as described in
+default Squeak debugger. Through the multi-language interface
+(c.f.~Section~\ref{sec:bridg-betw-sque}), this debugger can adapt the Python
+runtime state to the expectations of the Squeak tools. The implementation of the
+debugger was straightforward as described in
 Section~\ref{subsec:debugger-adaptation}. Other languages can provide their own
 adapter to interface with the Squeak debugger, allowing for an architecture
-similar to that of Eclipse, NetBeans, or similar \acp{ide}.
+similar to that of Eclipse, NetBeans, or other \acp{ide}.
 
 However, a debugger alone does not an \ac{ide} make. We also wrote adapters for
 Squeak's code browser, the ``workspace'' (a tool to evaluate short code
-snippets), and object inspector to write and evaluate Python code and to
-interactively explore Python objects.
+snippets), and implemented adapter method for the \lstinline{PythonObject} class
+to work with Squeak's object inspector. We are thus able (in a rudimentary
+fashion) to write and evaluate Python code and to interactively explore Python
+objects in the live system.
 
-Our experience in writing those tools was as enjoyable to us as writing
-Smalltalk tools \--- the interactive environment allowed us to adapt the tools
-as we went along, implementing features in the moment we wanted them. These
-advantages, inherent to live development environments \tfel{cite marcel}, are
-thus made available to Python developers, allowing them to adapt tools at
-run-time, without having to restart the \ac{ide} or re-execute a running program
-to iterate over them. Since the tools work on the Python objects directly, there
-was little need for proxy objects, since the tools could directly interact with
-the live Python state.
+Our experience in writing those tools was every bit as enjoyable for us as
+writing Smalltalk tools is \--- the interactive environment allowed us to adapt
+the tools as we went along, implementing features in the moment we wanted
+them. These advantages, inherent to live development environments \tfel{cite
+  marcel}, are thus made available to Python developers, allowing them to adapt
+tools at run-time, without having to restart the \ac{ide} or re-execute a
+running program to iterate over them. Since the tools work on the Python objects
+directly, there was no need for proxy objects besides \lstinline{PythonContext},
+and these were only needed because Python frames are not exposed in the Python
+language itself. (Of course, the interaction and library re-use goes beyond
+tools and also works in the other direction, so Python code can be used for
+Smalltalk projects.)
 
-\paragraph{Performance of the combined languages}
+\subsection{Performance of Combined Languages}
 The RPython toolchain makes it simple to combine multiple interpreters, but
 there is a performance impact in doing so. There are two reasons, one inherent
-to the RPython toolchain, the other due to our approach.
+to RPython, the other due to our approach.
 
 The first reason is a current limitation in the RPython framework: only one
 language can have its frames ``virtualized'' on the stack, the others can only
@@ -609,19 +617,20 @@ case, this means that while RSqueak/VM runs at full speed, there as an overhead
 to each PyPy method call. \tfel{can we measure it? just a ballpark figure would
   be alright}
 
-The second reason is that our approach relies on a simple cooperative scheduling
-mechanism based on Squeak/Smalltalk processes to concurrently execute code in
-different interpreter loops. Each interpreter maintains counters to decide when
-to give the other interpreter a chance to run. At minimum, the Squeak UI process
-will get a chance to handle user input, but there may also be other processes
-running concurrently at the same or higher priority that get scheduled
-instead. At minimum, this means that there is the overhead of maintaining the
-counters \--- at the moment at each bytecode dispatch in PyPy. This overhead can
-be reduced if we switch to counters only for back-jumps (for when we are
-executing in a loop) or method calls. Another possible improvement could be to
-optionally deactivate the Squeak UI process and only start it when a Python
-error needs to be handled or the user interrupted the Python process with a
-signal.
+The second reason is that our approach relies on the cooperative scheduling
+mechanism of \Squeak processes to concurrently execute code in different
+interpreter loops. Each interpreter maintains counters to decide when to give
+the other processes a chance to run. At minimum, the Squeak UI process will get
+a chance to handle user input, but there may also be other processes running
+concurrently at the same or higher priority that get scheduled instead. This
+means that even when there is no user input and no other concurrent computation,
+there is the overhead of maintaining the counters \--- at the moment at each
+bytecode dispatch in PyPy. This overhead can be reduced if we switch to counters
+only for back-jumps (for when we are executing in a loop) and method calls. As
+another mitigation strategy, we are considering to allow the user easily to
+deactivate the Squeak UI process and only start it when a Python error needs to
+be handled or the user interrupted the Python process with a signal. This might
+be desirable for a deployment scenario.
 
 % \todolist{Discussion}{
 % \item vgl Eclipse.
@@ -724,17 +733,16 @@ Additionally, we have adopted the inspection tools in \Squeak, so that they can
 be used to inspect and explore Python objects.
 Moreover, it is now possible to rapidly build new tools in Smalltalk
 
-In the future, we want to adapt more tools, such as the \texttt{SystemBrowser}.
-Then it would be possible to write Python applications from within \Squeak.
+In the future, we want to continue adapt Squeak tools to Python, such as the
+\texttt{SystemBrowser}, to make it possible to write entire Python applications
+from within the \Squeak environment.
 We also want to evaluate whether building application-specific tools in
 Smalltalk, for example using Vivide~\cite{taeumel2012vivide}, translates to
-other languages.
-Additionally, we want to apply our approach to other programming languages.
-There already are various interpreters written in RPython, such as
-Pyrolog~\cite{barrett2013unipycation} for Prolog,
-Pycket~\cite{bauman2015pycket} for Racket,
-Topaz~\footnote{\url{https://github.com/topazproject/topaz}} for Ruby,
-and more.
+other languages. Additionally, we have already begun to apply the same approach to
+Topaz~\footnote{\url{https://github.com/topazproject/topaz}} (an RPython Ruby
+\ac{vm}) and are going to apply it to other RPython interpreters, such as
+Pyrolog~\cite{barrett2013unipycation} for Prolog and
+Pycket~\cite{bauman2015pycket} for Racket.
 
 \todolist{what to do}{
 \item More tools (browser)

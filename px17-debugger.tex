@@ -58,7 +58,7 @@
 \newacronym{jvmti}{\textsc{jvmti}}{\ac{jvm} Tools Interface}
 \newacronym{vm}{\textsc{vm}}{virtual machine}
 \newcommand*\jit{\ac{jit} compiler\xspace}
-\newcommand{\hairspace}{\kern .04167em}
+\providecommand*\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
 \newcommand{\eg}{e.\hairspace{}g.,\xspace}
 \newcommand{\Eg}{E.\hairspace{}g.,\xspace}
 \newcommand{\Ie}{I.\hairspace{}e.,\xspace}
@@ -336,7 +336,22 @@ quickly be prototyped and build in Smalltalk.
 
 We have applied our approach in \autoref{sec:approach}, so that we can use
 \Squeak as an \ac{ide} for Python.
+\autoref{fig:architecture} shows the resulting architecture of our
+implementation.
+On \ac{vm}-level, there is an interpreter loop for each language as well as a
+\ac{vm} plugin with a set of primitives which allow Smalltalk to interact with
+the Python bytecode loop.
+In the Smalltalk image, we have introduced different classes in order to bridge
+between Python and Smalltalk.
 In the following, we explain details of this implementation.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=.96\linewidth]{resources/squeak_pypy_architecture}
+  \caption{Architecture of the Smalltalk+Python composition.}
+  \label{fig:architecture}
+\end{figure}
+
 
 \subsection{VM-level Implementation}
 \label{sec:vm-level}
@@ -347,7 +362,8 @@ This can be achieved by composing a Smalltalk interpreter with a Python
 interpreter.
 RSqueak/VM~\cite{Bolz2008} is a RPython-based \ac{vm}
 implementation for Squeak~\cite{ingalls1997back}, a
-Smalltalk implementation derived from Smalltalk-80 and a live programming environment.
+Smalltalk implementation derived from Smalltalk-80 and a live programming
+environment.
 PyPy~\cite{Rigo:2006:PAV:1176617.1176753} is a Python implementation and the
 first RPython \ac{vm}.
 
@@ -399,44 +415,57 @@ library. Stacklets allow us to implement minimal coroutines for regions of the C
 stack to switch between the two interpreter loops. Since this is a feature of
 the RPython framework and not of any specific language implementation, the same
 principle can also be applied to any other interpreter written in RPython.
+Smalltalk.
+
+Similar to other Smalltalk \ac{vm}s, RSqueak/VM can be extended with plugins.
+Not only have we added \ac{vm} primitives that can be called from within the
+Smalltalk environment to control the PyPy interpreter loop.
+Since RPython is a subset of Python which compiles to C, we were able to
+build the entire composition in a single \texttt{PythonPlugin}.
+The code of the plugin for example also patches the PyPy bytecode loop as well
+as the class which represents Python frames internally before the actual
+translation starts.
+After translating this new virtual machine, we can open a \Squeak image and
+make it aware that the \ac{vm} also supports the Python programming language.
+
 
 \subsection{Bridging between Squeak and PyPy}
 \label{sec:bridg-betw-sque}
 
-\begin{figure}
-  \centering
-  \includegraphics[width=.96\linewidth]{resources/squeak_pypy_architecture}
-  \caption{Architecture of the Squeak+PyPy composition.}
-  \label{fig:architecture}
-\end{figure}
-
-\fabio{Auf architecture Figure eingehen}
-
-With this new virtual machine, we can open a \Squeak image and make it aware
-that the \ac{vm} also supports the Python programing language.
-We start with introducing a special \lstinline{PythonObject} class in Smalltalk
-and add appropriate primitives to the virtual machine in order to be able to
-interact with and send messages to Python objects.
+We start with introducing a subclass of \lstinline{Object} that we call
+\lstinline{PythonObject}.
+This class is special, because the \ac{vm} will automatically expose objects
+of the Python object space as instances of this new class.
+In addition, all \texttt{PythonPlugin} primitives are able to automatically
+convert primitive data types between Python and Smalltalk.
+Python strings are therefore for example converted to Smalltalk
+\lstinline{ByteString}s and vice-versa.
+Now that the \ac{vm} can inject any kind of Python object into an image, we need
+be able to interact with these objects.
+For this reason, we have added appropriate primitives to the virtual machine.
 The most important primitive is the \lstinline{pythonEval} primitive which can
-evaluate Python expressions or execute Python code.
-Similar to Python's \lstinline{compile} builtin, it expects Python source code, a
-corresponding filename, as well as a string which describes the mode and can
+evaluate Python expressions and execute Python code.
+Similar to Python's \lstinline{compile} builtin, it expects Python source code,
+a corresponding filename, as well as a string which describes the mode and can
 either be ``eval'' or ``exec''.
-When a Python expression is evaluated, the primitive return the result.
+When a Python expression is evaluated, the primitive returns the result.
 Otherwise, it will execute Python and return \lstinline{nil} or fail if for
-example a syntax error was raised.
+example a syntax error occurred.
 To clearly separate methods that call primitives from methods that can be called
-on \lstinline{PythonObject}s, we add a new class called \lstinline{Python} and add
-for example a method \lstinline{Python class>>primEval:filename:mode:} which can be
-used to call the \lstinline{pythonEval} primitive.
+on \lstinline{PythonObject}s, we add a new class called \lstinline{Python} and
+add for example a method \lstinline{Python class>>primEval:filename:mode:} which
+can be used to call the \lstinline{pythonEval} primitive.
+As an example, we could call the following to get a new instance of Python's
+\lstinline{object} class:
 
-The Smalltalk-part of the virtual machine is able to wrap Python objects in
-order to be able to expose them as Smalltalk objects in the Smalltalk
-environment.
-Primitives values such as strings or integers are automatically converted
-between the two languages.
+\begin{lstlisting}[style=SmalltalkStyle]
+  Python
+    primEval: 'object()'
+    filename: '<string>'
+    mode: 'eval'
+\end{lstlisting}
 
-Additionally, we have modified the method lookup for these kinds of wrapped
+We also have modified the method lookup for these kinds of wrapped
 Python objects.
 First, the lookup is done on the Python side.
 If the method lookup fails, the lookup continues in the \lstinline{PythonObject}
@@ -761,42 +790,37 @@ debugging other programming languages. We applied this approach to the
 RSqueak/VM and PyPy, so that \Squeak can be used for Python debugging and
 direct interaction between the virtual execution environments. \Squeak can
 therefore control the Python interpreter, which enables a edit-and-continue
-style debugging of Python programs. We demonstrated that only few work is
-necessary to adapt Squeak's debugger to alter and control the execution of
+style debugging of Python programs. We demonstrated that only little effort is
+required to adapt Squeak's debugger to alter and control the execution of
 Python code. Such features are not available most other Python implementations,
 including the reference CPython implementation. Moreover, we adapted the
 inspection tools in \Squeak to be able to inspect and explore Python objects.
 We can now build new tools for Python in \Squeak more rapidly.
 
-In the future, we want to continue adapt Squeak tools to Python, such as the
-\texttt{SystemBrowser}, to make it possible to write entire Python applications
-from within the \Squeak environment.
+Our initial results with the debugger are promising and demand expansion to
+other tool as well as languages. We plan to adapt Squeak tools, such as the
+system browser, to Python in such a way that Squeak can act as an \ac{ide} for
+Python applications, but benefitting from the dynamicity of Squeak's
+environment.
 % We also want to evaluate whether building application-specific tools in
 % Smalltalk, for example using Vivide~\cite{taeumel2012vivide}, translates to
 % other languages. 
-Moreover, it would be interesting to see how well Python applications that are
-much larger than a simple Web service can be debugged and developed with
-these tools.
+Moreover, it will be interesting to see how well much larger Python
+applications can be debugged and developed using these tools. It is currently
+possible to affect Python objects from \Squeak but not vice versa, which would
+be also useful. For example, a \Squeak image could act as object space or even
+database similar to GemStone~\cite{butterworth1991gemstone}. The changes
+required on the Python side are however still uncertain.
 
-Our approach enables calling on Python objects from Smalltalk, but the reverse
-would also be useful. This would, for example, allow us to use a \Squeak image
-as a database for objects, similar to GemStone~\cite{butterworth1991gemstone}.
-However, the changes this would require changes in the Python interpreter are
-not clear at this point, or how these changes would generalize to other
-languages.
+To extend our approach to other language, we have already started integrating
+Topaz\footnote{\url{https://github.com/topazproject/topaz}}\slash Ruby and plan
+to integrate other interpreters based on RPython, such as
+Pyrolog~\cite{barrett2013unipycation}\slash Prolog or
+Pycket~\cite{bauman2015pycket}\slash Racket.
 
-Additionally, we have already begun to apply the same approach to
-Topaz~\footnote{\url{https://github.com/topazproject/topaz}} (an RPython Ruby
-\ac{vm}) and are going to apply it to other RPython interpreters, such as
-Pyrolog~\cite{barrett2013unipycation} for Prolog and
-Pycket~\cite{bauman2015pycket} for Racket.
-
-\todolist{what to do}{
-\item More tools (browser)
-\item Reuse other tool frameworks (Vivide?)
-\item Compose \emph{other} languages!! (Ruby/Topaz, Prolog/Pyrolog, Racket/Pycket)
-\item Bigger apps (numpy, django!)
-\item More broad Eval (user testing, maybe benching)}
+Lastly, we plan to evaluate our approach more thoroughly, on the one
+hand\---regarding the programming experience\---with user studies, on the other
+hand\---regarding performance\---with meaningful benchmarks.
 
 \begin{acks}
 We would like to thank Carl Friedrich Bolz and the PyPy team for their help

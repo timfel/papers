@@ -58,6 +58,7 @@
 \newacronym{jvmti}{\textsc{jvmti}}{\ac{jvm} Tools Interface}
 \newacronym{vm}{\textsc{vm}}{virtual machine}
 \newcommand*\jit{\ac{jit} compiler\xspace}
+\newcommand{\hairspace}{\kern .04167em}
 \newcommand{\eg}{e.\hairspace{}g.,\xspace}
 \newcommand{\Eg}{E.\hairspace{}g.,\xspace}
 \newcommand{\Ie}{I.\hairspace{}e.,\xspace}
@@ -80,6 +81,10 @@
 \todoauthor[LightBlue]{tfel}
 \todoauthor[teal]{topa}
 \todoauthor[yellow]{fabio}
+
+\usepackage{tikz}
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{%
+    \node[shape=circle,draw,inner sep=1pt] (char) {#1};}}
 
 \setcopyright{acmlicensed}
 \acmDOI{10.475/123_4}
@@ -352,31 +357,49 @@ as a live development environment for Python.
 However and as mentioned in \autoref{sec:approach}, combining the two
 interpreter loops raises the problem of how to run them concurrently.
 
-First, it is possible to interrupt each interpreter loop, for example by
-interrupting after a certain numbers of bytecodes processed.
-Nonetheless, PyPy's interpreter is stackful and does not provide any sort of
-continuation mechanism which would allow us to resume the interpretation of
-Python at a later time.
-The RPython framework includes so called RStacklets which provide minimal
-coroutines when translated to C.
-Therefore, we can use these RStacklets to create coroutines which can switch
-between the two interpreter loops.
-Since this is a feature of the RPython framework and not of any specific
-language implementation, the same principle should also work with any other
-interpreter written in RPython.
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{resources/squeak_python_dynamic_execution}
+  \caption{Mixed-stack Smalltalk and Python frames}
+  \label{fig:mixed-stack}
+\end{figure}
 
-\tfel{We haven't shown anything up to this point, need to do it}
+Smalltalk implements cooperative multitasking through
+\emph{processes}~\cite{Goldberg:1983:SLI:273}. We leverage this and integrate
+the execution of Python bytecodes with a Smalltalk-level process, leaving the
+decision when to run Python bytecodes up to the Smalltalk scheduler. This allows
+us to interact with the \Squeak environment as usual while a Python program is
+running, as well as to interrupt the process executing a Python to inspect it
+from Smalltalk.
 
-Now, that we have shown how we can switch between interpreters, we need to find
-a way to schedule loop switches.
-Smalltalk has a concept of processes which can be scheduled
-dynamically~\cite{Goldberg:1983:SLI:273}.
-We can leverage this and integrate the execution of Python bytecodes with a
-Smalltalk-level process, leaving the decision when to run more Python bytecodes
-up to the Smalltalk scheduler.
-This allows us to interact with the \Squeak environment while a Python
-program is running, as well as to interrupt the process to inspect it from
-Smalltalk.
+\autoref{fig:mixed-stack} shows how we create a mixed stack of Python and
+Smalltalk frames that is managed like any other Squeak process. The core
+responsibility of the \ac{vm} in our approach is to maintain the
+sender-relationship \circled{2}--\circled{1} and \circled{4}--\circled{3} across
+interpreter loops.
+
+We switch from Squeak to Python by executing a primitive \circled{1} to enter
+Python code. This creates a Python frame \circled{2} that executes in the Python
+interpreter loop. When this frame returns, the \ac{vm} will return from the
+primitive \circled{1} and transfer control back to its sender.
+
+While the Python interpreter is running, we maintain a counter of how many
+Python bytecodes have executed to decide when to transfer control back to Squeak
+to give other processes a chance to run (\eg so that the UI process can handle
+user input). Since Python frames are not visible to Squeak and thus the Squeak
+scheduler cannot switch directly back to Python frames at a later time, we
+create an entry point for. When the Python interpreter loop switches back to
+Squeak, the top Python frame \circled{3} creates an artifical suspended Squeak
+``resume'' frame \circled{4} which it is connected to. When the Squeak scheduler
+resumes this artifical frame later, it immediately returns control back to the
+top Python frame \circled{3}.
+
+Since interpreters maintain some execution state directly on the stack, we use
+\emph{Stacklets}~\cite{??}, which are provided by the RPython standard
+library. Stacklets allow us to implement minimal coroutines for regions of the C
+stack to switch between the two interpreter loops. Since this is a feature of
+the RPython framework and not of any specific language implementation, the same
+principle can also be applied to any other interpreter written in RPython.
 
 \subsection{Bridging between Squeak and PyPy}
 \label{sec:bridg-betw-sque}

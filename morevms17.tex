@@ -42,19 +42,99 @@
 This is the text of the abstract.
 \end{abstract}
 
-\category{CR-number}{subcategory}{third-level}
+\category{D.3.4}{Processors}{Run-time environments}
 
 % general terms are not compulsory anymore,
 % you may leave them out
-\terms
-term1, term2
+% \terms
+% term1, term2
 
 \keywords
-keyword1, keyword2
+Smalltalk, Python, virtual machines, performance, benchmarks
 
 \section{Introduction}
 
-The text of the paper begins here.
+\begin{enumerate}
+  \item Enable frame-level hot-patching for more powerful Python debugger
+  \item We could've build an API into interpreter, like JVMTI, but that's time
+    consuming and has limitations
+  \item Our approach vs. Debugging at Full
+    Speed~\cite{Seaton:2014:DFS:2617548.2617550}?
+\end{enumerate}
+
+\section{Implementation Details}
+
+\begin{enumerate}
+  \item Interpreter composition
+  \item Execution of Python bytecodes in Smalltalk-level process
+\end{enumerate}
+
+\subsection{Switching Back to Squeak}
+
+\begin{enumerate}
+  \item Implemented as PeriodicAction, see:
+    https://github.com/fniephaus/MasterThesis/blob/db1c034def991fb73cbee4bce3ca0a4b7673a93b/rsqueakvm/plugins/python/global\_state.py\#L46-L47
+  \item Number of bytecodes after which Python yields can be adjusted via
+    sys.setcheckinterval(x), e.g. x=100000
+\end{enumerate}
+
+\subsection{Exception Detection}
+
+\begin{enumerate}
+  \item Unhandled exceptions need to be detected asap, because in order to be
+    able to restart a frame, execution context / frames must be preserved
+  \item Implemented by overriding PyFrame.handle\_operation\_error, see:
+    https://github.com/fniephaus/MasterThesis/blob/a42eea725bcfc2b76ebf036e08ee73dc492325f5/rsqueakvm/plugins/python/patching.py\#L97-L106
+  \item self.has\_exception\_handler(operr) checks if any frame has any block
+    that is able to handle operr, this identifies unhandled exceptions
+\end{enumerate}
+
+\subsection{Restarting Frames}
+
+\begin{enumerate}
+  \item possible to restart frames with new bytecode
+  \item SwitchToSmalltalkAction checks for restart info set by restart
+    primitives and raises RestartException if necessary
+
+    https://github.com/fniephaus/MasterThesis/blob/a42eea725bcfc2b76ebf036e08ee73dc492325f5/rsqueakvm/plugins/python/global\_state.py\#L38-41
+    https://github.com/fniephaus/MasterThesis/blob/a42eea725bcfc2b76ebf036e08ee73dc492325f5/rsqueakvm/plugins/python/patching.py\#L22-L33
+  \item PyFrame.execute\_frame override handles RestartException and creates a
+    new frame in frame to restart (that's why RestartException is re-raised)
+
+    https://github.com/fniephaus/MasterThesis/blob/a42eea725bcfc2b76ebf036e08ee73dc492325f5/rsqueakvm/plugins/python\_plugin.py\#L125-L157
+\end{enumerate}
+
+Changes to PyPy interpreter cause potential overhead.
+Benchmarks for comparison...
+
+\section{Benchmarks}
+
+\begin{enumerate}
+  \item richards, pypy benchmarks, ...
+  % DoIt for richards:
+  % `Python primEvalInThread: 'import sys; sys.path.append("<path to richards.py>"); from richards import main; main(iterations=1000)' filename: '<string>' cmd: 'exec'.'
+  \item PyPy vs. RSqueak+PyPy (with and without exception handling enabled) vs. CPython
+  % Computer Language Benchmarks run on Python3 :(
+\end{enumerate}
+
+\section{Discussion}
+
+\begin{enumerate}
+  \item overhead not big (PyPy vs RSqueak+PyPy), still much faster than CPython
+  \item good tradeoff, because it enables much more powerful debugging tools
+    that can operate on actual objects instead of on proxies (with limited
+    access)
+  \item Limitations?
+\end{enumerate}
+
+
+\section{Conclusion and Future Work}
+
+\begin{enumerate}
+  \item Python runtime by default, Squeak IDE on error
+  \item Other languages: topaz and co.
+\end{enumerate}
+
 
 \appendix
 \section{Appendix Title}
@@ -63,7 +143,11 @@ This is the text of the appendix, if you need one.
 
 \acks
 
-Acknowledgments, if needed.
+We gratefully acknowledge the financial support of HPI's Research
+School\footnote{\url{https://hpi.de/en/research/research-school.html}} and the
+Hasso Plattner Design Thinking Research
+Program\footnote{\url{https://hpi.de/en/dtrp/}}.
+
 
 
 \bibliographystyle{ACM-Reference-Format}

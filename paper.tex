@@ -34,8 +34,38 @@
 \usepackage{amsmath}
 \usepackage{url}
 \usepackage{natbib}
+\usepackage{graphicx}
+\usepackage{xspace}
+\usepackage{hyperref}
 
-\newcommand{\cL}{{\cal L}}
+\usepackage[acronym]{glossaries}
+\newcommand{\ac}[1]{\gls*{#1}}
+\newcommand{\acp}[1]{\glspl*{#1}}
+\newcommand{\Acp}[1]{\Gls*{#1}}
+
+\newacronym{api}{\textsc{api}}{Application Programming Interface}
+\newacronym{ast}{\textsc{ast}}{Abstract Syntax Tree}
+\newacronym{clr}{\textsc{clr}}{Common Language Runtime}
+\newacronym{ide}{\textsc{ide}}{Integrated Development Environment}
+\newacronym{jit}{\textsc{jit}}{just-in-time}
+\newacronym{jvm}{\textsc{jvm}}{Java Virtual Machine}
+\newacronym{ui}{\textsc{ui}}{user interface}
+\newcommand*\jit{\ac{jit} compiler\xspace}
+\providecommand*\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
+\newcommand{\eg}{e.\hairspace{}g.,\xspace}
+\newcommand{\Eg}{E.\hairspace{}g.,\xspace}
+\newcommand{\Ie}{I.\hairspace{}e.,\xspace}
+\newcommand{\ie}{i.\hairspace{}e.,\xspace}
+\newcommand{\cf}[1]{cf.\,{#1}\xspace}
+\newcommand{\Squeak}{Squeak\slash Smalltalk\xspace}
+
+
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\tableautorefname{Table}
+\def\figureautorefname{Figure}
+
 
 \begin{document}
 
@@ -64,7 +94,8 @@
 \preprintfooter{short description of paper}   % 'preprint' option specified.
 
 \title{GraalSqueak}
-\subtitle{A fast Smalltalk bytecode interpreter written in the AST interpreter framework Truffle}
+\subtitle{A Fast Smalltalk Bytecode Interpreter Written in an AST Interpreter
+          Framework}
 
 \authorinfo{Fabio Niephaus}
            {Hasso Plattner Institute,\\University of Potsdam, Germany}
@@ -87,20 +118,27 @@ This is the text of the abstract.
 \begin{CCSXML}
 <ccs2012>
 <concept>
-<concept_id>10011007.10011006.10011008</concept_id>
-<concept_desc>Software and its engineering~General programming languages</concept_desc>
+<concept_id>10011007.10011006.10011041.10011048</concept_id>
+<concept_desc>Software and its engineering~Runtime environments</concept_desc>
 <concept_significance>500</concept_significance>
 </concept>
 <concept>
-<concept_id>10003752.10010124.10010138.10010143</concept_id>
-<concept_desc>Theory of computation~Program analysis</concept_desc>
+<concept_id>10011007.10011006.10011041.10010943</concept_id>
+<concept_desc>Software and its engineering~Interpreters</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+<concept>
+<concept_id>10011007.10011006.10011066.10011069</concept_id>
+<concept_desc>Software and its engineering~Integrated and visual development environments</concept_desc>
 <concept_significance>300</concept_significance>
 </concept>
 </ccs2012>
 \end{CCSXML}
 
-\ccsdesc[500]{Software and its engineering~General programming languages}
-\ccsdesc[300]{Theory of computation~Program analysis}
+\ccsdesc[500]{Software and its engineering~Runtime environments}
+\ccsdesc[300]{Software and its engineering~Interpreters}
+\ccsdesc[300]{Software and its engineering~Integrated and visual development environments}
+
 % end generated code
 
 % Legacy 1998 ACM Computing Classification System categories are also
@@ -110,18 +148,116 @@ This is the text of the abstract.
 %\category{F.3.2}{Logics and Meanings of Programs}{Semantics of Programming Languages}[Program analysis]
 
 \keywords
-keyword1, keyword2
+Interpreters, Truffle, RPython, Bytecode, Abstract Syntax Trees, Squeak, Smalltalk
 
-\section{Introduction}
+\section{Introduction and Background}
 
-The text of the paper begins here.
+Programming language implementation frameworks have become more and more popular
+as they allow language implementers to use another high-level language and
+useful reusable components, such as garbage collectors or caching mechanisms,
+to implement virtual execution environments for dynamic languages.
+These frameworks, however, often enforce certain implementation styles and are
+usually designed to support only one kind of interpretation model.
+RPython~\cite{Ancona:2007:RST:1297081.1297091}, a language implementation
+framework maintained as part of the PyPy project, for example, is mainly used to
+implement bytecode interpreters as it provides a tracing \ac{jit} compiler which
+is designed to operate on bytecode.
+Oracle's Truffle framework~\cite{Wurthinger:2013:OVR:2509578.2509581}, on the
+other hand, is designed for implementing \ac{ast} interpreters and its \ac{jit}
+compiler applies \ac{ast} nod rewriting and partial evaluation to significantly
+increase runtime performance of a language.
 
-\appendix
-\section{Appendix Title}
+...
 
-This is the text of the appendix, if you need one.
+\Squeak~\cite{ingalls1997back} is a Smalltalk dialect derived from the
+Smalltalk-80 language specification.
+Its default virtual machine OpenSmalltalkVM~\cite{openSmalltalkVM} is
+bytecode-based, written in Slang, a restricted subset of Smalltalk, and features
+a mostly handwritten \ac{jit} compiler.
 
-~\cite{Wurthinger:2013:OVR:2509578.2509581}
+...
+
+mention Graal
+
+...
+
+In this paper, we present and compare the implementations of an \ac{ast}
+interpreter and a bytecode interpreter both for \Squeak and written in
+the Truffle framework.
+We discuss implementation pitfalls and compare their performance with a micro
+benchmark.
+
+
+\section{Implementations}
+
+In this section, we present two different approaches for implementing
+\Squeak interpreters in Truffle.
+
+\paragraph{AST Interpreter}
+
+Since Truffle and Graal operate on \ac{ast}, the natural way of implementing a
+\Squeak interpreter in it is to write an \ac{ast} interpreter.
+However, \Squeak is traditionally bytecode-based, so bytecode streams need to
+be transformed into appropriate \ac{ast} nodes.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=.9\linewidth]{resources/squeak-ast}
+  \caption{Architecture of an \ac{ast} interpreter for Smalltalk in Truffle.}
+  \label{fig:squeak-ast}
+\end{figure}
+
+\autoref{fig:squeak-ast} gives an overview of how the architecture of this setup
+looks like.
+For each Smalltalk method, Smalltalk code is first parsed into a \Squeak
+\ac{ast}.
+This \ac{ast} is then compiled to bytecode by \Squeak's compiler.
+The Truffle interpreter has no direct access to the original \ac{ast} and can
+therefore only operate on bytecode.
+In order to transform the bytecode into corresponding nodes again, we have
+implemented a custom decompiler which is able to reconstruct the original
+\ac{ast} with Truffle nodes.
+Finally, Truffle and Graal can execute this \ac{ast} and perform their
+performance optimizations.
+
+
+\paragraph{Bytecode Interpreter}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=.9\linewidth]{resources/bc-vs-ast}
+  \caption{A bytecode stream and a sequence of \ac{ast} nodes.}
+  \label{fig:bc-vs-ast}
+\end{figure}
+
+
+\section{Evaluation}
+
+tinyBenchmarks
+\begin{itemize}
+  \item GraalSqueak-LoopReporting
+  \item GraalSqueak+LoopReporting
+  \item TruffleSqueak
+  \item RSqueak
+  \item OpenSmalltalkVM
+\end{itemize}
+
+
+\section{Related Work}
+
+\begin{itemize}
+  \item Sulong, TruffleRuby?
+  \item RSqueak
+  \item OpenSmalltalkVM + Sista
+\end{itemize}
+
+
+\section{Conclusion and Future Work}
+
+\begin{itemize}
+  \item Complete the implementation of GraalSqueak and make it fast (more, interesting Truffle-related challenges, e.g. hybrid contexts)
+\end{itemize}
+
 
 \acks
   We gratefully acknowledge the financial support of Oracle Labs\footnote{\url{https://labs.oracle.com/}},

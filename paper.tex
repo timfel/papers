@@ -50,6 +50,7 @@
 \newacronym{ide}{\textsc{ide}}{Integrated Development Environment}
 \newacronym{jit}{\textsc{jit}}{just-in-time}
 \newacronym{jvm}{\textsc{jvm}}{Java Virtual Machine}
+\newacronym{vm}{\textsc{vm}}{Virtual Machine}
 \newacronym{ui}{\textsc{ui}}{user interface}
 \newcommand*\jit{\ac{jit} compiler\xspace}
 \providecommand*\hairspace{\ifmmode\mskip1mu\else\kern0.08em\fi}
@@ -167,39 +168,42 @@ implement bytecode interpreters as it provides a tracing \ac{jit} compiler which
 is designed to operate on bytecode.
 Oracle's Truffle framework~\cite{Wurthinger:2013:OVR:2509578.2509581}, on the
 other hand, is designed for implementing \ac{ast} interpreters and its \ac{jit}
-compiler applies \ac{ast} nod rewriting and partial evaluation to significantly
-increase runtime performance of a language.
-
-...
+compiler applies \ac{ast} node rewriting and partial evaluation to significantly
+increase runtime performance of corresponding interpreters.
 
 \Squeak~\cite{ingalls1997back} is a Smalltalk dialect derived from the
 Smalltalk-80 language specification.
 Its default virtual machine OpenSmalltalkVM~\cite{openSmalltalkVM} is
-bytecode-based, written in Slang, a restricted subset of Smalltalk, and features
-a mostly handwritten \ac{jit} compiler.
-
-...
-
-mention Graal
-
-...
+bytecode-based and features a mostly handwritten \ac{jit} compiler.
+RSqueak/VM~\cite{Felgentreff:2016:BHV:2991041.2991062,Bolz2008} is an
+alternative \ac{vm} for \Squeak and is written in RPython.
+With SOMns~\cite{Marr:2017:CPCD}, a Smalltalk-like interpreter is already
+implemented in Truffle.
+However, it operates entirely on \acp{ast} as it is not image-based like
+traditional Smalltalk-80 systems and can therefore be well optimized on
+GraalVM~\cite{Wurthinger:2013:OVR:2509578.2509581}, the \ac{vm} on which Truffle
+language interpreters run.
 
 In this paper, we present and compare the implementations of an \ac{ast}
 interpreter and a bytecode interpreter both for \Squeak and written in
 the Truffle framework.
-We discuss implementation pitfalls and compare their performance with a micro
-benchmark.
+We report our experiences implementing the different interpretation models in
+Truffle, discuss implementation pitfalls, and compare the performance of the
+different interpreters with a micro benchmark.
 
+% mention Graal?
 
 \section{Implementations}
 
 In this section, we present two different approaches for implementing
 \Squeak interpreters in Truffle.
+% (Short overview of the rest: implementation of bytecodes, primitives, plugins?)
 
 \paragraph{AST Interpreter}
 
-Since Truffle and Graal operate on \ac{ast}, the natural way of implementing a
-\Squeak interpreter in it is to write an \ac{ast} interpreter.
+Since Truffle and the Graal compiler operate on \acp{ast}, the natural way of
+implementing a \Squeak interpreter in Truffle is to write an \ac{ast}
+interpreter.
 However, \Squeak is traditionally bytecode-based, so bytecode streams need to
 be transformed into appropriate \ac{ast} nodes.
 
@@ -211,12 +215,12 @@ be transformed into appropriate \ac{ast} nodes.
 \end{figure}
 
 \autoref{fig:squeak-ast} gives an overview of how the architecture of this setup
-looks like.
+can look like.
 For each Smalltalk method, Smalltalk code is first parsed into a \Squeak
 \ac{ast}.
 This \ac{ast} is then compiled to bytecode by \Squeak's compiler.
 The Truffle interpreter has no direct access to the original \ac{ast} and can
-therefore only operate on bytecode.
+therefore only see \Squeak bytecode.
 In order to transform the bytecode into corresponding nodes again, we have
 implemented a custom decompiler which is able to reconstruct the original
 \ac{ast} with Truffle nodes.
@@ -226,6 +230,12 @@ performance optimizations.
 
 \paragraph{Bytecode Interpreter}
 
+Most languages implementations in Truffle are \ac{ast}-based.
+In order to be able to interpret LLVM on top of the GraalVM,
+Sulong~\cite{Rigger:2016:BLL:2998415.2998416} has been developed and Truffle
+has been extended with optimization mechanisms specifically for bytecode
+interpreters.
+
 \begin{figure}
   \centering
   \includegraphics[width=.9\linewidth]{resources/bc-vs-ast}
@@ -233,7 +243,12 @@ performance optimizations.
   \label{fig:bc-vs-ast}
 \end{figure}
 
-\begin{lstlisting}[language=Java]
+\autoref{fig:bc-vs-ast} shows how a stream of bytecode can be represented by a
+chain of \ac{ast} nodes.
+Since a conditional jump is the only way to branch in \Squeak, each node can
+only have exactly one or, in the case of a conditional jump, two successors.
+
+\begin{lstlisting}[language=Java,caption={A simple loop for interpreting sequences of \ac{ast} nodes.},label=fig:loop1]
 Object executeLoop(VirtualFrame frame) {
   int pc = 0;
   while (pc >= 0) {
@@ -241,6 +256,13 @@ Object executeLoop(VirtualFrame frame) {
   }
 }
 \end{lstlisting}
+
+Consequently, we can define an interpreter loop as shown in \autoref{fig:loop1}.
+However, running this loop with Truffle on the GraalVM will give rather low
+performance.
+At the same time, Truffle compiler threads report that they fail to optimize
+Smalltalk code because its escape analysis warns that virtual frames are being
+materialized for some reason.
 
 
 \begin{lstlisting}[language=Java]
@@ -293,34 +315,37 @@ Object executeLoopFast(VirtualFrame frame) {
 
 \section{Evaluation}
 
+Benchmark setup:
+MacBook Pro (Retina, 15-inch, Mid 2015)
+2.5 GHz Intel Core i7
+16 GB 1600 MHz DDR3
+
+GraalSqueak+loop ac530ac
+GraalSqueak-loop = GraalSqueak+loop with minimal interpreter loop
+GraalSqueak+AST  8126c1b
+RSqueak/VM       d33005c
+OpenSmalltalkVM  201804030952
+
+
 \begin{figure}
   \centering
   \includegraphics[width=.9\linewidth]{resources/bytecodes}
-  \caption{Bytecodes/s per iteration per Smalltalk VM.}
+  \caption{Bytecodes/s per iteration and Smalltalk VM.}
   \label{fig:bytecodes}
 \end{figure}
 
 \begin{figure}
   \centering
   \includegraphics[width=.9\linewidth]{resources/sends}
-  \caption{Sends/s per iteration per Smalltalk VM.}
+  \caption{Sends/s per iteration and Smalltalk VM.}
   \label{fig:sends}
 \end{figure}
-
-tinyBenchmarks
-\begin{itemize}
-  \item GraalSqueak-LoopReporting
-  \item GraalSqueak+LoopReporting
-  \item TruffleSqueak
-  \item RSqueak
-  \item OpenSmalltalkVM
-\end{itemize}
 
 
 \section{Related Work}
 
 \begin{itemize}
-  \item Sulong, TruffleRuby?
+  \item Sulong~\cite{Rigger:2016:BLL:2998415.2998416}, TruffleRuby?
   \item RSqueak
   \item OpenSmalltalkVM + Sista
 \end{itemize}

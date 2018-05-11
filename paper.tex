@@ -37,6 +37,7 @@
 \usepackage{graphicx}
 \usepackage{xspace}
 \usepackage{hyperref}
+\usepackage{listings}
 
 \usepackage[acronym]{glossaries}
 \newcommand{\ac}[1]{\gls*{#1}}
@@ -65,6 +66,8 @@
 \def\subsubsectionautorefname{Section}
 \def\tableautorefname{Table}
 \def\figureautorefname{Figure}
+
+\lstset{basicstyle=\footnotesize,}
 
 
 \begin{document}
@@ -229,6 +232,63 @@ performance optimizations.
   \caption{A bytecode stream and a sequence of \ac{ast} nodes.}
   \label{fig:bc-vs-ast}
 \end{figure}
+
+\begin{lstlisting}[language=Java]
+Object executeLoop(VirtualFrame frame) {
+  int pc = 0;
+  while (pc >= 0) {
+    pc = bytecodeNodes[pc].execute(frame);
+  }
+}
+\end{lstlisting}
+
+
+\begin{lstlisting}[language=Java]
+@ExplodeLoop(kind = LoopExplosionKind.MERGE_EXPLODE)
+Object executeLoopFast(VirtualFrame frame) {
+ CompilerAsserts.compilationConstant(bcNodes.length);
+ int pc = 0;
+ int backJumpCounter = 0;
+ try {
+  while (pc >= 0) {
+   CompilerAsserts.partialEvaluationConstant(pc);
+   AbstractBytecodeNode node = bcNodes[pc];
+   if (node instanceof ConJumpNode) {
+    ConJumpNode jumpNode = (ConJumpNode) node;
+    boolean c = jumpNode.executeCondition(frame);
+    if (CompilerDirectives.injectBranchProbability(
+         jumpNode.getProbability(JUMP), c)) {
+     int successor = jumpNode.getJumpSuccessor();
+     if (CompilerDirectives.inInterpreter()) {
+      jumpNode.increaseProbability(JUMP);
+      if (successor <= pc) backJumpCounter++;
+     }
+     pc = successor;
+     continue;
+    } else {
+     int successor = jumpNode.getNoJumpSuccessor();
+     if (CompilerDirectives.inInterpreter()) {
+      jumpNode.increaseProbability(NO_JUMP);
+      if (successor <= pc) backJumpCounter++;
+     }
+     pc = successor;
+     continue;
+    }
+   } else if (node instanceof UncondJumpNode) {
+    UncondJumpNode jumpNode = (UncondJumpNode) node;
+    int successor = jumpNode.getJumpSuccessor();
+    if (CompilerDirectives.inInterpreter()) {
+     if (successor <= pc) backJumpCounter++;
+    }
+    pc = successor;
+    continue;
+   } else { pc = node.executeInt(frame); }
+  }
+ } finally {
+  LoopNode.reportLoopCount(this, backJumpCounter);
+ }
+}
+\end{lstlisting}
 
 
 \section{Evaluation}

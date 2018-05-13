@@ -38,6 +38,7 @@
 \usepackage{xspace}
 \usepackage{hyperref}
 \usepackage{listings}
+\usepackage{subcaption}
 
 \usepackage[acronym]{glossaries}
 \newcommand{\ac}[1]{\gls*{#1}}
@@ -171,6 +172,16 @@ other hand, is designed for implementing \ac{ast} interpreters and its \ac{jit}
 compiler applies \ac{ast} node rewriting and partial evaluation to significantly
 increase runtime performance of corresponding interpreters.
 
+Therefore, it is no surprise that most languages implementations in Truffle are
+\ac{ast}-based.
+In order to be able to interpret LLVM bytecode on top of the GraalVM, for
+example, Sulong~\cite{Rigger:2016:BLL:2998415.2998416} has been developed and
+Truffle has been extended with optimization mechanisms specifically for bytecode
+interpreters.
+Nonetheless and at the time of writing, the process of implementing bytecode
+interpreters in Truffle was not well documented which is one motivation for this
+paper.
+
 \Squeak~\cite{ingalls1997back} is a Smalltalk dialect derived from the
 Smalltalk-80 language specification.
 Its default virtual machine OpenSmalltalkVM~\cite{openSmalltalkVM} is
@@ -227,14 +238,19 @@ implemented a custom decompiler which is able to reconstruct the original
 Finally, Truffle and Graal can execute this \ac{ast} and perform their
 performance optimizations.
 
+As it turned out, however, a simple one-to-one node mapping from \Squeak to
+Truffle nodes was not sufficient to gain reasonable performance on the GraalVM.
+The main reason for this is that \Squeak uses unconditional and conditional
+jump bytecodes to realize loops.
+In Truffle, on the other hand, there is a dedicated \lstinline{LoopNode} for
+which the runtime provides additional optimization strategies.
+Therefore, we extended the decompiler in such a way, so that it detects loops in
+Smalltalk code and emits appropriate \lstinline{LoopNodes} instead of jump
+nodes.
+With this
+
 
 \paragraph{Bytecode Interpreter}
-
-Most languages implementations in Truffle are \ac{ast}-based.
-In order to be able to interpret LLVM on top of the GraalVM,
-Sulong~\cite{Rigger:2016:BLL:2998415.2998416} has been developed and Truffle
-has been extended with optimization mechanisms specifically for bytecode
-interpreters.
 
 \begin{figure}
   \centering
@@ -315,31 +331,64 @@ Object executeLoopFast(VirtualFrame frame) {
 
 \section{Evaluation}
 
-Benchmark setup:
-MacBook Pro (Retina, 15-inch, Mid 2015)
-2.5 GHz Intel Core i7
-16 GB 1600 MHz DDR3
+To assess the performance of our Truffle-based interpreters for \Squeak, we used
+\lstinline{tinyBenchmarks} which consists of two micro-benchmarks:
+The first one is bytecode-heavy as it allocates, fills, and reads from a large
+array.
+The other one is a recursive Fibonacci benchmark and therefore send-heavy.
+Additionally, \lstinline{tinyBenchmarks} adjusts both benchmarks so that they
+run to least one second in order to produce more stable results.
+Although the results should be taken with a grain of salt as they do not
+represent a wide range of common operations, we believe they are a good
+indicator for the overall performance of the different interpreter approaches.
 
-GraalSqueak+loop ac530ac
-GraalSqueak-loop = GraalSqueak+loop with minimal interpreter loop
-GraalSqueak+AST  8126c1b
-RSqueak/VM       d33005c
-OpenSmalltalkVM  201804030952
+We ran the benchmarks on a 15-inch MacBook Pro from Mid 2015
+(CPU: 2.5 GHz Intel Core i7; Memory: 16 GB 1600 MHz DDR3).
+For the \ac{ast} interpreter, we used commit \lstinline{8126c1b} of GraalSqueak
+and \lstinline{ac530ac} for the bytecode interpreter with loop-reporting.
+Moreover, we copied the later version of GraalSqueak and replaced
+\lstinline{SqueakMethodNode.executeLoop(VirtualFrame frame)} with the code in
+\autoref{fig:loop1} to turn of loop-reporting.
+To be able to compare the performance of our Truffle interpreters with other
+\Squeak \acp{vm}, we also ran the benchmarks on a recent OpenSmalltalkVM
+(tag \lstinline{201804030952}) and RSqueak/VM (commit \lstinline{d33005c}).
+
+\begin{figure*}
+  \begin{subfigure}{.5\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{resources/bytecodes}
+    \caption{Bytecodes/s per iteration and Smalltalk VM.}
+    \label{fig:bytecodes}
+  \end{subfigure}
+   \hfil
+  \begin{subfigure}{.5\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{resources/sends}
+    \caption{Sends/s per iteration and Smalltalk VM.}
+    \label{fig:sends}
+  \end{subfigure}
+  \caption{Benchmark results...}
+  \label{fig:ides}
+\end{figure*}
+
+\autoref{fig:bytecodes} shows the benchmark results of the bytecode-heavy
+micro-benchmark.
+The OpenSmalltalkVM as well as the RSqueak/VM have relatively stable results.
+The former, however, is able to process approximately one billion bytecodes more
+than the latter.
+The GraalSqueak implementations, on the other hand, need at least one or two
+iterations before reaching stable performance.
+This is another indication for GraalVM's slow warmup times as discussed by
+Barrett et. al~\cite{Barrett:2017:VMW:3152284.3133876}.
+The only exception is the GraalSqueak version with loop-reporting disabled which
+was unable to perform its optimizations due to escaping frames.
+Overall, the GraalSqueak \ac{ast} interpreter (max: $9,500,000,000$
+bytecodes/sec) and the bytecode interpreter (max: $9,800,000,000$
+bytecodes/sec) with loop-reporting outperform the OpenSmalltalkVM (max:
+$3,100,000,000$ bytecodes/sec) by $3.06$x and $3.16$x respectively.
 
 
-\begin{figure}
-  \centering
-  \includegraphics[width=.9\linewidth]{resources/bytecodes}
-  \caption{Bytecodes/s per iteration and Smalltalk VM.}
-  \label{fig:bytecodes}
-\end{figure}
-
-\begin{figure}
-  \centering
-  \includegraphics[width=.9\linewidth]{resources/sends}
-  \caption{Sends/s per iteration and Smalltalk VM.}
-  \label{fig:sends}
-\end{figure}
+\autoref{fig:sends}
 
 
 \section{Related Work}

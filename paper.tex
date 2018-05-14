@@ -96,8 +96,8 @@
 \setcopyright{acmlicensed}  % default
 %\setcopyright{rightsretained}
 
-\titlebanner{banner above paper title}        % These are ignored unless
-\preprintfooter{short description of paper}   % 'preprint' option specified.
+% \titlebanner{banner above paper title}        % These are ignored unless
+% \preprintfooter{short description of paper}   % 'preprint' option specified.
 
 \title{GraalSqueak}
 \subtitle{A Fast Smalltalk Bytecode Interpreter Written in an AST Interpreter
@@ -234,21 +234,20 @@ This \ac{ast} is then compiled to bytecode by \Squeak's compiler.
 The Truffle interpreter has no direct access to the original \ac{ast} and can
 therefore only see \Squeak bytecode.
 In order to transform the bytecode into corresponding nodes again, we have
-implemented a custom decompiler which is able to reconstruct the original
-\ac{ast} with Truffle nodes.
+implemented a custom decompiler which is able to reconstruct an \ac{ast} with
+Truffle nodes.
 Finally, Truffle and Graal can execute this \ac{ast} and perform their
 performance optimizations.
 
 As it turned out, however, a simple one-to-one node mapping from \Squeak to
 Truffle nodes was not sufficient to gain reasonable performance on the GraalVM.
 The main reason for this is that \Squeak uses unconditional and conditional
-jump bytecodes to realize loops.
+jump bytecodes for loops.
 In Truffle, on the other hand, there is a dedicated \lstinline{LoopNode} for
-which the runtime provides additional optimization strategies.
-Therefore, we extended the decompiler in such a way, so that it detects loops in
-Smalltalk code and emits appropriate \lstinline{LoopNodes} instead of jump
-nodes.
-With this
+which the runtime provides dedicated optimization strategies.
+Therefore, extending the decompiler so that it detects loops in Smalltalk code
+and emits appropriate \lstinline{LoopNodes} instead of jump nodes significantly
+improved the performance of the interpreter on the GraalVM.
 
 
 \paragraph{Bytecode Interpreter}
@@ -262,14 +261,14 @@ With this
 
 \autoref{fig:bc-vs-ast} shows how a stream of bytecode can be represented by a
 chain of \ac{ast} nodes.
-Since a conditional jump is the only way to branch in \Squeak, each node can
-only have exactly one or, in the case of a conditional jump, two successors.
+Each node can only have exactly one or, in the case of a conditional jump, two
+successors, because these jumps are the only way to branch in \Squeak.
 
 \begin{lstlisting}[language=Java,caption={A simple loop for interpreting sequences of \ac{ast} nodes.},label=fig:loop1]
 Object executeLoop(VirtualFrame frame) {
   int pc = 0;
   while (pc >= 0) {
-    pc = bytecodeNodes[pc].execute(frame);
+    pc = bytecodeNodes[pc].executeInt(frame);
   }
 }
 \end{lstlisting}
@@ -278,11 +277,12 @@ Consequently, we can define an interpreter loop as shown in \autoref{fig:loop1}.
 However, running this loop with Truffle on the GraalVM will give rather low
 performance.
 At the same time, Truffle compiler threads report that they fail to optimize
-Smalltalk code because its escape analysis warns that virtual frames are being
-materialized for some reason.
+Smalltalk code because of escaping frame objects.
+In order to inform Truffle about our bytecode interpreter, we had to add
+several annotations and hints which we now explain in more detail.
 
 
-\begin{lstlisting}[language=Java]
+\begin{lstlisting}[language=Java,caption={Bytecode loop with hints for the Graal compiler.},label=fig:loop2]
 @ExplodeLoop(kind = LoopExplosionKind.MERGE_EXPLODE)
 Object executeLoopFast(VirtualFrame frame) {
  CompilerAsserts.compilationConstant(bcNodes.length);
@@ -328,6 +328,41 @@ Object executeLoopFast(VirtualFrame frame) {
  }
 }
 \end{lstlisting}
+
+\autoref{fig:loop2} shows the revised version of interpreter loop with
+appropriate hints for the Graal compiler.
+The \lstinline{@ExplodeLoop} annotation instructs the compiler to unroll loops.
+In our case, it uses the \lstinline{MERGE_EXPLODE} strategy which is designed
+especially for bytecode interpreters as it tries to explode all loops while
+merging copies of the loop body that have identical state.
+Then we assert that the number of bytecodes is constant per method instance and
+ensure that the program counter is reduced to a constant during the partial
+evaluation phase.
+After fetching the next node for the current program counter, there are three
+options how control flow can continue.
+
+First, if the node is a conditional jump node, the condition is being executed.
+Each condition jump node maintains a probability value that represents how often
+the condition is \lstinline{true} or \lstinline{false}.
+Truffle provides an \textsc{API} to inject this values as a branch probability
+which further supports the Graal compiler.
+Afterwards, the next program counter is determined depending on whether the
+condition was \lstinline{true} or \lstinline{false}.
+Additionally and only if executed in the interpreter, the corresponding branch
+probability is increased and if the successor is smaller than the current
+program counter, a \lstinline{backJumpCounter} is incremented.
+This \lstinline{backJumpCounter} is reported on method exit in the
+\lstinline{finally} block.
+This information will be used in Truffle's optimization heuristics to further
+improve the compilation process.
+Lastly, the successor becomes the current program counter and the interpreter
+loops continues with the next bytecode.
+
+Second and in the case of an unconditional jump, the next program counter is
+fetched and analyzed for backward jumps if running interpreted.
+
+Otherwise, the current node is fully executed to determine the next program
+counter, just like it was in the simple version of the interpreter loop.
 
 
 \section{Evaluation}

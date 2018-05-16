@@ -247,7 +247,7 @@ be transformed into appropriate \ac{ast} nodes.
 \autoref{fig:squeak-ast} gives an overview of how the architecture of this setup
 can look like.
 For each Smalltalk method, Smalltalk code is first parsed into a \Squeak
-\ac{ast}.
+\ac{ast} inside the Smalltalk environment.
 This \ac{ast} is then compiled to bytecode by \Squeak's compiler.
 The Truffle interpreter has no direct access to the original \ac{ast} and can
 therefore only see \Squeak bytecode.
@@ -262,7 +262,7 @@ Truffle nodes was not sufficient to gain reasonable performance on the GraalVM.
 The main reason for this is that \Squeak uses unconditional and conditional
 jump bytecodes for loops.
 In Truffle, on the other hand, there is a dedicated \lstinline{LoopNode} for
-which the runtime provides dedicated optimization strategies.
+which the runtime provides special optimization strategies.
 Therefore, extending the decompiler so that it detects loops in Smalltalk code
 and emits appropriate \lstinline{LoopNodes} instead of jump nodes significantly
 improved the performance of the interpreter on the GraalVM.
@@ -277,10 +277,14 @@ improved the performance of the interpreter on the GraalVM.
   \label{fig:bc-vs-ast}
 \end{figure}
 
-\autoref{fig:bc-vs-ast} shows how a stream of bytecode can be represented by a
-chain of \ac{ast} nodes.
-Each node can only have exactly one or, in the case of a conditional jump, two
-successors, because these jumps are the only way to branch in \Squeak.
+Implementing a bytecode interpreter in Truffle is not as intuitive as it still
+requires to generate \ac{ast} nodes.
+However, these \acp{ast} do not have to necessarily look like balanced trees.
+Instead, if we simply create one node for each bytecode, we can transform a
+stream of bytecodes into a chain of \ac{ast} nodes as depict in
+\autoref{fig:bc-vs-ast}.
+Each of these nodes can only have exactly one or, in the case of a conditional
+jump, two successors because these jumps are the only way to branch in \Squeak.
 
 \begin{lstlisting}[language=Java,
                    caption={A simple loop for interpreting sequences of \ac{ast} nodes.},
@@ -413,10 +417,10 @@ indicator for the overall performance of the different interpreter approaches.
 We ran the benchmarks on a 15-inch MacBook Pro from Mid 2015
 (CPU: 2.5 GHz Intel Core i7; Memory: 16 GB 1600 MHz DDR3).
 For the \ac{ast} interpreter, we used commit \lstinline{8126c1b} of GraalSqueak
-and \lstinline{ac530ac} for the bytecode interpreter with loop-reporting.
+and \lstinline{ac530ac} for the bytecode interpreter with Truffle hints.
 Moreover, we copied the later version of GraalSqueak and replaced
 \lstinline{SqueakMethodNode.executeLoop(VirtualFrame frame)} with the code in
-\autoref{fig:loop1} to turn of loop-reporting.
+\autoref{fig:loop1} to remove all compiler hints.
 We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
 (tag \lstinline{201804030952}) and RSqueak/VM (commit \lstinline{d33005c}).
 
@@ -437,11 +441,11 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
           xtick distance=1,
           legend style={at={(0.5,0.62)},anchor=north,legend columns=3},
          ]
-      \addplot+[] coordinates {%+loop
+      \addplot+[] coordinates {%+hints
         (1,10000000000) (2,10000000000) (3,10000000000) (4,10000000000)
         (5,10000000000) (6,10000000000) (7,10000000000) (8,10000000000)
         (9,10000000000) (10,10000000000) };
-      \addplot+[] coordinates {%-loop
+      \addplot+[] coordinates {%-hints
         (1,13000000) (2,13000000) (3,16000000) (4,16000000)
         (5,17000000) (6,17000000) (7,17000000) (8,16000000)
         (9,16000000) (10,16000000) };
@@ -457,7 +461,7 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,2100000000) (2,2100000000) (3,2100000000) (4,2000000000)
         (5,2100000000) (6,2100000000) (7,2100000000) (8,2000000000)
         (9,2100000000) (10,2100000000) };
-      \legend{GS+Loop,GS-Loop,GS+AST,OSVM,RSqueak/VM}
+      \legend{GS+hints,GS-hints,GS+AST,OSVM,RSqueak/VM}
     \end{axis}
     \end{tikzpicture}
 
@@ -476,11 +480,11 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
           xtick distance=1,
           legend style={at={(0.5,0.5)},anchor=north,legend columns=3},
          ]
-      \addplot+[] coordinates {%+loop
+      \addplot+[] coordinates {%+hints
         (1,280000000) (2,280000000) (3,270000000) (4,280000000)
         (5,280000000) (6,280000000) (7,280000000) (8,280000000)
         (9,270000000) (10,280000000) };
-      \addplot+[] coordinates {%-loop
+      \addplot+[] coordinates {%-hints
         (1,850000) (2,890000) (3,990000) (4,1000000)
         (5,1000000) (6,1000000) (7,1000000) (8,1000000)
         (9,1000000) (10,1000000) };
@@ -496,7 +500,7 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,19000000) (2,19000000) (3,19000000) (4,20000000)
         (5,18000000) (6,20000000) (7,19000000) (8,20000000)
         (9,19000000) (10,19000000) };
-      \legend{GS+Loop,GS-Loop,GS+AST,OSVM,RSqueak/VM}
+      \legend{GS+hints,GS-hints,GS+AST,OSVM,RSqueak/VM}
     \end{axis}
     \end{tikzpicture}
     
@@ -519,7 +523,7 @@ After around two iterations, performance reaches a somewhat stable state.
 At the same time, it outperforms the OpenSmalltalkVM by approximately $3.06$x.
 The bytecode interpreter, on the other hand, does not show this warmup behavior
 and is with an average of ten billion bytecodes per second the fastest \ac{vm}.
-Without loop-reporting, however, Truffle is unable to perform its optimizations
+Without hints, however, Truffle is unable to perform its optimizations
 due to escaping frames and the otherwise identical interpreter performs very
 poorly.
 
@@ -530,8 +534,8 @@ Although the GraalSqueak interpreters still outperform it, the relative
 difference is not as big as in the previous benchmark.
 The \ac{ast} interpreter is approximately $1.42$x faster and bytecode
 interpreter around $1.47$x.
-Again, the performance of the bytecode interpreter with loop-reporting disabled
-is very low compared to all other \acp{vm}.
+Again, the performance of the bytecode interpreter without hints is very low
+compared to all other \acp{vm}.
 
 \begin{figure*}
   \centering
@@ -550,19 +554,19 @@ is very low compared to all other \acp{vm}.
           xtick distance=1,
           legend style={at={(0.95,0.05)},anchor=south east,legend columns=1},
          ]
-      \addplot+[] coordinates {%-loop
+      \addplot+[] coordinates {%-hints
         (1,13000000) (2,13000000) (3,16000000) (4,16000000)
         (5,17000000) (6,17000000) (7,17000000) (8,16000000)
         (9,16000000) (10,16000000) };
-      \addplot+[] coordinates {%-loop JDK8
+      \addplot+[] coordinates {%-hints JDK8
         (1,13000000) (2,15000000) (3,20000000) (4,20000000)
         (5,20000000) (6,20000000) (7,19000000) (8,20000000)
         (9,20000000) (10,20000000) };
-      \addplot+[] coordinates {%+loop JDK8
+      \addplot+[] coordinates {%+hints JDK8
         (1,12000000) (2,14000000) (3,10000000) (4,17000000)
         (5,17000000) (6,17000000) (7,17000000) (8,17000000)
         (9,17000000) (10,17000000) };
-      \legend{GS-Loop,GS-Loop+JDK8,GS+Loop+JDK8}
+      \legend{GS-hints,GS-hints+JDK8,GS+hints+JDK8}
     \end{axis}
     \end{tikzpicture}
 
@@ -582,19 +586,19 @@ is very low compared to all other \acp{vm}.
           xtick distance=1,
           legend style={at={(0.95,0.05)},anchor=south east,legend columns=1},
          ]
-      \addplot+[] coordinates {%-loop
+      \addplot+[] coordinates {%-hints
         (1,850000) (2,890000) (3,990000) (4,1000000)
         (5,1000000) (6,1000000) (7,1000000) (8,1000000)
         (9,1000000) (10,1000000) };
-      \addplot+[] coordinates {%-loop JDK8
+      \addplot+[] coordinates {%-hints JDK8
         (1,1000000) (2,820000) (3,1200000) (4,1200000)
         (5,1200000) (6,1200000) (7,1200000) (8,1200000)
         (9,1200000) (10,1200000) };
-      \addplot+[] coordinates {%+loop JDK8
+      \addplot+[] coordinates {%+hints JDK8
         (1,940000) (2,910000) (3,1000000) (4,1000000)
         (5,1000000) (6,1000000) (7,1000000) (8,1000000)
         (9,1000000) (10,1000000) };
-      \legend{GS-Loop,GS-Loop+JDK8,GS+Loop+JDK8}
+      \legend{GS-hints,GS-hints+JDK8,GS+hints+JDK8}
     \end{axis}
     \end{tikzpicture}
     
@@ -604,9 +608,9 @@ is very low compared to all other \acp{vm}.
   \label{fig:benchmark2}
 \end{figure*}
 
-To further compare the performance of the non-loop-reporting bytecode
-interpreter, we additionally ran the two bytecode interpreter variations of
-GraalSqueak on a standard JDK 1.8.0\_144 and without the Graal compiler.
+To further compare the performance of the bytecode interpreter without hints, we
+additionally ran the two bytecode interpreter variations of GraalSqueak on a
+standard JDK 1.8.0\_144 and without the Graal compiler.
 \autoref{fig:benchmark2} shows the results and suggests that the unoptimized
 GraalSqueak bytecode interpreter on the GraalVM performs roughly the same than
 the optimized version on a standard Java Hotspot \ac{vm}.

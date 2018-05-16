@@ -40,6 +40,7 @@
 \usepackage{listings}
 \usepackage{subfig}
 \usepackage{pgfplots}
+\usepackage{bold-extra}
 
 \usepackage[acronym]{glossaries}
 \newcommand{\ac}[1]{\gls*{#1}}
@@ -70,9 +71,8 @@
 \def\tableautorefname{Table}
 \def\figureautorefname{Figure}
 
-\lstset{basicstyle=\footnotesize,}
+\lstset{basicstyle=\ttfamily}
 \pgfplotsset{compat=1.15}
-
 
 \begin{document}
 
@@ -282,7 +282,10 @@ chain of \ac{ast} nodes.
 Each node can only have exactly one or, in the case of a conditional jump, two
 successors, because these jumps are the only way to branch in \Squeak.
 
-\begin{lstlisting}[language=Java,caption={A simple loop for interpreting sequences of \ac{ast} nodes.},label=fig:loop1]
+\begin{lstlisting}[language=Java,
+                   caption={A simple loop for interpreting sequences of \ac{ast} nodes.},
+                   label=fig:loop1,
+                   basicstyle=\footnotesize\ttfamily,]
 Object executeLoop(VirtualFrame frame) {
   int pc = 0;
   while (pc >= 0) {
@@ -300,45 +303,48 @@ In order to inform Truffle about our bytecode interpreter, we had to add
 several annotations and hints which we now explain in more detail.
 
 
-\begin{lstlisting}[language=Java,caption={Bytecode loop with hints for the Graal compiler.},label=fig:loop2]
-@ExplodeLoop(kind = LoopExplosionKind.MERGE_EXPLODE)
+\begin{figure*}
+  \centering
+\begin{lstlisting}[language=Java,
+                   caption={Bytecode loop with hints for the Graal compiler.},
+                   label=fig:loop2,
+                   numbers=left,
+                   xleftmargin=.16\textwidth,
+                   basicstyle=\footnotesize\ttfamily,]
+@ExplodeLoop(kind = ExplodeLoop.LoopExplosionKind.MERGE_EXPLODE)
 Object executeLoopFast(VirtualFrame frame) {
- CompilerAsserts.compilationConstant(bcNodes.length);
- int pc = 0;
- int backJumpCounter = 0;
+ CompilerAsserts.compilationConstant(bytecodeNodes.length);
+ int pc = 0; int backJumpCounter = 0;
  try {
   while (pc >= 0) {
    CompilerAsserts.partialEvaluationConstant(pc);
-   AbstractBytecodeNode node = bcNodes[pc];
-   if (node instanceof ConJumpNode) {
-    ConJumpNode jumpNode = (ConJumpNode) node;
-    boolean c = jumpNode.executeCondition(frame);
+   AbstractBytecodeNode node = bytecodeNodes[pc];
+   if (node instanceof ConditionalJumpNode) {
+    ConditionalJumpNode jumpNode = (ConditionalJumpNode) node;
+    boolean condition = jumpNode.executeCondition(frame);
     if (CompilerDirectives.injectBranchProbability(
-         jumpNode.getProbability(JUMP), c)) {
+         jumpNode.getProbability(JUMP), condition)) {
      int successor = jumpNode.getJumpSuccessor();
      if (CompilerDirectives.inInterpreter()) {
       jumpNode.increaseProbability(JUMP);
       if (successor <= pc) backJumpCounter++;
      }
-     pc = successor;
-     continue;
+     pc = successor; continue;
     } else {
      int successor = jumpNode.getNoJumpSuccessor();
      if (CompilerDirectives.inInterpreter()) {
       jumpNode.increaseProbability(NO_JUMP);
       if (successor <= pc) backJumpCounter++;
      }
-     pc = successor;
-     continue;
+     pc = successor; continue;
     }
-   } else if (node instanceof UncondJumpNode) {
-    UncondJumpNode jumpNode = (UncondJumpNode) node;
+   } else if (node instanceof UnconditionalJumpNode) {
+    UnconditionalJumpNode jumpNode = (UnconditionalJumpNode) node;
     int successor = jumpNode.getJumpSuccessor();
     if (CompilerDirectives.inInterpreter()) {
      if (successor <= pc) backJumpCounter++;
     }
-    pc = successor;
-    continue;
+    pc = successor; continue;
    } else { pc = node.executeInt(frame); }
   }
  } finally {
@@ -347,15 +353,19 @@ Object executeLoopFast(VirtualFrame frame) {
 }
 \end{lstlisting}
 
+\end{figure*}
+
+
 \autoref{fig:loop2} shows the revised version of interpreter loop with
 appropriate hints for the Graal compiler.
-The \lstinline{@ExplodeLoop} annotation instructs the compiler to unroll loops.
+The \lstinline{@ExplodeLoop} annotation in line 1 instructs the compiler to
+unroll loops.
 In our case, it uses the \lstinline{MERGE_EXPLODE} strategy which is designed
 especially for bytecode interpreters as it tries to explode all loops while
 merging copies of the loop body that have identical state.
-Then we assert that the number of bytecodes is constant per method instance and
-ensure that the program counter is reduced to a constant during the partial
-evaluation phase.
+Then we assert that the number of bytecodes is constant per method instance
+(line 3) and ensure that the program counter is reduced to a constant during the
+partial evaluation phase (line 7).
 After fetching the next node for the current program counter, there are three
 options how control flow can continue.
 
@@ -447,7 +457,7 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,2100000000) (2,2100000000) (3,2100000000) (4,2000000000)
         (5,2100000000) (6,2100000000) (7,2100000000) (8,2000000000)
         (9,2100000000) (10,2100000000) };
-      \legend{GS+Loop,GS-Loop,GS+AST,OSVM,RSqueak}
+      \legend{GS+Loop,GS-Loop,GS+AST,OSVM,RSqueak/VM}
     \end{axis}
     \end{tikzpicture}
 
@@ -486,7 +496,7 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,19000000) (2,19000000) (3,19000000) (4,20000000)
         (5,18000000) (6,20000000) (7,19000000) (8,20000000)
         (9,19000000) (10,19000000) };
-      \legend{GS+Loop,GS-Loop,GS+AST,OSVM,RSqueak}
+      \legend{GS+Loop,GS-Loop,GS+AST,OSVM,RSqueak/VM}
     \end{axis}
     \end{tikzpicture}
     

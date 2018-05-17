@@ -239,8 +239,10 @@ GitHub~\footnote{\url{https://github.com/...} (will be made public upon publicat
 Since Truffle and the Graal compiler operate on \acp{ast}, the natural way of
 implementing a \Squeak interpreter in Truffle is to write an \ac{ast}
 interpreter.
-However, \Squeak is traditionally bytecode-based, so bytecode streams need to
-be transformed into appropriate \ac{ast} nodes.
+However, \Squeak is traditionally bytecode-based, with its compiler written in
+Squeak itself and only the bytecodes, not the \acp{ast} or sources stored in the
+image, so these bytecode streams need to be transformed into appropriate
+\ac{ast} nodes.
 
 \begin{figure}
   \centering
@@ -249,28 +251,30 @@ be transformed into appropriate \ac{ast} nodes.
   \label{fig:squeak-ast}
 \end{figure}
 
-\autoref{fig:squeak-ast} gives an overview of how the architecture of this setup
-can look like.
-For each Smalltalk method, Smalltalk code is first parsed into a \Squeak
-\ac{ast} inside the Smalltalk environment.
-This \ac{ast} is then compiled to bytecode by \Squeak's compiler.
-The Truffle interpreter has no direct access to the original \ac{ast} and can
-therefore only see \Squeak bytecode.
-In order to transform the bytecode into corresponding nodes again, we have
-implemented a custom decompiler which is able to reconstruct an \ac{ast} with
-Truffle nodes.
-Finally, Truffle and Graal can execute this \ac{ast} and perform their
-performance optimizations.
+\autoref{fig:squeak-ast} gives an overview of the architecture of this
+implementation.
+Each Smalltalk method was first parsed and compiled to bytecode inside the
+Smalltalk environment.
+Upon loading an image, the Truffle interpreter only has access to the \Squeak
+bytecode.
 
-As it turned out, however, a simple one-to-one node mapping from \Squeak to
-Truffle nodes was not sufficient to gain reasonable performance on the GraalVM.
-The main reason for this is that \Squeak uses unconditional and conditional
-jump bytecodes for loops.
+To transform the bytecode into Truffle \ac{ast} nodes, we have re-implemented
+the Smalltalk decompiler in Java.
+This implementation approach was straightforward, but did not yield great
+performance.
+
+The key optimization to gain good performance (and the only deviation from the
+Smalltalk decompiler) was for us to reconstruct loop nodes.
+
+By default, the decompiler would turn every loop into a while node with the loop
+condition in the body and a break out of the loop if the condition becomes
+false.
 In Truffle, on the other hand, there is a dedicated \lstinline{LoopNode} for
 which the runtime provides special optimization strategies.
-Therefore, extending the decompiler so that it detects loops in Smalltalk code
-and emits appropriate \lstinline{LoopNodes} instead of jump nodes significantly
-improved the performance of the interpreter on the GraalVM.
+
+To make loops optimize better, we had to modify the decompilation to split the
+condition from the body appropriately and use Truffle's \lstinline{LoopNodes}.
+This significantly improved the performance of the interpreter on the GraalVM.
 
 
 \paragraph{Bytecode Interpreter}

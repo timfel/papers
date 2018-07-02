@@ -208,9 +208,10 @@ compiler applies \ac{ast} node rewriting and partial evaluation to significantly
 increase runtime performance of corresponding interpreters.
 Consequently, most languages implementations in Truffle are \ac{ast}-based.
 
-However, some language specifications include a well-defined bytecode set and to run
-such languages, Truffle has optimization mechanisms specifically for bytecode
-interpreters. These are used, for example, in
+However, some language specifications include a well-defined bytecode set and
+are therefore designed to run on bytecode interpreters.
+For this reason, Truffle has optimization mechanisms specifically for building
+bytecode-based interpreters. These are used, for example, in
 Sulong~\cite{Rigger:2016:BLL:2998415.2998416}, a Truffle-based interpreter for
 LLVM bitcode.
 The process and pitfalls of implementing bytecode interpreters in Truffle is not
@@ -241,7 +242,7 @@ different interpreters with two benchmarks.
 In this section, we present two different approaches for implementing
 \Squeak interpreters in Truffle.
 The source code of the GraalSqueak interpreter variations is available on
-GitHub~\footnote{\url{https://github.com/...} (will be made public upon publication)}.
+GitHub~\footnote{\url{https://github.com/hpi-swa/graalsqueak/releases}}.
 % (Short overview of the rest: implementation of bytecodes, primitives, plugins?)
 
 \paragraph{AST Interpreter}
@@ -266,11 +267,11 @@ Therefore, these bytecode streams need to be transformed into appropriate
 implementation.
 Each Smalltalk method was first parsed and compiled to bytecode inside the
 Smalltalk environment.
-Upon loading an image, the Truffle interpreter only has access to the \Squeak
-bytecode.
+Upon loading an image, the Truffle interpreter only has access to compiled code
+objects which hold \Squeak bytecode.
 
-To transform the bytecode into Truffle \ac{ast} nodes, we have re-implemented
-the Smalltalk decompiler in Java.
+To transform the bytecode into Truffle \ac{ast} nodes, we have ported \Squeak's
+decompiler to Truffle.
 This implementation approach was straightforward, but did not yield great
 performance.
 The key optimization to gain good performance (and the only deviation from the
@@ -303,17 +304,19 @@ In Smalltalk, each of these nodes has either exactly one or, in the case of a
 conditional jump, two successors because jumps are the only way to branch in
 \Squeak.
 
-\begin{lstlisting}[language=Java,
-                   caption={A simple loop for interpreting sequences of \ac{ast} nodes},
-                   label=fig:loop1,
-                   basicstyle=\footnotesize\ttfamily,]
+\begin{listing}[H]
+  \caption{A simple loop for interpreting sequences of \ac{ast} nodes}
+  \label{fig:loop1}
+  \begin{minted}[
+    fontfamily=tt]{java}
 Object executeLoop(VirtualFrame frame) {
   int pc = 0;
   while (pc >= 0) {
     pc = bytecodeNodes[pc].executeInt(frame);
   }
 }
-\end{lstlisting}
+\end{minted}
+\end{listing}
 
 Consequently, we can implement an interpreter loop as shown in \autoref{fig:loop1}.
 However, running this loop with Truffle on the GraalVM gives rather low
@@ -321,8 +324,8 @@ performance.
 
 As Rigger et. al~\cite{Rigger:2016:BLL:2998415.2998416} have shown, the Graal
 compiler needs additional information to  efficiently execute bytecode loops.
-Their optimization encodes the possible successor program counters in a final
-integer array on each bytecode node.
+Their optimization encodes the possible successor program counters in an
+immutable array of Java primitive integers on each bytecode node.
 This way, the compiler knows that most bytecode nodes have exactly one possible
 successor node, and can optimize these together.
 
@@ -389,7 +392,7 @@ Object executeLoop(VirtualFrame frame) {
 
 \begin{sloppypar}
 \autoref{fig:loop2} shows the revised version of the interpreter loop with
-appropriate hints for the Graal compiler.
+appropriate Truffle hints for the Graal compiler.
 The \lstinline{@ExplodeLoop} annotation in line 1 instructs the compiler to
 unroll loops.
 In our case, it uses the \lstinline{MERGE_EXPLODE} strategy which is designed
@@ -402,28 +405,31 @@ After fetching the next node for the current program counter, there are three
 options how control flow can continue.
 \end{sloppypar}
 
-First, if the node is a conditional jump node, the condition is being executed.
-Each condition jump node maintains a probability value that represents how often
-the condition is \lstinline{true} or \lstinline{false}.
+First, if the node is a conditional jump node, the condition is being executed
+(line 11).
+Each conditional jump node maintains a probability value that represents how
+often the condition is \lstinline{true} or \lstinline{false}.
 Truffle provides an \textsc{API} to inject this values as a branch probability
-which further supports the Graal compiler.
+(line 12-13) which further supports the Graal compiler.
 Afterwards, the next program counter is determined depending on whether the
-condition was \lstinline{true} or \lstinline{false}.
+condition was \lstinline{true} or \lstinline{false} (line 14 and 21).
 Additionally and only if executed in the interpreter, the corresponding branch
 probability is increased and if the successor is smaller than the current
 program counter, a \lstinline{backJumpCounter} is incremented.
-This \lstinline{backJumpCounter} is reported on method exit in the
-\lstinline{finally} block.
+This \lstinline{backJumpCounter} is reported to the compiler through the
+\lstinline{LoopNode::reportLoopCount} \textsc{API} on method exit as part of the
+\lstinline{finally} block in line 38.
 This information will be used in Truffle's optimization heuristics to further
 improve the compilation process.
 Lastly, the successor becomes the current program counter and the interpreter
 loop continues with the next bytecode.
 
 Second and in the case of an unconditional jump, the next program counter is
-fetched and analyzed for backward jumps if running interpreted.
+fetched and analyzed for backward jumps if running interpreted (line 29 to 34).
 
 Otherwise, the current node is fully executed to determine the next program
-counter, just like it was in the simple version of the interpreter loop.
+counter, just like it was in the simple version of the interpreter loop
+(line 35).
 
 The Javadocs for the different Truffle hints provide further information on how
 they work or can be used, yet are unable to fully explain how to use them in
@@ -432,8 +438,12 @@ combination with others or how exactly the Graal compiler benefits from them.
 
 \section{Evaluation}
 
-To assess the performance of our Truffle-based interpreters for \Squeak, we used
-its builtin \lstinline{tinyBenchmarks} which consists of two micro-benchmarks:
+To assess the performance of our Truffle-based interpreters for \Squeak, we have
+implemented all bytecodes and primitives required to run Squeak's
+\lstinline{tinyBenchmarks}.
+This micro-benchmark suite is often used to measure and compare the performance
+of different hardware platforms and Squeak
+\acp{vm}~\cite{tinyBenchmarks,Bolz2008} and consists of two benchmarks:
 The first one is bytecode-heavy as it allocates, fills, and reads from a large
 array.
 The other one is a recursive Fibonacci benchmark and therefore send-heavy.
@@ -453,7 +463,11 @@ Moreover, we copied the later version of GraalSqueak and replaced
 \lstinline{SqueakMethodNode} with the code from \autoref{fig:loop1} to remove
 all compiler hints.
 We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
-(tag \lstinline{201804030952}) and RSqueak/VM (commit \lstinline{d33005c}).
+(tag \lstinline{201804030952}), the fastest stable \ac{vm} for \Squeak,
+as well as RSqueak/VM (commit \lstinline{d33005c}).
+We used 100 iterations per run and all benchmarks took a little less than an
+hour to run in total.
+Nonetheless, we observed that results stabilized within the first ten iterations.
 \end{sloppypar}
 
 \begin{figure*}
@@ -477,7 +491,7 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,10000000000) (2,10000000000) (3,10000000000) (4,10000000000)
         (5,10000000000) (6,10000000000) (7,10000000000) (8,10000000000)
         (9,10000000000) (10,10000000000) };
-      \addplot+[] coordinates {%-hints
+      \addplot+[mark=square] coordinates {%-hints
         (1,13000000) (2,13000000) (3,16000000) (4,16000000)
         (5,17000000) (6,17000000) (7,17000000) (8,16000000)
         (9,16000000) (10,16000000) };
@@ -485,11 +499,11 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,7300000000) (2,9200000000) (3,9500000000) (4,9400000000)
         (5,9300000000) (6,9500000000) (7,9400000000) (8,9300000000)
         (9,9200000000) (10,9200000000) };
-      \addplot+[] coordinates {%osvm
+      \addplot+[mark=halfsquare*] coordinates {%osvm
         (1,3100000000) (2,3000000000) (3,3000000000) (4,2900000000)
         (5,3000000000) (6,3100000000) (7,3000000000) (8,3000000000)
         (9,3000000000) (10,3000000000) };
-      \addplot+[] coordinates {%rsqueak
+      \addplot+[color=green!50!black,mark options={fill=green!30!black}] coordinates {%rsqueak
         (1,2100000000) (2,2100000000) (3,2100000000) (4,2000000000)
         (5,2100000000) (6,2100000000) (7,2100000000) (8,2000000000)
         (9,2100000000) (10,2100000000) };
@@ -516,7 +530,7 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,280000000) (2,280000000) (3,270000000) (4,280000000)
         (5,280000000) (6,280000000) (7,280000000) (8,280000000)
         (9,270000000) (10,280000000) };
-      \addplot+[] coordinates {%-hints
+      \addplot+[mark=square] coordinates {%-hints
         (1,850000) (2,890000) (3,990000) (4,1000000)
         (5,1000000) (6,1000000) (7,1000000) (8,1000000)
         (9,1000000) (10,1000000) };
@@ -524,11 +538,11 @@ We also ran the benchmarks on other \Squeak \acp{vm}, a recent OpenSmalltalkVM
         (1,270000000) (2,270000000) (3,270000000) (4,270000000)
         (5,270000000) (6,270000000) (7,270000000) (8,270000000)
         (9,270000000) (10,270000000) };
-      \addplot+[] coordinates {%osvm
+      \addplot+[mark=halfsquare*] coordinates {%osvm
         (1,190000000) (2,190000000) (3,190000000) (4,190000000)
         (5,190000000) (6,180000000) (7,190000000) (8,190000000)
         (9,190000000) (10,190000000) };
-      \addplot+[] coordinates {%rsqueak
+      \addplot+[color=green!50!black,mark options={fill=green!30!black}] coordinates {%rsqueak
         (1,19000000) (2,19000000) (3,19000000) (4,20000000)
         (5,18000000) (6,20000000) (7,19000000) (8,20000000)
         (9,19000000) (10,19000000) };
@@ -553,7 +567,8 @@ we notice warmup behavior.
 After around two iterations, performance reaches a somewhat stable state.
 At the same time, it outperforms the OpenSmalltalkVM by approximately $3.06$x.
 The bytecode interpreter, on the other hand, does not show this warmup behavior
-and is with an average of ten billion bytecodes per second the fastest \ac{vm}.
+and is, with an average of ten billion bytecodes per second, the fastest
+\ac{vm}.
 Without hints, however, Truffle is unable to perform its optimizations
 due to escaping frames and the otherwise identical interpreter performs very
 poorly.
@@ -563,8 +578,8 @@ benchmark.
 RSqueakVM performs much worse compared to the OpenSmalltalkVM.
 Although the GraalSqueak interpreters still outperform it, the relative
 difference is not as big as in the previous benchmark.
-The \ac{ast} interpreter is approximately $1.42$x faster and bytecode
-interpreter around $1.47$x.
+The \ac{ast} interpreter is approximately $1.42$x faster and the bytecode
+interpreter with Truffle hints around $1.47$x.
 Again, the performance of the bytecode interpreter without hints is very low
 compared to all other \acp{vm}.
 
@@ -585,19 +600,19 @@ compared to all other \acp{vm}.
           xtick distance=1,
           legend style={at={(0.95,0.05)},anchor=south east,legend columns=1},
          ]
-      \addplot+[] coordinates {%-hints
+      \addplot+[mark=square,color=red,mark options={fill=red!80!black}] coordinates {%-hints
         (1,13000000) (2,13000000) (3,16000000) (4,16000000)
         (5,17000000) (6,17000000) (7,17000000) (8,16000000)
         (9,16000000) (10,16000000) };
-      \addplot+[] coordinates {%-hints JDK8
+      \addplot+[mark=x,color=teal!80!black] coordinates {%-hints JDK8
         (1,13000000) (2,15000000) (3,20000000) (4,20000000)
         (5,20000000) (6,20000000) (7,19000000) (8,20000000)
         (9,20000000) (10,20000000) };
-      \addplot+[mark=triangle*] coordinates {%+hints JDK8
+      \addplot+[mark=asterisk,color=darkgray] coordinates {%+hints JDK8
         (1,12000000) (2,14000000) (3,10000000) (4,17000000)
         (5,17000000) (6,17000000) (7,17000000) (8,17000000)
         (9,17000000) (10,17000000) };
-      \legend{GS-hints,GS-hints+JDK8,GS+hints+JDK8}
+      \legend{GS-hints,GS-hints on JDK8,GS+hints on JDK8}
     \end{axis}
     \end{tikzpicture}
 
@@ -617,38 +632,41 @@ compared to all other \acp{vm}.
           xtick distance=1,
           legend style={at={(0.95,0.05)},anchor=south east,legend columns=1},
          ]
-      \addplot+[] coordinates {%-hints
+      \addplot+[mark=square,color=red,mark options={fill=red!80!black}] coordinates {%-hints
         (1,850000) (2,890000) (3,990000) (4,1000000)
         (5,1000000) (6,1000000) (7,1000000) (8,1000000)
         (9,1000000) (10,1000000) };
-      \addplot+[] coordinates {%-hints JDK8
+      \addplot+[mark=x,color=teal!80!black] coordinates {%-hints JDK8
         (1,1000000) (2,820000) (3,1200000) (4,1200000)
         (5,1200000) (6,1200000) (7,1200000) (8,1200000)
         (9,1200000) (10,1200000) };
-      \addplot+[mark=triangle*] coordinates {%+hints JDK8
+      \addplot+[mark=asterisk,color=darkgray] coordinates {%+hints JDK8
         (1,940000) (2,910000) (3,1000000) (4,1000000)
         (5,1000000) (6,1000000) (7,1000000) (8,1000000)
         (9,1000000) (10,1000000) };
-      \legend{GS-hints,GS-hints+JDK8,GS+hints+JDK8}
+      \legend{GS-hints,GS-hints on JDK8,GS+hints on JDK8}
     \end{axis}
     \end{tikzpicture}
     
   }
-  \caption{\lstinline{tinyBenchmarks} results of the unoptimized bytecode %
+  \caption{\lstinline{tinyBenchmarks} results of the hint-less bytecode %
            interpreter compared to pure interpreter performance on JDK8}
   \label{fig:benchmark2}
 \end{figure*}
 
-To further compare the performance of the bytecode interpreter without hints, we
-additionally ran the two bytecode interpreter variations of GraalSqueak on a
-standard JDK 1.8.0\_144 and without the Graal compiler.
-\autoref{fig:benchmark2} shows the results and suggests that the unoptimized
+Since the performance gap between the bytecode interpreter with and without
+Truffle hints is approximately three orders of magnitude large, we zoom in on
+the ``GS-hints'' results from \autoref{fig:benchmark2} and add two additional
+data series:
+the results of the bytecode interpreter with and without hints running fully
+interpreted on a standard JDK 1.8.0\_144 and without the Graal compiler.
+\autoref{fig:benchmark2} shows the results and suggests that the hint-less
 GraalSqueak bytecode interpreter on the GraalVM performs roughly the same than
-the optimized version on a standard Java Hotspot \ac{vm}.
-Compared to these two, the bytecode interpreter with the simple interpretation
-loop performs better on the Java Hotspot \ac{vm}.
-Therefore, the additional annotations and hints for Truffle introduce an
-overhead which negatively affects the interpretation performance.
+the interpreted version with hints on the \ac{jvm}.
+Compared to these two, the bytecode interpreter without Truffle performance
+hints performs better on the \ac{jvm}.
+Therefore, these additional Truffle annotations introduce a measurable overhead
+which negatively impacts interpretation performance.
 
 
 \section{Related Work}
@@ -669,8 +687,9 @@ Since Ruby 1.9, the default runtime is
 YARV~\cite{Sasada:2005:YYR:1094855.1094912} which operates on bytecode.
 
 \paragraph{OpenSmalltalkVM and Sista}
-The OpenSmalltalkVM is the default \ac{vm} for \Squeak and variations of it
-include Sista which stands for Speculative Inlining SmallTalk Architecture.
+The OpenSmalltalkVM~\cite{openSmalltalkVM} is the default \ac{vm} for \Squeak
+and variations of it include Sista~\cite{Bera:2017:SSO:3132190.3132201} which
+stands for ``Speculative Inlining SmallTalk Architecture''.
 Instead of optimizing code purely on \ac{vm}-level, the \ac{vm} provides an
 \textsc{API} which can be used from inside a Smalltalk environment to retrieve
 profiling information.
@@ -678,10 +697,19 @@ This information can then be used to apply optimizations on image-level which
 can also be persisted when saving the image.
 
 \paragraph{RSqueak/VM}
-RSqueak/VM is an alternative interpreter for \Squeak and written in the language
-implementation framework RPython.
+RSqueak/VM~\cite{Bolz2008} is an alternative interpreter for \Squeak and written
+in the language implementation framework RPython.
 Therefore, it leverages the same meta-tracing \ac{jit} compiler that is also
 used in PyPy to optimize its bytecode loop.
+
+\paragraph{SOMns}
+SOMns~\cite{Marr:2017:CPCD} is an implementation of the Newspeak language in
+Truffle.
+Since it is completely file-based, it does not provide compatibility with
+image-based Newspeak and traditional Smalltalk systems.
+Our GraalSqueak interpreters, on the other hand, are designed to be compatible
+with existing \Squeak images. This also includes language features such as
+sender modifications or support for various \ac{vm} plugins.
 
 
 \section{Conclusion and Future Work}
@@ -702,18 +730,22 @@ To achieve good execution performance, however, the bytecode loop needs to be
 extended with several runtime hints to allow Truffle and the Graal compiler to
 successfully apply appropriate optimizations.
 
-Our initial benchmarks show that the bytecode interpreter can be just as fast as
+Our initial benchmarks show that a bytecode interpreter can be just as fast as
 an \ac{ast}-based implementation in Truffle after warmup.
-Interpreted performance, on the other hand, is negatively impacted by these
-additional Truffle hints, suggesting further optimization potential.
+Interpreted performance, on the other hand, is negatively impacted by additional
+Truffle hints, suggesting further optimization potential.
 
 In the future, we want to extend GraalSqueak with full support for \Squeak
-context objects and more primitives, so that the entire development environment
-can be used as intended.
+context objects and more primitives as well as \ac{vm} plugins, so that the
+entire programming environment can be used as intended.
+% This will also allow a more thorough analysis of the performance of a
+% Truffle-based bytecode interpreter.
 With a complete implementation of \Squeak in Truffle, the GraalVM also allows
 for interesting experiments in the area of ployglot programming.
 
 \acks
+  We would like to thank Manuel Rigger and the anonymous reviewers for their
+  feedback on this paper.
   We gratefully acknowledge the financial support of Oracle Labs\footnote{\url{https://labs.oracle.com/}},
   HPI's Research School\footnote{\url{https://hpi.de/en/research/research-school.html}},
   and the Hasso Plattner Design Thinking Research Program%

@@ -113,6 +113,7 @@ Dr.\,John Doe%
 \def\chapterautorefname{Chapter}
 \def\subsectionautorefname{Subsection}
 \def\figureautorefname{Figure}
+\def\tableautorefname{Table}
 
 \chapter{Introduction}
 \label{cha:introduction}
@@ -353,49 +354,73 @@ In this chapter we explain terms, concepts and technologies helping to understan
     \item To build a language-agnostic language server for Truffle we have to define what Truffle languages need to provide in general to support LSP
     \item LSP is trade-off - there are lang-specific IDEs with more/other features
     \item Therefore our solution will also be a trade-off using general language features available for all Truffle languages
+    \item Truffle ASTs have runtime  focus. Existing languages are implemented with performance focus. Infos not relevant for execution are dropped.
     %\item In the following we will describe which LSP features we want to support and how we get the relevant information needed in a language-agnostic way using the Truffle framework.
 \end{itemize}
 
     In the following sections we suggest how the existing Truffle language and instrumentation \acp{api} can be facilitated to provide the needed data for \ac{lsp} requests and notifications. When needed, we also suggest small \ac{api} extensions to get access to additional language-specific information which have not been exposed yet, due to fact that the existing tools are mostly runtime-focused and do not require them.
 
-    Table \todo{table} lists and briefly explains all requests and notifications of the \ac{lsp} version 3.7.0 which we cover in our approach.
-    \paragraph{Covered LSP Features}
-    \begin{itemize}
-        \item initialize
-        \item diagnostics
-        \item completion
-        \item hover
-        \item signatureHelp
-        \item documentSymbol
-        \item symbol
-        \item definition
-        \item references
-        \item documentHighlight
-        \item codeLens
-    \end{itemize}
+    \autoref{tab:lspfeatures} gives an overview over the most interesting requests and notifications of the \ac{lsp} version 3.7.0 which we cover in our approach.
+    \begin{table}
+        \centering
+        \tableinsidecommand
+        \begin{threeparttable}
+          \caption{Selected \ac{lsp} features and their descriptions}
+          \label{tab:lspfeatures}
+          \begin{tabular}{ l p{0.5\linewidth} r }
+            \toprule
+            Request/Notification    & Description & Reference        \\
+            \midrule
+            initialize              & First request containing client capabilities. Response contains server capabilities. & \ref{sec:lspinit}          \\
+            didOpen                 & Notification sent from client to sever that a file was opened. Contains \acs{uri} and content. & \ref{sec:parsingcode}\\
+            didChange                 & Notification sent from client to sever that a file has changed. Contains \acs{uri} and changes. & \ref{sec:parsingcode}\\
+            diagnostics             & Notification sent from server to client to display errors, warnings or hints.          \\
+            completion              & Completion request at caret position. Can be triggered automatically via registered completion trigger characters.          \\
+            signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters.          \\
+            hover                   & Request for information at caret-hovering position. \\
+            documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.). \\
+            symbol                  & Like documentSymbol, but for all files in the client workspace.         \\
+            definition              & Goto-definition request for functions, variables, etc.          \\
+            references              & Request to find all references of a symbol.          \\
+            documentHighlight       & Request to highlight all ranges related to a symbol (e.g. variable reads and writes).          \\
+            codeLense               & Request to provide executable actions at arbitrary source locations.           \\
+            \bottomrule
+          \end{tabular}
+        \end{threeparttable}
+    \end{table}
 
     \subsection{Language Server Initialization}
-    % \begin{itemize}
-    %     \item At start-up, server and client exchange capabilities, defining which LSP features are supported
-    %     \item The server also needs to list completion trigger characters and signature help trigger characters
-    %     \item These characters are used for ...
-    %     \item For a language-agnostic language server we have to collect these characters for all available languages
-    %     \item No language association to trigger character possible -> normally one server only for one language
-    %     \item We have to check on every call if the trigger character belongs to the current language
-    %     \item To get the language we have to compare the registered MIME-types of a Truffle language with the MIME-type derived from the file extension
-    %     \item After initialization we parse all files in the workspace
-    % \end{itemize}
-        The first request sent from the client to the server is the "initialize" request. Among other parameters, it contains an \ac{uri} pointing to the root folder of the workspace and client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending server capabilities. When a server supports "completion" and "signatureHelp" the response needs to include trigger characters which tell the client when "completion" or "signatureHelp" shall be triggered automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but an interface extension is needed to get the trigger characters for "completion" and "signatureHelp".
+    \label{sec:lspinit}
+        % \begin{itemize}
+        %     \item At start-up, server and client exchange capabilities, defining which LSP features are supported
+        %     \item The server also needs to list completion trigger characters and signature help trigger characters
+        %     \item These characters are used for ...
+        %     \item For a language-agnostic language server we have to collect these characters for all available languages
+        %     \item No language association to trigger character possible -> normally one server only for one language
+        %     \item We have to check on every call if the trigger character belongs to the current language
+        %     \item To get the language we have to compare the registered MIME-types of a Truffle language with the MIME-type derived from the file extension
+        %     \item After initialization we parse all files in the workspace
+        % \end{itemize}
+        The first request sent from the client to the server is the "initialize" request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. When a server supports "completion" and "signatureHelp" the response needs to include trigger characters which tell the client when "completion" or "signatureHelp" shall be triggered automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but an interface extension is needed to get the trigger characters for "completion" and "signatureHelp" of a language.
 
-    \paragraph{Parsing Source Code}
-    \begin{itemize}
-        \item a source is parsed when opened in the editor
-        \item at start-up the files in the workspace are parsed
-        \item collect all MIME-types of all languages
-        \item walking file tree
-        \item parsing every file which has a known MIME-type
-        \item Client is notified about syntax errors via LSP Diagnostics
-    \end{itemize}
+    \subsection{Parsing Source Code}
+    \label{sec:parsingcode}
+        % \begin{itemize}
+        %     \item a source is parsed when opened in the editor
+        %     \item at start-up the files in the workspace are parsed
+        %     \item collect all MIME-types of all languages
+        %     \item walking file tree
+        %     \item parsing every file which has a known MIME-type
+        %     \item Client is notified about syntax errors via LSP Diagnostics
+        % \end{itemize}
+        To parse source code in Truffle, we need to define a \inlinecode{Source} object, containing the language and the content of the file. The language can be derive from its supported media types. The "didOpen" or "didChange" requests contain an \ac{uri} pointing to the concerning source file, which we use to find the required media type. The "didOpen" request also contains the file content. The "didChange" request contains only incremental changes if configured during initialization. Therefore we have to continuously store the content and apply all incoming changes to keep track of the client-side file state.
+
+        The "initialize" request can contain a workspace \ac{uri}. If present, we parse all files with Truffle language-associated media types in that folder and its subfolders at start-up. To do so, we need to collect all media types of all installed languages via the Truffle environment.
+
+        Truffle's parsing result is a \inlinecode{CallTarget}, ready to be executed. It holds a reference to a root node of a runtime-focused \ac{ast}.
+
+        In case of a parsing error, we can notify the client using the "diagnostics" notification.
+
 
     \paragraph{Diagnostics}
     \begin{itemize}
@@ -452,6 +477,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
     \paragraph{completion of object properties}
     \begin{itemize}
         \item define "object property completion"
+        \item check trigger character
         \item assumption: inserting a completion character => code might be not parsable
         \item fix code by undoing last change + parse again
         \item derive type information from node at caret

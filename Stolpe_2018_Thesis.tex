@@ -111,7 +111,7 @@ Dr.\,John Doe%
 
 \def\sectionautorefname{Section}
 \def\chapterautorefname{Chapter}
-\def\subsectionautorefname{Subsection}
+\def\subsectionautorefname{Section}
 \def\figureautorefname{Figure}
 \def\tableautorefname{Table}
 
@@ -302,6 +302,9 @@ In this chapter we explain terms, concepts and technologies helping to understan
     \paragraph{LSP4J}
     Our implementation of \graallsp~uses LSP4J\footnote{\url{https://github.com/eclipse/lsp4j}} version 0.4.x \todo{version} as Java binding for the \acl{lsp}. This framework maps the \ac{lsp} requests and notifications to methods of Java interfaces so that the language server implementor does not have to deal with the JSON-RPC communication layer.
 
+    \paragraph{Visual Studio Code}
+    We used Microsoft's editor \ac{VSCode}\footnote{\url{https://code.visualstudio.com}} to create an exemplary language client extension and experiment with \graallsp.
+
     % \begin{itemize}
     %     \item definition
     %     \item URIs to identify a source file and Locations
@@ -342,9 +345,9 @@ In this chapter we explain terms, concepts and technologies helping to understan
 % \end{itemize}
 
 \begin{figure}
-    \label{fig:langspecificservervslangagnosticserver}
     \includegraphics[width=\linewidth]{images/lang-specific-server-vs-lang-agnostic-server.png}
     \caption{lang specific server vs lang-agnostic server}
+    \label{fig:langspecificservervslangagnosticserver}
 \end{figure}
 
 \section{A Language-agnostic Language Server}
@@ -369,13 +372,13 @@ In this chapter we explain terms, concepts and technologies helping to understan
           \label{tab:lspfeatures}
           \begin{tabular}{ l p{0.5\linewidth} r }
             \toprule
-            Request/Notification    & Description & Reference        \\
+            Request/Notification    & Description & Section        \\
             \midrule
             initialize              & First request containing client capabilities. Response contains server capabilities. & \ref{sec:lspinit}          \\
             didOpen                 & Notification sent from client to sever that a file was opened. Contains \acs{uri} and content. & \ref{sec:parsingcode}\\
             didChange                 & Notification sent from client to sever that a file has changed. Contains \acs{uri} and changes. & \ref{sec:parsingcode}\\
-            diagnostics             & Notification sent from server to client to display errors, warnings or hints.          \\
-            completion              & Completion request at caret position. Can be triggered automatically via registered completion trigger characters.          \\
+            diagnostics             & Notification sent from server to client to display errors, warnings or hints. & \ref{sec:diagnostics} \\
+            completion              & Completion request at caret position. Can be triggered automatically via registered completion trigger characters. & \ref{sec:completionGlobalsLocals}          \\
             signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters.          \\
             hover                   & Request for information at caret-hovering position. \\
             documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.). \\
@@ -422,39 +425,65 @@ In this chapter we explain terms, concepts and technologies helping to understan
         In case of a parsing error, we can notify the client using the "diagnostics" notification.
 
 
-    \paragraph{Diagnostics}
-    \begin{itemize}
-        \item In our approach we use Diagnostics to notify the client about syntax errors in the source code.
-            (Also used for highlighting code coverage, see ...)
-        \item map syntax error to range in source file
-        \item Truffle AST nodes have source sections
-        \item Parsing-exceptions have a reference to erroneous node, if not -> use first char in first line
-        \item Typically, exception is thrown on first syntax error
-        \item => Display only first syntax error
-    \end{itemize}
+    \subsection{Diagnostics}
+    \label{sec:diagnostics}
+        % \begin{itemize}
+        %     \item In our approach we use Diagnostics to notify the client about syntax errors in the source code.
+        %         (Also used for highlighting code coverage, see ...)
+        %     \item map syntax error to range in source file
+        %     \item Truffle AST nodes have source sections
+        %     \item Parsing-exceptions have a reference to erroneous node, if not -> use first char in first line
+        %     \item Typically, exception is thrown on first syntax error
+        %     \item => Display only first syntax error
+        % \end{itemize}
+        Truffle languages typically throw a \inlinecode{TruffleException} in case of a parsing error. The parsers are not designed to be syntax error tolerant and will stop parsing at the first syntax error. A \inlinecode{TruffleException} can have a reference to the location where the exception occurred in the \ac{ast}. If available, we map these information to line and column of the original source code and send a "diagnostics" notification to the client. If the location is not available, we use the first column in the first line as reference for the notification. The error message needed for the notification is also derived from the \inlinecode{TruffleException}.
 
-    \paragraph{Mapping the client caret position to AST node of a Truffle language}
-    \begin{itemize}
-        \item Most LSP language features are context-sensitive and include line+column in the request
-        \item Already explained: AST nodes have source sections
-        \item The Truffle framework remembers every loaded Source and its source sections
-        \item We use Truffle instrumentation to iterate over all loaded sections
-        \item Precondition: Source needs to be parsable
-        \item Two different use cases
-        \item Find the "nearest" node: containing at end, next, previous, containing, root
-        \item Find node at caret: containing
-        \item Both filtered by node kind (Expression, Statement, Callable ...)
-    \end{itemize}
+        The "diagnostics" notification is also used to display code coverage information, which will be described in xyz\todo{ref}.
 
-    \paragraph{completion of globals/locals (static)}
-    \begin{itemize}
-        \item language needs to derive a scope from an AST node
-        \item if not parsable -> only global scope possible
-        \item list valid symbols in the scope
-        \item use TruffleObject interface to check object kind, documentation, signature, etc...
-        \item for variables not many information can be display
-        \item language-agnostic => Truffle has no type information for variables
-    \end{itemize}
+    \subsection{Mapping Caret Position to \ac{ast} Node}
+    \label{sec:mappingCaretToNode}
+        % \begin{itemize}
+        %     \item Most LSP language features are context-sensitive and include line+column in the request
+        %     \item Already explained: AST nodes have source sections
+        %     \item The Truffle framework remembers every loaded Source and its source sections
+        %     \item We use Truffle instrumentation to iterate over all loaded sections
+        %     \item Precondition: Source needs to be parsable
+        %     \item Two different use cases
+        %     \item Find the "nearest" node: containing at end, next, previous, containing, root
+        %     \item Find node at caret: containing
+        %     \item Both filtered by node kind (Expression, Statement, Callable ...)
+        % \end{itemize}
+        Most \ac{lsp} requests are context-sensitive and include line and column as reference in the request. The language server has the responsibility to map these information to data structures of the language. For Truffle, this means mapping line and column to \ac{ast} nodes via their associated source section. The challenge for our language-agnostic language server is that the Truffle framework leaves the creation of the runtime-focused \acp{ast} completely to the language implementation. We cannot simply traverse an \ac{ast} by starting at the \inlinecode{CallTarget}'s executable root node which we get as parsing result. There might be more root nodes, which will be executed dynamically at runtime, depending on the language implementation. However, we can use the Truffle instrumentation environment to access all already loaded nodes which have a source section, under the condition, that the source code is parsable.
+        
+        Depending on the use cases described in the next sections, we are either interested in a node directly at the caret position ("hover", "definition" and other requests) or a node near the caret position ("completion" request for globals and locals). To find these nodes in a language-agnostic way, we have to define two assumptions.
+
+        \paragraph{Eager Source Code Parsing} First of all we assume, that parsing a Truffle \inlinecode{Source} object is done when we call the corresponding \ac{api} and not lazily when the \inlinecode{CallTarget} is executed. Otherwise no nodes and source sections will be available via the Truffle instrumentation environment.
+
+        \paragraph{Consistent Source Section Hierarchy} We assume furthermore, that source sections of \acp{ast} follow the rule: if a node has a source section and is a child of another node, then the source section of the child is fully contained in all source sections of its direct parent or indirect parents. A parent without a source section in this hierarchy is skipped.
+
+    \subsection{Static Completion of Globals and Locals}
+    \label{sec:completionGlobalsLocals}
+        % \begin{itemize}
+        %     \item language needs to derive a scope from an AST node
+        %     \item if not parsable -> only global scope possible
+        %     \item list valid symbols in the scope
+        %     \item use TruffleObject interface to check object kind, documentation, signature, etc...
+        %     \item for variables not many information can be display
+        %     \item language-agnostic => Truffle has no type information for variables
+        % \end{itemize}
+        A context-sensitive code completion is one of the most important features to increase productivity of programmers. \todo{ref?} It suggests valid symbols regarding the current scope and thereby supports programmers to explore, for example, the built-in functions of a language, read their documentation or select predefined code snippets.
+
+        For Truffle, we have to distinguish between two kinds of code completion, both depending on the current caret position. The first one we call \emph{completion of globals and locals}, described in this section. The second one we call \emph{completion of object properties}, described in \autoref{cha:completionObjectProperties}.
+
+        \emph{Completion of globals and locals} is the completion you typically get in \acp{ide} when the caret is placed in an empty line and the user presses a keyboard shortcut, e.g. \inlinecode{Ctrl+Space}. With \emph{globals} we refer to all the symbols which we can derive from language's global scopes and with \emph{locals} we analogously refer to all symbols which we can derive from language's local scopes. In the Python programming language~\cite{Rossum1995} globals would be built-in functions or classes. Locals of a function scope would be function parameters or local variables. Locals of a class scope would be fields or methods. \autoref{fig:pythonLocalsAndGlobalsPluginExample} shows such a code completion in \acl{VSCode} for a Python file.
+
+        \begin{figure}
+            \includegraphics[width=\linewidth]{images/python_globals_locals_example_python_plugin_themed.png}
+            \caption{A \acl{VSCode} extension for the Python language showing the completions of globals and locals available in a function scope, together with reserved keywords.}
+            \label{fig:pythonLocalsAndGlobalsPluginExample}
+        \end{figure}
+        
+        If the assumptions in \autoref{sec:mappingCaretToNode} are true, we can provide this kind of code completion by using existing Truffle \acp{api}.
 
     \paragraph{Using runtime type information}
     \begin{itemize}
@@ -474,7 +503,8 @@ In this chapter we explain terms, concepts and technologies helping to understan
         \item user interface to start code evaluation: see codeLense
     \end{itemize}
     
-    \paragraph{completion of object properties}
+    \subsection{completion of object properties}
+    \label{cha:completionObjectProperties}
     \begin{itemize}
         \item define "object property completion"
         \item check trigger character
@@ -563,6 +593,8 @@ In this chapter we explain terms, concepts and technologies helping to understan
         \item variable
         \item ...
     \end{itemize}
+
+    \paragraph{codeLense / Coverage analysis}
 
     \paragraph{Language features not implemented}
     \begin{itemize}

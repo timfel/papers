@@ -486,26 +486,41 @@ In this chapter we explain terms, concepts and technologies helping to understan
             \label{fig:pythonLocalsAndGlobalsPluginExample}
         \end{figure}
         
-        If the assumptions in \autoref{sec:mappingCaretToNode} (eager source code parsing and a consistent source section hierarchy) are true, we can provide \emph{static} code completion for globals and locals by using existing Truffle \acp{api}. With \emph{static}, we refer to a code completion, where we have no runtime information, e.g. a frame, which we could use to find locals. An approach to use runtime information for code completion is explained in \autoref{sec:usingRuntimeInformation}.
+        If the assumptions in \autoref{sec:mappingCaretToNode} (eager source code parsing and a consistent source section hierarchy) are true, we can provide \emph{static} code completion for globals and locals by using existing Truffle \acp{api}. With \emph{static}, we refer to a code completion, where we can only access lexical scopes to find locals. An approach to use runtime information for code completion, e.g. via a frame, is explained in \autoref{sec:usingRuntimeInformation}.
 
         \paragraph{Statically Deriving Local Scopes From a Node}
-        Global scopes are always accessible via the Truffle instrumentation environment. To find the relevant local scopes statically, we need to find a node \emph{relevantly near} the client's caret position as reference point. In the following we use some Python code snippets to explain what we mean by \emph{Relevantly near}.
+        Global scopes are always accessible via the Truffle instrumentation environment. To find the relevant local scopes statically, we need to find a node which has a source section \emph{relevantly near} the client's caret position. In the following we use some Python code snippets to explain what we mean by \emph{relevantly near}.
 
-        \autoref{lst:pythonNearCaretExample1} \todo{label counter wrrong?} shows Python source code with a function definition \inlinecode{foo} containing two parameters and two local variables in its scope and a function \inlinecode{bar} without locals definitions.
-        
-        \begin{code}[lst:pythonNearCaretExample1]{An example Python code snippet shows two functions to explain local scopes.}{float,numbers=left,language=Python}
+        \begin{code}[lst:pythonNearCaretExample1]{An example Python code snippet showing two functions to explain scopes.}{float,numbers=left,language=Python}
 def foo(param1, param2):
+    x = 42
 
     y = param1 + param2
 
-    return y
-
+    print(x * y)
+    
 
 def bar():
     return 42
         \end{code}
 
-        %means, that the caret position is either contained in a node's source section with the smallest range, or is the first one before or after the section.
+        \autoref{lst:pythonNearCaretExample1} \todo{label counter wrrong?} shows Python source code with a function definition \inlinecode{foo}, containing two parameters and two local variables in its scope and a function \inlinecode{bar} without definition of locals. Imagine that the caret is placed in the empty line 3 between the two variable assignments and code completion is triggered. The caret is clearly placed inside the scope of the function \inlinecode{foo} and we would assume that the code completion suggests, among globals, the two parameters \inlinecode{param1} and \inlinecode{param2}, and the local variable \inlinecode{x}. The local variable \inlinecode{y} is also in the function scope of \inlinecode{foo}, but is not written until line 4 and should therefore not be included in the suggestions. Whereas, if the caret is placed in line 5, \inlinecode{y} should be included.
+
+        As already mentioned, Truffle cannot derive scopes directly from the caret position, but from a node. The difficulty is, that the scopes, which the Truffle \ac{api} derives from a node, contain variables valid \emph{at} that node. This means translated to our Python example, that if we use the node representing \inlinecode{x = 42} in line 2 to derive local scopes, the scopes do not include the variable \inlinecode{x}. One could say, that we get all locals valid before the node's source section starts. Therefore we have to decide in a language-agnostic way, which node is near\footnote{For simplicity, we say in the following \emph{a node near/after/before/containing the caret} instead of \emph{a node which has a source section near/starting after/ending before/containing the caret position}} the caret and provides the relevant information we need for the code completion.
+        
+        Imagine code completion is triggered in line 3. Then the most inner node, which contains the caret, could be the function definition of \inlinecode{foo} ranging from line 1 to 6. The nearest node behind the caret could be the assignment of \inlinecode{y} in line 4 and the nearest node before the caret could be the assignment of \inlinecode{x} in line 2.
+
+        We suggest finding the node \emph{relevantly near} the client's caret position following the rule:
+        \begin{enumerate}
+            \item If the caret is not contained in a node, we are not in a local scope. No completion of locals necessary. (Example: caret at line 8)
+            \item If contained, pick the node which is nearest behind the caret position and which is also an (indirect) child of the node  which contains the caret. (Example: caret at line 3, picking node \inlinecode{y = param1 + param2})
+            \item If not found, pick the node which is nearest before the caret. (Example: caret indented at line 7, picking \inlinecode{y = param1 + param2})
+            \item If still not found, use the node which contains the caret.
+        \end{enumerate}
+        
+        At this point, we have to note that this rule is only a best effort approach. Which locals are included in the lexical scopes provided via the Truffle \ac{api} is depending on the language implementation. None the less, we are able to provide the needed information for a language-agnostic, static code completion of globals and locals with this approach. For the globals we can additionally provide ... \todo{details, docu etc., querying TruffleObjects}
+
+       
 
     \subsection{Using Runtime Information}
     \label{sec:usingRuntimeInformation}

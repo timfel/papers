@@ -114,6 +114,7 @@ Dr.\,John Doe%
 \def\subsectionautorefname{Section}
 \def\figureautorefname{Figure}
 \def\tableautorefname{Table}
+\def\listingautorefname{Listing}
 
 \chapter{Introduction}
 \label{cha:introduction}
@@ -225,6 +226,8 @@ In this chapter we explain terms, concepts and technologies helping to understan
     Most programming languages have a concept of a global (program wide) scope and local scopes defined by functions, blocks or modules.
     During execution of a program, frames store the actual values of the name bindings of visible scopes.
 
+    \paragraph{Static vs. Dynamic?}
+
     \paragraph{VM?}
     
 \section{Truffle and GraalVM}
@@ -284,7 +287,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
 
 \section{Language Server Protocol}
 \label{sec:lspcontext}
-    In 2016 a group of IT companies, including Microsoft, Red Hat, and Codenvy, started to standardize the \ac{lsp}~\cite{lsp2017}. This protocol describes an approach to tackle the problem of language and tool developers, which need to repeatedly implement language support (e.g. code completion, jump-to-definition and syntax error reporting) for every new code editor, \ac{ide} or development tool. The \ac{lsp} defines a \textit{language server} and a \textit{language client}. The server needs to be implemented only once for every language, providing the language-specific smarts. A development tool implementing a language client can make use of any language server and therefore support multiple languages with minimal effort.
+    In 2016 a group of IT companies, including Microsoft, Red Hat, and Codenvy, started to standardize the \acf{lsp}~\cite{lsp2017}. This protocol describes an approach to tackle the problem of language and tool developers, which need to repeatedly implement language support (e.g. code completion, jump-to-definition and syntax error reporting) for every new code editor, \ac{ide} or development tool. The \ac{lsp} defines a \textit{language server} and a \textit{language client}. The server needs to be implemented only once for every language, providing the language-specific smarts. A development tool implementing a language client can make use of any language server and therefore support multiple languages with minimal effort.
     
     At the date of writing, language servers for more than 50 languages exist\footnote{\url{https://microsoft.github.io/language-server-protocol/implementors/servers/} Sep. 2018}, including almost all popular programming and scripting languages. Not all implementations support the full feature set defined in the \ac{lsp}. Usually, these language server implementations support exactly one language, but the \ac{lsp} allows multiple languages per server.
     
@@ -381,8 +384,8 @@ In this chapter we explain terms, concepts and technologies helping to understan
             completion              & Completion request at caret position. Can be triggered automatically via registered completion trigger characters. & \ref{sec:completionGlobalsLocals}          \\
             signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters.          \\
             hover                   & Request for information at caret-hovering position. \\
-            documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.). & \ref{sec:sec:documentSymbol} \\
-            symbol                  & Like documentSymbol, but for all files in the client workspace.         \\
+            documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.). & \ref{sec:documentSymbol} \\
+            symbol                  & Like documentSymbol, but for all files in the client workspace. & \ref{sec:symbol} \\
             definition              & Goto-definition request for functions, variables, etc.          \\
             references              & Request to find all references of a symbol.          \\
             documentHighlight       & Request to highlight all ranges related to a symbol (e.g. variable reads and writes).          \\
@@ -475,7 +478,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
 
         For Truffle, we have to distinguish between two kinds of code completion, both depending on the current caret position. The first one we call \emph{completion of globals and locals}, described in this section. The second one we call \emph{completion of object properties}, described in \autoref{cha:completionObjectProperties}.
 
-        \emph{Completion of globals and locals} is the completion you typically get in \acp{ide} when the caret is placed in an empty line and the user presses a keyboard shortcut, e.g. \inlinecode{Ctrl+Space}. With \emph{globals} we refer to all the symbols which we can derive from language's global scopes and with \emph{locals} we analogously refer to all symbols which we can derive from language's local scopes. In the Python programming language~\cite{Rossum1995} globals would be built-in functions or classes. Locals of a function scope would be function parameters or local variables. Locals of a class scope would be fields or methods. \autoref{fig:pythonLocalsAndGlobalsPluginExample} shows such a code completion in \acl{VSCode} for a Python file.
+        \emph{Completion of globals and locals} is the completion you typically get in \acp{ide} when the caret is placed in an empty line and the user presses a keyboard shortcut, e.g. \inlinecode{Ctrl+Space}. With \emph{globals} we refer to all the symbols which we can derive from global scopes of languages and with \emph{locals} we analogously refer to all symbols which we can derive from local scopes of languages. In the Python programming language~\cite{Rossum1995} globals are, for example, built-in functions or classes. Locals of a function scope are function parameters or local variables. Locals of a class scope are fields or methods. \autoref{fig:pythonLocalsAndGlobalsPluginExample} exemplarily shows a code completion for globals and locals of a Python file in \acl{VSCode}.
 
         \begin{figure}
             \includegraphics[width=\linewidth]{images/python_plugin_examples/python_globals_locals_example_python_plugin_themed.png}
@@ -483,9 +486,29 @@ In this chapter we explain terms, concepts and technologies helping to understan
             \label{fig:pythonLocalsAndGlobalsPluginExample}
         \end{figure}
         
-        If the assumptions in \autoref{sec:mappingCaretToNode} are true, we can provide this kind of code completion by using existing Truffle \acp{api}. ...\todo{explain approach}
+        If the assumptions in \autoref{sec:mappingCaretToNode} (eager source code parsing and a consistent source section hierarchy) are true, we can provide \emph{static} code completion for globals and locals by using existing Truffle \acp{api}. With \emph{static}, we refer to a code completion, where we have no runtime information, e.g. a frame, which we could use to find locals. An approach to use runtime information for code completion is explained in \autoref{sec:usingRuntimeInformation}.
 
-    \paragraph{Using runtime type information}
+        \paragraph{Statically Deriving Local Scopes From a Node}
+        Global scopes are always accessible via the Truffle instrumentation environment. To find the relevant local scopes statically, we need to find a node \emph{relevantly near} the client's caret position as reference point. In the following we use some Python code snippets to explain what we mean by \emph{Relevantly near}.
+
+        \autoref{lst:pythonNearCaretExample1} \todo{label counter wrrong?} shows Python source code with a function definition \inlinecode{foo} containing two parameters and two local variables in its scope and a function \inlinecode{bar} without locals definitions.
+        
+        \begin{code}[lst:pythonNearCaretExample1]{An example Python code snippet shows two functions to explain local scopes.}{float,numbers=left,language=Python}
+def foo(param1, param2):
+
+    y = param1 + param2
+
+    return y
+
+
+def bar():
+    return 42
+        \end{code}
+
+        %means, that the caret position is either contained in a node's source section with the smallest range, or is the first one before or after the section.
+
+    \subsection{Using Runtime Information}
+    \label{sec:usingRuntimeInformation}
     \begin{itemize}
         \item to display details e.g. about globals/locals, type information are needed
         \item easy for statically typed languages - not for dynamic
@@ -549,7 +572,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item use Truffle Tagging -> new DefinitionTag needed to define which kind of symbol it is (class, variable, ...)
         %     \item fallback: search for RootTagged nodes
         % \end{itemize}
-        The \emph{documentSymbol} request is sent from the client to the server to get all symbols available in a specific source file. An \ac{uri} parameter is included in the request. Each symbol in the response must be associated with a source section. If the symbol, for example, relates to a function definition, the range of the definition could be taken as the source section. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response looks like in \acl{VSCode} with active Python extension. 
+        The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. An \ac{uri} parameter is included in the request. Each symbol in the response must be associated with a source section. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source section. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response looks like in \acl{VSCode} with active Python extension. 
 
         \begin{figure}
             \includegraphics[width=\linewidth]{images/python_plugin_examples/python_document_symbol_example_python_plugin_themed.png}
@@ -559,13 +582,15 @@ In this chapter we explain terms, concepts and technologies helping to understan
 
         To implement the \emph{documentSymbol} request for Truffle languages, we have to think about which kind of symbols we can support with the current Truffle \ac{api}. With the instrumentation environment we can access all loaded nodes which have a source section. We can filter them based on their meta information to find all root nodes. Because a root node is executable, we assume that the name of the root node is a valid symbol of a callable element of the corresponding Truffle language. However, to add a symbol kind we need more meta-information about the nodes.
 
-        \paragraph{Tagging Meta-information} To get the required meta-information, we suggest to add a new \inlinecode{Tag} for nodes representing a symbol.
+        \paragraph{Tagging Nodes with Meta-information} To get the required meta-information, we suggest to add a new \inlinecode{Tag} for nodes introducing new symbols in a scope. There are already some tags existing to mark statements, expressions, calls, and root nodes. They are mainly used to implement debugger features like stepping. Using again the example of the Python language, the tag we suggest could be used to mark function and class definition nodes, first occurrences of a variable assignment node (Python has no variable declarations), or import nodes. This way we could support the \emph{documentSymbol} request in a language-agnostic way with results equal to those language-specific ones already shown in \autoref{fig:pythonDocumentSymbolPluginExample}.
 
-    \paragraph{symbol}
-    \begin{itemize}
-        \item find all symbols in workspace
-        \item same as documentSymbol for all sources in workspace
-    \end{itemize}
+    \subsection{Workspace-wide Symbols}
+    \label{sec:symbol}
+        % \begin{itemize}
+        %     \item find all symbols in workspace
+        %     \item same as documentSymbol for all sources in workspace
+        % \end{itemize}
+        The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, if we use the solution for \emph{documentSymbol} explained in \autoref{sec:documentSymbol}, we can easily add support for the workspace-wide \emph{symbol} request.
 
     \paragraph{documentHighlight}
     \begin{itemize}

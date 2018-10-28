@@ -47,5 +47,5 @@ cat ${PAGES} >> ${JSON}
 echo "]" >> ${JSON}
 
 # thumbnails
-convert ${FILE}.pdf -alpha off -resize '60' ${PUBLIC}/images/thumbnail.png
+convert ${FILE}.pdf -alpha remove -resize '60' ${PUBLIC}/images/thumbnail.png
 

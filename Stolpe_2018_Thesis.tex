@@ -407,7 +407,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item To get the language we have to compare the registered MIME-types of a Truffle language with the MIME-type derived from the file extension
         %     \item After initialization we parse all files in the workspace
         % \end{itemize}
-        The first request sent from the client to the server is the "initialize" request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. When a server supports "completion" and "signatureHelp" the response needs to include trigger characters which tell the client when "completion" or "signatureHelp" shall be triggered automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but an interface extension is needed to get the trigger characters for "completion" and "signatureHelp" of a language.
+        The first request sent from the client to the server is the \emph{initialize} request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. When a server supports the \emph{completion} and \emph{signatureHelp} requests, the response needs to include trigger characters\footnote{A trigger character is actually a string and can consist of multiple character symbols.} which tell the client when it shall send a \emph{completion} or \emph{signatureHelp} request automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but an interface extension is needed to get the trigger characters for \emph{completion} and \emph{signatureHelp} requests of a language.
 
     \subsection{Parsing Source Code}
     \label{sec:parsingcode}
@@ -556,49 +556,77 @@ def bar():
         The basic idea to get access to run-time information (e.g. a frame) at caret position is, that we trigger source code execution while using Truffle instrumentation to listen for execution events occurring at a source section near the caret position. This approach implies some preconditions and challenges. We have to think about unexpected and unwanted side-effects during execution, the possibility of a long running or non-terminating execution, and the fact that the caret position might not be reached by the execution flow.
 
         \paragraph{Sandboxing the Execution Environment}
-        The Truffle framework has an embedder-\ac{api} which allows developers to configure sandboxing for the Truffle execution environment. At the moment, it supports restriction of the file system only, but in future versions of Truffle, the restriction of network I/O shall also be supported. It is also possible to install our own file system proxy, which enables having fine grained control over what Truffle languages are allowed to access and what not. We could therefore install a copy-on-write file system, which copies each file which shall be changed to a sandbox and redirects further read and writes to that copy. For now, we simply use a read-only file system, which prevents unwanted file changes outside the Truffle execution environment, when executing source code in our language server.
+        The Truffle framework has an \todo{is embedding-API the right term?}embedding-\ac{api} which allows developers to configure sandboxing for the Truffle execution environment. At the moment, it supports restriction of the file system only, but in future versions of Truffle, the restriction of network I/O shall also be supported. It is also possible to install our own file system proxy, which enables having fine grained control over what Truffle languages are allowed to access and what not. We could therefore install a copy-on-write file system, which copies each file which shall be changed to a sandbox and redirects further read and writes to that copy. For now, we simply use a read-only file system, which prevents unwanted file changes outside the Truffle execution environment, when executing source code in our language server.
 
         \paragraph{Long Running or Non-terminating Executions}
-        A user, who triggers code completion, becomes impatient if the completion request takes longer than x\todo{value + ref} seconds to return a result. The execution time of arbitrary source code might take a long time or might not finish at all, for example due to an endless loop. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion.
+        A user, who triggers code completion, becomes impatient if the completion request takes longer than x\todo{value + ref} seconds to return a result. The execution time of arbitrary source code might take a long time or might not finish at all, for example due to an endless loop. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion, but an endless execution can be avoided.
 
         \paragraph{Unreachable Source Sections}
         Depending on the source code, there might be source sections which are unreachable by the normal execution flow of the current source code file. Imagine, the Python code defined in the already mentioned \autoref{lst:pythonNearCaretExample1}, is the source code of a python file. If we execute that file, the two function definitions of \inlinecode{foo} and \inlinecode{bar} will be executed, but their function body will not be executed. Their is no function call to \inlinecode{foo} or \inlinecode{bar} defined in that file. Therefore, listening for execution events of the Truffle instrumentation environment to enhance our code completion in lines 2 to 6, which is the function body of \inlinecode{foo}, will not work. In our opinion, this is the normal case for file based programming languages. You typically split your program's source code into multiple files, having a limited set of files, which define runnable entry points, which then import elements of the other files.
 
-        One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. For our approach of getting run-time information to enhance code completion is the instrumented execution of unit tests a promising way. Most unit tests have a short execution time and are supposed to be free of unwanted side-effects - or at least have a clean-up routine included. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which points to a runnable script. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests.
+        One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. For our approach of getting run-time information to enhance code completion is the instrumented execution of unit tests a promising way. Most unit tests have a short execution time and are supposed to be free of unwanted side-effects -- or at least have a clean-up routine included. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which points to a runnable script. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests.
 
         Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{TDD} principles \todo{ref to Kent Beck - Extreme Programming Explained: Embrace Change?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
 
         \paragraph{Caching Run-time Information}
-        Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branch might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we \todo{suggest to?} only cache the first frame available during execution for every source section.
+        Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branches might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we \todo{suggest to?} only cache the first frame available during execution for every source section.
         
         Having such a data structure, we can use the approach described in \autoref{sec:mappingCaretToNode} to find a node near the caret an check via its source section for collected frames. If there is one, we can derive local run-time scopes from it. If there is none, we have to assume that the source section was not covered and use local lexical scopes as fallback.
 
         
 
-
-
-
-    \subsection{completion of object properties}
+    \subsection{Completion of Object Properties}
     \label{sec:completionObjectProperties}
-    \begin{itemize}
-        \item define "object property completion"
-        \item check trigger character
-        \item assumption: inserting a completion character => code might be not parsable
-        \item fix code by undoing last change + parse again
-        \item derive type information from node at caret
-        \item run code to caret position
-        \item optimizations: try different evaluation strategies
-        \begin{itemize}
-            \item literal -> type can be derived without execution
-            \item coverage data (explained later)
-            \item run-to-section
-            \item globals
-        \end{itemize}
-        \item getting infos from evaluation result object
-        \item use TruffleObject interface to check object kind, documentation, signature, etc...
-    \end{itemize}
+        % \begin{itemize}
+        %     \item define "object property completion"
+        %     \item check trigger character
+        %     \item assumption: inserting a completion character => code might be not parsable
+        %     \item fix code by undoing last change + parse again
+        %     \item derive type information from node at caret
+        %     \item run code to caret position
+        %     \item optimizations: try different evaluation strategies
+        %     \begin{itemize}
+        %         \item literal -> type can be derived without execution
+        %         \item coverage data (explained later)
+        %         \item run-to-section
+        %         \item globals
+        %     \end{itemize}
+        %     \item getting infos from evaluation result object
+        %     \item use TruffleObject interface to check object kind, documentation, signature, etc...
+        % \end{itemize}
+        In the previous sections we described the completion of globals and locals using static and run-time information. This section explains an approach to \emph{complete object properties} in a language-agnostic way. With \emph{completion of object properties} we refer to the typical completion you get in \acp{ide} when inserting a trigger character, like a dot in Python or Java, after a variable. This way, you get suggestions for named properties available on the object bound to that variable. What a property actually is, depends on the Truffle language implementation. For a Python or Java object, properties could be all fields and methods which are defined by the object's class and super-classes. For a non-object-oriented language, this kind of completion might not be supported or be limited to special language elements, which understand some kind of \emph{property} semantic. \autoref{lst:pythonObjectPropertyCompletion1} shows a Python code snippet consisting of a class definition \inlinecode{Natural} with a field \inlinecode{n} and a method \inlinecode{next}. In the last line, a code completion could be triggered by an \ac{ide} automatically after the dot character was inserted. We would assume, that such a completion suggests the field \inlinecode{n} and the method \inlinecode{next} at least.
+        
+        \paragraph{Approach and Challenges}
+        Truffle provides an \ac{api} to list all property names of a language object and read or write the actual values associated with these property names. To use this \ac{api}, we have to solve some challenges. First of all we have to detect that an object property completion shall be triggered instead of a completion of globals and locals. Second, we have to identify the language element, i.e. a Truffle \ac{ast} node, for which the completion of properties is desired. Finally, we have to get the actual object associated with that node, which might be available only at run-time.
 
-    \paragraph{hover}
+        \paragraph{Detecting an Object Property Completion}
+        To distinguish a completion request for globals and locals from one for object properties, we can use the  \ac{api} extension already suggested in \autoref{sec:lspinit}, which allows us to ask a Truffle language for its completion trigger characters. Because the \emph{initialize} response contains the trigger characters of all installed languages, the client will automatically trigger completion requests for all these characters. Therefore we have to check every request, if the trigger character belongs to the current language. If not, we have to skip the request.
+
+        The completion trigger character is only included in the request if the completion was triggered automatically and the client supports that optional feature. Therefore we have to check manually. To do so, we assume, that when a completion request arrives, we can distinguish the two kinds of completion by comparing one or multiple characters directly in front of the caret with the registered trigger characters of the current language. If there is a match, we try an object property completion.
+
+        \paragraph{Finding the Desired Node}
+        To find the \ac{ast} node for which the completion of object properties is desired, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore we suggest to always revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code.
+
+        \begin{code}[lst:pythonObjectPropertyCompletion1]{A Python code snippet showing an object property completion example.}{float,numbers=left,language=Python}
+class Natural:
+    n = 2
+
+    def next(self):
+        r = self.n
+        self.n = self.n + 1
+        return r
+    
+natural = Natural()
+natural.
+        \end{code}
+
+        As an example, we refer again to \autoref{lst:pythonObjectPropertyCompletion1}. The source code shown is no valid Python source code because of the last dot character. Removing this dot makes the code parsable again.
+
+        \todo{Naming limitations etc here? Or only in the experience report?} We know that this approach does not fit for all situations and languages, but it is a first best-effort approach which works for languages like Python or JavaScript.
+
+        Now that we have a first approach to get parsable source code again, we can use the approach described in \autoref{sec:mappingCaretToNode} to find a node directly in front of the current caret position.
+
+    \subsection{hover}
     \begin{itemize}
         \item same preconditions as for completion (parsable code, find node at caret)
         \item if coverage data available: parse in-line + eval in-line

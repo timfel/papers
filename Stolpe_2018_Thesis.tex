@@ -382,8 +382,8 @@ In this chapter we explain terms, concepts and technologies helping to understan
             didChange                 & Notification sent from client to sever that a file has changed. Contains \acs{uri} and changes. & \ref{sec:parsingcode}\\
             diagnostics             & Notification sent from server to client to display errors, warnings or hints. & \ref{sec:diagnostics} \\
             completion              & Completion request at caret position. Can be triggered automatically via registered completion trigger characters. & \ref{sec:completionGlobalsLocals} \\
-            signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters.          \\
-            hover                   & Request for information at caret-hovering position. \\
+            signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters. & \ref{sec:signatureHelp}         \\
+            hover                   & Request for information at caret-hovering position. & \ref{sec:hover} \\
             documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.). & \ref{sec:documentSymbol} \\
             symbol                  & Like documentSymbol, but for all files in the client workspace. & \ref{sec:symbol} \\
             definition              & Goto-definition request for functions, variables, etc.          \\
@@ -523,7 +523,7 @@ def bar():
         \paragraph{Querying Properties of Scope Values}
         For globals, we can not only access their names via the Truffle \ac{api}, but retrieve additional information by querying the actual objects which are associated with these names in the global scopes. Based on the result, we can set the completion item kind supported by \ac{lsp}, such as \emph{variable}, \emph{function}, or \emph{class}.
 
-        A property, which is not supported by the current Truffle \ac{api}, is documentation. Therefore, we propose to add a new query message. For Python, this query could return the documentation string for functions, classes or modules.
+        A property, which is not supported by the current Truffle \ac{api}, is documentation. Therefore, we propose to add a new Truffle \ac{api}. For Python, this \ac{api} could return the documentation string for functions, classes or modules.
         
         To sum it up, with the proposed extension for documentation, we can support static code completion for locals without further details, but for globals with completion kind and documentation.
 
@@ -633,25 +633,41 @@ natural.
 
         If the literal-approach returns no results, we can check if there are already cached run-time information available (see \autoref{sec:usingRuntimeInformation}). These information can be used by the Truffle instrumentation environment to perform an in-line evaluation of the source code associated with the node in front of the caret. As a prerequisite, a Truffle language needs to support in-line parsing of source code. The evaluation result can then be queried for properties.
 
-    \subsection{hover}
-    \begin{itemize}
-        \item same preconditions as for completion (parsable code, find node at caret)
-        \item if coverage data available: parse in-line + eval in-line
-        \item for language developers: show debug infos (AST structure)
-    \end{itemize}
+        If using cached run-time information returns no results, we use the actual approach described in \autoref{sec:usingRuntimeInformation}, i.e. we execute the current script or unit tests and listen for execution events concerning the source section of the node in front of our caret. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1}, where we assume that a completion request was triggered by inserting a dot character in the last line, we are interested in the return value of the expression \inlinecode{natural} in front of that dot. Therefore we listen for execution events which are associated with the source section of \inlinecode{natural}. The resulting object can be queried for properties.
 
-    \paragraph{signatureHelp}
-    \begin{itemize}
-        \item same preconditions as for completion (parsable code, find node at caret)
-        \item need to know the signatureHelp trigger character
-        \item when triggered -> assumption: code still parsable (e.g. editor has smart character insertion)
-        \item find callable node at caret
-        \item run to section
-        \item listen for callable object
-        \item ask via message to TruffleObject for signature and number of arguments
-    \end{itemize}
+        If there are still no results, because the source section might not be reachable for example, we can use a last fallback. We try to evaluate the source snippet associated with the node in front of the caret in the global scope. This will at least provide some property completion for globals and context-independent expressions. \todo{name problems? context-depedent code might be evaluated in global scope yielding wrong results}
 
-    \subsection{Document symbols}
+        To sum it up, with the approach described in this section, we are able to provide a basic, language-agnostic code completion for object properties. This approach includes reverting source code to a parsable state, executing that source code in a sandbox to listen for specific execution events using Truffle instrumentation, and querying the obtained run-time language object for its properties.
+
+    \subsection{Signature Help}
+    \label{sec:signatureHelp}
+        % \begin{itemize}
+        %     \item same preconditions as for completion (parsable code, find node at caret)
+        %     \item need to know the signatureHelp trigger character
+        %     \item when triggered -> assumption: code still parsable (e.g. editor has smart character insertion)
+        %     \item find callable node at caret
+        %     \item run to section
+        %     \item listen for callable object
+        %     \item ask via message to TruffleObject for signature and number of arguments
+        % \end{itemize}
+        The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like we described in \autoref{sec:usingRuntimeInformation} for the completion of object properties (bringing the source code into a parsable state, finding the node at the caret position and executing the source code until we have found the desired run-time object).
+
+        Unfortunately, there is no Truffle \ac{api} yet, which provides signature information for an object. Therefore, we suggest to add a new Truffle \ac{api}. Furthermore, we assume, that only callable elements of a language can have a signature. To mark these elements of a language, Truffle provides a \inlinecode{CallTag} for \ac{ast} nodes. We can use this tag as a filter criterion for our search for the node at the caret position.
+
+
+    \subsection{Hover Information}
+    \label{sec:hover}
+        % \begin{itemize}
+        %     \item same preconditions as for completion (parsable code, find node at caret)
+        %     \item if coverage data available: parse in-line + eval in-line
+        %     \item for language developers: show debug infos (AST structure)
+        % \end{itemize}
+        The \emph{hover} request is sent from client to server to obtain information at the current (mouse) caret position. This request has the same prerequisite as the other context-depending requests. The source code needs to be parsable to find a node at the caret position. Having a node, we can check if the node's source section is associated with run-time information (see \autoref{sec:usingRuntimeInformation}). If so, we can use these information (e.g. a frame) to build the \emph{hover} response. If the hovered node represents a variable, we can use the frame to obtain the assigned value and include the string representations of that value and its meta-object in the response. Otherwise, we try to perform an in-line evaluation of the source code associated with the node. If the result is an object, which supports the suggested \ac{api} to obtain signature information (see \autoref{sec:signatureHelp}) or suggested \ac{api} to obtain documentation (see \autoref{sec:completionGlobalsLocals}), we can include signature and/or documentation, for example for a Python function, in the \emph{hover} response.
+
+        For language developers or interested language users, we suggest to provide static hover information concerning the \ac{ast} node at the caret position if no run-time information are available. This feature, which can be activated via an option, can be used to inspect the \ac{ast} structure of a language and learn about which language elements in the source code are mapped to which kind of \ac{ast} nodes. We used this feature extensively ourselves while implementing our approach\todo{is this remark fitting here?}.
+
+
+    \subsection{Document Symbols}
     \label{sec:documentSymbol}
         % \begin{itemize}
         %     \item parsable code
@@ -659,7 +675,7 @@ natural.
         %     \item use Truffle Tagging -> new DefinitionTag needed to define which kind of symbol it is (class, variable, ...)
         %     \item fallback: search for RootTagged nodes
         % \end{itemize}
-        The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. An \ac{uri} parameter is included in the request. Each symbol in the response must be associated with a source section. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source section. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response looks like in \acl{VSCode} with active Python extension. 
+        The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. An \ac{uri} parameter is included in the request. Each symbol in the response must be associated with a source section. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source section. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response is displayed in \acl{VSCode} with active Python extension. 
 
         \begin{figure}
             \includegraphics[width=\linewidth]{images/python_plugin_examples/python_document_symbol_example_python_plugin_themed.png}

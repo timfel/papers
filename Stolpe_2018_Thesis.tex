@@ -386,10 +386,10 @@ In this chapter we explain terms, concepts and technologies helping to understan
             hover                   & Request for information at caret-hovering position. & \ref{sec:hover} \\
             documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.). & \ref{sec:documentSymbol} \\
             symbol                  & Like documentSymbol, but for all files in the client workspace. & \ref{sec:symbol} \\
-            definition              & Goto-definition request for functions, variables, etc.          \\
-            references              & Request to find all references of a symbol.          \\
+            definition              & Goto-definition request for functions, variables, etc. & \ref{sec:definition}          \\
+            references              & Request to find all references of a symbol. & \ref{sec:references}         \\
             documentHighlight       & Request to highlight all ranges related to a symbol (e.g. variable reads and writes). & \ref{sec:documentHighlight}          \\
-            codeLense               & Request to provide executable actions at arbitrary source locations.           \\
+            codeLense               & Request to provide executable actions at arbitrary source locations. & \ref{sec:codeLense}          \\
             \bottomrule
           \end{tabular}
         \end{threeparttable}
@@ -693,7 +693,7 @@ natural.
         %     \item find all symbols in workspace
         %     \item same as documentSymbol for all sources in workspace
         % \end{itemize}
-        The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, if we use the solution for \emph{documentSymbol} explained in \autoref{sec:documentSymbol}, we can easily add support for the workspace-wide \emph{symbol} request.
+        The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, if we apply the approach explained in \autoref{sec:documentSymbol} for \emph{documentSymbol}, we can easily add support for the workspace-wide \emph{symbol} request.
 
     \subsection{Document Highlight}
     \label{sec:documentHighlight}
@@ -705,7 +705,8 @@ natural.
         % \end{itemize}
         The \emph{documentHighlight} request is sent from client to server to get a list of ranges, which shall be highlighted in the client. Additionally, we can define if the highlighted range is a read or write of a symbol. We want to support highlighting of variable reads and writes for now. Unfortunately, there is no Truffle \ac{api} yet to filter for nodes representing a read- or write-access of a variable. Therefore, we suggest to add two new tags to mark nodes which read or write a variable. These nodes also have to expose the identifier of the variable which they refer to. Having this, we can check if the node at the current caret position is tagged with one of these new tags. Then we can start a static search in the local scopes derived from that node for other tagged nodes with the same variable identifier. For every matching node, we add and response item, which includes the node's source range and the highlighting kind.
 
-    \paragraph{definition}
+    \subsection{definition}
+    \label{sec:definition}
     \begin{itemize}
         \item parsable code + find node at caret
         \item function vs variable
@@ -723,20 +724,33 @@ natural.
         \end{itemize}
     \end{itemize}
 
-    \paragraph{references}
-    \begin{itemize}
-        \item parsable code + find node at caret
-        \item function vs variable
-        \item function
-        \begin{itemize}
-            \item dynamic approach: run-to-section to get function object
-            \item search for function calls
-        \end{itemize}
-        \item variable
-        \item ...
-    \end{itemize}
+    \subsection{Finding All References}
+    \label{sec:references}
+        % \begin{itemize}
+        %     \item parsable code + find node at caret
+        %     \item function vs variable
+        %     \item function
+        %     \begin{itemize}
+        %         \item search call tagged nodes with same id
+        %     \end{itemize}
+        %     \item variable
+        %     \item ...
+        % \end{itemize}
+        The \emph{references} request is sent from client to server to get all locations in the workspace, where the symbol at the caret position is also referenced. For now, we support a reference search for local variables and callable objects. As for many requests described before, the code needs to be parsable so that we can find a node a the current caret position.
+        
+        For callable objects, we can search for nodes tagged with Truffle's \inlinecode{CallTag}. If there is such a tagged node at the caret, we can obtain its symbol and search all already loaded sources for other tagged nodes with the same symbol. Then we return all source section ranges of the matching nodes in the response.
+        
+        For local variables, we need the tags suggested in \autoref{sec:documentHighlight} to search for nodes which represent a read- or write-access to a variable. If there is a node tagged with one of these two tags at the current caret position, we can search for all other variable references as described in \autoref{sec:documentHighlight} for the highlighting of variable reads and writes.
 
-    \paragraph{codeLense / Coverage analysis}
+    \subsection{Triggering Run-time Information Collection}
+    \label{sec:codeLense}
+        In \autoref{sec:usingRuntimeInformation} and the following ones, we described how to use cached run-time information for code completion, hover details and other requests. The question is, when to initialize and renew this cache. Therefore, we use the \emph{codeLense} request, sent from client to server, to provide an interface for \ac{lsp}-client users, so that they can trigger the renewal of the cache when they considered it reasonable. This could be the case, when the hover request returns incomplete or no results anymore.
+        
+        The \emph{codeLense} response includes a list of commands associated with display names and source ranges. It allows interspersing contextual actions directly into the source code. In a \acf{VSCode} extension, it is used for example to insert a clickable link above a TypeScript function, if it violates some predefined code metrics. Clicking the link shows the metrics. We use it to insert such a code lense in the first line of the code, which will trigger the execution of the current source code or another script to collect run-time information.
+
+        \paragraph{Migrating Cached Information}
+        One challenge, we have not discussed so far, is that the cached run-time information are bound to specific source sections. Every time a \emph{didChange} notification arrives, one or more sections of the source code will change.
+        TODO: approach how to migrate
 
     \paragraph{Language features not implemented}
     \begin{itemize}

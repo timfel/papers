@@ -746,77 +746,48 @@ natural.
     \label{sec:codeLense}
         In \autoref{sec:usingRuntimeInformation} and the following ones, we described how to use cached run-time information for code completion, hover details and other requests. The question is, when to initialize and renew this cache. Therefore, we use the \emph{codeLense} request, sent from client to server, to provide an interface for \ac{lsp}-client users, so that they can trigger the renewal of the cache when they considered it reasonable. This could be the case, when the hover request returns incomplete or no results anymore.
         
-        The \emph{codeLense} response includes a list of commands associated with display names and source ranges. It allows interspersing contextual actions directly into the source code. In a \acf{VSCode} extension, it is used for example to insert a clickable link above a TypeScript function, if it violates some predefined code metrics. Clicking the link shows the metrics. We use it to insert such a code lense in the first line of the code, which will trigger the execution of the current source code or another script to collect run-time information.
+        The \emph{codeLense} response includes a list of commands associated with display names and source ranges. It allows interspersing contextual actions directly into the source code. In a \acl{VSCode} extension, it is used for example to insert a clickable link above a TypeScript function, if it violates some predefined code metrics. Clicking the link shows the metrics. We use it to insert such a code lense in the first line of the code, which will trigger the execution of the current source code or another script to collect run-time information.
 
         \paragraph{Migrating Cached Information}
-        One challenge, we have not discussed so far, is that the cached run-time information are bound to specific source sections. Every time a \emph{didChange} notification arrives, one or more sections of the source code will change.
-        TODO: approach how to migrate
+        One challenge, we have not discussed so far, is that the cached run-time information are bound to specific source sections of \ac{ast} nodes. Every time a \emph{didChange} notification arrives, one or more sections of the source code will change. Depending on the change, the cached run-time information might become invalid for some source sections, but others might still be useful. 
+        
+        Imagine, we have collected run-time information for the Python code snippet in \autoref{lst:pythonMigratingCachedInfos1}. Now, we edit this source snippet by inserting some code in line 3, which triggers an object property completion request for variable \inlinecode{anObject}. The collected run-time information in lines 1 and 2 are still valid, so that we can use them to perform an in-line evaluation for \inlinecode{anObject} to obtain its properties (see \autoref{sec:completionObjectProperties}).
+        
+        \begin{code}[lst:pythonMigratingCachedInfos1]{A Python code snippet example to illustrate migrating cached run-time information.}{float,numbers=left,language=Python}
+x = someCalculation(42)
+anObject = expensiveOperation(x)
 
-    \paragraph{Language features not implemented}
-    \begin{itemize}
-        \item completion resolve
-        \item typeDefinition
-        \item implementation
-        \item codeAction
-        \item documentLink
-        \item documentLink resolve
-        \item documentColor
-        \item colorPresentation
-        \item formatting
-        \item rangeFormatting
-        \item onTypeFormatting
-        \item rename
-        \item foldingRange
-    \end{itemize}
+doSomething(y)
+       \end{code}
 
-% \section{Use of existing Truffle-APIs}
-% \begin{itemize}
-%     \item what is already there?
-%     \item parsing sources
-%     \item AST
-%     \item scopes (global/local)
-%     \item frames and frame descriptors
-%     \item instrumentation
-%     \item -> functionality to support impl of debugger
-% \end{itemize}
+        Imagine, the next change inserts a new empty line between lines 1 and 2. Our mappings of source sections to run-time information for all lines greater 1 are all invalid now. Therefore we suggest a simple approach to migrate these information. In the current case where a new line was inserted, this would be to simply adjust the off-by-one mismatch in the line numbers of the source sections following after that line. This is possible, if we address a source section only by its start and end line numbers and column offsets. We assume, that most edits will affect only their current local scope and there only the current line, so that we can apply the following rules for our mappings.
 
-% \section{What is missing?}
-%     \subsection{Static information}
-%     \begin{itemize}
-%         \item AST design focused on runtime, lacking many parse-time infos
-%         \begin{itemize}
-%             \item mark declarations
-%             \item mark variable read/write locations
-%             \item ...
-%             \item in general: semantic relations between nodes
-%         \end{itemize}
-%         \item most lang impls: no syntax-error tolerant parser
-%     \end{itemize}
+        \begin{enumerate}
+            \item If a source section's end line is smaller than the start line of the change, we do nothing.
+            \item If a source section's start line is greater than the end line of the change, we check if the change adds or removes lines. If so, we adjust start and end line of the mapping by that difference.
+            \item If the range of the change is fully included in a source section, we adjust only the end line of the mapping by the difference of added or removed lines.
+            \item In all other cases where start or end lines of mapped source section and change overlap, we assume that the mapping is not valid anymore.
+        \end{enumerate}
 
-%     \subsection{Proposed Truffle API changes}
-%     \begin{itemize}
-%         \item language API
-%         \item Tags
-%     \end{itemize}
+        This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually. For example, if changes alter the execution flow, names of variables or their types.
 
-% \section{How to deal with dynamically typed languages? -> Using runtime information}
-%     \begin{itemize}
-%         \item Observe execution via instrumentation
-%         \item Collecting coverage data
-%         \item Side-effects -> Truffle-sandboxing
-%         \item Evaluation strategies:
-%         \begin{itemize}
-%             \item Literals
-%             \item Coverage data
-%             \item Run-to-section
-%             \item Globals
-%         \end{itemize}
-%     \end{itemize}
 
-% \section{Mapping LSP language server API to Truffle API}
-% \begin{itemize}
-%     \item diagnostics: parsing: throws exception on syntax error -> map to to source range -> send diagnostic, fail-on-first-error
-% \end{itemize}
+    % \paragraph{Language features not implemented}
+    % \begin{itemize}
+    %     \item completion resolve
+    %     \item typeDefinition
+    %     \item implementation
+    %     \item codeAction
+    %     \item documentLink
+    %     \item documentLink resolve
+    %     \item documentColor
+    %     \item colorPresentation
+    %     \item formatting
+    %     \item rangeFormatting
+    %     \item onTypeFormatting
+    %     \item rename
+    %     \item foldingRange
+    % \end{itemize}
 
 \section{Architecture + Language Server Bootstrapping}
 \begin{itemize}

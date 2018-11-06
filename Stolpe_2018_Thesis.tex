@@ -83,6 +83,7 @@ Dr.\,John Doe%
 %\subtitle{Ein Untertitel ist Optional}
 \othertitle{Ein Language Server für Truffle-basierte Programmiersprachen}
 \othertitle{\graallsp: Eine Overhead-freie Language Server Implementierung für die GraalVM}
+
 %\othersubtitle{This is Optionally Optional}
 
 \begin{document}
@@ -133,10 +134,11 @@ Dr.\,John Doe%
         \item minimal to zero language runtime performance overhead
         \item minimal API changes to Truffle
         \item minimal impl and maintenance overhead for language developers
-        \end{itemize}
+    \end{itemize}
     \item Benefits for the language developers: get IDE-like tools with minimal effort
     \item Benefits for language users: can choose from wide range of LSP clients + consistent dev-tools experience for different Truffle languages
     \item As proof of concept, we have implemented \graallsp - A Zero-overhead Polyglot Language Server Implementation for the GraalVM
+    \item We have not implemented all LSP features, but started with the ones which are more easily implementable with Truffle or have are considered as important (code completion)
     \item ?: focus on dynamically type languages? Or is this focus already included in Truffle (most impls are dynamically type langs)?
 \end{itemize}
 
@@ -211,7 +213,7 @@ Dr.\,John Doe%
     % - Proposals to extend the Truffle Framework to provide more language internals needed to support more LSP features
 
     % - An experience report how well existing Graal/Truffle-implemented languages work with \graallsp
-\section{Structure of this Thesis}
+\section{Outline}
 
 \chapter{Context}
 \label{cha:context}
@@ -230,6 +232,14 @@ In this chapter we explain terms, concepts and technologies helping to understan
 
     \paragraph{VM?}
     
+    \paragraph{IDE?}
+
+    \paragraph{Code Completion? Own section?}
+    \begin{itemize}
+        \item In top 10 interactions in Eclipse %How Are Java Software Developers Using the Eclipse IDE
+        \item Benefits of Code Completion (ref "Context-Sensitive Code Completion" dis)
+    \end{itemize}
+    
 \section{Truffle and GraalVM}
     Truffle~\cite{wimmer2012truffle} is a language implementation framework written in Java. The language developer uses the framework to write an \ac{ast} interpreter, which is able to optimize itself during interpretation~\cite{wurthinger2012self}. To achieve that, Truffle uses run-time type information to rewrite \ac{ast} nodes. Callable elements of a language, e.g. functions or methods, are modeled as root nodes. They can be executed by providing a frame object. A node can have a source section attribute which encodes the range in the source code file it relates to. How source code is parsed and the \ac{ast} is structured leaves Truffle in the responsibility of the language implementation.
     
@@ -247,17 +257,6 @@ In this chapter we explain terms, concepts and technologies helping to understan
         \label{fig:graaltrufflestack}
     \end{figure}
     
-% \begin{itemize}
-%     \item Truffle language implementation framework
-%     \begin{itemize}
-%         \item Nodes
-%         \item Sources + SourceSections
-%         \item CallTargets
-%         \item Truffle instrumentation
-%         \item Loading languages (dynamic classpath detection)
-%     \end{itemize}
-%     \item GraalVM - high-performance polyglot VM
-% \end{itemize}
 % \subsection{GraalVM}
 %     GraalVM\cite{graalvm2018} is a high-performance polyglot VM.
 %     Graal/Truffle: Performance first \cite{grimmer2015high}. 
@@ -287,12 +286,16 @@ In this chapter we explain terms, concepts and technologies helping to understan
 
 \section{Language Server Protocol}
 \label{sec:lspcontext}
-    In 2016 a group of IT companies, including Microsoft, Red Hat, and Codenvy, started to standardize the \acf{lsp}~\cite{lsp2017}. This protocol describes an approach to tackle the problem of language and tool developers, which need to repeatedly implement language support (e.g. code completion, jump-to-definition and syntax error reporting) for every new code editor, \ac{ide} or development tool. The \ac{lsp} defines a \textit{language server} and a \textit{language client}. The server needs to be implemented only once for every language, providing the language-specific smarts. A development tool implementing a language client can make use of any language server and therefore support multiple languages with minimal effort.
+    In 2016 a group of IT companies, including Microsoft, Red Hat, and Codenvy, started to standardize the \acf{lsp}~\cite{lsp2017}. This protocol describes an approach to tackle the problem of language and tool developers, which need to repeatedly implement language support (e.g. code completion, jump-to-definition and syntax error reporting) for every new code editor, \ac{ide} or development tool. The \ac{lsp} defines a \emph{language server} and a \emph{language client}. The server needs to be implemented only once for every language, providing the language-specific smarts. A development tool implementing a language client can make use of any language server and therefore support multiple languages with minimal effort.
     
     At the date of writing, language servers for more than 50 languages exist\footnote{\url{https://microsoft.github.io/language-server-protocol/implementors/servers/} Sep. 2018}, including almost all popular programming and scripting languages. Not all implementations support the full feature set defined in the \ac{lsp}. Usually, these language server implementations support exactly one language, but the \ac{lsp} allows multiple languages per server.
-    
-    \paragraph{Language client and server communication}
-    \ac{lsp} client and server communicate via JSON-RPC\footnote{\url{https://www.jsonrpc.org/specification}} requests, responses and notifications. The \ac{lsp} version 3.7.0, which is the reference for our approach and implementation of \graallsp, specifies requests for typical features of an \ac{ide}: e.g. code and signature completion, navigational features (goto-definition, find all references and implementations, etc.), information on hover and code formatting. During initialization client and server can exchange which features are supported.
+   
+    The \ac{lsp} version 3.7.0, which is the reference for our approach and implementation of \graallsp, specifies requests for typical features of an \ac{ide}: e.g. code and signature completion, navigational features (goto-definition, find all references and implementations, etc.), information on hover and code formatting. Syntax highlight support is not covered in the protocol and still needs to be covered by development tool specific configuration files or \acp{api}.
+
+    We do not cover all features of the \ac{lsp} in our approach, but focus on those ... \todo{is it ok to refer to our approach in the Context chapter? or somewhere else?}
+
+    \paragraph{Client and Server Communication}
+    \ac{lsp} client and server communicate via JSON-RPC\footnote{\url{https://www.jsonrpc.org/specification}} requests, responses and notifications. Source code files are referenced by \acp{uri}. During initialization client and server can exchange which features are supported.
 
     \begin{figure}
         \includegraphics[width=\linewidth]{images/language-server-sequence.png}
@@ -303,7 +306,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
     \autoref{fig:lspsequence} shows an exemplary communication between server and client. The client notifies the server that a file has been opened, the server parses the source code and pushes diagnostics to the client. Client-side changes to the source code are incrementally sent to the server.
 
     \paragraph{LSP4J}
-    Our implementation of \graallsp~uses LSP4J\footnote{\url{https://github.com/eclipse/lsp4j}} version 0.4.x \todo{version} as Java binding for the \acl{lsp}. This framework maps the \ac{lsp} requests and notifications to methods of Java interfaces so that the language server implementor does not have to deal with the JSON-RPC communication layer.
+    Our implementation of \graallsp~uses LSP4J\footnote{\url{https://github.com/eclipse/lsp4j}} version 0.4.1 as Java binding for the \acl{lsp}. This framework maps the \ac{lsp} requests and notifications to methods of Java interfaces so that the language server implementor does not have to deal with the JSON-RPC communication layer.
 
     \paragraph{Visual Studio Code}
     We used Microsoft's editor \ac{VSCode}\footnote{\url{https://code.visualstudio.com}} to create an exemplary language client extension and experiment with \graallsp.
@@ -416,7 +419,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item To get the language we have to compare the registered MIME-types of a Truffle language with the MIME-type derived from the file extension
         %     \item After initialization we parse all files in the workspace
         % \end{itemize}
-        The first request sent from the client to the server is the \emph{initialize} request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. When a server supports the \emph{completion} and \emph{signatureHelp} requests, the response has to include trigger characters\footnote{A trigger character is actually a string and can consist of multiple character symbols, but some clients support only a single character symbol yet.} which tell the client when it shall send a \emph{completion} or \emph{signatureHelp} request automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but an interface extension is needed to get the trigger characters for \emph{completion} and \emph{signatureHelp} requests of a language. Therefore, this is our first Truffle \ac{api} extension, which we suggest. After receiving an \emph{initialized} notification from the client, both sides are ready for further requests and notifications.
+        The first request sent from the client to the server is the \emph{initialize} request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. If a server supports the \emph{completion} and \emph{signatureHelp} requests, the response has to include trigger characters\footnote{A trigger character is actually a string and can consist of multiple character symbols, but some clients support only a single character symbol yet.} which tell the client when it shall send a \emph{completion} or \emph{signatureHelp} request automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but there is no \ac{api} to obtain trigger characters for \emph{completion} and \emph{signatureHelp} requests for a language. Therefore, this is our first Truffle \ac{api} extension, which we suggest. After receiving an \emph{initialized} notification from the client, both sides are ready for further requests and notifications.
 
     \section{Parsing Source Code}
     \label{sec:parsingcode}
@@ -428,7 +431,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item parsing every file which has a known MIME-type
         %     \item Client is notified about syntax errors via LSP Diagnostics
         % \end{itemize}
-        To parse source code in Truffle, we need to define a \inlinecode{Source} object, containing the language and a reference to the actual source code, typically via a file. The language can be derived from the supported media types of the language. The \emph{didOpen} or \emph{didChange} requests contain an \ac{uri} pointing to the concerning source file, which we use to find the required media type. The \emph{didOpen} request also contains the file content. The \emph{didChange} request contains only incremental changes if configured during initialization. Therefore we have to continuously store the content and apply all incoming changes to keep track of the client-side file state.
+        To parse source code in Truffle, we need to define a \inlinecode{Source} object, containing the language and a reference to the actual source code, typically via a file. The language can be derived from the supported media types of the language. The \ac{lsp} requests \emph{didOpen} and \emph{didChange} contain an \ac{uri} pointing to the concerning source file, which we can use to find the required media type. The \emph{didOpen} request also contains the file content. The \emph{didChange} request contains only incremental changes if configured during initialization. Therefore we have to continuously store the content and apply all incoming changes to keep track of the client-side file state. \todo{paragraph feels like to much implementation?!}
 
         The \emph{initialize} request can contain a workspace \ac{uri}. If present, we parse all files in the workspace folder and its subfolders during initialization, which match one of the media types of the installed Truffle languages.
 
@@ -465,7 +468,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item Find node at caret: containing
         %     \item Both filtered by node kind (Expression, Statement, Callable ...)
         % \end{itemize}
-        Most \ac{lsp} requests are context-sensitive and include line and column as reference in the requests. The language server has the responsibility to map these information to data structures of the language. For Truffle, this means mapping line and column to \ac{ast} nodes via their associated source section. The challenge for our language-agnostic language server is, that the Truffle framework leaves the creation of the run-time focused \acp{ast} completely to the language implementation. We cannot simply traverse an \ac{ast} by starting at the \inlinecode{CallTarget}'s executable root node which we get as parsing result. There might be more root nodes, which will be executed dynamically at run-time, depending on the language implementation. However, we can use the Truffle instrumentation environment to access all already loaded nodes which have a source section, under the condition, that the source code is parsable.
+        Most \ac{lsp} requests are context-sensitive and include therefore line and column as reference. The language server has the responsibility to map these information to data structures of the language. For Truffle, this means mapping line and column to \ac{ast} nodes via their associated source section. The challenge for our language-agnostic language server is, that the Truffle framework leaves the creation of the run-time focused \acp{ast} completely to the language implementation. We cannot simply traverse an \ac{ast} by starting at the \inlinecode{CallTarget}'s executable root node which we get as parsing result. There might be more root nodes, which will be executed dynamically at run-time, depending on the language implementation. However, we can use the Truffle instrumentation environment to access all already loaded nodes which have a source section, under the condition, that the source code is parsable.
         
         Depending on the use cases described in the following sections, we will be either interested in a node directly at the caret position (\emph{hover}, \emph{definition} and other requests) or a node near the caret position (\emph{completion} request for globals and locals). To find these nodes in a language-agnostic way, we have to define two assumptions.
 
@@ -483,15 +486,16 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item for variables not many information can be display
         %     \item language-agnostic => Truffle has no type information for variables
         % \end{itemize}
-        A context-sensitive code completion is one of the most important features to increase productivity of programmers \todo{ref?}. It suggests valid symbols regarding the current scope and thereby supports programmers to explore, for example, the built-in functions of a language, read their documentation or select predefined code snippets.
+        We believe that a context-sensitive code completion is one of the most important features to increase productivity of programmers. %ref: How Are Java Software Developers Using the Eclipse IDE
+        It suggests valid symbols regarding the current scope and thereby supports programmers to explore, for example, the built-in functions of a language, read their documentation or select predefined code snippets.
 
         For Truffle, we have to distinguish between two kinds of code completion, both depending on the current caret position context. The first one we call \emph{completion of globals and locals}, described in this section. The second one we call \emph{completion of object properties}, described in \autoref{sec:completionObjectProperties}.
 
-        \emph{Completion of globals and locals} is the completion you typically get in \acp{ide} when the caret is placed in an empty line and the user presses a keyboard shortcut, e.g. \inlinecode{Ctrl+Space}. With \emph{globals} we refer to all the symbols which we can derive from global scopes of languages and with \emph{locals} we analogously refer to all symbols which we can derive from local scopes of languages. In the Python programming language~\cite{Rossum1995} globals are, for example, built-in functions or built-in classes. Locals of a function scope are function parameters or local variables. Locals of a class scope are fields or methods. \autoref{fig:pythonLocalsAndGlobalsPluginExample} exemplarily shows a language-specific code completion for globals and locals of a Python file in \acl{VSCode}.
+        \emph{Completion of globals and locals} is the completion you typically get in \acp{ide} when the caret is placed in an empty line and the user presses a keyboard shortcut, e.g. \inlinecode{Ctrl+Space}. With \emph{globals} we refer to all the symbols which we can derive from global scopes of languages and with \emph{locals} we analogously refer to all symbols which we can derive from local scopes of languages. In the Python programming language for example, globals are built-in functions or built-in classes. Locals of a function scope are function parameters or local variables. Locals of a class scope are fields or methods. \autoref{fig:pythonLocalsAndGlobalsPluginExample} exemplarily shows a language-specific code completion for globals and locals of a Python file in \acl{VSCode}.
 
         \begin{figure}
             \includegraphics[width=\linewidth]{images/python_plugin_examples/python_globals_locals_example_python_plugin_themed.png}
-            \caption{A \acl{VSCode} extension for the Python language showing the completions of globals and locals available in a function scope, together with reserved keywords.}
+            \caption{An existing \acl{VSCode} extension for the Python language showing the completions of globals and locals available in a function scope, together with reserved keywords.}
             \label{fig:pythonLocalsAndGlobalsPluginExample}
         \end{figure}
         
@@ -557,7 +561,7 @@ def bar():
         %     \item user interface to start code evaluation: see codeLense
         % \end{itemize}
         
-        A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For statically typed programming languages, like Java\todo{ref?}, type information can be easily derived from by parsing source code. The situation for dynamically typed languages, like Python, is different. The type of a Python variable is depending on its assigned value at run-time. There are language-specific approaches to infer types for dynamically typed languages \todo{ref}, but these approaches do not match the language-agnostic requirements of the Truffle instrumentation \ac{api}.
+        A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For statically typed programming languages, like Java, type information can be easily derived from by parsing source code. The situation for dynamically typed languages, like Python, is different. The type of a Python variable is depending on its assigned value at run-time. There are language-specific approaches to infer types for dynamically typed languages \todo{ref}, but these approaches do not match the language-agnostic requirements of the Truffle instrumentation \ac{api}.
 
         In this section, we describe an approach on how to get and use run-time information to enhance code completion for locals. This approach will also build the basis for \emph{completion of object properties} described in \autoref{sec:completionObjectProperties} and further requests described in later sections.
 
@@ -568,17 +572,17 @@ def bar():
         The Truffle framework has an \todo{is embedding-API the right term?}embedding-\ac{api} which allows developers to configure sandboxing for the Truffle execution environment. At the moment, it supports restriction of the file system only, but in future versions of Truffle, the restriction of network I/O shall also be supported. It is also possible to install our own file system proxy, which enables having fine grained control over what Truffle languages are allowed to access and what not. We could therefore install a copy-on-write file system, which copies each file which shall be changed to a sandbox and redirects further read and writes to that copy. For now, we simply use a read-only file system, which prevents unwanted file changes outside the Truffle execution environment, when executing source code in our language server.
 
         \paragraph{Long Running or Non-terminating Executions}
-        A user, who triggers code completion, becomes impatient if the completion request takes longer than x\todo{value + ref} seconds to return a result. The execution time of arbitrary source code might take a long time or might not finish at all, for example due to an endless loop. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion, but an endless execution can be avoided.
+        A user, who triggers code completion, becomes impatient if the completion request takes to long to return a result. The execution time of arbitrary source code might take a unpredictable amount of time or might not finish at all, for example due to an endless loop or blocking operations. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion, but an endless execution can be avoided.
 
         \paragraph{Unreachable Source Sections}
         Depending on the source code, there might be source sections which are unreachable by the normal execution flow of the current source code file. Imagine, the Python code defined in the already mentioned \autoref{lst:pythonNearCaretExample1}, is the source code of a python file. If we execute that file, the two function definitions of \inlinecode{foo} and \inlinecode{bar} will be executed, but their function body will not be executed. Their is no function call to \inlinecode{foo} or \inlinecode{bar} defined in that file. Therefore, listening for execution events of the Truffle instrumentation environment to enhance our code completion in lines 2 to 6, which is the function body of \inlinecode{foo}, will not work. In our opinion, this is the normal case for file based programming languages. You typically split your program's source code into multiple files, having a limited set of files, which define runnable entry points, which then import elements of the other files.
 
         One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. For our approach of getting run-time information to enhance code completion is the instrumented execution of unit tests a promising way. Most unit tests have a short execution time and are supposed to be free of unwanted side-effects -- or at least have a clean-up routine included. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which points to a runnable script. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests.
 
-        Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{TDD} principles \todo{ref to Kent Beck - Extreme Programming Explained: Embrace Change?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
+        Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{TDD} principles \todo{explain in background?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
 
         \paragraph{Caching Run-time Information}
-        Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branches might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we \todo{suggest to?} only cache the first frame available during execution for every source section.
+        Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branches might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we decided to only cache the first frame available during execution for every source section.
         
         Having such a data structure, we can use the approach described in \autoref{sec:mappingCaretToNode} to find a node near the caret an check via its source section for collected frames. If there is one, we can derive local run-time scopes from it. If there is none, we have to assume that the source section was not covered and use local lexical scopes as fallback.
 
@@ -614,7 +618,7 @@ def bar():
         The completion trigger character is only included in the request if the completion was triggered automatically and the client supports that optional feature. Therefore we have to check manually. To do so, we assume, that when a completion request arrives, we can distinguish the two kinds of completion by comparing one or multiple characters directly in front of the caret with the registered trigger characters of the current language. If there is a match, we try an object property completion.
 
         \paragraph{Finding the Desired Node}
-        To find the \ac{ast} node for which the completion of object properties is desired, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore we suggest to always revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code.
+        To find the \ac{ast} node for which the completion of object properties is desired, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code.
 
         \begin{code}[lst:pythonObjectPropertyCompletion1]{A Python code snippet showing an object property completion example.}{float,numbers=left,language=Python}
 class Natural:
@@ -630,8 +634,6 @@ natural.
         \end{code}
 
         As an example, we refer again to \autoref{lst:pythonObjectPropertyCompletion1}. The source code shown is no valid Python source code because of the last dot character. Removing this dot makes the code parsable again.
-
-        \todo{Naming limitations etc here? Or only in the experience report?} We know that this approach does not fit for all situations and languages, but it is a first best-effort approach which works for languages like Python or JavaScript.
 
         Now that we have a first approach to get parsable source code again, we can use the approach described in \autoref{sec:mappingCaretToNode} to find a node directly in front of the current caret position.
         
@@ -659,7 +661,7 @@ natural.
         %     \item listen for callable object
         %     \item ask via message to TruffleObject for signature and number of arguments
         % \end{itemize}
-        The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like we described in \autoref{sec:usingRuntimeInformation} for the completion of object properties (bringing the source code into a parsable state, finding the node at the caret position and executing the source code until we have found the desired run-time object).
+        The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like those in \autoref{sec:usingRuntimeInformation} for the completion of object properties (bringing the source code into a parsable state, finding the node at the caret position and executing the source code until we have found the desired run-time object).
 
         Unfortunately, there is no Truffle \ac{api} yet, which provides signature information for an object. Therefore, we suggest to add a new Truffle \ac{api}. Furthermore, we assume, that only callable elements of a language can have a signature. To mark these elements of a language, Truffle provides a \inlinecode{CallTag} for \ac{ast} nodes. We can use this tag as a filter criterion for our search for the node at the caret position.
 
@@ -671,9 +673,9 @@ natural.
         %     \item if coverage data available: parse in-line + eval in-line
         %     \item for language developers: show debug infos (AST structure)
         % \end{itemize}
-        The \emph{hover} request is sent from client to server to obtain information at the current (mouse) caret position. This request has the same prerequisite as the other context-depending requests. The source code needs to be parsable to find a node at the caret position. Having a node, we can check if the node's source section is associated with run-time information (see \autoref{sec:usingRuntimeInformation}). If so, we can use these information (e.g. a frame) to build the \emph{hover} response. If the hovered node represents a variable, we can use the frame to obtain the assigned value and include the string representations of that value and its meta-object in the response. Otherwise, we try to perform an in-line evaluation of the source code associated with the node. If the result is an object, which supports the suggested \ac{api} to obtain signature information (see \autoref{sec:signatureHelp}) or suggested \ac{api} to obtain documentation (see \autoref{sec:completionGlobalsLocals}), we can include signature and/or documentation, for example for a Python function, in the \emph{hover} response.
+        The \emph{hover} request is sent from client to server to obtain information at the current (mouse) caret position. This request has the same prerequisite as the other context-depending requests. The source code needs to be parsable to find a node at the caret position. Having a node, we can check if the node's source section is associated with run-time information (see \autoref{sec:usingRuntimeInformation}). If so, we can use these information (e.g. a frame) to build the \emph{hover} response. If the hovered node represents a variable access, we can use the frame to obtain the assigned value and include the string representations of that value and its meta-object in the response. Otherwise, we try to perform an in-line evaluation of the source code associated with the node. If the result is an object which supports the suggested \ac{api} to obtain signature information (see \autoref{sec:signatureHelp}) or to obtain documentation (see \autoref{sec:completionGlobalsLocals}), we can include the signature or documentation, for example for a Python function, in the \emph{hover} response.
 
-        For language developers or interested language users, we suggest to provide static hover information concerning the \ac{ast} node at the caret position if no run-time information are available. This feature, which can be activated via an option, can be used to inspect the \ac{ast} structure of a language and learn about which language elements in the source code are mapped to which kind of \ac{ast} nodes. We used this feature extensively ourselves while implementing our approach\todo{is this remark fitting here?}.
+        For language developers or interested language users, we suggest to provide static hover information concerning the \ac{ast} node at the caret position if no run-time information are available. This feature, which can be activated via an option, can be used to inspect the \ac{ast} structure of a language and learn about which language elements in the source code are mapped to which kind of \ac{ast} nodes.
 
 
     \section{Document Symbols}
@@ -805,28 +807,74 @@ doSomething(y)
     %     \item foldingRange
     % \end{itemize}
 
-\section{(Architecture + Language Server Bootstrapping) ?}
-\todo{here or in chapter Implementation?}
-\begin{itemize}
-    \item graphic showing launcher, lsp server, truffle api communication
-    \item comparison to other language server impls (built on top of language)
-\end{itemize}
-
 
 \chapter{Implementation}
 \label{cha:implementation}
+
+    In this chapter, we describe how we have implemented our prototype \graallsp~based on the approach described in \autoref{cha:solution}.
+
+    \section{Architectural challenges}
+        \begin{itemize}
+            \item Building tool for Truffle = using instrumentation API
+            \item LSPInstrument loaded dynamically via classpath
+            \item onCreate() we get an Env -> our entry point to parse code, find scopes etc.
+            \item For getting run-time infos we execute code -> sandboxing needed -> via creation of Truffle Context
+            \item Truffle instrument cannot create new Contexts
+            \item Need to use embedder-API -> write own launcher, create engine ourselves
+            \item set read-only file-system on context builder
+            \item Provide a callback to our instrument to create new sandboxed Contexts
+            \item lsp4j -> own threads to handle requests
+            \item Threads need to be activated for Contexts - multi-threading is not always supported
+            \item Our decision -> we have only one worker thread which enters a Context once
+            \item lsp4j thread puts work in a queue which is polled by the context aware worker thread
+            \item lsp4j threads await result via Futures
+        \end{itemize}
+
+\section{Language Server Initialization}
+    \begin{itemize}
+        \item new API for trigger chars to feed init request -> env.getCompletionTriggerCharacters()
+    \end{itemize}
+\section{Parsing Source Code}
+    \begin{itemize}
+        \item env.parse(Source)
+        \item Source is built from source code and language
+        \item Some lsp clients send a languageId, some a media type
+        \item 1. env.getLanguages().containsKey(langId)
+        \item 2. Source.findLanguage(String mimeType) 
+        \item 3. Source.findLanguage(URL)
+        \item -> show source code?
+        \item Track state -> didChange sends incremental changes
+        \item didChange -> need to also update coverage data
+    \end{itemize}
+\section{Diagnostics}
+    \begin{itemize}
+        \item TruffleException -> ast node -> source section -> map to lsp4j Range (zero- vs one-based lines)
+        \item LanguageClient.publishDiagnostics(PublishDiagnosticsParams)
+    \end{itemize}
+\section{Mapping Caret Position to \ac{ast} Node}
+\section{Static Completion of Globals and Locals}
+\section{Completion of Locals Using Run-time Information}
+\section{Completion of Object Properties}
+\section{Signature Help}
+\section{Hover Information}
+\section{Document Symbols}
+\section{Workspace Symbols}
+\section{Document Highlight}
+\section{Goto-definition}
+\section{Finding All References}
+\section{Triggering Run-Time Information Collection}
 
 \section{Language Server Implementation}
     \begin{itemize}
         \item lsp4j - Java binding for LSP (see Context)
     \end{itemize}
 
-    \subsection{Architecture}
-        \begin{itemize}
-            \item Truffle-API + Graal-SDK
-            \item Launcher, Instrument, Server
-            \item lsp4j adapters
-        \end{itemize}
+    % \subsection{Architecture}
+    %     \begin{itemize}
+    %         \item Truffle-API + Graal-SDK
+    %         \item Launcher, Instrument, Server
+    %         \item lsp4j adapters
+    %     \end{itemize}
 
     \subsection{Using runtime information}
         Implementation of:
@@ -990,6 +1038,7 @@ doSomething(y)
     \item Truffle: Only first syntax error is reported. Lang parsers fail on first error
 \end{itemize}
 
+Hover: We used the static hover information ourselves during implementation.
 
 \chapter{Related Work}
 \label{cha:relatedwork}
@@ -1005,6 +1054,11 @@ doSomething(y)
 \cite{erdweg2013state}
 \section{Run-time type collection}
 \cite{haupt2011type}
+
+\begin{itemize}
+    \item Nemo Bachelor Project?
+\end{itemize}
+
 
 \section{CTags}
 \begin{itemize}

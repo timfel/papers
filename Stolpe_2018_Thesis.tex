@@ -234,6 +234,8 @@ In this chapter we explain terms, concepts and technologies helping to understan
     
     \paragraph{IDE?}
 
+    \paragraph{expression, statement und co?}
+
     \paragraph{Code Completion? Own section?}
     \begin{itemize}
         \item In top 10 interactions in Eclipse %How Are Java Software Developers Using the Eclipse IDE
@@ -419,7 +421,9 @@ In this chapter we explain terms, concepts and technologies helping to understan
         %     \item To get the language we have to compare the registered MIME-types of a Truffle language with the MIME-type derived from the file extension
         %     \item After initialization we parse all files in the workspace
         % \end{itemize}
-        The first request sent from the client to the server is the \emph{initialize} request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. If a server supports the \emph{completion} and \emph{signatureHelp} requests, the response has to include trigger characters\footnote{A trigger character is actually a string and can consist of multiple character symbols, but some clients support only a single character symbol yet.} which tell the client when it shall send a \emph{completion} or \emph{signatureHelp} request automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but there is no \ac{api} to obtain trigger characters for \emph{completion} and \emph{signatureHelp} requests for a language. Therefore, this is our first Truffle \ac{api} extension, which we suggest. After receiving an \emph{initialized} notification from the client, both sides are ready for further requests and notifications.
+        The first request sent from the client to the server is the \emph{initialize} request. Among other parameters, it contains client capabilities, telling the server which \ac{lsp} features the client supports. The server responds to this by sending its own capabilities. If a server supports the \emph{completion} and \emph{signatureHelp} requests, the response has to include trigger characters\footnote{A trigger character is actually a string and can consist of multiple character symbols, but some clients support only a single character symbol yet.} which tell the client when it shall send a \emph{completion} or \emph{signatureHelp} request automatically. A language-specific language server implementation can provide these characters statically. In our language-agnostic approach, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but there is no \ac{api} to obtain trigger characters for \emph{completion} and \emph{signatureHelp} requests for a language. Therefore, this is our first Truffle \ac{api} extension, which we suggest.
+        
+        After receiving an \emph{initialized} notification from the client, both sides are ready for further requests and notifications.
 
     \section{Parsing Source Code}
     \label{sec:parsingcode}
@@ -502,7 +506,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
         If the assumptions in \autoref{sec:mappingCaretToNode} (eager source code parsing and a consistent source section hierarchy) are true, we can provide \emph{static} code completion for globals and locals by using existing Truffle \acp{api}. With \emph{static}, we refer to a code completion, where we can only access lexical scopes to find locals. An approach to use run-time information for code completion, e.g. via a frame, is explained in \autoref{sec:usingRuntimeInformation}.
 
         \paragraph{Statically Deriving Local Scopes From a Node}
-        Global scopes are always accessible via the Truffle instrumentation environment. To find the relevant local scopes statically, we need to find a node which has a source section \emph{relevantly near} the client's caret position. In the following we use some Python code snippets to explain what we mean by \emph{relevantly near}.
+        Global scopes are always accessible via the Truffle instrumentation environment. To find the relevant local scopes statically, we need to find a node which has a source section \emph{relevantly near} the client's caret position. In the following we use a Python code snippet to explain what we mean by \emph{relevantly near}.
 
         \begin{code}[lst:pythonNearCaretExample1]{An example Python code snippet showing two functions to explain scopes.}{float,numbers=left,language=Python}
 def foo(param1, param2):
@@ -531,7 +535,7 @@ def bar():
             \item If still not found, use the node which contains the caret.
         \end{enumerate}
         
-        At this point, we have to note that this rule is only a best effort approach. Which locals are included in the lexical scopes provided via the Truffle \ac{api} is depending on the language implementation. None the less, we are able to provide the needed information for a language-agnostic, static code completion of globals and locals with this approach.
+        At this point, we have to note that this rule is only a best-effort approach. Which locals are included in the lexical scopes provided via the Truffle \ac{api} is depending on the language implementation. None the less, we are able to provide the needed information for a language-agnostic, static code completion of globals and locals with this approach.
         
         \paragraph{Querying Properties of Scope Values}
         For globals, we can not only access their names via the Truffle \ac{api}, but retrieve additional information by querying the actual objects which are associated with these names in the global scopes. Based on the result, we can set the completion item kind supported by \ac{lsp}, such as \emph{variable}, \emph{function}, or \emph{class}.
@@ -573,6 +577,9 @@ def bar():
 
         \paragraph{Long Running or Non-terminating Executions}
         A user, who triggers code completion, becomes impatient if the completion request takes to long to return a result. The execution time of arbitrary source code might take a unpredictable amount of time or might not finish at all, for example due to an endless loop or blocking operations. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion, but an endless execution can be avoided.
+
+        \paragraph{Unsaved Changes}
+        The language client might have unsaved changes in opened files. These changes need to be considered, when we want to collect run-time information by executing a script, which imports other sources. These imports need to access the source code state as it is seen by the user in the language client and not the state in the file system. The \ac{lsp} provides no request sent from server to client to trigger saving files and we do not want to write the changes to the file system from server-side. Therefore we decided to adjust our read-only file system, so that it redirects the file accesses to a file with unsaved changes to a (virtual) file including the changes.
 
         \paragraph{Unreachable Source Sections}
         Depending on the source code, there might be source sections which are unreachable by the normal execution flow of the current source code file. Imagine, the Python code defined in the already mentioned \autoref{lst:pythonNearCaretExample1}, is the source code of a python file. If we execute that file, the two function definitions of \inlinecode{foo} and \inlinecode{bar} will be executed, but their function body will not be executed. Their is no function call to \inlinecode{foo} or \inlinecode{bar} defined in that file. Therefore, listening for execution events of the Truffle instrumentation environment to enhance our code completion in lines 2 to 6, which is the function body of \inlinecode{foo}, will not work. In our opinion, this is the normal case for file based programming languages. You typically split your program's source code into multiple files, having a limited set of files, which define runnable entry points, which then import elements of the other files.
@@ -661,7 +668,7 @@ natural.
         %     \item listen for callable object
         %     \item ask via message to TruffleObject for signature and number of arguments
         % \end{itemize}
-        The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like those in \autoref{sec:usingRuntimeInformation} for the completion of object properties (bringing the source code into a parsable state, finding the node at the caret position and executing the source code until we have found the desired run-time object).
+        The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like those for the completion of object properties in \autoref{sec:usingRuntimeInformation}, i.e. bringing the source code into a parsable state, finding the node at the caret position, and executing the source code until we have found the desired run-time object.
 
         Unfortunately, there is no Truffle \ac{api} yet, which provides signature information for an object. Therefore, we suggest to add a new Truffle \ac{api}. Furthermore, we assume, that only callable elements of a language can have a signature. To mark these elements of a language, Truffle provides a \inlinecode{CallTag} for \ac{ast} nodes. We can use this tag as a filter criterion for our search for the node at the caret position.
 
@@ -686,7 +693,7 @@ natural.
         %     \item use Truffle Tagging -> new DefinitionTag needed to define which kind of symbol it is (class, variable, ...)
         %     \item fallback: search for RootTagged nodes
         % \end{itemize}
-        The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. An \ac{uri} parameter is included in the request. Each symbol in the response must be associated with a source section. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source section. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response is displayed in \acl{VSCode} with active Python extension. 
+        The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. Each symbol in the response must be associated with a source range. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source range. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response is displayed in \acl{VSCode} with an already existing language-specific Python extension.
 
         \begin{figure}
             \includegraphics[width=\linewidth]{images/python_plugin_examples/python_document_symbol_example_python_plugin_themed.png}
@@ -694,7 +701,7 @@ natural.
             \label{fig:pythonDocumentSymbolPluginExample}
         \end{figure}
 
-        To implement the \emph{documentSymbol} request for Truffle languages, we have to think about which kind of symbols we can support with the current Truffle \ac{api}. With the instrumentation environment we can access all loaded nodes which have a source section. We can filter them based on their meta information to find all root nodes. Because a root node is executable, we assume that the name of the root node is a valid symbol of a callable element of the corresponding Truffle language. However, to add a symbol kind we need more meta-information about the nodes.
+        To support the \emph{documentSymbol} request for Truffle languages, we have to think about which kind of symbols we can obtain with the current Truffle \ac{api}. With the instrumentation environment we can access all loaded nodes which have a source section. We can filter them based on their meta information to find all root nodes. Because a root node is executable, we assume that the name of the root node is a valid symbol of a callable element of the corresponding Truffle language. However, to add a symbol kind we need more meta-information about the nodes.
 
         \paragraph{Tagging Nodes with Meta-information} To get the required meta-information, we suggest to add a new \inlinecode{Tag} for nodes introducing new symbols in a scope. There are already some tags existing to mark statements, expressions, calls, and root nodes. They are mainly used to implement debugger features like stepping. Using again the example of the Python language, the tag we suggest could be used to mark function and class definition nodes, first occurrences of a variable assignment node (Python has no variable declarations), or import nodes. This way we could support the \emph{documentSymbol} request in a language-agnostic way with results equal to those language-specific ones already shown in \autoref{fig:pythonDocumentSymbolPluginExample}.
 
@@ -736,7 +743,7 @@ natural.
         % \end{itemize}
         The \emph{definition} request is sent from client to server to find the definition location of the symbol at the caret position. This feature is known as goto-definition or jump-to-definition in most \acp{ide}. We want to support goto-definition for callables and variables. Like for many other requests, the code needs to be parsable to find the nearest tagged node at the caret position. Either tagged with the existing \inlinecode{CallTag} of Truffle, or with the tags suggested in \autoref{sec:documentHighlight} to mark read- or write-accesses of variables.
 
-        For callables we propose to use the same run-time approach as for the run-time information based completion described in \autoref{sec:usingRuntimeInformation}. This way, we get access to the callable run-time object. The Truffle \ac{api} allows us to obtain the corresponding root node of that object and thereby the a source section. We use this section to create the response for the definition request.
+        For callables we propose to use the same run-time approach as for the run-time information based completion described in \autoref{sec:usingRuntimeInformation}. This way, we get access to the callable run-time object. The Truffle \ac{api} allows us to obtain the corresponding root node of that object and thereby the source section. We use this section to create the response for the definition request.
 
         If the run-time approach yields not results, we can use a static fallback search, based on meta-information of nodes. We already described this approach in \autoref{sec:symbol} to find all symbols in the workspace. We can filter these symbols for those matching the identifier of our callable node. For non-unique identifiers, this might yield many source sections, which are not the actual definition location. But it is better to provide the user a list of potential matches instead of providing nothing. Of course, regardless if an identifier is unique or not, the actual definition location might not be included in the suggestions at all. This is again a static, language-agnostic best-effort approach.
 
@@ -852,107 +859,112 @@ doSomething(y)
         \item LanguageClient.publishDiagnostics(PublishDiagnosticsParams)
     \end{itemize}
 \section{Mapping Caret Position to \ac{ast} Node}
-\section{Static Completion of Globals and Locals}
-\section{Completion of Locals Using Run-time Information}
-\section{Completion of Object Properties}
-\section{Signature Help}
-\section{Hover Information}
-\section{Document Symbols}
-\section{Workspace Symbols}
-\section{Document Highlight}
-\section{Goto-definition}
-\section{Finding All References}
-\section{Triggering Run-Time Information Collection}
-
-\section{Language Server Implementation}
     \begin{itemize}
-        \item lsp4j - Java binding for LSP (see Context)
+        \item zero- vs one-based lines
+        \item Truffle Source counts new-line char at end not as additional line -> often code completion triggered in new, empty line
+        \item env.getInstrumenter().attachLoadSourceSectionListener(filter, listener, true)
+        \item check node.getSourceSection() line and offset to find nearest
     \end{itemize}
-
-    % \subsection{Architecture}
-    %     \begin{itemize}
-    %         \item Truffle-API + Graal-SDK
-    %         \item Launcher, Instrument, Server
-    %         \item lsp4j adapters
-    %     \end{itemize}
-
-    \subsection{Using runtime information}
-        Implementation of:
-        \begin{itemize}
-            \item Observe execution via instrumentation
-            \item Side-effects -> Truffle-sandboxing
-            \item Nested Contexts
-            \item Evaluation strategies:
-            \begin{itemize}
-                \item Literals
-                \item Coverage data
-                \begin{itemize}
-                    \item storing frames (copies)
-                    \item source location format
-                    \item migrating coverage data on source edit
-                \end{itemize}
-                \item Run-to-section
-                \item Globals
-            \end{itemize}
-        \end{itemize}
-
-    \subsection{LSP features implementation overview}
-    Feature impl matrix:
+\section{Static Completion of Globals and Locals}
     \begin{itemize}
-        \item TextDocumentService interface
+        \item code snippet: findNearestNode() ?
+        \item env.findTopScopes(langId)
+        \item env.findLocalScopes(node, frame=null)
+        \item Scope.getVariables() returns a TruffleObject
+        \item ForeignAccess.sendKeys(Node keysNode, TruffleObject receiver, boolean includeInternal)
+        \item for globals:
         \begin{itemize}
-            \item{completion}
+            \item ForeignAccess.sendRead(Node readNode, TruffleObject receiver, Object identifier)
+            \item completion item kind: ForeignAccess.sendIsExecutable(Node isExecutableNode, TruffleObject receiver) and ForeignAccess.sendIsInstantiable(Node isInstantiableNode, TruffleObject receiver), fallback CompletionItemKind.Variable
+            \item new API: env.boxPrimitive(Object) and GetSignature message for completion details
+            \item new API: GetDocumentation message for completion item documentation
+        \end{itemize}
+    \end{itemize}
+\section{Completion of Locals Using Run-time Information}
+    \begin{itemize}
+        \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
+        \item unsaved changes redirection in file system by callback to instrument
+        \item long running ops: throw EvaluationResultException (which is a ThreadDeath exception)
+        \item long running ops: time-out not yet implemented
+        \item unreachable source sections: in-line comment to a run script
+        \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame)
+        \item details created like in static completion of globals
+    \end{itemize}
+\section{Completion of Object Properties}
+    \begin{itemize}
+        \item detecting: env.getCompletionTriggerCharacters(langId) comparing last change
+        \item handling syntax errors -> we always store the last edit and then replace the last edit range with an empty string
+        \item find nearestNode with CONTAINS\_END
+        \item strategies
             \begin{itemize}
-                \item locals+globals vs object property completion (via checking completion character)
-                \item locals+globals completion
-                    \begin{itemize}
-                        \item find nearest node
-                        \item check coverage data
-                        \item globals only fallback
-                        \item Used Truffle-API: findLocalScopes() + findGlobalScopes() + (parseInline() for coverage) + ForeignAccess.sendIsExecutable() + ForeignAccess.sendIsInstantiable() + ForeignAccess.sendIsNull()
-                        \item Used new Truffle-API: env.boxPrimitive() + GetSignature + GetDocumentation
-                    \end{itemize}
-                \item object property completion
+                \item literal -> node.getNodeObject() and check for "literal" key
+                \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame)
+                \item run-to-section:
                 \begin{itemize}
-                    \item fixing source code (undo last edit + re-parse)
-                    \item find nearest node
-                    \item tryDifferentEvalStrategies() (literals -> coverage data -> run-to-section -> globals)
-                    \item Used Truffle-API: findLocalScopes() + findGlobalScopes()
+                    \item create SourceSectionFilter for node's source section bounds (cannot use section directly - might be source loaded via TruffleInstrument)
+                    \item env.getInstrumenter().attachExecutionEventFactory(SourceSectionFilter eventFilter, SourceSectionFilter inputFilter, ExecutionEventNodeFactory factory)
+                    \item ExecutionEventNode.onReturnValue(VirtualFrame frame, Object result)
+                    \item throw new EvaluationResultException(result);
+                    \item Errors during execution -> if TruffleException make Diagnostics warning
                 \end{itemize}
+                \item globals: eval node.getSourceSection().getCharacters()
             \end{itemize}
-            \item{hover}
-            \item{signatureHelp}
-            \item{definition}
-            \item{typeDefinition}
-            \item{implementation}
-            \item{references}
-            \item{documentHighlight}
-            \item{documentSymbol}
-            \item{codeAction}
-            \item{codeLense}
-            \item{formatting}
-            \item{rangeFormatting}
-            \item{onTypeFormatting}
-            \item{rename}
-            \item{didOpen}
-            \item{didChange}
-            \item{didClose}
-            \item{didSave}
-            \item{willSave}
-            \item{willSaveWaitUntil}
-            \item{documentLink}
-            \item{documentLinkResolve}
-            \item{documentColor}
-            \item{colorPresentation}
-        \end{itemize}
-        \item WorkspaceService interface
-        \begin{itemize}
-            \item{executeCommand}
-            \item{symbol}
-            \item{didChangeConfiguration}
-            \item{didChangeWatchedFiles}
-            \item{didChangeWorkspaceFolders}
-        \end{itemize}
+        \item details created like in static completion of globals
+    \end{itemize}
+\section{Signature Help}
+    \begin{itemize}
+        \item run-to-section but with inputFilter
+        \item we assume code is parsable because of smart character insertion "()"
+        \item SourceSectionFilter set to CallTag annotated node
+        \item To get the callable object, we listen for intermediate results of expression calc using ExecutionEventNode.onInputValue(VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)
+        \item ForeignAccess.send(GET\_SIGNATURE, (TruffleObject) result);
+        \item ForeignAccess.sendInvoke(INVOKE, (TruffleObject) signature, "format")
+        \item signature help param index: getNodeObject() look for "numberOfArguments"
+    \end{itemize}
+\section{Hover Information}
+    \begin{itemize}
+        \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
+        \item cached frame 2.: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame) <- same as for completion of locals using cached infos
+        \item fallback (if option enabled): show AST details (class name and Tags)
+    \end{itemize}
+\section{Document Symbols}
+    \begin{itemize}
+        \item SourceSectionFilter DeclarationTag + uri of current file
+        \item getNodeObject() -> look-up keys: name, kind, container
+        \item mapping to lsp4j SymbolKind via lower case name matching
+        \item fallback: SourceSectionFilter StandardTags.RootTag + RootNode.getName() + default symbol kind: Function
+    \end{itemize}
+\section{Workspace Symbols}
+    \begin{itemize}
+        \item same as documentSymbol, but no uri restriction in SourceSectionFilter
+    \end{itemize}
+\section{Document Highlight}
+    \begin{itemize}
+        \item find node at caret: StandardTags.WriteVariableTag.class, StandardTags.ReadVariableTag.class
+        \item getNodeObject() -> key look-up: name
+        \item env.findLocalScopes(node, null) or env.findLocalScopes(node, frame) if cached frame available
+        \item iterate scopes + scope.getNode().accept(NodeVisitor) -> search for all ReadVariableTag/WriteVariableTag annotated nodes
+    \end{itemize}
+\section{Goto-definition}
+    \begin{itemize}
+        \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag (no WriteVariableTag, because source sections of write include assignments in Python -> leads to unexpected behavior <- should we change this?)
+        \item CallTag: run to section with inputFilter like signatureHelp -> Env.findSourceLocation(LanguageInfo language, Object value)
+        \item ReadVariableTag: like documentHighlight via scopes and visitor, but interpret the first write node of the most outer scope as declaration
+    \end{itemize}
+\section{Finding All References}
+    \begin{itemize}
+        \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag or WriteVariableTag
+        \item CallTag: env.attachLoadSourceSectionListener with SourceSectionFilter for CallTag, then match names
+        \item ReadVariableTag/WriteVariableTag: like documentHighlight
+    \end{itemize}
+\section{Triggering Run-Time Information Collection}
+    \begin{itemize}
+        \item command registration
+        \item CoverageEventNode
+        \item SourceSectionFilter for language
+        \item onEnter() -> flag entered = true
+        \item copy frame and descriptor to snapshot state
+        \item store these together with CoverageEventNode
     \end{itemize}
 
 % \section{LSP features implementation - TextDocumentService}
@@ -1011,7 +1023,8 @@ doSomething(y)
             \item getCompletionTriggerCharacters()
             \item getSignatureHelpCharacters() (TODO)
             \item boxPrimitive()
-            \item GetSignature + GetDocumentation custom message
+            \item GetSignature custom message (+ format invoke + getNodeObject() "numberOfArguments" look-up)
+            \item GetDocumentation custom message
             \item DefinitionTag + ReadVariableTag + WriteVariableTag
         \end{itemize}
     \end{itemize}

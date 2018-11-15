@@ -316,6 +316,7 @@ In this chapter we explain terms, concepts and technologies helping to understan
     \end{itemize}
 
 \section{Source Code Editors}
+\label{sec:contextSourceCodeEditors}
 A source code editor bundles different features to support developers in their process of writing code. Typically, code editors like vim\todo{footnote?}, Sublime Text, Atom, or Visual Studio Code, focus on editing file-based programming or scripting languages. In addition to the actual text editor view, modern graphical code editors also consist of a file explorer, graphical debugger interface, or build-tools integration, which are often made available as optional extensions for a variety of languages. Popular \acp{ide} like Eclipse\todo{footnote?}, Visual Studio, or IntelliJ also have a code editor view as main component, but focus on a richer support of one specific language by providing tailor-made, integrated tools. 
 In the following we will describe selected features of source code editors, which are covered by the \ac{lsp} described in \autoref{sec:lspcontext}.
 
@@ -367,13 +368,13 @@ Because code completion is a core feature and is frequently auto-activated while
 
 \section{Terms and Concepts}\todo{consume in a "Virtual Execution Environment" section?}
     \paragraph{\acf{ast}}
-    Parsers for programming languages usually transform plain text source code into an intermediate representation which can be processed by compilers, interpreters or programming environment tools. An \ac{ast} is such a typical representation which stores structural information of the source code implicitly in its tree structure. Therefore, concrete syntactic elements needed to write parsable code in plain text can be omitted. In general, inner nodes of the \ac{ast} represent programming language operations and leaf nodes store the values needed for these operations. Depending on the use case, an \ac{ast} can store additional information in its nodes. For example the lexical source section from which a node was derived. Programming environment tools can use these information to display any kind of errors, warnings or hints directly in the plain text source code. An \ac{ast} interpreter evaluates an \ac{ast} by traversing its tree structure and executing the operations defined in the nodes.
+    Parsers for programming languages usually transform plain text source code into an \ac{IR} which can be processed by compilers, interpreters or programming environment tools. An \ac{ast} is such a typical representation which stores structural information of the source code implicitly in its tree structure. Therefore, concrete syntactic elements needed to write parsable code in plain text can be omitted. In general, inner nodes of the \ac{ast} represent programming language operations and leaf nodes store the values needed for these operations. Depending on the use case, an \ac{ast} can store additional information in its nodes. For example the lexical source section from which a node was derived. Programming environment tools can use these information to display any kind of errors, warnings or hints directly in the plain text source code. An \ac{ast} interpreter evaluates an \ac{ast} by traversing its tree structure and executing the operations defined in the nodes.
 
     \paragraph{Scopes and Frames}
     A Scope defines a region of a program in which a set of name bindings is valid, e.g. a local variable name.
     Most programming languages have a concept of a global (program wide) scope and local scopes defined by functions, blocks or modules.
     During execution of a program, frames store the actual values of the name bindings of visible scopes.
-    Frame: ref "Advanced Compiler Design and Implementation" book p.114
+    Frame: \todo{ref} "Advanced Compiler Design and Implementation" book p.114
 
     \paragraph{expression, statement und co?}
 
@@ -482,6 +483,51 @@ Because code completion is a core feature and is frequently auto-activated while
 
 \clearpage
 
+\paragraph{new apporach}
+In \autoref{cha:introduction} we described the problem, that run-time performance focused language implementation frameworks lack \ac{ide}-like tooling support for the create languages. Therefore we suggest to build a language-agnostic language server on top of these kind of frameworks to start closing the tooling gap. Typically a language server is developed for one specific language only and the server implementation can exploit any kind of language-specific information. To implement a language-agnostic language server, we have to build upon the abstract concepts of language implementation frameworks, which apply to all languages developed in these frameworks.
+
+\begin{itemize}
+    \item focus on performance-focused and interpreter-based lang impl frameworks (like Truffle, RPython)
+    \item interpreter-based = the developer writes an interpreter to define the language semantics (bytecode or AST interpreter)
+\end{itemize}
+
+In the following, we \todo{will?} use the example of code completion to described our approach. Fist of all, we \todo{will?} show which kind of data is needed to respond to the \emph{completion} request of \ac{lsp}. Then, we suggest how to obtain the needed information in a language-agnostic way and where the language implementations need to hook into.
+
+As described in \autoref{sec:contextSourceCodeEditors}, there are two kinds of code completions we have to distinguish. We start with the Python code snippet in \autoref{lst:pythonNearCaretExample1NewApproach} to explain how to support code completion of globals and locals.
+
+\begin{code}[lst:pythonNearCaretExample1NewApproach]{An example Python code snippet showing a function with two parameters and two local variables to explain completion of globals and locals.}{float,numbers=left,language=Python}
+def foo(param1, param2):
+    x = 42
+
+    y = param1 + param2
+
+    print(x * y)
+\end{code}
+
+Imagine, the listed Python code snippet is the content of a file which was opened in an \ac{lsp}-supporting source code editor and the language client implementation has already reported the opening of the file using the \emph{didOpen} notification to our imaginary language server. This notification includes the content and the \ac{uri} of the file. Now, a \emph{completion} request is sent to the server with parameters \inlinecode{line=3} and \inlinecode{character offset=4}. This means, the completion is requested in the empty line between the assignments of the two local variables \inlinecode{x} and \inlinecode{y}. We would expect a completion result which includes items for all Python globals (e.g. built-in functions) and the locals \inlinecode{param1}, \inlinecode{param2}, and \inlinecode{x}. \inlinecode{y} should not be included, because a value is assigned to it not until line 4. To provide these items, following steps need to be done.
+\begin{enumerate}
+    \item Parse the source code into a language-agnostic \ac{IR} of the framework
+    \item Map line and column of the completion request to the \ac{IR}
+    \item Derive lexical scopes from the mapped \ac{IR}-element
+    \item Build completion items by gathering additional information for the obtained symbols
+\end{enumerate}
+
+In the first step of parsing source code into an \ac{IR} of the framework, we can reuse the existing parser, which the language developer has to provide anyway. This parser will typically be syntax-error intolerant, so that we can support code completion only if the source code is parsable.
+
+The second step requires, that selected elements of the \ac{IR} contain references to their lexical sources, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{IR}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{IR} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{IR} and the framework.
+
+In the third step, we assume that the language implementation framework has a concept of scopes for the language implementations. For now, we are interested in lexical scopes only. Typically, there are some language built-ins which are always available, independent of the current context. They can be grouped in a global scope. The \ac{IR}-element, matching the completion request position, can be used to derive local scopes together with symbols valid in these scopes. If we take again an \ac{ast} as \ac{IR} example, local scopes can be obtained by traversing the \ac{ast}. All scope-building language elements, like functions, classes or blocks, can be collected along the way, starting at the node, which matches the completion request position, up to the root.
+
+Finally, we create the completion items based on the symbols of the scopes. Depending on the meta information available for each symbol, we can add a completion kind (e.g. variable, function, or class), signature information for callables, or a documentation text.
+
+
+
+% IMPL
+% With \emph{near} we refer to the problem, that there might be no element at the requested position. In our example, the position is included in the function body of \inlinecode{foo}, but pointing to an empty line between two Python statements in that function. If we want to derive lexical scoping information from an \ac{IR} element, we have to choose the nearest one before or after the requested position, depending on the capabilities of the framework. We assume now, that the framework can derive lexical scopes valid \emph{at} an \ac{IR} element. This means translated to our example, if we derive lexical scopes for the assignment of \inlinecode{y} in line 4, the local variable \inlinecode{x} will be included as a valid symbol in the local function scope, but \inlinecode{y} not.
+
+
+\clearpage
+
 % \begin{itemize}
 %     \item language implementation + tool development = challenging task
 %     \item we propose: implement LSP for Truffle
@@ -504,6 +550,7 @@ Because code completion is a core feature and is frequently auto-activated while
 %     \item lsp clients need the set of supported languages already at extension-/adapter-definition time - no dynamic look-up
 % \end{itemize}
 
+    \paragraph{old apporach}
     In \autoref{cha:introduction} we described the problem, that \ac{ide}-like tools are normally developed for a specific language only. Therefore, tooling support might be not the main focus of language developers, although they and their language users would benefit from them already during the language development process. As described, the Truffle framework has built-in support for language-agnostic tools and implementing a language server for Truffle could close an important gap of missing \ac{ide}-like tools.
 
     The \ac{lsp} enables arbitrary language clients to communicate with arbitrary language servers. Normally a language server provides support for one specific language only. Our approach aims to support multiple Truffle languages by build a language-agnostic language server using the Truffle instrumentation \ac{api}. \autoref{fig:langspecificservervslangagnosticserver} illustrates the difference.

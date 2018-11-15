@@ -487,43 +487,131 @@ Because code completion is a core feature and is frequently auto-activated while
 In \autoref{cha:introduction} we described the problem, that run-time performance focused language implementation frameworks lack \ac{ide}-like tooling support for the create languages. Therefore we suggest to build a language-agnostic language server on top of these kind of frameworks to start closing the tooling gap. Typically a language server is developed for one specific language only and the server implementation can exploit any kind of language-specific information. To implement a language-agnostic language server, we have to build upon the abstract concepts of language implementation frameworks, which apply to all languages developed in these frameworks.
 
 \begin{itemize}
-    \item focus on performance-focused and interpreter-based lang impl frameworks (like Truffle, RPython)
+    \item focus on performance-focused and interpreter-based lang impl frameworks (like Truffle, RPython)\todo{bullet points to text}
     \item interpreter-based = the developer writes an interpreter to define the language semantics (bytecode or AST interpreter)
 \end{itemize}
 
 In the following, we \todo{will?} use the example of code completion to described our approach. Fist of all, we \todo{will?} show which kind of data is needed to respond to the \emph{completion} request of \ac{lsp}. Then, we suggest how to obtain the needed information in a language-agnostic way and where the language implementations need to hook into.
 
-As described in \autoref{sec:contextSourceCodeEditors}, there are two kinds of code completions we have to distinguish. We start with the Python code snippet in \autoref{lst:pythonNearCaretExample1NewApproach} to explain how to support code completion of globals and locals.
+\section{Completion of Globals and Locals}
+    As described in \autoref{sec:contextSourceCodeEditors}, there are two kinds of code completions we have to distinguish. We start with the Python code snippet in \autoref{lst:pythonNearCaretExample1NewApproach} to explain how to support code completion of globals and locals.
 
-\begin{code}[lst:pythonNearCaretExample1NewApproach]{An example Python code snippet showing a function with two parameters and two local variables to explain completion of globals and locals.}{float,numbers=left,language=Python}
-def foo(param1, param2):
-    x = 42
+    \begin{code}[lst:pythonNearCaretExample1NewApproach]{An example Python code snippet showing a function with two parameters and two local variables to explain completion of globals and locals.}{float,numbers=left,language=Python}
+    def foo(param1, param2):
+        x = 42
 
-    y = param1 + param2
+        y = param1 + param2
 
-    print(x * y)
-\end{code}
+        print(x * y)
+    \end{code}
 
-Imagine, the listed Python code snippet is the content of a file which was opened in an \ac{lsp}-supporting source code editor and the language client implementation has already reported the opening of the file using the \emph{didOpen} notification to our imaginary language server. This notification includes the content and the \ac{uri} of the file. Now, a \emph{completion} request is sent to the server with parameters \inlinecode{line=3} and \inlinecode{character offset=4}. This means, the completion is requested in the empty line between the assignments of the two local variables \inlinecode{x} and \inlinecode{y}. We would expect a completion result which includes items for all Python globals (e.g. built-in functions) and the locals \inlinecode{param1}, \inlinecode{param2}, and \inlinecode{x}. \inlinecode{y} should not be included, because a value is assigned to it not until line 4. To provide these items, following steps need to be done.
-\begin{enumerate}
-    \item Parse the source code into a language-agnostic \ac{IR} of the framework
-    \item Map line and column of the completion request to the \ac{IR}
-    \item Derive lexical scopes from the mapped \ac{IR}-element
-    \item Build completion items by gathering additional information for the obtained symbols
-\end{enumerate}
+    Imagine, the listed Python code snippet is the content of a file which was opened in an \ac{lsp}-supporting source code editor and the language client implementation has already reported the opening of the file using the \emph{didOpen} notification to our imaginary language server. This notification includes the content and the \ac{uri} of the file. Now, a \emph{completion} request is sent to the server with parameters \inlinecode{line=3} and \inlinecode{character offset=4}. This means, the completion is requested in the empty line between the assignments of the two local variables \inlinecode{x} and \inlinecode{y}. We would expect a completion result which includes items for all Python globals (e.g. built-in functions) and the locals \inlinecode{param1}, \inlinecode{param2}, and \inlinecode{x}. \inlinecode{y} should not be included, because a value is assigned to it not until line 4. Additionally to a display name, a \ac{lsp} completion item can optionally contain a completion kind (e.g. variable, function, or class), a detail text for signature or type information, and a documentation. To provide these items, following steps need to be done.
+    \begin{enumerate}
+        \item Parse the source code into a language-agnostic \ac{IR} of the framework
+        \item Map line and column of the completion request to the \ac{IR}
+        \item Derive lexical scopes from the mapped \ac{IR}-element
+        \item Build completion items by gathering additional information for the obtained symbols
+    \end{enumerate}
 
-In the first step of parsing source code into an \ac{IR} of the framework, we can reuse the existing parser, which the language developer has to provide anyway. This parser will typically be syntax-error intolerant, so that we can support code completion only if the source code is parsable.
+    In the first step of parsing source code into an \ac{IR} of the framework, we can reuse the existing parser, which the language developer has to provide anyway. This parser will typically be syntax-error intolerant, so that we can support code completion only if the source code is parsable.
 
-The second step requires, that selected elements of the \ac{IR} contain references to their lexical sources, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{IR}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{IR} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{IR} and the framework.
+    The second step requires, that selected elements of the \ac{IR} contain references to their lexical sources, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{IR}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{IR} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{IR} and the framework. A tagging mechanism could help to mark special \ac{IR}-elements in a language-agnostic way, to allow filtering.
 
-In the third step, we assume that the language implementation framework has a concept of scopes for the language implementations. For now, we are interested in lexical scopes only. Typically, there are some language built-ins which are always available, independent of the current context. They can be grouped in a global scope. The \ac{IR}-element, matching the completion request position, can be used to derive local scopes together with symbols valid in these scopes. If we take again an \ac{ast} as \ac{IR} example, local scopes can be obtained by traversing the \ac{ast}. All scope-building language elements, like functions, classes or blocks, can be collected along the way, starting at the node, which matches the completion request position, up to the root.
+    % IMPL
+    % With \emph{near} we refer to the problem, that there might be no element at the requested position. In our example, the position is included in the function body of \inlinecode{foo}, but pointing to an empty line between two Python statements in that function. If we want to derive lexical scoping information from an \ac{IR} element, we have to choose the nearest one before or after the requested position, depending on the capabilities of the framework. We assume now, that the framework can derive lexical scopes valid \emph{at} an \ac{IR} element. This means translated to our example, if we derive lexical scopes for the assignment of \inlinecode{y} in line 4, the local variable \inlinecode{x} will be included as a valid symbol in the local function scope, but \inlinecode{y} not.
 
-Finally, we create the completion items based on the symbols of the scopes. Depending on the meta information available for each symbol, we can add a completion kind (e.g. variable, function, or class), signature information for callables, or a documentation text.
+    In the third step, we assume that the language implementation framework has a concept of scopes for the language implementations. For now, we are interested in lexical scopes only. Typically, there are some language built-ins which are always available, independent of the current context. They can be grouped in a global scope. The \ac{IR}-element, matching the completion request position, can be used to derive local scopes together with symbols valid in these scopes. If we take an \ac{ast} as \ac{IR} example again, local scopes can be obtained by traversing the \ac{ast}. All scope-building language elements, like functions, classes or blocks, can be collected along the way, starting at the node, which matches the completion request position, up to the root.
+
+    Finally, we create the completion items based on the symbols of the scopes. Depending on the meta information available for each symbol, we can add a completion kind, signature information for callables, or a documentation text.
+
+    \todo{Überleitung}
+
+\section{Completion of Locals Using Run-time Information}
+    A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For programming languages with typed variables, like Java, the required information can be easily derived from by parsing source code. The situation for languages with untyped variables, like Python, is different, because the type depends on the assigned run-time object. There are language-specific approaches to infer variable types for such languages \todo{ref}, but these approaches ... \todo{far from perfect, difficult to built in a language-agnostic way, ...}.
+
+    In this section, we describe an approach on how to enhance code completion for locals using run-time objects. This approach will also build the basis for \completionOfProperties~described in \autoref{sec:newApproachCompletionProperties}.
+
+    \paragraph{Approach and Challenges}
+    The basic idea to get run-time information for locals at a specific position in the source code, is to execute that source code while observing the execution to collect run-time objects at the desired position.
+    This approach implies some preconditions and challenges. The language implementation framework needs to provide a possibility to execute a program until a specific position in the source code. Like setting a breakpoint in a debugger. When reached, we need to derive local run-time scopes at that point, e.g. via the current frame.
+    Furthermore, executing arbitrary source code implies to think how to deal with unexpected and unwanted side-effects during execution, the possibility of a long running or non-terminating execution, or the fact that the desired position might not be reached by the execution flow.
+
+    \paragraph{Sandboxing the Execution Environment}
+    \begin{itemize}
+        \item support of underlying execution engine needed
+        \item redirect / restrict all I/O
+        \item for file I/O: read-only or copy-on-write file system proxy
+        \item network I/O: only disabling possible?
+        \item -> unit tests are expected to be side-effect free
+    \end{itemize}
+
+    \paragraph{Long Running or Non-terminating Executions}
+    \begin{itemize}
+        \item stop execution when desired position is reached
+        \item fallback: timeout
+    \end{itemize}
+
+    \paragraph{Unreachable Source Sections}
+    \begin{itemize}
+        \item define entry point script via in-line comment or config file
+        \item use unit tests to cover code
+    \end{itemize}
+
+    \paragraph{Unsaved Changes}
+    \begin{itemize}
+        \item language client might have unsaved changes in opened files
+        \item executing a script or test with imports needs to find the changed sources
+        \item proxy file system -> redirect to unsaved changes
+    \end{itemize}
+
+    \paragraph{Caching Run-time Information}
+    \begin{itemize}
+        \item Executing a script or unit tests for every \emph{completion} request might still be to expensive
+        \item -> caching of frames mapped to source sections
+        \item explain how to migrate cached infos on code changes
+        \item explain how to manually trigger cache refresh (\emph{codeLense} commands)
+    \end{itemize}
+
+\section{Completion of Properties}
+    \label{sec:newApproachCompletionProperties}
+    The second kind of code completion is the \completionOfProperties.
+    %For statically typed programming languages, this completion can exploit the type information available at parse-time. The language implementation frameworks we are focusing on, are typically supporting dynamic typing. Therefore, the actual type information are only available at run-time. There are approaches to infer types for dynamically typed languages \todo{ref}, but ... \todo{far from perfect, difficult to built in a language-agnostic way, ...}. Therefore we suggest to obtain completion items for properties using the actual run-time objects.
+    \begin{itemize}
+        \item distinguish completion kinds -> completion trigger characters
+        \item basically use same approach as for locals with run-time infos
+        \item but new challenge: code not parsable
+        \item solution: undo last change and parse again
+        \item Find IR at specific source code position
+        \item strategies: literal-approach, cached data in-line eval, run-to-section eval, fallback: global eval
+        \item query found object for properties
+    \end{itemize}
+
+    \autoref{lst:pythonObjectPropertyCompletion1NewApproach} shows a Python code snippet, containing a class \inlinecode{Natural} with an instance variable \inlinecode{n} and a method \inlinecode{next}. In the last line, we assume that the dot was the last character inserted and a code completion request is triggered. We expect, that a completion result includes \inlinecode{n} and \inlinecode{next}.
+    \begin{code}[lst:pythonObjectPropertyCompletion1NewApproach]{A Python code snippet showing a property completion example.}{float,numbers=left,language=Python}
+class Natural:
+    n = 2
+
+    def next(self):
+        r = self.n
+        self.n = self.n + 1
+        return r
+    
+natural = Natural()
+natural.
+    \end{code}
+
+\section{Transferring the Approach to Other Requests}
+    \begin{itemize}
+        \item signatureHelp
+        \item hover
+        \item documentSymbol
+        \item symbol
+        \item definition
+        \item references
+        \item documentHighlight
+    \end{itemize}
 
 
-
-% IMPL
-% With \emph{near} we refer to the problem, that there might be no element at the requested position. In our example, the position is included in the function body of \inlinecode{foo}, but pointing to an empty line between two Python statements in that function. If we want to derive lexical scoping information from an \ac{IR} element, we have to choose the nearest one before or after the requested position, depending on the capabilities of the framework. We assume now, that the framework can derive lexical scopes valid \emph{at} an \ac{IR} element. This means translated to our example, if we derive lexical scopes for the assignment of \inlinecode{y} in line 4, the local variable \inlinecode{x} will be included as a valid symbol in the local function scope, but \inlinecode{y} not.
 
 
 \clearpage

@@ -522,7 +522,7 @@ In the following, we use the example of code completion to described our approac
 
     In the first step of parsing source code into an \ac{IR} of the framework, we can reuse the existing parser, which the language developer has to provide anyway. This parser will typically be syntax-error intolerant, so that we decided to support code completion only if the source code is parsable.
 
-    The second step requires, that selected elements of the \ac{IR} contain references to their lexical sources, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{IR}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{IR} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{IR} and the framework. A tagging mechanism could help to mark special \ac{IR}-elements in a language-agnostic way, to allow filtering.
+    The second step requires, that selected elements of the \ac{IR} contain references to their lexical representations in the source code, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{IR}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{IR} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{IR} and the framework. A tagging mechanism could help to mark special \ac{IR}-elements in a language-agnostic way, to allow filtering.
 
     % IMPL
     % With \emph{near} we refer to the problem, that there might be no element at the requested position. In our example, the position is included in the function body of \inlinecode{foo}, but pointing to an empty line between two Python statements in that function. If we want to derive lexical scoping information from an \ac{IR} element, we have to choose the nearest one before or after the requested position, depending on the capabilities of the framework. We assume now, that the framework can derive lexical scopes valid \emph{at} an \ac{IR} element. This means translated to our example, if we derive lexical scopes for the assignment of \inlinecode{y} in line 4, the local variable \inlinecode{x} will be included as a valid symbol in the local function scope, but \inlinecode{y} not.
@@ -534,6 +534,7 @@ In the following, we use the example of code completion to described our approac
     \todo{Überleitung}
 
 \section{Completion of Locals Using Run-time Information}
+\label{sec:newApproachCompletionLocalsUsingRuntimeInfo}
     A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For programming languages with typed symbols, like Java, the required information can be easily derived from by parsing source code. The situation for languages with untyped symbols, like Python, is different, because the type depends on the associated run-time object. There are language-specific approaches to infer types of variables for such languages \todo{ref}, but these approaches ... \todo{far from perfect, difficult to built in a language-agnostic way, ...}.
 
     In this section, we describe an approach on how to enhance code completion for locals using run-time information. This approach will also build the basis for \completionOfProperties~described in \autoref{sec:newApproachCompletionProperties}.
@@ -591,26 +592,29 @@ In the following, we use the example of code completion to described our approac
     % \end{itemize}
     Executing a script or unit tests for every \emph{completion} request might yield no results due to long running executions and timeouts. Therefore, we suggest to collect run-time information for the whole source code once and cache these information for later \emph{completion} requests. This collection run should be triggered manually by the users, e.g. by using custom commands, which the server can register during \ac{lsp} initialization. These commands are then made accessible at client-side via the \emph{codeLense} request. This way, users can trigger the renewal of the cache manually, when they considered it reasonable.
     
-    As a language-agnostic data structure for the cache, a mapping from lexical source positions of \ac{IR}-elements to collected run-time objects can be used. To get a look-up key when a completion\todo{emph?} request arrives, we can use again the approach of finding an \ac{IR}-element near the completion request's position to get the \ac{IR}-element's lexical source position. If the look-up succeeds, we can use the cached information to create the completion items.
+    As a language-agnostic data structure for the cache, a mapping from lexical source sections of \ac{IR}-elements to collected run-time objects can be used. To get a look-up key when a completion\todo{emph?} request arrives, we can use again the approach of finding an \ac{IR}-element near the completion request's position to get the \ac{IR}-element's lexical source sections. If the look-up succeeds, we can use the cached information to create the completion items.
 
     The challenge of using such a lexical mapping is, that every time a \emph{didChange} notification arrives, one or more sections of the source code will change. Depending on the change, the mappings in the cache might become invalid, but others might still be useful. We assume, that most edits will affect only mappings of the current local scope and in that scope only the edited line and following, so that all other mappings might be migrated. If the mapping key references a source position only via line number and character offset in that line, the migration could be done by simply adjusting the line number, if the changes add or remove one or more lines. Of course, we can only assume that the migrated mappings are still valid. The user has to trigger a new collection run manually when, for example, the execution flow is changed, or variables are renamed.\todo{code example needed for that paragraph?}
     
+    \todo{Überleitung / Summary}
 
 \section{Completion of Properties}
     \label{sec:newApproachCompletionProperties}
     The second kind of code completion is the \completionOfProperties.
     %For statically typed programming languages, this completion can exploit the type information available at parse-time. The language implementation frameworks we are focusing on, are typically supporting dynamic typing. Therefore, the actual type information are only available at run-time. There are approaches to infer types for dynamically typed languages \todo{ref}, but ... \todo{far from perfect, difficult to built in a language-agnostic way, ...}. Therefore we suggest to obtain completion items for properties using the actual run-time objects.
-    \begin{itemize}
-        \item distinguish completion kinds -> completion trigger characters
-        \item basically use same approach as for locals with run-time infos
-        \item but new challenge: code not parsable
-        \item solution: undo last change and parse again
-        \item Find IR at specific source code position
-        \item strategies: literal-approach, cached data in-line eval, run-to-section eval, fallback: global eval
-        \item query found object for properties
-    \end{itemize}
+    
+    % \begin{itemize}
+    %     \item distinguish completion kinds -> completion trigger characters
+    %     \item basically use same approach as for locals with run-time infos
+    %     \item but new challenge: code not parsable
+    %     \item solution: undo last change and parse again
+    %     \item Find IR at specific source code position
+    %     \item strategies: literal-approach, cached data in-line eval, run-to-section eval, fallback: global eval
+    %     \item query found object for properties
+    % \end{itemize}
 
-    \autoref{lst:pythonObjectPropertyCompletion1NewApproach} shows a Python code snippet, containing a class \inlinecode{Natural} with an instance variable \inlinecode{n} and a method \inlinecode{next}. In the last line, we assume that the dot was the last character inserted and a code completion request is triggered. We expect, that a completion result includes \inlinecode{n} and \inlinecode{next}.
+    \autoref{lst:pythonObjectPropertyCompletion1NewApproach} shows a Python code snippet, containing a class \inlinecode{Natural} with an instance variable \inlinecode{n} and a method \inlinecode{next}. In the last line, we assume that the dot was the last character inserted and a code completion request is triggered. We expect, that a completion result includes \inlinecode{n} and \inlinecode{next} as properties of the object referenced by the symbol \inlinecode{natural}. Other inherited properties, which all Python objects have, might also be included.
+
     \begin{code}[lst:pythonObjectPropertyCompletion1NewApproach]{A Python code snippet showing a property completion example.}{float,numbers=left,language=Python}
 class Natural:
     n = 2
@@ -623,6 +627,27 @@ class Natural:
 natural = Natural()
 natural.
     \end{code}
+
+    To support this kind of code completion, we can build on the approach for \emph{completion of locals using run-time information} described in the previous section. But there are some new challenges which we have to solve. First of all, we have to detect that an object property completion shall be triggered instead of a completion of globals and locals. Second, the source code will typically contain a syntax error, when this kind of completion request is sent. Third, we have to identify the \ac{IR}-element for which the completion of properties is desired. Fourth, we have to obtain the actual object associated with that \ac{IR}-element, which might be available only at run-time. Finally, we need to get the object's properties to create the completion items.
+
+    \paragraph{Detecting an Object Property Completion}
+    As prerequisite for completion of properties, we need to be able to query a language implementation for its completion trigger characters. When a completion request arrives, we can then distinguish the two kinds of completion by comparing one or multiple characters directly in front of the completion request position with the trigger characters of the current language. If there is a match, we try a property completion. 
+    
+    To support auto-activation of code completion, the trigger characters need to be sent to the client as part of the \emph{initialize} response.
+
+    \paragraph{Finding the Desired Node}
+    To find the \ac{IR}-element in front of the completion trigger character, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore, we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code again. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1NewApproach}, the source code shown is no valid Python source code because of the last dot. Removing this dot makes the code parsable again. \todo{add remark: approach only possible for languages which support "expression statements"? <- how can we name that? For example in Java this would not work.}
+
+    Now, we can search for a matching \ac{IR}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{IR}-elements whose lexical source sections end before the removed trigger character position. Here it would be useful again, to have tagged \ac{IR}-elements, so that we can filter for example for expressions\todo{is not fitting. Defer to impl?} only.
+
+    \paragraph{Obtaining the Actual Properties}
+        The next step we have to do is getting the actual object associated with that node, which might be available only at run-time, to finally query it for its properties. The approach is basically the same as for the completion of locals using run-time information, described in \autoref{sec:usingRuntimeInformation}. But there are some optimizations we can do.
+    % \begin{enumerate}
+    %     \item Parse the source code into a language-agnostic \ac{IR} of the framework
+    %     \item Map line and column of the completion request to the \ac{IR}
+    %     \item Derive lexical scopes from the mapped \ac{IR}-element
+    %     \item Build completion items by gathering additional information for the obtained symbols of the scopes
+    % \end{enumerate}
 
 \section{Transferring the Approach to Other Requests}
     \begin{itemize}

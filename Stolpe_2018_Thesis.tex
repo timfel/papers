@@ -651,26 +651,59 @@ natural.
 
     If there is still no result, because the source position of the completion request might not be reachable or a timeout occurred, we can use a last fallback. We suggest to evaluate the \ac{IR}-element in the global scope. This will at least provide a property completion for globals and context-independent expressions.
 
-    % \begin{enumerate}
-    %     \item Parse the source code into a language-agnostic \ac{IR} of the framework
-    %     \item Map line and column of the completion request to the \ac{IR}
-    %     \item Derive lexical scopes from the mapped \ac{IR}-element
-    %     \item Build completion items by gathering additional information for the obtained symbols of the scopes
-    % \end{enumerate}
+    \todo{Sum up / Überleitung}
 
 \section{Transferring the Approach to Other Requests}
-    \begin{itemize}
-        \item signatureHelp
-        \item hover
-        \item documentSymbol
-        \item symbol
-        \item definition
-        \item references
-        \item documentHighlight
-    \end{itemize}
+    The approach of supporting code completion, described in the previous sections, includes parts, which can be used to support further \ac{lsp} requests. \autoref{tab:furtherLSPFeatures} shows selected \ac{lsp} requests, for which we will describe the approach transfer in the following.
+    
+    \begin{table}
+        \centering
+        \tableinsidecommand
+        \begin{threeparttable}
+          \caption{Selected \ac{lsp} features and their descriptions}
+          \label{tab:furtherLSPFeatures}
+          \begin{tabular}{ l p{0.5\linewidth} }
+            \toprule
+            Request/Notification    & Description\\
+            \midrule
+            signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters.     \\
+            hover                   & Request for information at caret-hovering position.\\
+            documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.).  \\
+            symbol                  & Like documentSymbol, but for all files in the client workspace. \\
+            definition              & Goto-definition request for functions, variables, etc. \\
+            references              & Request to find all references of a symbol. \\
+            documentHighlight       & Request to highlight all ranges related to a symbol (e.g. variable reads and writes).     \\
+            \bottomrule
+          \end{tabular}
+        \end{threeparttable}
+    \end{table}
 
+    \paragraph{Signature Help}
+    The \emph{signatureHelp} request is auto-activated at client-side, like code completion, if the server includes trigger characters for signature help in the \emph{initialize} response. A \emph{signatureHelp} response consists of a list of signatures, because there might be different variants, if the language implementation supports function overloading. Furthermore, the response includes two indices, telling which signature and which parameter should be shown in detail in the UI. Every signature in the list consists of a label, a list of parameters and an optional documentation. A parameter also consists of label and documentation.
 
+    To collect all the needed information, we suggest the following steps.
 
+    \begin{enumerate}
+        \item Find a matching \ac{IR}-element at the requested position
+        \item Execute the source code until the \ac{IR}-element is reached
+        \item Intercept the callable run-time object represented by the \ac{IR}-element
+        \item Query the callable for label, parameters and documentation
+    \end{enumerate}
+
+    The first to third steps equal those for code completion of properties. We only need to search for an \ac{IR}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{IR}-elements. Returning an empty response will end the displayed signature help. Therefore this request might be supported only partial.
+    
+    Having obtained a callable, the last step implies, that we can query the language implementation for meta-information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
+    
+    \paragraph{Hover Information}
+    With the already described approaches, we can support the \emph{hover} request for variables and callables with minimal effort, if there are cached run-time information available. The steps to build the hover response are as follows.
+
+    \begin{enumerate}
+        \item Find a matching \ac{IR}-element for a callable or variable at the requested position
+        \item Use the cached run-time information to perform an in-line evaluation
+        \item Create hover response from the evaluation result
+    \end{enumerate}
+
+    The first step requires again some kind of tagging of \ac{IR}-elements. If we have found an \ac{IR}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion.
 
 \clearpage
 

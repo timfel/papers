@@ -370,14 +370,14 @@ Because code completion is a core feature and is frequently auto-activated while
 
 \section{Terms and Concepts}\todo{consume in a "Virtual Execution Environment" section?}
     \paragraph{\acf{ast}}
-    Parsers for programming languages usually transform plain text source code into an \ac{IR} which can be processed by compilers, interpreters or programming environment tools. An \ac{ast} is such a typical representation which stores structural information of the source code implicitly in its tree structure. Therefore, concrete syntactic elements needed to write parsable code in plain text can be omitted. In general, inner nodes of the \ac{ast} represent programming language operations and leaf nodes store the values needed for these operations. Depending on the use case, an \ac{ast} can store additional information in its nodes. For example the lexical source section from which a node was derived. Programming environment tools can use these information to display any kind of errors, warnings or hints directly in the plain text source code. An \ac{ast} interpreter evaluates an \ac{ast} by traversing its tree structure and executing the operations defined in the nodes.
+    Parsers for programming languages usually transform plain text source code into an \ac{ir} which can be processed by compilers, interpreters or programming environment tools. An \ac{ast} is such a typical representation which stores structural information of the source code implicitly in its tree structure. Therefore, concrete syntactic elements needed to write parsable code in plain text can be omitted. In general, inner nodes of the \ac{ast} represent programming language operations and leaf nodes store the values needed for these operations. Depending on the use case, an \ac{ast} can store additional information in its nodes. For example the lexical source section from which a node was derived. Programming environment tools can use these information to display any kind of errors, warnings or hints directly in the plain text source code. An \ac{ast} interpreter evaluates an \ac{ast} by traversing its tree structure and executing the operations defined in the nodes.
 
     \paragraph{Scopes and Frames}
-    A Scope defines a region of a program in which a set of name bindings is valid, e.g. a local variable name.
-    Most programming languages have a concept of a global (program wide) scope and local scopes defined by functions, blocks or modules.
-    During execution of a program, frames store the actual values of the name bindings of visible scopes.
+    A scope defines a region of a program in which a set of name bindings is valid, e.g. a local variable name.
+    Most programming languages have a concept of a global (program wide) scope and local scopes.
+    In a lexically scoped language, these local scopes can be obtained at compile-time and are for example defined by the nesting of modules, functions or blocks in the source code. In a dynamically scoped language, these local scopes depend on the call stack, i.e. the nesting of function calls. Today, most programming languages are lexically scoped.
+    At run-time, frames store the actual values of the name bindings of visible scopes.
     \todo{ref  Frame: "Advanced Compiler Design and Implementation" book p.114} 
-    \todo{lexical vs. dynamic scopes}
 
     \paragraph{expression, statement und co?}
 
@@ -389,7 +389,7 @@ Because code completion is a core feature and is frequently auto-activated while
     \paragraph{Truffle and GraalVM}
     Truffle~\cite{wimmer2012truffle} is a language implementation framework written in Java. The language developer uses the framework to write an \ac{ast} interpreter, which is able to optimize itself during interpretation~\cite{wurthinger2012self}. To achieve that, Truffle uses run-time type information to rewrite \ac{ast} nodes. Callable elements of a language, e.g. functions or methods, are modeled as root nodes. They can be executed by providing a frame object. A node can have a source section attribute which encodes the range in the source code file it relates to. How source code is parsed and the \ac{ast} is structured leaves Truffle in the responsibility of the language implementation.
     
-    Truffle has built-in support for developing language-agnostic tools by providing an instrumentation \ac{api}~\cite{van2015building}. It is designed to work well with the optimization techniques for language implementations so that instrumentation can be done with nearly zero-overhead~\cite{van2018fast}. Instruments can be installed, like languages, by putting them on the Java class path. They can register and unregister listeners dynamically  for different events. For example, a listener can be notified when a new source or source section is loaded, a statement is going to be executed or an expression will return a value. It is also possible to alter the current execution flow and let a function return a different value when called under certain conditions. This enables building powerful tools like debuggers or profilers which need to be implemented only once and can then be used for all Truffle languages. To control which \ac{ast} nodes of a language are available for instrumentation, language implementors need to mark nodes as instrumentable. A tagging mechanism allows adding meta-information, like "this node represents a statement in my language", which can be used by instruments to filter for specific nodes. For example, a debugger can facilitate these information to implement stepping. The tools available at the date of writing are mostly run-time tools like debuggers, dynamic profilers and language extensions~\cite{van2018fast}.
+    Truffle has built-in support for developing language-agnostic tools by providing an instrumentation \ac{api}~\cite{van2015building}. It is designed to work well with the optimization techniques for language implementations so that instrumentation can be done with nearly zero-overhead~\cite{van2018fast}. Instruments can be installed, like languages, by putting them on the Java class path to load them via Java's \ac{spi} . Instruments can register and unregister listeners dynamically for different events to observe behavior of the language interpreters. For example, a listener can be notified when a new source or source section is loaded, a statement is going to be executed or an expression will return a value. It is also possible to inject behavior into the language interpreters by attaching node factories. It can be used for example, to alter the current execution flow and let a function return a different value when called under certain conditions. This instrumentation enables building powerful tools like debuggers or profilers which need to be implemented only once and can then be used for all Truffle languages. To control which \ac{ast} nodes of a language are available for instrumentation, language implementors need to mark nodes as instrumentable. A tagging mechanism allows adding meta-information, like "this node represents a statement in my language", which can be used by instruments to filter for specific nodes. For example, a debugger can facilitate these information to implement stepping. The tools available at the date of writing are mostly run-time tools like debuggers, dynamic profilers and language extensions~\cite{van2018fast}.
     
     Cross-language interoperability is another feature of the Truffle framework~\cite{grimmer2015high}. Language implementations can be hosted by the Truffle framework in a multi-language run-time and communicate via language-independent messages. Foreign language objects can be accessed directly without marshalling.
 
@@ -515,20 +515,20 @@ In the following, we use the example of code completion to described our approac
 
     Imagine, the listed Python code snippet is the content of a file which was opened in an \ac{lsp}-supporting source code editor and the language client implementation has already reported the opening of the file using the \emph{didOpen} notification to our imaginary language server. This notification includes the content and the \ac{uri} of the file. Now, a \emph{completion} request is sent to the server with parameters \inlinecode{line=3} and \inlinecode{character offset=4}. This means, the completion is requested in the empty line between the assignments of the two local variables \inlinecode{x} and \inlinecode{y}. We would expect a completion result to include items for all Python globals (e.g. built-in functions) and the locals \inlinecode{param1}, \inlinecode{param2}, and \inlinecode{x}. \inlinecode{y} should not be included, because a value is assigned to it not until line 4. Additionally to a display name, a \ac{lsp} completion item can optionally contain a completion kind (e.g. variable, function, or class), a detail text for signature or type information, and a documentation. To provide these items, we suggest the following steps.
     \begin{enumerate}
-        \item Parse the source code into a language-agnostic \ac{IR} of the framework
-        \item Map line and column of the completion request to the \ac{IR}
-        \item Derive lexical scopes from the mapped \ac{IR}-element
+        \item Parse the source code into a language-agnostic \ac{ir} of the framework
+        \item Map line and column of the completion request to the \ac{ir}
+        \item Derive lexical scopes from the mapped \ac{ir}-element
         \item Build completion items by gathering additional information for the obtained symbols of the scopes
     \end{enumerate}
 
-    In the first step of parsing source code into an \ac{IR} of the framework, we can reuse the existing parser, which the language developer has to provide anyway. This parser will typically be syntax-error intolerant, so that we decided to support code completion only if the source code is parsable.
+    In the first step of parsing source code into an \ac{ir} of the framework, we can reuse the existing parser, which the language developer has to provide anyway. This parser will typically be syntax-error intolerant, so that we decided to support code completion only if the source code is parsable.
 
-    The second step requires, that selected elements of the \ac{IR} contain references to their lexical representations in the source code, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{IR}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{IR} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{IR} and the framework. A tagging mechanism could help to mark special \ac{IR}-elements in a language-agnostic way, to allow filtering.
+    The second step requires, that selected elements of the \ac{ir} contain references to their lexical representations in the source code, or at least a process to obtain these references afterwards. If we assume an \ac{ast} as \ac{ir}, relevant nodes could store start- and end-offsets of characters for the parsed source code. Then, the \ac{ir} elements need to be searched for an element which maps best to the position of the completion request. Which one that should be, depends on the \ac{ir} and the framework. A tagging mechanism could help to mark special \ac{ir}-elements in a language-agnostic way, to allow filtering.
 
     % IMPL
-    % With \emph{near} we refer to the problem, that there might be no element at the requested position. In our example, the position is included in the function body of \inlinecode{foo}, but pointing to an empty line between two Python statements in that function. If we want to derive lexical scoping information from an \ac{IR} element, we have to choose the nearest one before or after the requested position, depending on the capabilities of the framework. We assume now, that the framework can derive lexical scopes valid \emph{at} an \ac{IR} element. This means translated to our example, if we derive lexical scopes for the assignment of \inlinecode{y} in line 4, the local variable \inlinecode{x} will be included as a valid symbol in the local function scope, but \inlinecode{y} not.
+    % With \emph{near} we refer to the problem, that there might be no element at the requested position. In our example, the position is included in the function body of \inlinecode{foo}, but pointing to an empty line between two Python statements in that function. If we want to derive lexical scoping information from an \ac{ir} element, we have to choose the nearest one before or after the requested position, depending on the capabilities of the framework. We assume now, that the framework can derive lexical scopes valid \emph{at} an \ac{ir} element. This means translated to our example, if we derive lexical scopes for the assignment of \inlinecode{y} in line 4, the local variable \inlinecode{x} will be included as a valid symbol in the local function scope, but \inlinecode{y} not.
 
-    In the third step, we assume that the language implementation framework has a concept of scopes for the language implementations. For now, we are interested in lexical scopes only. Typically, there are some language built-ins which are always available, independent of the current context. They can be grouped in a global scope. The \ac{IR}-element, matching the completion request position, can be used to derive local scopes together with symbols valid in these scopes. If we take an \ac{ast} as \ac{IR} example again, local scopes can be obtained by traversing the \ac{ast}. All scope-building language elements, like functions, classes or blocks, can be collected along the way, starting at the node, which matches the completion request position, up to the root.
+    In the third step, we assume that the language implementation framework has a concept of scopes for the language implementations. For now, we are interested in lexical scopes only. Typically, there are some language built-ins which are always available, independent of the current context. They can be grouped in a global scope. The \ac{ir}-element, matching the completion request position, can be used to derive local scopes together with symbols valid in these scopes. If we take an \ac{ast} as \ac{ir} example again, local scopes can be obtained by traversing the \ac{ast}. All scope-building language elements, like functions, classes or blocks, can be collected along the way, starting at the node, which matches the completion request position, up to the root.
 
     Finally, we create the completion items based on the symbols of the scopes. Depending on the meta-information available for each symbol, we can add a completion kind, signature information for callables, or a documentation text.
 
@@ -563,7 +563,7 @@ In the following, we use the example of code completion to described our approac
     % \end{itemize}
     Using the described approach, we have to care about unsaved changes. If we execute unit tests, we have to ensure that they do not import files from the file system, if our server has newer, but yet unsaved versions. The \ac{lsp} specifies no request sent from server to client to trigger saving files and we do not want to write the changes to the file system from server-side. Therefore, we suggest to redirect file accesses of files with unsaved changes to (virtual) files which contain the changes. This could be realized by installing a custom file system, if the framework supports that. Otherwise, an enhanced code completion using run-time objects is only possible after saving all changes actively at client-side.
 
-    Unit tests might not be available, especially if you start writing a small script or do not follow \ac{TDD} principles \todo{explain in background?}. Therefore we suggest as fallback to try executing the current source code, in which the code completion was triggered, if no path to an execution entry point is defined.
+    Unit tests might not be available, especially if you start writing a small script or do not follow \ac{tdd} principles \todo{explain in background?}. Therefore we suggest as fallback to try executing the current source code, in which the code completion was triggered, if no path to an execution entry point is defined.
 
     \paragraph{Sandboxing the Execution Environment}
     % \begin{itemize}
@@ -593,7 +593,7 @@ In the following, we use the example of code completion to described our approac
     % \end{itemize}
     Executing a script or unit tests for every \emph{completion} request might yield no results due to long running executions and timeouts. Therefore, we suggest to collect run-time information for the whole source code once and cache these information for later \emph{completion} requests. This collection run should be triggered manually by the users, e.g. by using custom commands, which the server can register during \ac{lsp} initialization. These commands are then made accessible at client-side via the \emph{codeLense} request. This way, users can trigger the renewal of the cache manually, when they considered it reasonable.
     
-    As a language-agnostic data structure for the cache, a mapping from lexical source sections of \ac{IR}-elements to collected run-time objects can be used. To get a look-up key when a completion\todo{emph?} request arrives, we can use again the approach of finding an \ac{IR}-element near the completion request's position to get the \ac{IR}-element's lexical source sections. If the look-up succeeds, we can use the cached information to create the completion items.
+    As a language-agnostic data structure for the cache, a mapping from lexical source sections of \ac{ir}-elements to collected run-time objects can be used. To get a look-up key when a completion\todo{emph?} request arrives, we can use again the approach of finding an \ac{ir}-element near the completion request's position to get the \ac{ir}-element's lexical source sections. If the look-up succeeds, we can use the cached information to create the completion items.
 
     The challenge of using such a lexical mapping is, that every time a \emph{didChange} notification arrives, one or more sections of the source code will change. Depending on the change, the mappings in the cache might become invalid, but others might still be useful. We assume, that most edits will affect only mappings of the current local scope and in that scope only the edited line and following, so that all other mappings might be migrated. If the mapping key references a source position only via line number and character offset in that line, the migration could be done by simply adjusting the line number, if the changes add or remove one or more lines. Of course, we can only assume that the migrated mappings are still valid. The user has to trigger a new collection run manually when, for example, the execution flow is changed, or variables are renamed.\todo{code example needed for that paragraph?}
     
@@ -629,7 +629,7 @@ natural = Natural()
 natural.
     \end{code}
 
-    To support this kind of code completion, we can build on the approach for \emph{completion of locals using run-time information} described in the previous section. But there are some new challenges which we have to solve. First of all, we have to detect that an object property completion shall be triggered instead of a completion of globals and locals. Second, the source code will typically contain a syntax error, when this kind of completion request is sent. Third, we have to identify the \ac{IR}-element for which the completion of properties is desired. Fourth, we have to obtain the actual object associated with that \ac{IR}-element, which might be available only at run-time. Finally, we need to get the object's properties to create the completion items.
+    To support this kind of code completion, we can build on the approach for \emph{completion of locals using run-time information} described in the previous section. But there are some new challenges which we have to solve. First of all, we have to detect that an object property completion shall be triggered instead of a completion of globals and locals. Second, the source code will typically contain a syntax error, when this kind of completion request is sent. Third, we have to identify the \ac{ir}-element for which the completion of properties is desired. Fourth, we have to obtain the actual object associated with that \ac{ir}-element, which might be available only at run-time. Finally, we need to get the object's properties to create the completion items.
 
     \paragraph{Detecting an Object Property Completion}
     As prerequisite for completion of properties, we need to be able to query a language implementation for its completion trigger characters. When a completion request arrives, we can then distinguish the two kinds of completion by comparing one or multiple characters directly in front of the completion request position with the trigger characters of the current language. If there is a match, we try a property completion. 
@@ -637,20 +637,20 @@ natural.
     To support auto-activation of code completion, the trigger characters need to be sent to the client as part of the \emph{initialize} response.
 
     \paragraph{Finding the Desired Node}
-    To find the \ac{IR}-element in front of the completion trigger character, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore, we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code again. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1NewApproach}, the source code shown is no valid Python source code because of the last dot. Removing this dot makes the code parsable again. \todo{add remark: approach only possible for languages which support "expression statements"? <- how can we name that? For example in Java this would not work.}
+    To find the \ac{ir}-element in front of the completion trigger character, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore, we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code again. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1NewApproach}, the source code shown is no valid Python source code because of the last dot. Removing this dot makes the code parsable again. \todo{add remark: approach only possible for languages which support "expression statements"? <- how can we name that? For example in Java this would not work.}
 
-    Now, we can search for a matching \ac{IR}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{IR}-elements whose lexical source sections end before the removed trigger character position. Here it would be useful again, to have tagged \ac{IR}-elements, so that we can filter for example for expressions\todo{is not fitting. Defer to impl?} only.
+    Now, we can search for a matching \ac{ir}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{ir}-elements whose lexical source sections end before the removed trigger character position. Here it would be useful again, to have tagged \ac{ir}-elements, so that we can filter for example for expressions\todo{is not fitting. Defer to impl?} only.
 
     \paragraph{Obtaining the Actual Properties}
-    The next step is getting the corresponding run-time object by evaluating the matching \ac{IR}-element. In our Python example, we would evaluate an \ac{IR} representing a variable read for the symbol \inlinecode{natural}. We can use the already described approach for obtaining run-time information for locals, to execute the source code until the desired \ac{IR}-element is reached. Then, the framework needs to provide an \ac{api}, so that we can intercept the result of the \ac{IR}-element evaluation. Having the run-time object, we need the support of the framework to query the language implementation for properties of that object, together with further meta-information of the properties, to add details, kind, and documentation for each completion item.
+    The next step is getting the corresponding run-time object by evaluating the matching \ac{ir}-element. In our Python example, we would evaluate an \ac{ir} representing a variable read for the symbol \inlinecode{natural}. We can use the already described approach for obtaining run-time information for locals, to execute the source code until the desired \ac{ir}-element is reached. Then, the framework needs to provide an \ac{api}, so that we can intercept the result of the \ac{ir}-element evaluation. Having the run-time object, we need the support of the framework to query the language implementation for properties of that object, together with further meta-information of the properties, to add details, kind, and documentation for each completion item.
 
-    We suggest some optimizations to avoid executing source code for every property completion request. First of all we can optimize property completion for literals, if the framework supports identifying \ac{IR}-elements for literals. The literal value is typically encoded in or referenced by the \ac{IR}-element. If we can access this value, we can directly query for its properties.
+    We suggest some optimizations to avoid executing source code for every property completion request. First of all we can optimize property completion for literals, if the framework supports identifying \ac{ir}-elements for literals. The literal value is typically encoded in or referenced by the \ac{ir}-element. If we can access this value, we can directly query for its properties.
     
-    If the \ac{IR}-element is not representing a literal, we can check as next step if there are already cached run-time information available. If the framework and the language implementation support in-line evaluation, we can evaluate the \ac{IR}-element in the context of the cached information. \todo{hier noch mehr erklären - Beispiel geben mit frame usw oder dann in Impl erläutern?}
+    If the \ac{ir}-element is not representing a literal, we can check as next step if there are already cached run-time information available. If the framework and the language implementation support in-line evaluation, we can evaluate the \ac{ir}-element in the context of the cached information. \todo{hier noch mehr erklären - Beispiel geben mit frame usw oder dann in Impl erläutern?}
 
     If using cached run-time information returns no result, we need to execute unit tests or the current source code to get the required run-time object.
 
-    If there is still no result, because the source position of the completion request might not be reachable or a timeout occurred, we can use a last fallback. We suggest to evaluate the \ac{IR}-element in the global scope. This will at least provide a property completion for globals and context-independent expressions.
+    If there is still no result, because the source position of the completion request might not be reachable or a timeout occurred, we can use a last fallback. We suggest to evaluate the \ac{ir}-element in the global scope. This will at least provide a property completion for globals and context-independent expressions.
 
     \todo{Sum up / Überleitung}
 
@@ -679,7 +679,7 @@ natural.
         \end{threeparttable}
     \end{table}
 
-    \todo{Zusammenfassung, was wiederverwendet werden kann: run-to-section + static search for tagged \ac{IR}-elements + \ac{IR}-element lexical source section}
+    \todo{Zusammenfassung, was wiederverwendet werden kann: run-to-section + static search for tagged \ac{ir}-elements + \ac{ir}-element lexical source section}
 
     \paragraph{Signature Help}
     The \emph{signatureHelp} request is auto-activated at client-side, like code completion, if the server includes trigger characters for signature help in the \emph{initialize} response. A \emph{signatureHelp} response consists of a list of signatures, because there might be different variants, if the language implementation supports function overloading. Furthermore, the response includes two indices, telling which signature and which parameter should be shown in detail in the UI. Every signature in the list consists of a label, a list of parameters and an optional documentation. A parameter also consists of label and documentation.
@@ -687,13 +687,13 @@ natural.
     To collect all the needed information, we suggest the following steps.
 
     \begin{enumerate}
-        \item Find a matching \ac{IR}-element at the requested position
-        \item Execute the source code until the \ac{IR}-element is reached
-        \item Intercept the callable run-time object represented by the \ac{IR}-element
+        \item Find a matching \ac{ir}-element at the requested position
+        \item Execute the source code until the \ac{ir}-element is reached
+        \item Intercept the callable run-time object represented by the \ac{ir}-element
         \item Query the callable for label, parameters and documentation
     \end{enumerate}
 
-    The first to third steps equal those for code completion of properties. We only need to search for an \ac{IR}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{IR}-elements. Returning an empty response will end the displayed signature help. Therefore this request might be supported only partial.
+    The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore this request might be supported only partial.
     
     Having obtained a callable, the last step implies, that we can query the language implementation for meta-information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
     
@@ -701,18 +701,18 @@ natural.
     With the already described approaches, we can support the \emph{hover} request for variables and callables with minimal effort, if there are cached run-time information available. The steps to build the hover response are as follows.
 
     \begin{enumerate}
-        \item Find a matching \ac{IR}-element for a callable or variable at the requested position
+        \item Find a matching \ac{ir}-element for a callable or variable at the requested position
         \item Use the cached run-time information to perform an in-line evaluation
         \item Create hover response from the evaluation result
     \end{enumerate}
 
-    The first step requires again some kind of tagging of \ac{IR}-elements. If we have found an \ac{IR}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result we can build the hover response, which consists of plaintext or markup content.
+    The first step requires again some kind of tagging of \ac{ir}-elements. If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result we can build the hover response, which consists of plaintext or markup content.
 
     \paragraph{Document Symbols}
     \begin{itemize}
         \item response: range + kind
-        \item scan all \ac{IR}-elements for those representing a symbol definition, e.g. via tagging
-        \item use lexical source section of \ac{IR}-element
+        \item scan all \ac{ir}-elements for those representing a symbol definition, e.g. via tagging
+        \item use lexical source section of \ac{ir}-element
     \end{itemize}
 
     \paragraph{Workspace Symbols}
@@ -721,7 +721,7 @@ natural.
     \paragraph{Document Highlight}
     \begin{itemize}
         \item response: list of ranges to be highlighted + kind
-        \item for variables: scan all \ac{IR}-elements for those representing a read or write of a variable with matching symbol
+        \item for variables: scan all \ac{ir}-elements for those representing a read or write of a variable with matching symbol
     \end{itemize}
 
     \paragraph{Goto-definition}
@@ -738,7 +738,7 @@ natural.
         \item response: Location[]
         \item local variables and callables
         \item local variables: like \emph{documentHighlight}
-        \item callables: find other \ac{IR}-elements tagged as calls with same identifier
+        \item callables: find other \ac{ir}-elements tagged as calls with same identifier
     \end{itemize}
 
 \clearpage
@@ -1002,7 +1002,7 @@ def bar():
 
         One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. For our approach of getting run-time information to enhance code completion is the instrumented execution of unit tests a promising way. Most unit tests have a short execution time and are supposed to be free of unwanted side-effects -- or at least have a clean-up routine included. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which points to a runnable script. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests.
 
-        Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{TDD} principles \todo{explain in background?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
+        Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{tdd} principles \todo{explain in background?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
 
         \paragraph{Caching Run-time Information}
         Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branches might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we decided to only cache the first frame available during execution for every source section.
@@ -1234,30 +1234,53 @@ doSomething(y)
 \chapter{Implementation}
 \label{cha:implementation}
 
-    In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle \cite{wimmer2012truffle} as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented small Truffle \ac{api} extensions, to support more \ac{lsp} features. As \ac{lsp} Java wrapper we use LSP4J \todo{name a version?}. In the following sections, we start by describing the architecture of \graallsp and then explain how we have implemented selected \ac{lsp} features.
+    In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle \cite{wimmer2012truffle} as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented small Truffle \ac{api} extensions to support more \ac{lsp} features. As \ac{lsp} Java wrapper we use LSP4J \todo{name a version?}. In the following sections, we start by describing the architecture\todo{adjust to new section structure} of \graallsp~and then explain how we have implemented selected \ac{lsp} features.
 
-    \section{Architectural challenges}
+    \section{Prerequisites to Answer \acs{lsp} Requests}
+    \begin{itemize}
+        \item our approach has some requirements on the language impl framework
+        \item influences project structure and dependencies
+        \item server init
+        \item things common for most requests:
         \begin{itemize}
-            \item Building tool for Truffle = using instrumentation API
-            \item LSPInstrument loaded dynamically via class path
-            \item onCreate() we get an Env -> our entry point to parse code, find scopes etc.
-            \item For getting run-time infos we execute code -> sandboxing needed -> via creation of Truffle Context
-            \item Truffle instrument cannot create new Contexts
-            \item Need to use embedder-API -> write own launcher, create engine ourselves
-            \item set read-only file-system on context builder
-            \item Provide a callback to our instrument to create new sandboxed Contexts
-            \item lsp4j -> own threads to handle requests
-            \item Threads need to be activated for Contexts - multi-threading is not always supported
-            \item Our decision -> we have only one worker thread which enters a Context once
-            \item lsp4j thread puts work in a queue which is polled by the context aware worker thread
-            \item lsp4j threads await result via Futures
+            \item parsing + diagnostics
+            \item mapping caret to IR
         \end{itemize}
+    \end{itemize}
 
-\section{Language Server Initialization}
+    \subsection{Project Structure and Dependencies}
+        % \begin{itemize}
+        %     \item Building tool for Truffle = using instrumentation API
+        %     \item LSPInstrument loaded dynamically via class path
+        %     \item onCreate() we get an Env -> our entry point to parse code, find scopes etc.
+        %     \item For getting run-time infos we execute code -> sandboxing needed -> via creation of Truffle Context
+        %     \item Truffle instrument cannot create new Contexts
+        %     \item Need to use embedder-API -> write own launcher, create engine ourselves
+        %     \item set read-only file-system on context builder
+        %     \item Provide a callback to our instrument to create new sandboxed Contexts
+        %     \item lsp4j -> own threads to handle requests
+        %     \item Threads need to be activated for Contexts - multi-threading is not always supported
+        %     \item Our decision -> we have only one worker thread which enters a Context once
+        %     \item lsp4j thread puts work in a queue which is polled by the context aware worker thread
+        %     \item lsp4j threads await result via Futures
+        % \end{itemize}
+        To facilitate Truffle instrumentation, we have to implement the interface \inlinecode{TruffleInstrument}, which is part of the Truffle \ac{api}. Instruments are loaded via Java's \ac{spi} and the framework calls their implemented \inlinecode{onCreate(Env)} method during initialization, to provide access to the Truffle instrumentation environment. This environment has a language-agnostic \ac{api} to parse source code, interact with loaded languages, and observe and inject behavior into the \ac{ast} interpreters. Most \ac{lsp} features can be mapped to that \ac{api}.
+        
+        As described in \autoref{sec:newApproachCompletionProperties}, our approach requires to sandbox the execution of guest languages and redirect file accesses. Unfortunately, the Truffle instrumentation environment provides no \ac{api} to support that requirement. However, there is a separate Graal \ac{sdk} to embed and run code from guest languages in JVM-based host applications\todo{context?}. It allows to create and configure a Polyglot \inlinecode{Engine} and Polyglot \inlinecode{Context} instances. An \inlinecode{Engine} provides access to the installed languages and instruments. A \inlinecode{Context} instance allows to evaluate code of its associated languages and represents their global runtime state. Furthermore, it supports to set a custom file system. Multiple \inlinecode{Context} instances can share the same \inlinecode{Engine} instance and thereby all its registered instruments.
+        
+        Therefore we decided to create three Java projects. The first contains a separate launcher which handles the whole bootstrapping and enables the creation of sandboxed \inlinecode{Context} instances using the Graal \ac{sdk}. The actual language server is implemented as Truffle instrument using the Truffle \ac{api} in the second project. During bootstrapping, the \inlinecode{LSPInstrument} instance will register some services which enable the launcher for example to explicitly start the language server. These service interfaces are part of a third project on which the others depend. \autoref{fig:graalLspPackageStructure} visualizes the resulting project structure and dependencies.
+
+        \begin{figure}
+            \includegraphics[width=\linewidth]{images/GraalLSP-package-structure.png}
+            \caption{Project structure and dependencies of \graallsp}
+            \label{fig:graalLspPackageStructure}
+        \end{figure}
+
+\subsection{Language Server Initialization}
     \begin{itemize}
         \item new API for trigger chars to feed init request -> env.getCompletionTriggerCharacters()
     \end{itemize}
-\section{Parsing Source Code}
+\subsection{Parsing Source Code}
     \begin{itemize}
         \item env.parse(Source)
         \item Source is built from source code and language
@@ -1269,19 +1292,23 @@ doSomething(y)
         \item Track state -> didChange sends incremental changes
         \item didChange -> need to also update coverage data
     \end{itemize}
-\section{Diagnostics}
+\subsection{Diagnostics}
     \begin{itemize}
         \item TruffleException -> ast node -> source section -> map to lsp4j Range (zero- vs one-based lines)
         \item LanguageClient.publishDiagnostics(PublishDiagnosticsParams)
     \end{itemize}
-\section{Mapping Caret Position to \ac{ast} Node}
+\subsection{Mapping Caret Position to \acs{ast} Node}
     \begin{itemize}
         \item zero- vs one-based lines
         \item Truffle Source counts new-line char at end not as additional line -> often code completion triggered in new, empty line
         \item env.getInstrumenter().attachLoadSourceSectionListener(filter, listener, true)
         \item check node.getSourceSection() line and offset to find nearest
     \end{itemize}
-\section{Static Completion of Globals and Locals}
+
+
+\section{Implementing \ac{lsp} Request Handlers}
+
+\subsection{Static Completion of Globals and Locals}
     \begin{itemize}
         \item code snippet: findNearestNode() ?
         \item env.findTopScopes(langId)
@@ -1296,7 +1323,7 @@ doSomething(y)
             \item new API: GetDocumentation message for completion item documentation
         \end{itemize}
     \end{itemize}
-\section{Completion of Locals Using Run-time Information}
+\subsection{Completion of Locals Using Run-time Information}
     \begin{itemize}
         \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
         \item unsaved changes redirection in file system by callback to instrument
@@ -1306,7 +1333,7 @@ doSomething(y)
         \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame)
         \item details created like in static completion of globals
     \end{itemize}
-\section{Completion of Object Properties}
+\subsection{Completion of Object Properties}
     \begin{itemize}
         \item detecting: env.getCompletionTriggerCharacters(langId) comparing last change
         \item handling syntax errors -> we always store the last edit and then replace the last edit range with an empty string
@@ -1327,7 +1354,7 @@ doSomething(y)
             \end{itemize}
         \item details created like in static completion of globals
     \end{itemize}
-\section{Signature Help}
+\subsection{Signature Help}
     \begin{itemize}
         \item run-to-section but with inputFilter
         \item we assume code is parsable because of smart character insertion "()"
@@ -1337,43 +1364,43 @@ doSomething(y)
         \item ForeignAccess.sendInvoke(INVOKE, (TruffleObject) signature, "format")
         \item signature help param index: getNodeObject() look for "numberOfArguments"
     \end{itemize}
-\section{Hover Information}
+\subsection{Hover Information}
     \begin{itemize}
         \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
         \item cached frame 2.: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame) <- same as for completion of locals using cached infos
         \item fallback (if option enabled): show AST details (class name and Tags)
     \end{itemize}
-\section{Document Symbols}
+\subsection{Document Symbols}
     \begin{itemize}
         \item SourceSectionFilter DeclarationTag + uri of current file
         \item getNodeObject() -> look-up keys: name, kind, container
         \item mapping to lsp4j SymbolKind via lower case name matching
         \item fallback: SourceSectionFilter StandardTags.RootTag + RootNode.getName() + default symbol kind: Function
     \end{itemize}
-\section{Workspace Symbols}
+\subsection{Workspace Symbols}
     \begin{itemize}
         \item same as documentSymbol, but no uri restriction in SourceSectionFilter
     \end{itemize}
-\section{Document Highlight}
+\subsection{Document Highlight}
     \begin{itemize}
         \item find node at caret: StandardTags.WriteVariableTag.class, StandardTags.ReadVariableTag.class
         \item getNodeObject() -> key look-up: name
         \item env.findLocalScopes(node, null) or env.findLocalScopes(node, frame) if cached frame available
         \item iterate scopes + scope.getNode().accept(NodeVisitor) -> search for all ReadVariableTag/WriteVariableTag annotated nodes
     \end{itemize}
-\section{Goto-definition}
+\subsection{Goto-definition}
     \begin{itemize}
         \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag (no WriteVariableTag, because source sections of write include assignments in Python -> leads to unexpected behavior <- should we change this?)
         \item CallTag: run to section with inputFilter like signatureHelp -> Env.findSourceLocation(LanguageInfo language, Object value)
         \item ReadVariableTag: like documentHighlight via scopes and visitor, but interpret the first write node of the most outer scope as declaration
     \end{itemize}
-\section{Finding All References}
+\subsection{Finding All References}
     \begin{itemize}
         \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag or WriteVariableTag
         \item CallTag: env.attachLoadSourceSectionListener with SourceSectionFilter for CallTag, then match names
         \item ReadVariableTag/WriteVariableTag: like documentHighlight
     \end{itemize}
-\section{Triggering Run-Time Information Collection}
+\subsection{Triggering Run-Time Information Collection}
     \begin{itemize}
         \item command registration
         \item CoverageEventNode

@@ -1288,6 +1288,8 @@ natural.
 
     \todo{figure showing a typical requests flowing through the different Threads}
 
+    \paragraph{Reusing Contexts}
+    \todo{das muss irgendwo noch hin -> optimization: reuse Contexts, new Context erst wenn coverage analysis is triggered. Aber passt hier auch noch nicht so richtig. wohin?}
 
 \subsection{Language Server Initialization}
     % \begin{itemize}
@@ -1346,6 +1348,50 @@ natural.
 
     %\paragraph{Consistent Source Section Hierarchy} We assume furthermore, that source sections of \acp{ast} follow the rule: if a node has a source section and is a child of another node, then the source section of the child is fully contained in all source sections of its direct parent or indirect parents. A parent without a source section in this hierarchy is skipped.
 
+\subsection{Obtaining Run-time Information}
+    % \begin{itemize}
+    %     \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
+    %     \item unsaved changes redirection in file system by callback to instrument
+    %     \item long running ops: throw EvaluationResultException (which is a ThreadDeath exception)
+    %     \item long running ops: time-out not yet implemented
+    %     \item unreachable source sections: in-line comment to a run script
+    %     \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame)
+    %     \item details created like in static completion of globals
+    % \end{itemize}
+
+    In \autoref{sec:newApproachCompletionLocalsUsingRuntimeInfo} we explained an approach to provide a richer code completion for locals and support further \ac{lsp} requests by observing the executing of source code\todo{execution of source code -or- evaluation of source code?}. We describe in the following how we have implemented most of that approach in \graallsp.
+
+    \paragraph{Observing the Execution}
+    The instrumentation environment provides the method \todo{@Tim/Fabio how to handle that?}\inlinecode{attachExecutionEventListener(SourceSectionFilter, ExecutionEventListener)} to observe executions of the current \inlinecode{Engine}. The \inlinecode{ExecutionEventListener} will be notified immediately before and after an instrumented node is executed. The \inlinecode{SourceSectionFilter} allows to filter for which source sections or node types the listener shall be activated.
+
+    \paragraph{Unreachable Source Sections}
+    As described in our approach, we need to define an execution entry point, e.g. a path to a script which triggers unit tests, to cover a maximum of source code. For now, we have implemented to search for the string \inlinecode{"RUN\_SCRIPT\_PATH:"} in the first line of the source code and interpret the rest of the line as file path. We create a \inlinecode{Source} object for that file and parse it using the instrumentation environment's \inlinecode{parse(Source source, String... argumentNames)} method. The return value is a \inlinecode{CallTarget} which we can execute. As further proposed in the approach, we fall back to executing the current source code, in which the request was triggered, if no \inlinecode{"RUN\_SCRIPT\_PATH:"} string is found.
+
+    To handle unsaved changes, we have suggested in our approach to install a custom file system, which intercepts read accesses to files and delegates them to a virtual file system which includes the changes. By using the Graal \ac{sdk} as described in \autoref{sec:impl:projectStructure}, we can create new \inlinecode{Context} instances and can use the method \inlinecode{Context.Builder.fileSystem(FileSystem fileSystem)} to install our own file system. We have implemented such a file system in the class \inlinecode{LSPFileSystem}. It holds a callback to our language server, to delegate read accesses, if the file is known by the language server.
+
+    \paragraph{Sandboxing the Execution Environment}
+    To support basic sandboxing of the file system, we made our \inlinecode{LSPFileSystem} read-only. At the date of writing, Truffle supports a restriction of file I/O only. Therefore, network and system I/O is still unrestricted in our implementation.
+
+    \paragraph{Long Running or Non-terminating Executions}
+    If we observe the execution using an \inlinecode{ExecutionEventListener}, we can  stop when we have collected required run-time information. Therefore, we simply throw a special \inlinecode{ThreadDeath} exception, containing the collected run-time object. This exception is also used by other Truffle tools to stop or unwind the current execution. We catch this exception ourselves, to retrieve the run-time object.
+
+    A timeout, as suggested in our approach, is not yet implemented.\todo{@Tim/Fabio hier ewähnen oder in limitations?}
+
+    \paragraph{Caching Run-time Information}
+    To cache run-time information, we use the instrumentation environment to attach an \inlinecode{ExecutionEventNodeFactory}. We let the factory create special \inlinecode{ExecutionEventNode} instances, which capture a snapshot of the passed frame at the first call of \inlinecode{onEnter(VirtualFrame frame)}. As data structure, we use a \inlinecode{Map} associating \inlinecode{MutableSourceSection} with \inlinecode{CoverageData}. Every \inlinecode{TextDocumentSurrogate} instance holds a reference to such a \inlinecode{Map}. A \inlinecode{MutableSourceSection} is a light-weight references to a node's source section by storing only line, and column for start and end. A \inlinecode{CoverageData} instance stores a \inlinecode{MaterializedFrame} and the \inlinecode{ExecutionEventNode} which captured the data. \todo{name limitation here, that captured frame snapshot is no deep copy?}
+
+    The collection of run-time information can be started manually by the user by activating a command, which we provide via the \emph{codeLense} request in the first source code line.
+
+    To avoid invalidation of all our mappings, when a \emph{didChange} notification arrives, we use a simple migration strategy for our \inlinecode{MutableSourceSection} instances.
+
+    \begin{enumerate}
+        \item If a cached section's end line is smaller than the start line of the change, we do nothing.
+        \item If a cached section's start line is greater than the end line of the change, we check if the change adds or removes lines. If so, we adjust start and end line of the cached section by that difference.
+        \item If the range of the change is fully included in the cached section, we adjust only the end line of the cached section by the difference of added or removed lines.
+        \item In all other cases where start or end lines of cached section and change overlap, we assume that the mapping is not valid anymore.
+    \end{enumerate}
+
+    This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually, if a change alters execution flow, names of variables, or types of variables.
 
 \section{Implementing \ac{lsp} Request Handlers}
 In this section we will explain how we have facilitated the Truffle instrumentation environment to support selected \ac{lsp} requests. For most \ac{lsp} requests we have implemented a separate Java class. They inherit all from \inlinecode{AbstractRequestHandler}. \todo{class diagram?}
@@ -1402,50 +1448,8 @@ def bar():
 
     We added two more custom messages (\inlinecode{GetDocumentation} and \inlinecode{GetSignature}) to support querying a \inlinecode{TruffleObject} for documentation and signature of callables. If a language implementation does not support \inlinecode{GetDocumentation}, we try if we can get the source code of the callable definition as documentation for the completion item, using the method \inlinecode{findSourceLocation(LanguageInfo language, Object value)} of the instrumentation environment.
 
-\subsection{Obtaining Run-time Information}
-    % \begin{itemize}
-    %     \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
-    %     \item unsaved changes redirection in file system by callback to instrument
-    %     \item long running ops: throw EvaluationResultException (which is a ThreadDeath exception)
-    %     \item long running ops: time-out not yet implemented
-    %     \item unreachable source sections: in-line comment to a run script
-    %     \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame)
-    %     \item details created like in static completion of globals
-    % \end{itemize}
-
-    In \autoref{sec:newApproachCompletionLocalsUsingRuntimeInfo} we explained an approach to provide a richer code completion for locals and support further \ac{lsp} requests by observing the executing of source code\todo{execution of source code -or- evaluation of source code?}. We describe in the following how we have implemented most of that approach in \graallsp.
-
-    \paragraph{Observing the Execution}
-    The instrumentation environment provides the method \todo{@Tim/Fabio how to handle that?}\inlinecode{attachExecutionEventListener(SourceSectionFilter, ExecutionEventListener)} to observe executions of the current \inlinecode{Engine}. The \inlinecode{ExecutionEventListener} will be notified immediately before and after an instrumented node is executed. The \inlinecode{SourceSectionFilter} allows to filter for which source sections or node types the listener shall be activated.
-
-    \paragraph{Unreachable Source Sections}
-    As described in our approach, we need to define an execution entry point, e.g. a path to a script which triggers unit tests, to cover a maximum of source code. For now, we have implemented to search for the keyword \inlinecode{RUN\_SCRIPT\_PATH:} in the first line of the source code and interpret the rest of the line as file path. We create a \inlinecode{Source} object for that file and parse it using the instrumentation environment's \inlinecode{parse(Source source, String... argumentNames)} method. The return value is a \inlinecode{CallTarget} which we can execute. As further proposed in the approach, we fall back to executing the current source code, in which the request was triggered, if no \inlinecode{RUN\_SCRIPT\_PATH:} is found.
-
-    To handle unsaved changes, we have suggested in our approach to install a custom file system, which intercepts read accesses to files and delegates them to a virtual file system which includes the changes. By using the Graal \ac{sdk} as described in \autoref{sec:impl:projectStructure}, we can create new \inlinecode{Context} instances and can use the method \inlinecode{Context.Builder.fileSystem(FileSystem fileSystem)} to install our own file system. We have implemented such a file system in the class \inlinecode{LSPFileSystem}. It holds a callback to our language server, to delegate read accesses, if the file is known by the language server.
-
-    \paragraph{Sandboxing the Execution Environment}
-    To support basic sandboxing of the file system, we made our \inlinecode{LSPFileSystem} read-only. At the date of writing, Truffle supports a restriction of file I/O only. Therefore, network and system I/O is still unrestricted in our implementation.
-
-    \paragraph{Long Running or Non-terminating Executions}
-    If we observe the execution using an \inlinecode{ExecutionEventListener}, we can  stop when we have collected required run-time information. Therefore, we simply throw a special \inlinecode{ThreadDeath} exception, containing the collected run-time object. This exception is also used by other Truffle tools to stop or unwind the current execution. We catch this exception ourselves, to retrieve the run-time object.
-
-    A timeout, as suggested in our approach, is not yet implemented.\todo{@Tim/Fabio hier ewähnen oder in limitations?}
-
-    \paragraph{Caching Run-time Information}
-    To cache run-time information, we use the instrumentation environment to attach an \inlinecode{ExecutionEventNodeFactory}. We let the factory create special \inlinecode{ExecutionEventNode} instances, which capture a snapshot of the passed frame at the first call of \inlinecode{onEnter(VirtualFrame frame)}. As data structure, we use a \inlinecode{Map} associating \inlinecode{MutableSourceSection} with \inlinecode{CoverageData}. Every \inlinecode{TextDocumentSurrogate} instance holds a reference to such a \inlinecode{Map}. A \inlinecode{MutableSourceSection} is a light-weight references to a node's source section by storing only line, and column for start and end. A \inlinecode{CoverageData} instance stores a \inlinecode{MaterializedFrame} and the \inlinecode{ExecutionEventNode} which captured the data. \todo{name limitation here, that captured frame snapshot is no deep copy?}
-
-    The collection of run-time information can be started manually by the user by activating a command, which we provide via the \emph{codeLense} request in the first source code line.
-
-    To avoid invalidation of all our mappings, when a \emph{didChange} notification arrives, we use a simple migration strategy for our \inlinecode{MutableSourceSection} instances.
-
-    \begin{enumerate}
-        \item If a cached section's end line is smaller than the start line of the change, we do nothing.
-        \item If a cached section's start line is greater than the end line of the change, we check if the change adds or removes lines. If so, we adjust start and end line of the cached section by that difference.
-        \item If the range of the change is fully included in the cached section, we adjust only the end line of the cached section by the difference of added or removed lines.
-        \item In all other cases where start or end lines of cached section and change overlap, we assume that the mapping is not valid anymore.
-    \end{enumerate}
-
-    This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually, if a change alters execution flow, names of variables, or types of variables.
+    \paragraph{Using Cached Run-time Information}
+    If cached run-time information are available when a completion for globals and locals is triggered, we use the nearest node's source section to search for a cached \inlinecode{CoverageData} object. If found, we can call \inlinecode{findLocalScopes(Node node, Frame frame)} with the cached frame. Now, the resulting \inlinecode{Scope} objects will also give access to declared local variables. We can use the same approach as described for globals to get details and documentation for the completion items.
 
 \subsection{Completion of Object Properties}
     \begin{itemize}

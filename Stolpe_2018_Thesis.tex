@@ -954,12 +954,12 @@ natural.
         
 %         At this point, we have to note that this rule is only a best-effort approach. Which locals are included in the lexical scopes provided via the Truffle \ac{api} is depending on the language implementation. None the less, we are able to provide the needed information for a language-agnostic, static code completion of globals and locals with this approach.
         
-        \paragraph{Querying Properties of Scope Values}
-        For globals, we can not only access their names via the Truffle \ac{api}, but retrieve additional information by querying the actual objects which are associated with these names in the global scopes. Based on the result, we can set the completion item kind supported by \ac{lsp}, such as \emph{variable}, \emph{function}, or \emph{class}.
+        % \paragraph{Querying Properties of Scope Values}
+        % For globals, we can not only access their names via the Truffle \ac{api}, but retrieve additional information by querying the actual objects which are associated with these names in the global scopes. Based on the result, we can set the completion item kind supported by \ac{lsp}, such as \emph{variable}, \emph{function}, or \emph{class}.
 
-        A property, which is not supported by the current Truffle \ac{api}, is documentation. Therefore, we propose to add a new Truffle \ac{api}. For Python, this \ac{api} could return the documentation string for functions, classes or modules.
+        % A property, which is not supported by the current Truffle \ac{api}, is documentation. Therefore, we propose to add a new Truffle \ac{api}. For Python, this \ac{api} could return the documentation string for functions, classes or modules.
         
-        To sum it up, with the proposed extension for documentation, we can support static code completion for locals without further details, but for globals with completion kind and documentation.
+        % To sum it up, with the proposed extension for documentation, we can support static code completion for locals without further details, but for globals with completion kind and documentation.
 
        
 
@@ -982,33 +982,33 @@ natural.
         %     \item user interface to start code evaluation: see codeLense
         % \end{itemize}
         
-        A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For statically typed programming languages, like Java, type information can be easily derived from by parsing source code. The situation for dynamically typed languages, like Python, is different. The type of a Python variable is depending on its assigned value at run-time. There are language-specific approaches to infer types for dynamically typed languages \todo{ref}, but these approaches do not match the language-agnostic requirements of the Truffle instrumentation \ac{api}.
+        % A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For statically typed programming languages, like Java, type information can be easily derived from by parsing source code. The situation for dynamically typed languages, like Python, is different. The type of a Python variable is depending on its assigned value at run-time. There are language-specific approaches to infer types for dynamically typed languages \todo{ref}, but these approaches do not match the language-agnostic requirements of the Truffle instrumentation \ac{api}.
 
-        In this section, we describe an approach on how to get and use run-time information to enhance code completion for locals. This approach will also build the basis for \emph{completion of object properties} described in \autoref{sec:completionObjectProperties} and further requests described in later sections.
+        % In this section, we describe an approach on how to get and use run-time information to enhance code completion for locals. This approach will also build the basis for \emph{completion of object properties} described in \autoref{sec:completionObjectProperties} and further requests described in later sections.
 
-        \paragraph{Approach and Challenges}
-        The basic idea to get access to run-time information (e.g. a frame) at caret position is, that we trigger source code execution while using Truffle instrumentation to listen for execution events occurring at a source section near the caret position. This approach implies some preconditions and challenges. We have to think about unexpected and unwanted side-effects during execution, the possibility of a long running or non-terminating execution, and the fact that the caret position might not be reached by the execution flow.
+        % \paragraph{Approach and Challenges}
+        % The basic idea to get access to run-time information (e.g. a frame) at caret position is, that we trigger source code execution while using Truffle instrumentation to listen for execution events occurring at a source section near the caret position. This approach implies some preconditions and challenges. We have to think about unexpected and unwanted side-effects during execution, the possibility of a long running or non-terminating execution, and the fact that the caret position might not be reached by the execution flow.
 
-        \paragraph{Sandboxing the Execution Environment}
-        The Truffle framework has an \todo{is embedding-API the right term?}embedding-\ac{api} which allows developers to configure sandboxing for the Truffle execution environment. At the moment, it supports restriction of the file system only, but in future versions of Truffle, the restriction of network I/O shall also be supported. It is also possible to install our own file system proxy, which enables having fine grained control over what Truffle languages are allowed to access and what not. We could therefore install a copy-on-write file system, which copies each file which shall be changed to a sandbox and redirects further read and writes to that copy. For now, we simply use a read-only file system, which prevents unwanted file changes outside the Truffle execution environment, when executing source code in our language server.
+        % \paragraph{Sandboxing the Execution Environment}
+        % The Truffle framework has an \todo{is embedding-API the right term?}embedding-\ac{api} which allows developers to configure sandboxing for the Truffle execution environment. At the moment, it supports restriction of the file system only, but in future versions of Truffle, the restriction of network I/O shall also be supported. It is also possible to install our own file system proxy, which enables having fine grained control over what Truffle languages are allowed to access and what not. We could therefore install a copy-on-write file system, which copies each file which shall be changed to a sandbox and redirects further read and writes to that copy. For now, we simply use a read-only file system, which prevents unwanted file changes outside the Truffle execution environment, when executing source code in our language server.
 
-        \paragraph{Long Running or Non-terminating Executions}
-        A user, who triggers code completion, becomes impatient if the completion request takes to long to return a result. The execution time of arbitrary source code might take an unpredictable amount of time or might not finish at all, for example due to an endless loop or blocking operations. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion, but an endless execution can be avoided.
+        % \paragraph{Long Running or Non-terminating Executions}
+        % A user, who triggers code completion, becomes impatient if the completion request takes to long to return a result. The execution time of arbitrary source code might take an unpredictable amount of time or might not finish at all, for example due to an endless loop or blocking operations. Therefore we have to explicitly stop execution when the execution flow reaches the desired source section. As a fallback, a time-out should ensure an upper bound of execution time by interrupting the execution. In that case, no run-time information can be provided for enhanced code completion, but an endless execution can be avoided.
 
-        \paragraph{Unsaved Changes}
-        The language client might have unsaved changes in opened files. These changes need to be considered, when we want to collect run-time information by executing a script, which imports other sources. These imports need to access the source code state as it is seen by the user in the language client and not the state in the file system. The \ac{lsp} provides no request sent from server to client to trigger saving files and we do not want to write the changes to the file system from server-side. Therefore we decided to adjust our read-only file system, so that it redirects the file accesses to a file with unsaved changes to a (virtual) file including the changes.
+        % \paragraph{Unsaved Changes}
+        % The language client might have unsaved changes in opened files. These changes need to be considered, when we want to collect run-time information by executing a script, which imports other sources. These imports need to access the source code state as it is seen by the user in the language client and not the state in the file system. The \ac{lsp} provides no request sent from server to client to trigger saving files and we do not want to write the changes to the file system from server-side. Therefore we decided to adjust our read-only file system, so that it redirects the file accesses to a file with unsaved changes to a (virtual) file including the changes.
 
-        \paragraph{Unreachable Source Sections}
-        Depending on the source code, there might be source sections which are unreachable by the normal execution flow of the current source code file. Imagine, the Python code defined in the already mentioned \autoref{lst:pythonNearCaretExample1}, is the source code of a python file. If we execute that file, the two function definitions of \inlinecode{foo} and \inlinecode{bar} will be executed, but their function body will not be executed. Their is no function call to \inlinecode{foo} or \inlinecode{bar} defined in that file. Therefore, listening for execution events of the Truffle instrumentation environment to enhance our code completion in lines 2 to 6, which is the function body of \inlinecode{foo}, will not work. In our opinion, this is the normal case for file based programming languages. You typically split your program's source code into multiple files, having a limited set of files, which define runnable entry points, which then import elements of the other files.
+        % \paragraph{Unreachable Source Sections}
+        % Depending on the source code, there might be source sections which are unreachable by the normal execution flow of the current source code file. Imagine, the Python code defined in the already mentioned \autoref{lst:pythonNearCaretExample1}, is the source code of a python file. If we execute that file, the two function definitions of \inlinecode{foo} and \inlinecode{bar} will be executed, but their function body will not be executed. Their is no function call to \inlinecode{foo} or \inlinecode{bar} defined in that file. Therefore, listening for execution events of the Truffle instrumentation environment to enhance our code completion in lines 2 to 6, which is the function body of \inlinecode{foo}, will not work. In our opinion, this is the normal case for file based programming languages. You typically split your program's source code into multiple files, having a limited set of files, which define runnable entry points, which then import elements of the other files.
 
-        One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. For our approach of getting run-time information to enhance code completion is the instrumented execution of unit tests a promising way. Most unit tests have a short execution time and are supposed to be free of unwanted side-effects -- or at least have a clean-up routine included. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which points to a runnable script. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests.
+        % One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. For our approach of getting run-time information to enhance code completion is the instrumented execution of unit tests a promising way. Most unit tests have a short execution time and are supposed to be free of unwanted side-effects -- or at least have a clean-up routine included. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which points to a runnable script. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests.
 
-        Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{tdd} principles \todo{explain in background?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
+        % Because unit tests are not always available, especially if you start writing a small script or do not follow \ac{tdd} principles \todo{explain in background?}, we use the current file, in which the code completion was triggered, as fallback for a runnable entry point.
 
-        \paragraph{Caching Run-time Information}
-        Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branches might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we decided to only cache the first frame available during execution for every source section.
+        % \paragraph{Caching Run-time Information}
+        % Executing a script or unit tests for every \emph{completion} request might still be to expensive and hinder the writing flow of the programmer. Therefore we need to cache collected run-time information. We suggest to use a simple mapping from source sections to frame snapshots which we set up using Truffle instrumentation. We know that different execution branches might reach the same source section with a frame, which has not only stored different values of the same type, but also values of different types. But for simplicity and performance, we decided to only cache the first frame available during execution for every source section.
         
-        Having such a data structure, we can use the approach described in \autoref{sec:mappingCaretToNode} to find a node near the caret an check via its source section for collected frames. If there is one, we can derive local run-time scopes from it. If there is none, we have to assume that the source section was not covered and use local lexical scopes as fallback.
+        % Having such a data structure, we can use the approach described in \autoref{sec:mappingCaretToNode} to find a node near the caret an check via its source section for collected frames. If there is one, we can derive local run-time scopes from it. If there is none, we have to assume that the source section was not covered and use local lexical scopes as fallback.
 
         
 
@@ -1184,34 +1184,34 @@ natural.
         
         For local variables, we need the tags suggested in \autoref{sec:documentHighlight} to search for nodes which represent a read- or write-access to a variable. If there is a node tagged with one of these two tags at the current caret position, we can search for all other variable references as described in \autoref{sec:documentHighlight} for the highlighting of variable reads and writes.
 
-    \section{Triggering Run-time Information Collection}
-    \label{sec:codeLense}
-        In \autoref{sec:usingRuntimeInformation} and the following ones, we described how to use cached run-time information for code completion, hover details and other requests. The question is, when to initialize and renew this cache. Therefore, we use the \emph{codeLense} request, sent from client to server, to provide an interface for \ac{lsp}-client users, so that they can trigger the renewal of the cache when they considered it reasonable. This could be the case, when the hover request returns incomplete or no results anymore.
+    % \section{Triggering Run-time Information Collection}
+    % \label{sec:codeLense}
+    %     In \autoref{sec:usingRuntimeInformation} and the following ones, we described how to use cached run-time information for code completion, hover details and other requests. The question is, when to initialize and renew this cache. Therefore, we use the \emph{codeLense} request, sent from client to server, to provide an interface for \ac{lsp}-client users, so that they can trigger the renewal of the cache when they considered it reasonable. This could be the case, when the hover request returns incomplete or no results anymore.
         
-        The \emph{codeLense} response includes a list of commands associated with display names and source ranges. It allows interspersing contextual actions directly into the source code. In a \acl{VSCode} extension, it is used for example to insert a clickable link above a TypeScript function, if it violates some predefined code metrics. Clicking the link shows the metrics. We use it to insert such a code lense in the first line of the code, which will trigger the execution of the current source code or another script to collect run-time information.
+    %     The \emph{codeLense} response includes a list of commands associated with display names and source ranges. It allows interspersing contextual actions directly into the source code. In a \acl{VSCode} extension, it is used for example to insert a clickable link above a TypeScript function, if it violates some predefined code metrics. Clicking the link shows the metrics. We use it to insert such a code lense in the first line of the code, which will trigger the execution of the current source code or another script to collect run-time information.
 
-        \paragraph{Migrating Cached Information}
-        One challenge, we have not discussed so far, is that the cached run-time information are bound to specific source sections of \ac{ast} nodes. Every time a \emph{didChange} notification arrives, one or more sections of the source code will change. Depending on the change, the cached run-time information might become invalid for some source sections, but others might still be useful. 
+%         \paragraph{Migrating Cached Information}
+%         One challenge, we have not discussed so far, is that the cached run-time information are bound to specific source sections of \ac{ast} nodes. Every time a \emph{didChange} notification arrives, one or more sections of the source code will change. Depending on the change, the cached run-time information might become invalid for some source sections, but others might still be useful. 
         
-        Imagine, we have collected run-time information for the Python code snippet in \autoref{lst:pythonMigratingCachedInfos1}. Now, we edit this source snippet by inserting some code in line 3, which triggers an object property completion request for variable \inlinecode{anObject}. The collected run-time information in lines 1 and 2 are still valid, so that we can use them to perform an in-line evaluation for \inlinecode{anObject} to obtain its properties (see \autoref{sec:completionObjectProperties}).
+%         Imagine, we have collected run-time information for the Python code snippet in \autoref{lst:pythonMigratingCachedInfos1}. Now, we edit this source snippet by inserting some code in line 3, which triggers an object property completion request for variable \inlinecode{anObject}. The collected run-time information in lines 1 and 2 are still valid, so that we can use them to perform an in-line evaluation for \inlinecode{anObject} to obtain its properties (see \autoref{sec:completionObjectProperties}).
         
-        \begin{code}[lst:pythonMigratingCachedInfos1]{A Python code snippet example to illustrate migrating cached run-time information.}{float,numbers=left,language=Python}
-x = someCalculation(42)
-anObject = expensiveOperation(x)
+%         \begin{code}[lst:pythonMigratingCachedInfos1]{A Python code snippet example to illustrate migrating cached run-time information.}{float,numbers=left,language=Python}
+% x = someCalculation(42)
+% anObject = expensiveOperation(x)
 
-doSomething(y)
-       \end{code}
+% doSomething(y)
+%        \end{code}
 
-        Imagine, the next change inserts a new empty line between lines 1 and 2. Our mappings of source sections to run-time information for all lines greater 1 are all invalid now. Therefore we suggest a simple approach to migrate these information. In the current case where a new line was inserted, this would be to simply adjust the off-by-one mismatch in the line numbers of the source sections following after that line. This is possible, if we address a source section only by its start and end line numbers and column offsets. We assume, that most edits will affect only their current local scope and in that scope only the current line, so that we can apply the following rules for our mappings.
+%         Imagine, the next change inserts a new empty line between lines 1 and 2. Our mappings of source sections to run-time information for all lines greater 1 are all invalid now. Therefore we suggest a simple approach to migrate these information. In the current case where a new line was inserted, this would be to simply adjust the off-by-one mismatch in the line numbers of the source sections following after that line. This is possible, if we address a source section only by its start and end line numbers and column offsets. We assume, that most edits will affect only their current local scope and in that scope only the current line, so that we can apply the following rules for our mappings.
 
-        \begin{enumerate}
-            \item If a source section's end line is smaller than the start line of the change, we do nothing.
-            \item If a source section's start line is greater than the end line of the change, we check if the change adds or removes lines. If so, we adjust start and end line of the mapping by that difference.
-            \item If the range of the change is fully included in a source section, we adjust only the end line of the mapping by the difference of added or removed lines.
-            \item In all other cases where start or end lines of mapped source section and change overlap, we assume that the mapping is not valid anymore.
-        \end{enumerate}
+%         \begin{enumerate}
+%             \item If a source section's end line is smaller than the start line of the change, we do nothing.
+%             \item If a source section's start line is greater than the end line of the change, we check if the change adds or removes lines. If so, we adjust start and end line of the mapping by that difference.
+%             \item If the range of the change is fully included in a source section, we adjust only the end line of the mapping by the difference of added or removed lines.
+%             \item In all other cases where start or end lines of mapped source section and change overlap, we assume that the mapping is not valid anymore.
+%         \end{enumerate}
 
-        This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually. For example, if changes alter the execution flow, names of variables or their types.
+%         This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually. For example, if changes alter the execution flow, names of variables or their types.
 
 
     % \paragraph{Language features not implemented}
@@ -1250,6 +1250,7 @@ doSomething(y)
         \end{itemize}
 
     \subsection{Project Structure and Dependencies}
+    \label{sec:impl:projectStructure}
         % \begin{itemize}
         %     \item Building tool for Truffle = using instrumentation API
         %     \item LSPInstrument loaded dynamically via class path
@@ -1307,10 +1308,11 @@ doSomething(y)
     %     \item Track state -> didChange sends incremental changes
     %     \item didChange -> need to also update coverage data
     % \end{itemize}
-    To parse source code in Truffle, we need to build a \inlinecode{Source} object, containing the language ID and a reference to the actual source code, typically via a file. \todo{also activated context is needed}
-    The \ac{lsp} requests \emph{didOpen} and \emph{didChange} both contain an \ac{uri} pointing to the concerning source file. The \emph{didOpen} request also contains the whole file content and a language ID. Some language clients send a media type as language ID, therefore we test if the ID belongs to a registered language via the Truffle instrumentation environment. If not found, we try to match it with the media types defined by each language.
+    To parse source code in Truffle, we need to build a \inlinecode{Source} object, containing the language ID and a reference to the actual source code, typically via a file. Then, we can us the instrumentation environment to call \inlinecode{parse(Source source, String... argumentNames)}. In-line parsing is also supported via the method \inlinecode{parseInline(Source source, Node node, MaterializedFrame frame)}.
     
-    In our implementation, we configured, that the \emph{didChange} request contains only incremental changes. Therefore we have to store the editor content together with the language ID at server-side and apply all incoming changes to keep track of the client-side state.
+    The \ac{lsp} requests \emph{didOpen} and \emph{didChange} both contain an \ac{uri} pointing to the concerning source file. The \emph{didOpen} request also contains the whole file content and a language ID. Some language clients send a media type as language ID, therefore we test if the ID belongs to a registered language via the instrumentation environment. If not found, we try to match it with the media types defined by each language.
+    
+    In our implementation, we configured, that the \emph{didChange} request contains only incremental changes. Therefore we have to store the editor content together with the language ID at server-side and apply all incoming changes to keep track of the client-side state. Therefore we created the class \inlinecode{TextDocumentSurrogate}. An instance is created for each \emph{didOpen} request, to store all data corresponding to a source file at client-side.
 
     The \emph{initialize} request can contain a workspace \ac{uri}. If present, we parse all files in the workspace folder and its subfolders once, which match one of the media types of the installed Truffle languages.
 
@@ -1391,17 +1393,60 @@ def bar():
         \item If still not found, we use \inlinecode{containingNode}. (Example: line 4, offset 10, pick the node representing \inlinecode{param1})
     \end{enumerate}
 
+    \paragraph{Querying Properties of Scope Values}
+    Calling \inlinecode{findTopScopes(String languageId)} or \inlinecode{findLocalScopes(Node node, Frame frame)} returns a collection of \inlinecode{Scope} objects. A \inlinecode{Scope} can be lexical and dynamic. \inlinecode{Scope.getVariables()} returns a \inlinecode{TruffleObject}, which can be queried in a language-agnostic way via sending messages. Using a \inlinecode{KEYS} and a \inlinecode{READ} message, we can obtain key-value pairs, where the key is the name of the declared variable and the value is again a \inlinecode{TruffleObject} representing the assigned value.
 
-\subsection{Completion of Locals Using Run-time Information}
-    \begin{itemize}
-        \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
-        \item unsaved changes redirection in file system by callback to instrument
-        \item long running ops: throw EvaluationResultException (which is a ThreadDeath exception)
-        \item long running ops: time-out not yet implemented
-        \item unreachable source sections: in-line comment to a run script
-        \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame)
-        \item details created like in static completion of globals
-    \end{itemize}
+    For locals, we can only obtain lexical scopes when calling \inlinecode{findLocalScopes(Node node, Frame frame)} with \inlinecode{frame=null}. The returned local \inlinecode{Scope} objects might contain declared variable names, but no values will be available. Therefore, we create completion items for locals by using the variable name as display name, the scope name as detail text, and \inlinecode{CompletionItemKind.VARIABLE} as default completion item kind.
+    
+    For globals, we can therefore create completion items with more details, because a value will typically be available. We can query the value, which is a \inlinecode{TruffleObject} again, for meta-information by sending the following messages. To determine a completion item kind, we use \inlinecode{IS\_INSTANTIABLE} and \inlinecode{IS\_EXECUTABLE}. If the first returns \inlinecode{true}, we use \inlinecode{CompletionItemKind.CLASS}. If the second returns \inlinecode{true}, we use \inlinecode{CompletionItemKind.FUNCTION}. Default is again \inlinecode{CompletionItemKind.VARIABLE}. To add the name of the value's meta-object to the detail text of the completion item, we use the Truffle instrumentation environment to call \inlinecode{findMetaObject(LanguageInfo language, Object value)}.
+
+    We added two more custom messages (\inlinecode{GetDocumentation} and \inlinecode{GetSignature}) to support querying a \inlinecode{TruffleObject} for documentation and signature of callables. If a language implementation does not support \inlinecode{GetDocumentation}, we try if we can get the source code of the callable definition as documentation for the completion item, using the method \inlinecode{findSourceLocation(LanguageInfo language, Object value)} of the instrumentation environment.
+
+\subsection{Obtaining Run-time Information}
+    % \begin{itemize}
+    %     \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
+    %     \item unsaved changes redirection in file system by callback to instrument
+    %     \item long running ops: throw EvaluationResultException (which is a ThreadDeath exception)
+    %     \item long running ops: time-out not yet implemented
+    %     \item unreachable source sections: in-line comment to a run script
+    %     \item using cached infos: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame)
+    %     \item details created like in static completion of globals
+    % \end{itemize}
+
+    In \autoref{sec:newApproachCompletionLocalsUsingRuntimeInfo} we explained an approach to provide a richer code completion for locals and support further \ac{lsp} requests by observing the executing of source code\todo{execution of source code -or- evaluation of source code?}. We describe in the following how we have implemented most of that approach in \graallsp.
+
+    \paragraph{Observing the Execution}
+    The instrumentation environment provides the method \todo{@Tim/Fabio how to handle that?}\inlinecode{attachExecutionEventListener(SourceSectionFilter, ExecutionEventListener)} to observe executions of the current \inlinecode{Engine}. The \inlinecode{ExecutionEventListener} will be notified immediately before and after an instrumented node is executed. The \inlinecode{SourceSectionFilter} allows to filter for which source sections or node types the listener shall be activated.
+
+    \paragraph{Unreachable Source Sections}
+    As described in our approach, we need to define an execution entry point, e.g. a path to a script which triggers unit tests, to cover a maximum of source code. For now, we have implemented to search for the keyword \inlinecode{RUN\_SCRIPT\_PATH:} in the first line of the source code and interpret the rest of the line as file path. We create a \inlinecode{Source} object for that file and parse it using the instrumentation environment's \inlinecode{parse(Source source, String... argumentNames)} method. The return value is a \inlinecode{CallTarget} which we can execute. As further proposed in the approach, we fall back to executing the current source code, in which the request was triggered, if no \inlinecode{RUN\_SCRIPT\_PATH:} is found.
+
+    To handle unsaved changes, we have suggested in our approach to install a custom file system, which intercepts read accesses to files and delegates them to a virtual file system which includes the changes. By using the Graal \ac{sdk} as described in \autoref{sec:impl:projectStructure}, we can create new \inlinecode{Context} instances and can use the method \inlinecode{Context.Builder.fileSystem(FileSystem fileSystem)} to install our own file system. We have implemented such a file system in the class \inlinecode{LSPFileSystem}. It holds a callback to our language server, to delegate read accesses, if the file is known by the language server.
+
+    \paragraph{Sandboxing the Execution Environment}
+    To support basic sandboxing of the file system, we made our \inlinecode{LSPFileSystem} read-only. At the date of writing, Truffle supports a restriction of file I/O only. Therefore, network and system I/O is still unrestricted in our implementation.
+
+    \paragraph{Long Running or Non-terminating Executions}
+    If we observe the execution using an \inlinecode{ExecutionEventListener}, we can  stop when we have collected required run-time information. Therefore, we simply throw a special \inlinecode{ThreadDeath} exception, containing the collected run-time object. This exception is also used by other Truffle tools to stop or unwind the current execution. We catch this exception ourselves, to retrieve the run-time object.
+
+    A timeout, as suggested in our approach, is not yet implemented.\todo{@Tim/Fabio hier ewähnen oder in limitations?}
+
+    \paragraph{Caching Run-time Information}
+    To cache run-time information, we use the instrumentation environment to attach an \inlinecode{ExecutionEventNodeFactory}. We let the factory create special \inlinecode{ExecutionEventNode} instances, which capture a snapshot of the passed frame at the first call of \inlinecode{onEnter(VirtualFrame frame)}. As data structure, we use a \inlinecode{Map} associating \inlinecode{MutableSourceSection} with \inlinecode{CoverageData}. Every \inlinecode{TextDocumentSurrogate} instance holds a reference to such a \inlinecode{Map}. A \inlinecode{MutableSourceSection} is a light-weight references to a node's source section by storing only line, and column for start and end. A \inlinecode{CoverageData} instance stores a \inlinecode{MaterializedFrame} and the \inlinecode{ExecutionEventNode} which captured the data. \todo{name limitation here, that captured frame snapshot is no deep copy?}
+
+    The collection of run-time information can be started manually by the user by activating a command, which we provide via the \emph{codeLense} request in the first source code line.
+
+    To avoid invalidation of all our mappings, when a \emph{didChange} notification arrives, we use a simple migration strategy for our \inlinecode{MutableSourceSection} instances.
+
+    \begin{enumerate}
+        \item If a cached section's end line is smaller than the start line of the change, we do nothing.
+        \item If a cached section's start line is greater than the end line of the change, we check if the change adds or removes lines. If so, we adjust start and end line of the cached section by that difference.
+        \item If the range of the change is fully included in the cached section, we adjust only the end line of the cached section by the difference of added or removed lines.
+        \item In all other cases where start or end lines of cached section and change overlap, we assume that the mapping is not valid anymore.
+    \end{enumerate}
+
+    This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually, if a change alters execution flow, names of variables, or types of variables.
+
 \subsection{Completion of Object Properties}
     \begin{itemize}
         \item detecting: env.getCompletionTriggerCharacters(langId) comparing last change

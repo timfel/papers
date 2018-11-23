@@ -657,6 +657,7 @@ natural.
     \todo{Sum up / Überleitung}
 
 \section{Transferring the Approach to Other Requests}
+\label{sec:appr:transferringApproachToOtherRequests}
     The approach of supporting code completion, described in the previous sections, includes parts, which can be used to support further \ac{lsp} requests. \autoref{tab:furtherLSPFeatures} shows selected \ac{lsp} requests, for which we will describe the approach transfer in the following.
     
     \begin{table}
@@ -1075,20 +1076,20 @@ natural.
 
 %         To sum it up, with the approach described in this section, we are able to provide a basic, language-agnostic code completion for object properties. This approach includes reverting source code to a parsable state, executing that source code in a sandbox to listen for specific execution events using Truffle instrumentation, and querying the obtained run-time language object for its properties.
 
-    \section{Signature Help}
-    \label{sec:signatureHelp}
-        % \begin{itemize}
-        %     \item same preconditions as for completion (parsable code, find node at caret)
-        %     \item need to know the signatureHelp trigger character
-        %     \item when triggered -> assumption: code still parsable (e.g. editor has smart character insertion)
-        %     \item find callable node at caret
-        %     \item run to section
-        %     \item listen for callable object
-        %     \item ask via message to TruffleObject for signature and number of arguments
-        % \end{itemize}
-        The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like those for the completion of object properties in \autoref{sec:usingRuntimeInformation}, i.e. bringing the source code into a parsable state, finding the node at the caret position, and executing the source code until we have found the desired run-time object.
+    % \section{Signature Help}
+    % \label{sec:signatureHelp}
+    %     % \begin{itemize}
+    %     %     \item same preconditions as for completion (parsable code, find node at caret)
+    %     %     \item need to know the signatureHelp trigger character
+    %     %     \item when triggered -> assumption: code still parsable (e.g. editor has smart character insertion)
+    %     %     \item find callable node at caret
+    %     %     \item run to section
+    %     %     \item listen for callable object
+    %     %     \item ask via message to TruffleObject for signature and number of arguments
+    %     % \end{itemize}
+    %     The \emph{signatureHelp} request is sent from client to server to obtain signature information (e.g. function parameter names) at the caret position. The trigger characters for this request need to be defined in the response of the \emph{initialize} request. Therefore, we have related challenges like the \emph{completion} request for object properties. First of all, we have to distinguish if the trigger character, which caused the request, is belonging to the current language. If not, we can skip the request. Second, the sole insertion of the trigger character might cause a syntax error. Third, we have to obtain the actual run-time object to query it for signature information. These challenges can be analogously approached like those for the completion of object properties in \autoref{sec:usingRuntimeInformation}, i.e. bringing the source code into a parsable state, finding the node at the caret position, and executing the source code until we have found the desired run-time object.
 
-        Unfortunately, there is no Truffle \ac{api} yet, which provides signature information for an object. Therefore, we suggest to add a new Truffle \ac{api}. Furthermore, we assume, that only callable elements of a language can have a signature. To mark these elements of a language, Truffle provides a \inlinecode{CallTag} for \ac{ast} nodes. We can use this tag as a filter criterion for our search for the node at the caret position.
+    %     Unfortunately, there is no Truffle \ac{api} yet, which provides signature information for an object. Therefore, we suggest to add a new Truffle \ac{api}. Furthermore, we assume, that only callable elements of a language can have a signature. To mark these elements of a language, Truffle provides a \inlinecode{CallTag} for \ac{ast} nodes. We can use this tag as a filter criterion for our search for the node at the caret position.
 
 
     \section{Hover Information}
@@ -1508,15 +1509,24 @@ def bar():
 
 
 \subsection{Signature Help}
-    \begin{itemize}
-        \item run-to-section but with inputFilter
-        \item we assume code is parsable because of smart character insertion "()"
-        \item SourceSectionFilter set to CallTag annotated node
-        \item To get the callable object, we listen for intermediate results of expression calc using ExecutionEventNode.onInputValue(VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)
-        \item ForeignAccess.send(GET\_SIGNATURE, (TruffleObject) result);
-        \item ForeignAccess.sendInvoke(INVOKE, (TruffleObject) signature, "format")
-        \item signature help param index: getNodeObject() look for "numberOfArguments"
-    \end{itemize}
+    % \begin{itemize}
+    %     \item run-to-section but with inputFilter
+    %     \item we assume code is parsable because of smart character insertion "()"
+    %     \item SourceSectionFilter set to CallTag annotated node
+    %     \item To get the callable object, we listen for intermediate results of expression calc using ExecutionEventNode.onInputValue(VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)
+    %     \item ForeignAccess.send(GET\_SIGNATURE, (TruffleObject) result);
+    %     \item ForeignAccess.sendInvoke(INVOKE, (TruffleObject) signature, "format")
+    %     \item signature help param index: getNodeObject() look for "numberOfArguments"
+    % \end{itemize}
+    As described in our approach in \autoref{sec:appr:transferringApproachToOtherRequests}, we have implemented signature help support similar to the completion of properties. We added the method \inlinecode{getSignatureHelpTriggerCharacters(String languageId)}\todo{implement}~ to the instrumentation environment, to retrieve the needed trigger characters. In contrast to the completion of properties implementation, we assume that the source code is parsable after the trigger character is inserted, because many language clients support smart character insertion, so that for example the insertion of the widely used trigger character `(' is automatically amended to `()'. Furthermore, we do not search for a node having a source section in front of the trigger character, but for a node at the requested position, tagged with a \inlinecode{CallTag}.
+    
+    If found, we execute the source code as for completion of properties, but we listen for slightly different events, because we want to obtain the callable object itself instead of the return value of the called callable. Therefore, we have implemented the \inlinecode{onInputValue(EventContext context, VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)} method of the listener, which provides intermediate results of expressions. In our case, we can intercept the callable object before it is  called.
+    
+    Having the callable, we send the added custom message \inlinecode{GetSignature} to retrieve a \inlinecode{TruffleObject} representing a list of signature parameters. As described in our approach, the language needs to provide a formatted string representation of the signature which we can use as label for the response. We assume therefore, that the retrieved \inlinecode{TruffleObject} has a \inlinecode{format()} method, which we can call by sending an \inlinecode{INVOKE} message.
+
+    To set the active parameter index of the response, we simply use the number of provided arguments. We assume, that the \inlinecode{CallTag}-annotated node can tell us that number. Therefore, we call \inlinecode{getNodeObject()}, which should return a \inlinecode{TruffleObject} supporting the reading of a value for the key \inlinecode{"numberOfArguments"}.
+   
+
 \subsection{Hover Information}
     \begin{itemize}
         \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
@@ -1598,7 +1608,7 @@ def bar():
 % \subsection{didChangeWorkspaceFolders}
 
 
-    \subsection{LSP client - VSCode extension example}
+    % \subsection{LSP client - VSCode extension example}
 
 \section{Requirements on Truffle Language Implementations}
     % https://www.graalvm.org/docs/graalvm-as-a-platform/implement-instrument/

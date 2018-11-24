@@ -698,25 +698,35 @@ natural.
 
     The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore this request might be supported only partial.
     
-    Having obtained a callable, the last step implies, that we can query the language implementation for meta-information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
+    Having obtained a callable, the last step implies, that we can query the language implementation for information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
     
     \paragraph{Hover Information}
     With the already described approaches, we can support the \emph{hover} request for variables and callables with minimal effort, if there are cached run-time information available. The steps to build the hover response are as follows.
 
     \begin{enumerate}
-        \item Find a matching \ac{ir}-element for a callable or variable at the requested position
+        \item Find a matching \ac{ir}-element for a callable or variable at the requested position\todo{Punkt am Ende?}
         \item Use the cached run-time information to perform an in-line evaluation
-        \item Create hover response from the evaluation result
+        \item Create a hover response from the evaluation result
     \end{enumerate}
 
-    The first step requires again some kind of tagging of \ac{ir}-elements. If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result we can build the hover response, which consists of plaintext or markup content.
+    The first step requires again some kind of tagging of \ac{ir}-elements. If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result, we can build the hover response, which consists of plaintext or markup content.
 
     \paragraph{Document Symbols}
-    \begin{itemize}
-        \item response: range + kind
-        \item scan all \ac{ir}-elements for those representing a symbol definition, e.g. via tagging
-        \item use lexical source section of \ac{ir}-element
-    \end{itemize}
+    % \begin{itemize}
+    %     \item response: range + kind + container
+    %     \item scan all \ac{ir}-elements for those representing a symbol definition, e.g. via tagging
+    %     \item use lexical source section of \ac{ir}-element
+    % \end{itemize}
+    The \emph{documentSymbol} response items consist of a label, range, symbol kind, and container name. To provide these information, we suggest the following steps.
+
+    \begin{enumerate}
+        \item Find all \ac{ir}-elements representing symbol declarations in a source code file
+        \item Query these \ac{ir}-elements for the requested information
+        \item Create a response containing a list of symbol information
+    \end{enumerate}
+
+    As for the \emph{hover} request, the first step requires some kind of tagging, to filter for the required \ac{ir}-elements. The second step requires, that we can obtain label and range, and optionally symbol kind and container name. The label and range can be derived from the \ac{ir}-element and its lexical source section. A simple support for a symbol kind could be done if the framework supports distinguishing callables \todo{WIP}
+
 
     \paragraph{Workspace Symbols}
     The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, we can simply apply the approach explained in the previous section to support the workspace-wide \emph{symbol} request.
@@ -1092,99 +1102,99 @@ natural.
     %     Unfortunately, there is no Truffle \ac{api} yet, which provides signature information for an object. Therefore, we suggest to add a new Truffle \ac{api}. Furthermore, we assume, that only callable elements of a language can have a signature. To mark these elements of a language, Truffle provides a \inlinecode{CallTag} for \ac{ast} nodes. We can use this tag as a filter criterion for our search for the node at the caret position.
 
 
-    \section{Hover Information}
-    \label{sec:hover}
-        % \begin{itemize}
-        %     \item same preconditions as for completion (parsable code, find node at caret)
-        %     \item if coverage data available: parse in-line + eval in-line
-        %     \item for language developers: show debug infos (AST structure)
-        % \end{itemize}
-        The \emph{hover} request is sent from client to server to obtain information at the current (mouse) caret position. This request has the same prerequisite as the other context-depending requests. The source code needs to be parsable to find a node at the caret position. Having a node, we can check if the node's source section is associated with run-time information (see \autoref{sec:usingRuntimeInformation}). If so, we can use these information (e.g. a frame) to build the \emph{hover} response. If the hovered node represents a variable access, we can use the frame to obtain the assigned value and include the string representations of that value and its meta-object in the response. Otherwise, we try to perform an in-line evaluation of the source code associated with the node. If the result is an object which supports the suggested \ac{api} to obtain signature information (see \autoref{sec:signatureHelp}) or to obtain documentation (see \autoref{sec:completionGlobalsLocals}), we can include the signature or documentation, for example for a Python function, in the \emph{hover} response.
+    % \section{Hover Information}
+    % \label{sec:hover}
+    %     % \begin{itemize}
+    %     %     \item same preconditions as for completion (parsable code, find node at caret)
+    %     %     \item if coverage data available: parse in-line + eval in-line
+    %     %     \item for language developers: show debug infos (AST structure)
+    %     % \end{itemize}
+    %     The \emph{hover} request is sent from client to server to obtain information at the current (mouse) caret position. This request has the same prerequisite as the other context-depending requests. The source code needs to be parsable to find a node at the caret position. Having a node, we can check if the node's source section is associated with run-time information (see \autoref{sec:usingRuntimeInformation}). If so, we can use these information (e.g. a frame) to build the \emph{hover} response. If the hovered node represents a variable access, we can use the frame to obtain the assigned value and include the string representations of that value and its meta-object in the response. Otherwise, we try to perform an in-line evaluation of the source code associated with the node. If the result is an object which supports the suggested \ac{api} to obtain signature information (see \autoref{sec:signatureHelp}) or to obtain documentation (see \autoref{sec:completionGlobalsLocals}), we can include the signature or documentation, for example for a Python function, in the \emph{hover} response.
 
-        For language developers or interested language users, we suggest to provide static hover information concerning the \ac{ast} node at the caret position if no run-time information are available. This feature, which can be activated via an option, can be used to inspect the \ac{ast} structure of a language and learn about which language elements in the source code are mapped to which kind of \ac{ast} nodes.
+    %     For language developers or interested language users, we suggest to provide static hover information concerning the \ac{ast} node at the caret position if no run-time information are available. This feature, which can be activated via an option, can be used to inspect the \ac{ast} structure of a language and learn about which language elements in the source code are mapped to which kind of \ac{ast} nodes.
 
 
-    \section{Document Symbols}
-    \label{sec:documentSymbol}
-        % \begin{itemize}
-        %     \item parsable code
-        %     \item find all symbols in a specific source
-        %     \item use Truffle Tagging -> new DefinitionTag needed to define which kind of symbol it is (class, variable, ...)
-        %     \item fallback: search for RootTagged nodes
-        % \end{itemize}
-        The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. Each symbol in the response must be associated with a source range. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source range. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response is displayed in \acl{VSCode} with an already existing language-specific Python extension.
+    % \section{Document Symbols}
+    % \label{sec:documentSymbol}
+    %     % \begin{itemize}
+    %     %     \item parsable code
+    %     %     \item find all symbols in a specific source
+    %     %     \item use Truffle Tagging -> new DefinitionTag needed to define which kind of symbol it is (class, variable, ...)
+    %     %     \item fallback: search for RootTagged nodes
+    %     % \end{itemize}
+    %     The \emph{documentSymbol} request is sent from client to server to get all symbols available in a specific source file. Each symbol in the response must be associated with a source range. If the symbol, for example, relates to a function definition, the range of the definition including the function body could be taken as the source range. Additionally, a symbol kind can be added for each symbol in the response. \autoref{fig:pythonDocumentSymbolPluginExample} shows how the \emph{documentSymbol} response is displayed in \acl{VSCode} with an already existing language-specific Python extension.
 
-        \begin{figure}
-            \includegraphics[width=\linewidth]{images/python_plugin_examples/python_document_symbol_example_python_plugin_themed.png}
-            \caption{A \acl{VSCode} extension for the Python language showing all detected symbols in the current document. There are different icons for modules, classes, functions and variables.}
-            \label{fig:pythonDocumentSymbolPluginExample}
-        \end{figure}
+    %     \begin{figure}
+    %         \includegraphics[width=\linewidth]{images/python_plugin_examples/python_document_symbol_example_python_plugin_themed.png}
+    %         \caption{A \acl{VSCode} extension for the Python language showing all detected symbols in the current document. There are different icons for modules, classes, functions and variables.}
+    %         \label{fig:pythonDocumentSymbolPluginExample}
+    %     \end{figure}
 
-        To support the \emph{documentSymbol} request for Truffle languages, we have to think about which kind of symbols we can obtain with the current Truffle \ac{api}. With the instrumentation environment we can access all loaded nodes which have a source section. We can filter them based on their meta-information to find all root nodes. Because a root node is executable, we assume that the name of the root node is a valid symbol of a callable element of the corresponding Truffle language. However, to add a symbol kind we need more meta-information about the nodes.
+    %     To support the \emph{documentSymbol} request for Truffle languages, we have to think about which kind of symbols we can obtain with the current Truffle \ac{api}. With the instrumentation environment we can access all loaded nodes which have a source section. We can filter them based on their meta-information to find all root nodes. Because a root node is executable, we assume that the name of the root node is a valid symbol of a callable element of the corresponding Truffle language. However, to add a symbol kind we need more meta-information about the nodes.
 
-        \paragraph{Tagging Nodes with Meta-information} To get the required meta-information, we suggest to add a new \inlinecode{Tag} for nodes introducing new symbols in a scope. There are already some tags existing to mark statements, expressions, calls, and root nodes. They are mainly used to implement debugger features like stepping. Using again the example of the Python language, the tag we suggest could be used to mark function and class definition nodes, first occurrences of a variable assignment node (Python has no variable declarations), or import nodes. This way we could support the \emph{documentSymbol} request in a language-agnostic way with results equal to those language-specific ones already shown in \autoref{fig:pythonDocumentSymbolPluginExample}.
+    %     \paragraph{Tagging Nodes with Meta-information} To get the required meta-information, we suggest to add a new \inlinecode{Tag} for nodes introducing new symbols in a scope. There are already some tags existing to mark statements, expressions, calls, and root nodes. They are mainly used to implement debugger features like stepping. Using again the example of the Python language, the tag we suggest could be used to mark function and class definition nodes, first occurrences of a variable assignment node (Python has no variable declarations), or import nodes. This way we could support the \emph{documentSymbol} request in a language-agnostic way with results equal to those language-specific ones already shown in \autoref{fig:pythonDocumentSymbolPluginExample}.
 
-    \section{Workspace Symbols}
-    \label{sec:symbol}
-        % \begin{itemize}
-        %     \item find all symbols in workspace
-        %     \item same as documentSymbol for all sources in workspace
-        % \end{itemize}
-        The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, if we apply the approach explained in \autoref{sec:documentSymbol} for \emph{documentSymbol}, we can easily add support for the workspace-wide \emph{symbol} request.
+    % \section{Workspace Symbols}
+    % \label{sec:symbol}
+    %     % \begin{itemize}
+    %     %     \item find all symbols in workspace
+    %     %     \item same as documentSymbol for all sources in workspace
+    %     % \end{itemize}
+    %     The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, if we apply the approach explained in \autoref{sec:documentSymbol} for \emph{documentSymbol}, we can easily add support for the workspace-wide \emph{symbol} request.
 
-    \section{Document Highlight}
-    \label{sec:documentHighlight}
-        % \begin{itemize}
-        %     \item parsable code + find node at caret
-        %     \item variables only
-        %     \item find other variable read/writes nodes in scope
-        %     \item need to tag such nodes with ReadVariableTag+WriteVariableTag
-        % \end{itemize}
-        The \emph{documentHighlight} request is sent from client to server to get a list of ranges, which shall be highlighted in the client. Additionally, we can define if the highlighted range is a read or write of a symbol. We want to support highlighting of variable reads and writes for now. Unfortunately, there is no Truffle \ac{api} yet to filter for nodes representing a read- or write-access of a variable. Therefore, we suggest to add two new tags to mark nodes which read or write a variable. These nodes also have to expose the identifier of the variable which they refer to. Having this, we can check if the node at the current caret position is tagged with one of these new tags. Then we can start a static search in the local scopes derived from that node for other tagged nodes with the same variable identifier. For every matching node, we add and response item, which includes the node's source range and the highlighting kind.
+    % \section{Document Highlight}
+    % \label{sec:documentHighlight}
+    %     % \begin{itemize}
+    %     %     \item parsable code + find node at caret
+    %     %     \item variables only
+    %     %     \item find other variable read/writes nodes in scope
+    %     %     \item need to tag such nodes with ReadVariableTag+WriteVariableTag
+    %     % \end{itemize}
+    %     The \emph{documentHighlight} request is sent from client to server to get a list of ranges, which shall be highlighted in the client. Additionally, we can define if the highlighted range is a read or write of a symbol. We want to support highlighting of variable reads and writes for now. Unfortunately, there is no Truffle \ac{api} yet to filter for nodes representing a read- or write-access of a variable. Therefore, we suggest to add two new tags to mark nodes which read or write a variable. These nodes also have to expose the identifier of the variable which they refer to. Having this, we can check if the node at the current caret position is tagged with one of these new tags. Then we can start a static search in the local scopes derived from that node for other tagged nodes with the same variable identifier. For every matching node, we add and response item, which includes the node's source range and the highlighting kind.
 
-    \section{Goto-definition}
-    \label{sec:definition}
-        % \begin{itemize}
-        %     \item parsable code + find node at caret
-        %     \item function vs variable
-        %     \item function
-        %     \begin{itemize}
-        %         \item dynamic approach: run-to-section to get function object
-        %         \item ask function object for its source section of definition
-        %         \item static fallback: search for symbols in workspace
-        %     \end{itemize}
-        %     \item variable
-        %     \begin{itemize}
-        %         \item not all languages have a variable definition syntax -> first write is definition
-        %         \item so we interpret goto-definition for variables as goto-first-write
-        %         \item find first write in scopes
-        %     \end{itemize}
-        % \end{itemize}
-        The \emph{definition} request is sent from client to server to find the definition location of the symbol at the caret position. This feature is known as goto-definition or jump-to-definition in most \acp{ide}. We want to support goto-definition for callables and variables. Like for many other requests, the code needs to be parsable to find the nearest tagged node at the caret position. Either tagged with the existing \inlinecode{CallTag} of Truffle, or with the tags suggested in \autoref{sec:documentHighlight} to mark read- or write-accesses of variables.
+    % \section{Goto-definition}
+    % \label{sec:definition}
+    %     % \begin{itemize}
+    %     %     \item parsable code + find node at caret
+    %     %     \item function vs variable
+    %     %     \item function
+    %     %     \begin{itemize}
+    %     %         \item dynamic approach: run-to-section to get function object
+    %     %         \item ask function object for its source section of definition
+    %     %         \item static fallback: search for symbols in workspace
+    %     %     \end{itemize}
+    %     %     \item variable
+    %     %     \begin{itemize}
+    %     %         \item not all languages have a variable definition syntax -> first write is definition
+    %     %         \item so we interpret goto-definition for variables as goto-first-write
+    %     %         \item find first write in scopes
+    %     %     \end{itemize}
+    %     % \end{itemize}
+    %     The \emph{definition} request is sent from client to server to find the definition location of the symbol at the caret position. This feature is known as goto-definition or jump-to-definition in most \acp{ide}. We want to support goto-definition for callables and variables. Like for many other requests, the code needs to be parsable to find the nearest tagged node at the caret position. Either tagged with the existing \inlinecode{CallTag} of Truffle, or with the tags suggested in \autoref{sec:documentHighlight} to mark read- or write-accesses of variables.
 
-        For callables we propose to use the same run-time approach as for the run-time information based completion described in \autoref{sec:usingRuntimeInformation}. This way, we get access to the callable run-time object. The Truffle \ac{api} allows us to obtain the corresponding root node of that object and thereby the source section. We use this section to create the response for the definition request.
+    %     For callables we propose to use the same run-time approach as for the run-time information based completion described in \autoref{sec:usingRuntimeInformation}. This way, we get access to the callable run-time object. The Truffle \ac{api} allows us to obtain the corresponding root node of that object and thereby the source section. We use this section to create the response for the definition request.
 
-        If the run-time approach yields not results, we can use a static fallback search, based on meta-information of nodes. We already described this approach in \autoref{sec:symbol} to find all symbols in the workspace. We can filter these symbols for those matching the identifier of our callable node. For non-unique identifiers, this might yield many source sections, which are not the actual definition location. But it is better to provide the user a list of potential matches instead of providing nothing. Of course, regardless if an identifier is unique or not, the actual definition location might not be included in the suggestions at all. This is again a static, language-agnostic best-effort approach.
+    %     If the run-time approach yields not results, we can use a static fallback search, based on meta-information of nodes. We already described this approach in \autoref{sec:symbol} to find all symbols in the workspace. We can filter these symbols for those matching the identifier of our callable node. For non-unique identifiers, this might yield many source sections, which are not the actual definition location. But it is better to provide the user a list of potential matches instead of providing nothing. Of course, regardless if an identifier is unique or not, the actual definition location might not be included in the suggestions at all. This is again a static, language-agnostic best-effort approach.
 
-        For variables, we assume that the first write of a local variable is its definition location. This way, we can reuse the approach described in \autoref{sec:documentHighlight}, to find all other occurrences of a local variable and pick the first write as definition location.
+    %     For variables, we assume that the first write of a local variable is its definition location. This way, we can reuse the approach described in \autoref{sec:documentHighlight}, to find all other occurrences of a local variable and pick the first write as definition location.
 
-    \section{Finding All References}
-    \label{sec:references}
-        % \begin{itemize}
-        %     \item parsable code + find node at caret
-        %     \item function vs variable
-        %     \item function
-        %     \begin{itemize}
-        %         \item search call tagged nodes with same id
-        %     \end{itemize}
-        %     \item variable
-        %     \item ...
-        % \end{itemize}
-        The \emph{references} request is sent from client to server to get all locations in the workspace, where the symbol at the caret position is also referenced. For now, we support a reference search for local variables and callable objects. As for many requests described before, the code needs to be parsable so that we can find a node a the current caret position.
+    % \section{Finding All References}
+    % \label{sec:references}
+    %     % \begin{itemize}
+    %     %     \item parsable code + find node at caret
+    %     %     \item function vs variable
+    %     %     \item function
+    %     %     \begin{itemize}
+    %     %         \item search call tagged nodes with same id
+    %     %     \end{itemize}
+    %     %     \item variable
+    %     %     \item ...
+    %     % \end{itemize}
+    %     The \emph{references} request is sent from client to server to get all locations in the workspace, where the symbol at the caret position is also referenced. For now, we support a reference search for local variables and callable objects. As for many requests described before, the code needs to be parsable so that we can find a node a the current caret position.
         
-        For callable objects, we can search for nodes tagged with Truffle's \inlinecode{CallTag}. If there is such a tagged node at the caret, we can obtain its symbol and search all already loaded sources for other tagged nodes with the same symbol. Then we return all source section ranges of the matching nodes in the response.
+    %     For callable objects, we can search for nodes tagged with Truffle's \inlinecode{CallTag}. If there is such a tagged node at the caret, we can obtain its symbol and search all already loaded sources for other tagged nodes with the same symbol. Then we return all source section ranges of the matching nodes in the response.
         
-        For local variables, we need the tags suggested in \autoref{sec:documentHighlight} to search for nodes which represent a read- or write-access to a variable. If there is a node tagged with one of these two tags at the current caret position, we can search for all other variable references as described in \autoref{sec:documentHighlight} for the highlighting of variable reads and writes.
+    %     For local variables, we need the tags suggested in \autoref{sec:documentHighlight} to search for nodes which represent a read- or write-access to a variable. If there is a node tagged with one of these two tags at the current caret position, we can search for all other variable references as described in \autoref{sec:documentHighlight} for the highlighting of variable reads and writes.
 
     % \section{Triggering Run-time Information Collection}
     % \label{sec:codeLense}
@@ -1518,60 +1528,96 @@ def bar():
     %     \item ForeignAccess.sendInvoke(INVOKE, (TruffleObject) signature, "format")
     %     \item signature help param index: getNodeObject() look for "numberOfArguments"
     % \end{itemize}
-    As described in our approach in \autoref{sec:appr:transferringApproachToOtherRequests}, we have implemented signature help support similar to the completion of properties. We added the method \inlinecode{getSignatureHelpTriggerCharacters(String languageId)}\todo{implement}~ to the instrumentation environment, to retrieve the needed trigger characters. In contrast to the completion of properties implementation, we assume that the source code is parsable after the trigger character is inserted, because many language clients support smart character insertion, so that for example the insertion of the widely used trigger character `(' is automatically amended to `()'. Furthermore, we do not search for a node having a source section in front of the trigger character, but for a node at the requested position, tagged with a \inlinecode{CallTag}.
+    As described in our approach in \autoref{sec:appr:transferringApproachToOtherRequests}, we have implemented signature help support similar to the completion of properties. We added the method \inlinecode{getSignatureHelpTriggerCharacters(String languageId)} to the instrumentation environment, to retrieve the needed trigger characters. In contrast to the completion of properties implementation, we assume that the source code is parsable after the trigger character is inserted, because many language clients support smart character insertion, so that for example the insertion of the widely used trigger character `(' is automatically amended to `()'. Furthermore, we do not search for a node having a source section in front of the trigger character, but for a node at the requested position, tagged with a \inlinecode{CallTag}.
     
     If found, we execute the source code as for completion of properties, but we listen for slightly different events, because we want to obtain the callable object itself instead of the return value of the called callable. Therefore, we have implemented the \inlinecode{onInputValue(EventContext context, VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)} method of the listener, which provides intermediate results of expressions. In our case, we can intercept the callable object before it is  called.
     
     Having the callable, we send the added custom message \inlinecode{GetSignature} to retrieve a \inlinecode{TruffleObject} representing a list of signature parameters. As described in our approach, the language needs to provide a formatted string representation of the signature which we can use as label for the response. We assume therefore, that the retrieved \inlinecode{TruffleObject} has a \inlinecode{format()} method, which we can call by sending an \inlinecode{INVOKE} message.
 
     To set the active parameter index of the response, we simply use the number of provided arguments. We assume, that the \inlinecode{CallTag}-annotated node can tell us that number. Therefore, we call \inlinecode{getNodeObject()}, which should return a \inlinecode{TruffleObject} supporting the reading of a value for the key \inlinecode{"numberOfArguments"}.
-   
+
+
 
 \subsection{Hover Information}
-    \begin{itemize}
-        \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
-        \item cached frame 2.: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame) <- same as for completion of locals using cached infos
-        \item fallback (if option enabled): show AST details (class name and Tags)
-    \end{itemize}
+    % \begin{itemize}
+    %     \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
+    %     \item cached frame 2.: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame) <- same as for completion of locals using cached infos
+    %     \item fallback (if option enabled): show AST details (class name and Tags)
+    % \end{itemize}
+    Our implementation of \graallsp~supports hover information for variables and callables, if cached run-time information are available. We use the already described approach to find a node corresponding to the requested position. If found, we try two strategies to get a run-time object represented by that node.
+    
+    First of all, we test if the text of the node's source section matches an identifier of one of the frame slots. We can access these slots by calling \inlinecode{frame.getFrameDescriptor().getSlots()}\todo{how to handle?}. If found, we use the value associated to that frame slot.
+
+    If not found, we in-line evaluate the text of the node's source section, as described for the completion of properties in \autoref{sec:impl:completionOfProperties}.
+
+    If one of the strategies yields a result, we use again the same implementation to query the object for meta-information, signature and documentation as described for the completion of properties.
+
+
 \subsection{Document Symbols}
-    \begin{itemize}
-        \item SourceSectionFilter DeclarationTag + uri of current file
-        \item getNodeObject() -> look-up keys: name, kind, container
-        \item mapping to lsp4j SymbolKind via lower case name matching
-        \item fallback: SourceSectionFilter StandardTags.RootTag + RootNode.getName() + default symbol kind: Function
-    \end{itemize}
+\label{sec:impl:documentSymbol}
+    % \begin{itemize}
+    %     \item SourceSectionFilter DeclarationTag + uri of current file
+    %     \item getNodeObject() -> look-up keys: name, kind, container
+    %     \item mapping to lsp4j SymbolKind via lower case name matching
+    %     \item fallback: SourceSectionFilter StandardTags.RootTag + RootNode.getName() + default symbol kind: Function
+    % \end{itemize}
+
+    To find symbol declarations in the current file, we added a new tag \inlinecode{DeclarationTag}. We use the instrumentation environment's \inlinecode{LoadSourceSectionListener} to search for all tagged nodes in the current \inlinecode{Source} object. Then, we assume that a call to \inlinecode{getNodeObject()} returns a \inlinecode{TruffleObject} supporting the look-up for the keys \inlinecode{"name"}, \inlinecode{"kind"}, and \inlinecode{"container"}. We can map these information together with the node's source section to the \emph{documentSymbol} response items.
+
+    If a Truffle languages supports no \inlinecode{DeclarationTag}, we use a simple fallback. We use the instrumentation environment to search for all nodes tagged with the already existing \inlinecode{RootTag} in the current \inlinecode{Source} object. This way, we get at least names and source sections of declarations of callables, to fill the \emph{documentSymbol} response items partially.
+
 \subsection{Workspace Symbols}
-    \begin{itemize}
-        \item same as documentSymbol, but no uri restriction in SourceSectionFilter
-    \end{itemize}
+\label{sec:impl:symbol}
+    To search for symbols workspace-wide, we use the same implementation as described for the \emph{documentSymbol} request, but we omit the filter for the current \inlinecode{Source} object.
+
 \subsection{Document Highlight}
-    \begin{itemize}
-        \item find node at caret: StandardTags.WriteVariableTag.class, StandardTags.ReadVariableTag.class
-        \item getNodeObject() -> key look-up: name
-        \item env.findLocalScopes(node, null) or env.findLocalScopes(node, frame) if cached frame available
-        \item iterate scopes + scope.getNode().accept(NodeVisitor) -> search for all ReadVariableTag/WriteVariableTag annotated nodes
-    \end{itemize}
+\label{sec:impl:documentHighlight}
+    % \begin{itemize}
+    %     \item find node at caret: StandardTags.WriteVariableTag.class, StandardTags.ReadVariableTag.class
+    %     \item getNodeObject() -> key look-up: name
+    %     \item env.findLocalScopes(node, null) or env.findLocalScopes(node, frame) if cached frame available
+    %     \item iterate scopes + scope.getNode().accept(NodeVisitor) -> search for all ReadVariableTag/WriteVariableTag annotated nodes
+    % \end{itemize}
+    We implemented \emph{documentHighlight} support in \graallsp for variables. To make variable nodes detectable, we added two new tags, \inlinecode{ReadVariableTag} and \inlinecode{WriteVariableTag}. We assume, that nodes tagged with one of them implement \inlinecode{getNodeObject()}, returning a \inlinecode{TruffleObject} which supports the look-up key \inlinecode{"name"}. We use the instrumentation environment's \inlinecode{LoadSourceSectionListener} to search for all tagged nodes in the current \inlinecode{Source} object.
+
+    If found, we use the instrumentation environment to find local scopes for these nodes. Then, we traverse the root node of each scope by calling \inlinecode{accept(NodeVisitor nodeVisitor)} and search for children tagged with either \inlinecode{ReadVariableTag} or \inlinecode{WriteVariableTag}. We take those nodes providing the same \inlinecode{"name"} as our initial node and build the response using their source sections.
+
+
 \subsection{Goto-definition}
-    \begin{itemize}
-        \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag (no WriteVariableTag, because source sections of write include assignments in Python -> leads to unexpected behavior <- should we change this?)
-        \item CallTag: run to section with inputFilter like signatureHelp -> Env.findSourceLocation(LanguageInfo language, Object value)
-        \item ReadVariableTag: like documentHighlight via scopes and visitor, but interpret the first write node of the most outer scope as declaration
-    \end{itemize}
+\label{sec:impl:definition}
+    % \begin{itemize}
+    %     \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag (no WriteVariableTag, because source sections of write include assignments in Python -> leads to unexpected behavior <- should we change this?)
+    %     \item CallTag: run to section with inputFilter like signatureHelp -> Env.findSourceLocation(LanguageInfo language, Object value)
+    %     \item ReadVariableTag: like documentHighlight via scopes and visitor, but interpret the first write node of the most outer scope as declaration
+    % \end{itemize}
+    The \emph{definition} request has been implemented for callables workspace-wide and for variables source-local. As described in the previous sections, we search for a node at the requested position, which is tagged with \inlinecode{CallTag}, \inlinecode{ReadVariableTag}, or \inlinecode{WriteVariableTag}. If found, we use different approaches for callables and variables.
+
+    For nodes of callables, we obtain the corresponding run-time object as described for the completion of properties in \autoref{sec:impl:completionOfProperties}. Then, we use the method \inlinecode{findSourceLocation(LanguageInfo language, Object value)} of the instrumentation environment, to find the source section of the callable.
+
+    If the run-time approach yields no results, we use a static fallback search. As described in \autoref{sec:impl:symbol}, we search for all symbols in the workspace and take the ones matching the identifier of our callable node. For non-unique identifiers, this might yield many results, which are not related to the desired definition location. But in our opinion, it is better to provide the users a list of potential matches instead of providing nothing.\todo{ist das cha:evaluation?}
+
+    For variables, we assume that the first write of a local variable is its definition location. This way, we can reuse the implementation described in \autoref{sec:impl:documentHighlight}, to find all other occurrences of a local variable and pick the first write access as definition location.
+
 \subsection{Finding All References}
-    \begin{itemize}
-        \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag or WriteVariableTag
-        \item CallTag: env.attachLoadSourceSectionListener with SourceSectionFilter for CallTag, then match names
-        \item ReadVariableTag/WriteVariableTag: like documentHighlight
-    \end{itemize}
-\subsection{Triggering Run-Time Information Collection}
-    \begin{itemize}
-        \item command registration
-        \item CoverageEventNode
-        \item SourceSectionFilter for language
-        \item onEnter() -> flag entered = true
-        \item copy frame and descriptor to snapshot state
-        \item store these together with CoverageEventNode
-    \end{itemize}
+    % \begin{itemize}
+    %     \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag or WriteVariableTag
+    %     \item CallTag: env.attachLoadSourceSectionListener with SourceSectionFilter for CallTag, then match names
+    %     \item ReadVariableTag/WriteVariableTag: like documentHighlight
+    % \end{itemize}
+    The \emph{references} requests has been implemented for callables and local variables using a static search. As described in the previous sections, we search for a node at the requested position, which is tagged with \inlinecode{CallTag}, \inlinecode{ReadVariableTag}, or \inlinecode{WriteVariableTag}. If found, we use different approaches for callables and variables.
+
+    For nodes of callables, we reuse the static fallback search described in \autoref{sec:impl:definition}, to find all potential matches in the workspace.
+
+    For variables, we reuse the implementation described in \autoref{sec:impl:documentHighlight}, to find all occurrences of variable accesses in the current \inlinecode{Source}.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% old start
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% old end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % \section{LSP features implementation - TextDocumentService}
 % \subsection{completion}
@@ -1614,6 +1660,7 @@ def bar():
     % https://www.graalvm.org/docs/graalvm-as-a-platform/implement-instrument/
     % The onInputValue method can be used in combination with source section filters to intercept very fine-grained execution events such as intermediate values used by language expressions. The intermediate values that are accessible to the instrumentation framework greatly depend on the instrumentation support provided by each language.
     % https://www.graalvm.org/docs/graalvm-as-a-platform/implement-instrument/
+    Quality of \ac{lsp} results depends on the support of the language implementation. Implementation guideline:
     \begin{itemize}
         \item eager source code parsing
         \item consistent source section hierarchy 

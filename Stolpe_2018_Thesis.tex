@@ -352,14 +352,12 @@ Because code completion is a core feature and is frequently auto-activated while
     \ac{lsp} client and server communicate via JSON-RPC\footnote{\url{https://www.jsonrpc.org/specification}} requests, responses and notifications. Source code files are referenced by \acp{uri}. A location in the source code is encoded as line and column tuple. During initialization client and server can exchange which features are supported.
 
     \begin{figure}
-        \includegraphics[width=\linewidth]{images/language-server-sequence_1.png}
+        \includegraphics[width=\linewidth]{images/language-server-sequence_2.png}
         \caption{An exemplary communication of language client and server including initialization, opening and changing a file, and requesting a code completion and goto-definition.}
         \label{fig:lspsequence}
     \end{figure}
     
-    \autoref{fig:lspsequence}
-    \todo{figure: context instead of position, dots between completion and definition, dots at end}
-    shows an exemplary communication between server and client. After initialization, the client notifies the server that a file has been opened. The server parses the source code, detects a syntax error and pushes diagnostics to the client. The user fixes the displayed syntax error and the client sends these changes incrementally to the server. After parsing again on the server side, no errors occur, but the server needs to explicitly notify the client about that, so that the client can clear the currently displaying diagnostics. Then, the client sends a request for code completion at a specific source location, typically the caret position. The server obtains completion items depending on the provided context, which might also contain the trigger character, and sends the items to the client. Later, a request to find one or more definitions for a symbol at a position in the source code is sent to the server. The server responds with a list of locations, if found.
+    \autoref{fig:lspsequence} shows an exemplary communication between server and client. After initialization, the client notifies the server that a file has been opened. The server parses the source code, detects a syntax error and pushes diagnostics to the client. The user fixes the displayed syntax error and the client sends these changes incrementally to the server. After parsing again on the server side, no errors occur, but the server needs to explicitly notify the client about that, so that the client can clear the currently displaying diagnostics. Then, the client sends a request for code completion at a specific source location, typically the caret position. The server obtains completion items depending on the provided context, which might also contain the trigger character, and sends the items to the client. Later, a request to find one or more definitions for a symbol at a position in the source code is sent to the server. The server responds with a list of locations, if found.
 
     \paragraph{LSP4J}
     Our implementation of \graallsp~uses LSP4J\footnote{\url{https://github.com/eclipse/lsp4j}} version 0.4.1 as Java binding for the \acl{lsp}. This framework maps the \ac{lsp} requests and notifications to methods of Java interfaces so that language server implementors do not have to deal with the JSON-RPC communication layer and can make use of Java's type system.
@@ -495,9 +493,12 @@ Because code completion is a core feature and is frequently auto-activated while
 % \paragraph{new apporach}
 In \autoref{cha:introduction} we described the problem, that run-time performance focused language implementation frameworks lack \ac{ide}-like tooling support for the create languages. Therefore we suggest to build a language-agnostic language server on top of these kind of frameworks to start closing the tooling gap. Typically a language server is developed for one specific language only and the server implementation can exploit any kind of language-specific information. To implement a language-agnostic language server, we have to build upon the abstract concepts of language implementation frameworks, which apply to all languages developed in these frameworks.
 
+\todo{focus?}
 \begin{itemize}
     \item focus on performance-focused and interpreter-based lang impl frameworks (like Truffle, RPython)\todo{bullet points to text}
     \item interpreter-based = the developer writes an interpreter to define the language semantics (bytecode or AST interpreter)
+    \item was macht die diese Art von frameworks aus? Haben JIT der tracing oder PE verwendet, also Typinformationen für optimization aufsammelt. Typen darüber beziehen? Oder Ausführung beobachten und run-time Objekte sprachagnostisch nach Eigenschaften queryen.
+    \item focus on a approach for dynamically typed languages?
 \end{itemize}
 
 In the following, we use the example of code completion to described our approach. Fist of all, we show which kind of data is needed to respond to the \emph{completion} request of \ac{lsp}. Then, we suggest how to obtain the needed information in a language-agnostic way and where the language implementations need to hook into.
@@ -725,17 +726,23 @@ natural.
         \item Create a response containing a list of symbol information
     \end{enumerate}
 
-    As for the \emph{hover} request, the first step requires some kind of tagging, to filter for the required \ac{ir}-elements. The second step requires, that we can obtain label and range, and optionally symbol kind and container name. The label and range can be derived from the \ac{ir}-element and its lexical source section. A simple support for a symbol kind could be done if the framework supports distinguishing callables \todo{WIP}
+    As for the \emph{hover} request, the first step requires some kind of tagging, to filter for the required \ac{ir}-elements. The second step requires, that we can obtain label and range, and optionally symbol kind and container name. The label and range can be derived from the \ac{ir}-element and its lexical source section. Supporting a symbol kind depends on the meta-information available for \ac{ir}-elements. The container name could be derived from the names of the surrounding lexical scopes.
 
 
     \paragraph{Workspace Symbols}
     The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, we can simply apply the approach explained in the previous section to support the workspace-wide \emph{symbol} request.
 
     \paragraph{Document Highlight}
-    \begin{itemize}
-        \item response: list of ranges to be highlighted + kind
-        \item for variables: scan all \ac{ir}-elements for those representing a read or write of a variable with matching symbol
-    \end{itemize}
+    The \emph{documentHighlight} response consists of a list of ranges in the source code. Each range can have an associated kind (\inlinecode{Text}, \inlinecode{Read}, or \inlinecode{Write}). To support highlighting of variables, we suggest the following steps.
+
+    \begin{enumerate}
+        \item Find a matching \ac{ir}-element representing a variable at the requested position
+        \item Search for all other \ac{ir}-elements representing the same variable in the current source code
+        \item Create a response containing the list of ranges and kinds
+    \end{enumerate}
+
+    The first step requires again to search and filter for an \ac{ir}-element at the requested position, which represents a read- or write- access of a variable. For the second step, we suggest to search in the surrounding lexical scopes for all other \ac{ir}-elements representing an access to the same variable. The required range can be obtained from the lexical source section of the \ac{ir}-element. The kind can be mapped from the access kind of the variable.
+
 
     \paragraph{Goto-definition}
     \begin{itemize}
@@ -746,6 +753,7 @@ natural.
         \item static fallback: like \emph{documentSymbol}, find all definitions of symbols in the workspace and match callable name. Might yield false-positives.
     \end{itemize}
 
+
     \paragraph{Find All References}
     \begin{itemize}
         \item response: Location[]
@@ -754,7 +762,7 @@ natural.
         \item callables: find other \ac{ir}-elements tagged as calls with same identifier
     \end{itemize}
 
-\clearpage
+%\clearpage
 
 % \begin{itemize}
 %     \item language implementation + tool development = challenging task
@@ -1254,9 +1262,9 @@ natural.
 \chapter{Implementation}
 \label{cha:implementation}
 
-    In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle \cite{wimmer2012truffle} as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented small Truffle \ac{api} extensions to support more \ac{lsp} features. As \ac{lsp} Java wrapper we used LSP4J \todo{name a version?}. Transportation for JSON-RPC is implemented using TCP sockets. In the following sections, we start by describing the architecture\todo{adjust to new section structure} of \graallsp~and then explain how we have implemented selected \ac{lsp} features.
+    In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle \cite{wimmer2012truffle} as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented small Truffle \ac{api} extensions to support more \ac{lsp} features. As \ac{lsp} Java wrapper we used LSP4J \todo{name a version?}. Transportation for JSON-RPC is implemented using TCP sockets. In the following sections, we start by describing how we have implemented common features required for most \ac{lsp} requests and then explain in detail the implementation of selected \ac{lsp} requests in \graallsp.
 
-    \section{Prerequisites to Answer \acs{lsp} Requests}
+    \section{Prerequisites to Answer \acs{lsp} Requests with Truffle}
         \begin{itemize}
             \item our approach has some requirements on the language impl framework
             \item influences project structure and dependencies
@@ -1265,6 +1273,7 @@ natural.
             \begin{itemize}
                 \item parsing + diagnostics
                 \item mapping caret to IR
+                \item obtaining run-time information
             \end{itemize}
         \end{itemize}
 
@@ -1297,7 +1306,7 @@ natural.
             \label{fig:graalLspPackageStructure}
         \end{figure}
 
-\subsection{Server Threads and Context Activation}
+\subsection{Threads and Context Activation}
     % \begin{itemize}
     %     \item every action on the Truffle instrumentation env requires the current Thread to have entered a Context
     %     \item LSP threads -> worker queue
@@ -1737,8 +1746,18 @@ def bar():
 \end{itemize}
 
 
+
 \chapter{Related Work}
 \label{cha:relatedwork}
+
+\paragraph{Outline}
+\begin{itemize}
+    \item Motivation related work
+    \item \graallsp related
+    \begin{itemize}
+        \item Collecting run-time information 
+    \end{itemize}
+\end{itemize}
 
 \section{Reusing existing tools}
     \paragraph{Helvetia}

@@ -155,7 +155,7 @@ Dr.\,John Doe%
     \item what makes a good language: amongst performance, std lib, ecosystem and community, tools (for language developers and users) are important
     \item to ease the development process, language implementation frameworks exist
     \item but these frameworks either focus on run-time performance (Truffle, RPython) or rich tooling support (language workbenches)
-    \item second: if tooling support is present, it is limited to one or two front-ends (e.g. an Eclipse- or IntelliJ-plugin) the end-users are forced to use -> pain point if programmers need to not only learn new lang, but also new IDE semantics \todo{explain deeper in extra sub-section?}
+    \item second: if tooling support is present, it is limited to one or two front-ends (e.g. an Eclipse- or IntelliJ-plugin) the end-users are forced to use -> pain point if programmers need to not only learn new lang, but also new IDE semantics %\todo{explain deeper in extra sub-section?}
     \item we want both
     \item with new concepts like LSP we have to think about, if we can build a language-agnostic LSP for run-time focused lang impl frameworks
     \item this would add further IDE-like features out of the box for langs build with these frameworks
@@ -1296,7 +1296,7 @@ natural.
         % \end{itemize}
         To facilitate Truffle instrumentation, we have to implement the interface \inlinecode{TruffleInstrument}, which is part of the Truffle \ac{api}. Instruments are loaded via Java's \ac{spi} and the framework calls their implemented \inlinecode{onCreate(Env)} method during initialization, to pass an instance of a Truffle instrumentation environment. This environment has a language-agnostic \ac{api} to parse source code, interact with loaded languages, and observe and inject behavior into the \ac{ast} interpreters. Most \ac{lsp} features can be mapped to that \ac{api}.
         
-        As described in \autoref{sec:newApproachCompletionProperties}, our approach requires to sandbox the execution of guest languages and redirect file accesses. Unfortunately, the Truffle instrumentation environment provides no \ac{api} to support that requirement. However, there is a separate Graal \ac{sdk} to embed and run code from guest languages in JVM-based host applications\todo{context?}. It allows to create and configure a Polyglot \inlinecode{Engine} and Polyglot \inlinecode{Context} instances. An \inlinecode{Engine} provides access to the installed languages and instruments. A \inlinecode{Context} instance allows to evaluate code of its associated languages and represents their global runtime state. Furthermore, it supports to set a custom file system. Multiple \inlinecode{Context} instances can share the same \inlinecode{Engine} instance and thereby all its registered instruments.
+        As described in \autoref{sec:newApproachCompletionProperties}, our approach requires to sandbox the execution of guest languages and redirect file accesses. Unfortunately, the Truffle instrumentation environment provides no \ac{api} to support that requirement. However, there is a separate Graal \ac{sdk} to embed and run code from guest languages in JVM-based host applications\todo{context?}. It allows to create and configure a Polyglot \inlinecode{Engine} and Polyglot \inlinecode{Context} instances. An \inlinecode{Engine} provides access to the installed languages and instruments. A \inlinecode{Context} instance allows to evaluate code of its associated languages and represents the global run-time state. Furthermore, it supports to set a custom file system. Multiple \inlinecode{Context} instances can share the same \inlinecode{Engine} instance and thereby all its registered instruments.
         
         Therefore we decided to create three Java projects. The first contains a separate launcher which handles the whole bootstrapping and enables the creation of sandboxed \inlinecode{Context} instances using the Graal \ac{sdk}. The actual language server is implemented as Truffle instrument using the Truffle \ac{api} in the second project. During bootstrapping, out instrument will register some services which enable the launcher for example to explicitly start the language server. These service interfaces are part of a third project on which the others depend. \autoref{fig:graalLspPackageStructure} visualizes the resulting project structure and dependencies.
 
@@ -1398,9 +1398,7 @@ natural.
     To support basic sandboxing of the file system, we made our \inlinecode{LSPFileSystem} read-only. At the date of writing, Truffle supports a restriction of file I/O only. Therefore, network and system I/O is still unrestricted in our implementation.
 
     \paragraph{Long Running or Non-terminating Executions}
-    If we observe the execution using an \inlinecode{ExecutionEventListener}, we can  stop when we have collected required run-time information. Therefore, we simply throw a special \inlinecode{ThreadDeath} exception, containing the collected run-time object. This exception is also used by other Truffle tools to stop or unwind the current execution. We catch this exception ourselves, to retrieve the run-time object.
-
-    A timeout, as suggested in our approach, is not yet implemented.\todo{@Tim/Fabio hier ewähnen oder in limitations?}
+    If we observe the execution using an \inlinecode{ExecutionEventListener}, we can  stop when we have collected required run-time information. Therefore, we simply throw a special \inlinecode{ThreadDeath} exception, containing the collected run-time object. This exception is also used by other Truffle tools to stop or unwind the current execution. We catch this exception in our language server implementation, to retrieve the run-time object. In our approach, we have also suggested to cancel the execution in case of a timeout. Due to time constraints, we have not implemented this feature yet.
 
     \paragraph{Caching Run-time Information}
     To cache run-time information, we use the instrumentation environment to attach an \inlinecode{ExecutionEventNodeFactory}. We let the factory create special \inlinecode{ExecutionEventNode} instances, which capture a snapshot of the passed frame at the first call of \inlinecode{onEnter(VirtualFrame frame)}. As data structure, we use a \inlinecode{Map} associating \inlinecode{MutableSourceSection} with \inlinecode{CoverageData}. Every \inlinecode{TextDocumentSurrogate} instance holds a reference to such a \inlinecode{Map}. A \inlinecode{MutableSourceSection} is a light-weight references to a node's source section by storing only line, and column for start and end. A \inlinecode{CoverageData} instance stores a \inlinecode{MaterializedFrame} and the \inlinecode{ExecutionEventNode} which captured the data. \todo{name limitation here, that captured frame snapshot is no deep copy?}
@@ -1418,7 +1416,7 @@ natural.
 
     This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually, if a change alters execution flow, names of variables, or types of variables.
 
-\section{Implementing \ac{lsp} Request Handlers}
+\section{Implementing \acs{lsp} Request Handlers}
 In this section we will explain how we have facilitated the Truffle instrumentation environment to support selected \ac{lsp} requests. For most \ac{lsp} requests we have implemented a separate Java class. They inherit all from \inlinecode{AbstractRequestHandler}. \todo{class diagram?}
 
 \subsection{Completion of Globals and Locals}
@@ -1453,7 +1451,7 @@ def bar():
     return 42
     \end{code}
 
-    \autoref{lst:pythonNearCaretExample1Impl} \todo{label counter wrrong?} shows a  function definition \inlinecode{foo}, containing two parameters and two local variables in its scope and a function \inlinecode{bar} without definition of locals. Imagine that a completion request is triggered in line\footnote{\ac{lsp} uses zero-based line numbers. For simplicity, we will always use one-based line numbers in our examples.} 3 at character offset 4. As already mentioned, Truffle cannot derive scopes directly from the caret position, but from a node. The difficulty is, that the derived scopes will contain variables valid \emph{at} that node. This means translated to our Python example, that if we use the node representing \inlinecode{y = param1 + param2} in line 4 to derive local scopes from, the scope of function \inlinecode{foo} will contain variable \inlinecode{x} but not variable \inlinecode{y}. One could say, that we get scopes with all locals valid before the node's source section starts. Imagine another code completion is requested in line 5 at character offset 4. The problem is now, that there is no node which will provide us with a scope containing the variable \inlinecode{y}, although we are actually still in the function scope of \inlinecode{foo} and the completion is triggered one line after a value was assigned to \inlinecode{y}.
+    \autoref{lst:pythonNearCaretExample1Impl} \todo{label counter wrrong?} shows a  function definition \inlinecode{foo}, containing two parameters and two local variables in its scope and a function \inlinecode{bar} without definition of locals. Imagine that a completion request is triggered in line\footnote{\ac{lsp} uses zero-based line numbers. For simplicity, we will always use one-based line numbers in our examples.} 3 at character offset 4. As already mentioned, Truffle cannot derive scopes directly from the caret position, but from a node. The difficulty is, that the derived scopes will contain variables valid \emph{at} that node. This means translated to our Python example, that if we use the node representing \inlinecode{y = param1 + param2} in line 4 to derive local scopes from, the scope of function \inlinecode{foo} will contain variable \inlinecode{x} but not variable \inlinecode{y}. One could say, that we get scopes with all locals valid before the node's source section starts. Imagine another code completion is requested in line 5 at character offset 4. The problem is now, that there is no node which will provide us with a scope containing the variable \inlinecode{y}, although we are actually still in the function scope of \inlinecode{foo} and the completion is triggered one line after a value was assigned to \inlinecode{y}. \todo{IntelliJ code completion uses a dummy reference, if there is none at the caret - should we name that here, that we cannot do that?}
     
     As described in \autoref{sec:impl:mappingToAstNode}, we can use the Truffle instrumentation environment to find a \inlinecode{containingNode}, \inlinecode{nextNode}, and \inlinecode{previousNode} based on the requested position. To decide, which one will most likely deliver the expected locals for the completion items, we use the following best-effort algorithm.
 
@@ -1665,7 +1663,7 @@ def bar():
 
     % \subsection{LSP client - VSCode extension example}
 
-\section{Requirements on Truffle Language Implementations}
+\section{Implementation Guideline for Truffle Languages}
     % https://www.graalvm.org/docs/graalvm-as-a-platform/implement-instrument/
     % The onInputValue method can be used in combination with source section filters to intercept very fine-grained execution events such as intermediate values used by language expressions. The intermediate values that are accessible to the instrumentation framework greatly depend on the instrumentation support provided by each language.
     % https://www.graalvm.org/docs/graalvm-as-a-platform/implement-instrument/
@@ -1749,15 +1747,83 @@ def bar():
 
 \chapter{Related Work}
 \label{cha:relatedwork}
+In this chapter, we describe approaches and solutions related to our work and compare them with our approach and implementation of \graallsp.
+
+Our focus: out of the box IDE-like tooling support for performance-focused implementations of dynamic languages.
 
 \paragraph{Outline}
 \begin{itemize}
-    \item Motivation related work
-    \item \graallsp related
+    \item Typical IDE-frameworks used by performance-focused language implementations
     \begin{itemize}
-        \item Collecting run-time information 
+        % Eclipse and IntelliJ -> you need to implement the custom IDE lang-specific parts in Java - you cannot use the language you implemented your language with
+        % You need to implement lexer and parser again and all other required interfaces - gap between impls
+        % These IDEs say, that you "only" have to implement the lang specific parts "with a small amount of effort"
+        % Features like code completion of properties and goto-definition are still hard to implement for dynamic languages
+        \item Eclipse
+        \item Visual Studio % https://docs.microsoft.com/en-us/azure/devops/integrate/ide/extensions/develop_extensions/add_new_language?view=vsts
+        \item IntelliJ 
+        % http://www.jetbrains.org/intellij/sdk/docs/reference_guide/custom_language_support.html
+        % http://www.jetbrains.org/intellij/sdk/docs/reference_guide/custom_language_support/code_completion.html
+    \end{itemize}
+    \item Tools-first language implementation frameworks
+    \begin{itemize}
+        \item Language workbenches
+        \begin{itemize}
+            \item Spoofax and DynSem - generates a Truffle AST interpreter
+        \end{itemize}
+        \item Helvetia
+        \item Squimera
+    \end{itemize}
+    \item Language-agnostic Approaches for IDE-like Features
+    \begin{itemize}
+        \item Kythe
+        \item CTags
+    \end{itemize}
+    \item Approaches Exploiting run-time information
+    \begin{itemize}
+        \item Type harvesting
+        \item PyCharm - dynamic type inference for code completion
+        \item pyannotate - Insert annotations into your source code based on call arguments and return types observed at run-time
     \end{itemize}
 \end{itemize}
+
+
+\paragraph{Outline old}
+\begin{itemize}
+    \item Motivation related (Tooling support out of the box for your language)
+    \begin{itemize}
+        \item Helvetia - embedding dsls into Smalltalk, so that the tools provided by the environment can also be used for these languages
+        \item Squimera - interpreter composition to reuse existing Smalltalk tools
+        \item Language Workbenches - tools that support the efficient definition, reuse and composition of languages and their IDEs
+        \item ? Moldable Tools - development tools that are aware of the current development context and support inexpensive creation of domain-specific extensions.
+    \end{itemize}
+    \item \graallsp~related
+    \begin{itemize}
+        \item Collecting run-time information
+        \begin{itemize}
+            \item Type harvesting
+            \item Nemo Bachelor Project - sandboxed execution
+            \item PyCharm - dynamic type inference for code completion
+            \item pyannotate - Insert annotations into your source code based on call arguments and return types observed at run-time
+        \end{itemize}
+        \item Polyglot IDE support
+        \begin{itemize}
+            \item DSLs: Language Workbenches, Helvetia, ...
+            \item Interpreter composition: Squimera, Ensō
+            \item -> but all of them bind you to one editor front-end
+        \end{itemize}
+    \end{itemize}
+    \item LSP-related
+    \begin{itemize}
+        \item Language-agnostic tagging of symbols
+        \begin{itemize}
+            \item Kythe - A pluggable, (mostly) language-agnostic ecosystem for building tools that work with code. <- only "look-up tools"
+            \item CTags - tagging a language object in an index file
+        \end{itemize}
+    \end{itemize}
+\end{itemize}
+
+\clearpage
 
 \section{Reusing existing tools}
     \paragraph{Helvetia}

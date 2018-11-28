@@ -539,12 +539,12 @@ In the following, we use the example of code completion to described our approac
 
 \section{Obtaining and Using Run-time Information}
 \label{sec:newApproachCompletionLocalsUsingRuntimeInfo}
-    A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For programming languages with typed symbols, like Java, the required information can be easily derived from by parsing source code. The situation for languages with untyped symbols, like Python, is different, because the type depends on the associated run-time object. There are language-specific approaches to infer types of variables for such languages \todo{ref}, but these approaches ... \todo{far from perfect, difficult to built in a language-agnostic way, ...}.
+    A detailed code completion for globals, locals, and properties of language elements is often implemented in \acp{ide} using type information. For programming languages with typed symbols, like Java, the required information can be easily derived from by parsing source code. The situation for dynamic languages with untyped symbols, like Python, is different, because the type depends on the associated run-time object only. There are language-specific approaches to infer types of variables for such languages, but these approaches ... \todo{find and reference solutions, explain their limitations, ...}. Furthermore, it might require some effort to implement a language-agnostic type inference on top of language implementation frameworks. For example, the RPython framework already uses type inference internally to translate the source code written in the RPython language to a more efficient, statically typed representation. This is only possible, because RPython is a subset of Python where some dynamic features are not supported. Type inference can therefore not be easily applied to dynamic languages developed with RPython. \todo{passt die Diskussion hier?}
 
-    In this section, we describe an approach on how to enhance code completion for locals using run-time information. This approach will also build the basis for \completionOfProperties~described in \autoref{sec:newApproachCompletionProperties}.
+    Due to the described limitations of type inference, we focus in our approach on how to enhance code completion for locals using run-time information. This approach will also build the basis for \completionOfProperties~described in \autoref{sec:newApproachCompletionProperties}.
 
     \paragraph{Approach and Challenges}
-    The basic idea to get run-time values for locals at a specific position in the source code, is to execute that source code while observing the execution to collect run-time information at the desired position.
+    The basic idea, to get run-time values for locals at a specific position in the source code, is to execute that source code while observing the execution to collect run-time information at the desired position.
     This approach implies some preconditions. Language implementation frameworks need to provide a possibility to execute a program until a specific source code position is reached and then to inspect the current run-time state. This is already possible, if the framework provides a debugger for the developed languages. If present, we can reuse the same approach as used by the debugger to halt at a breakpoint and obtain local symbols and their corresponding run-time values from the active frame. To create the actual completion items, the symbols can be used as display names. Details, completion kind and documentation can be determined from the run-time values if the framework supports accessing these meta-information by querying the language implementations. 
     
     Unfortunately, executing arbitrary source code requires to think about how to deal with unexpected and unwanted side-effects during execution, the possibility of a long running or non-terminating execution, or the fact that the desired position might not be reached by the execution flow.
@@ -566,7 +566,7 @@ In the following, we use the example of code completion to described our approac
     % \end{itemize}
     Using the described approach, we have to care about unsaved changes. If we execute unit tests, we have to ensure that they do not import files from the file system, if our server has newer, but yet unsaved versions. The \ac{lsp} specifies no request sent from server to client to trigger saving files and we do not want to write the changes to the file system from server-side. Therefore, we suggest to redirect file accesses of files with unsaved changes to (virtual) files which contain the changes. This could be realized by installing a custom file system, if the framework supports that. Otherwise, an enhanced code completion using run-time objects is only possible after saving all changes actively at client-side.
 
-    Unit tests might not be available, especially if you start writing a small script or do not follow \ac{tdd} principles \todo{explain in background?}. Therefore we suggest as fallback to try executing the current source code, in which the code completion was triggered, if no path to an execution entry point is defined.
+    Unit tests might not be available, especially if you start writing a small script or do not follow \ac{tdd} principles. Therefore we suggest as fallback to try executing the current source code, in which the code completion was triggered, if no path to an execution entry point is defined.
 
     \paragraph{Sandboxing the Execution Environment}
     % \begin{itemize}
@@ -576,7 +576,7 @@ In the following, we use the example of code completion to described our approac
     %     \item network I/O: only disabling possible?
     %     \item -> unit tests are expected to be side-effect free
     % \end{itemize}
-    Users would not expect that the source code, they are currently working on, will be executed when they trigger code completion. Therefore we suggest to create a sandboxed execution environment, when the execution of arbitrary source code is triggered implicitly. To create such a sandbox, the framework needs to provide an abstraction layer, which allows to control all I/O of the implemented languages. If supported, the most radical approach would be to forbid all I/O in our sandboxed environment. Unfortunately, our approach of using run-time information for code completion would thereby be limited to theoretical examples only. Therefore, we suggest to allow at least some operations. For standard I/O, we suggest to allow any kind of input, but redirect or disallow all output. For file I/O, we suggest to simulate a read-only file system or, if supported, install a custom copy-on-write file system, which copies each file before modification to a sandbox and which redirects further read and writes to that copies. For network I/O, we cannot make any assumptions concerning side-effects and suggest therefore to disallow all network I/O.
+    Users would not expect that the source code, they are currently working on, will be executed when they trigger code completion. Therefore we suggest to create a sandboxed execution environment, when the execution of arbitrary source code is triggered implicitly. To create such a sandbox, the framework needs to provide an abstraction layer, which allows to observe and restrict all I/O of the implemented languages. If supported, the most radical approach would be to forbid all I/O in our sandboxed environment. Unfortunately, our approach of using run-time information for code completion would thereby be limited to theoretical examples only. Therefore, we suggest to allow at least some operations. For standard I/O, we suggest to allow any kind of input, but redirect or disallow all output. For file I/O, we suggest to simulate a read-only file system or, if supported, install a custom copy-on-write file system, which copies each file before modification to a sandbox and which redirects further read and writes to that copies. For network I/O, we cannot make any assumptions concerning side-effects and suggest therefore to disallow all network I/O.
     
     The situation is different, if users explicitly allow side-effects. This might be the case if they have defined an execution entry point, like a unit testing script, which performs only known and uncritical side-effects. Therefore, we suggest to provide a configuration option, to tell our language server, if sandboxing shall be deactivated when collection run-time information for code completion.
 
@@ -596,7 +596,7 @@ In the following, we use the example of code completion to described our approac
     % \end{itemize}
     Executing a script or unit tests for every completion request might yield no results due to long running executions and timeouts. Therefore, we suggest to collect run-time information for the whole source code once and cache these information for later completion requests. This collection run should be triggered manually by the users, e.g. by using custom commands, which the server can register during \ac{lsp} initialization. These commands can then be made accessible at client-side via the \emph{codeLense} request. This way, users can trigger the renewal of the cache manually, when they considered it reasonable.
     
-    As a language-agnostic data structure for the cache, a mapping from lexical source sections of \ac{ir}-elements to collected run-time objects can be used. To get a look-up key when a completion request arrives, we can use again the approach of finding an \ac{ir}-element near the completion request's position, to get the \ac{ir}-element's lexical source sections. If the look-up succeeds, we can use the cached information to create the completion items.
+    As a language-agnostic data structure for the cache, we suggest a mapping from lexical source sections of \ac{ir}-elements to collected run-time objects. To get a look-up key when a completion request arrives, we can use again the approach of finding an \ac{ir}-element near the completion request's position, to get the \ac{ir}-element's lexical source section. If the look-up succeeds, we can use the cached information to create the completion items.
 
     The challenge of using such a lexical mapping is, that every time a \emph{didChange} notification arrives, one or more sections of the source code will change. Depending on the change, the mappings in the cache might become invalid, but others might still be useful. We assume, that most edits will affect only mappings of the current local scope and in that scope only the edited line and following, so that all other mappings might be migrated. If the mapping keys reference source positions only via line number and character offset in that line, the migration could be done by simply adjusting the line number, if the changes add or remove one or more lines. Of course, we can only assume that the migrated mappings are still valid. The user has to trigger a new collection run manually when, for example, the execution flow is changed, or variables are renamed.
 
@@ -632,27 +632,24 @@ natural.
     To support this kind of code completion, we can build on the approach of obtaining and using run-time information described in the previous section. But there are some additional challenges which we have to solve. First of all, we have to detect that an object property completion shall be triggered instead of a completion of globals and locals. Second, the source code will typically contain a syntax error, when this kind of completion request is sent. Third, we have to identify the \ac{ir}-element for which the completion of properties is desired. Fourth, we have to obtain the actual object associated with that \ac{ir}-element, which might be available only at run-time. Finally, we need to get the object's properties to create the completion items.
 
     \paragraph{Detecting an Object Property Completion}
-    As prerequisite for completion of properties, we need to be able to query a language implementation for its completion trigger characters. When a completion request arrives, we can then distinguish the two kinds of completion by comparing one or multiple characters directly in front of the completion request position with the trigger characters of the current language. If there is a match, we try a property completion. 
-    
-    To support auto-activation of code completion, the trigger characters need to be sent to the client as part of the \emph{initialize} response.
+    As prerequisite for completion of properties, we need to be able to query a language implementation for its completion trigger characters. When a completion request arrives, we can then distinguish the two kinds of completion by comparing one or multiple characters directly in front of the completion request position with the trigger characters of the current language. If there is a match, we try a property completion. To support auto-activation of code completion, the trigger characters need to be sent to the client as part of the \emph{initialize} response.
 
     \paragraph{Finding the Desired Node}
-    To find the \ac{ir}-element in front of the completion trigger character, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore, we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code again. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1NewApproach}, the source code shown is no valid Python source code because of the last dot. Removing this dot makes the code parsable again. \todo{add remark: approach only possible for languages which support "expression statements"? <- how can we name that? For example in Java this would not work.}
+    To find an \ac{ir}-element in front of the completion trigger character, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore, we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code again. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1NewApproach}, the source code shown is no valid Python source code because of the last dot. Removing this dot makes the code parsable again.
+    % \todo{add remark: approach only possible for languages which support "expression statements"? <- how can we name that? For example in Java this would not work.}
 
-    Now, we can search for a matching \ac{ir}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{ir}-elements whose lexical source sections end before the removed trigger character position. Here it would be useful again, to have tagged \ac{ir}-elements, so that we can filter for example for expressions\todo{is not fitting. Defer to impl?} only.
+    Now, we can search for a matching \ac{ir}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{ir}-elements whose lexical source sections end before the removed trigger character position. Furthermore, we are only interested in an \ac{ir}-element which represents an expression, because we want to obtain its result. Hence, it would be useful again, to have tagged \ac{ir}-elements, so that we can filter for example for expressions only.
 
     \paragraph{Obtaining the Actual Properties}
-    The next step is getting the corresponding run-time object by evaluating the matching \ac{ir}-element. In our Python example, we would evaluate an \ac{ir} representing a variable read for the symbol \inlinecode{natural}. We can use the already described approach for obtaining run-time information for locals, to execute the source code until the desired \ac{ir}-element is reached. Then, the framework needs to provide an \ac{api}, so that we can intercept the result of the \ac{ir}-element evaluation. Having the run-time object, we need the support of the framework to query the language implementation for properties of that object, together with further meta-information of the properties, to add details, kind, and documentation for each completion item.
+    To get the expression result, we need to execute the corresponding \ac{ir}-element. In our Python example, we would evaluate an \ac{ir}-element representing a variable read for the symbol \inlinecode{natural}. We can use the already described approach for obtaining run-time information for locals, to execute the source code until the desired \ac{ir}-element is reached. Then, the framework needs to provide an \ac{api}, so that we can intercept the result of the \ac{ir}-element execution. Having the run-time object, we need the support of the framework to query the language implementation for properties of that object, together with further meta-information of these properties, to add details, kind, and documentation for each completion item.
 
     We suggest some optimizations to avoid executing source code for every property completion request. First of all we can optimize property completion for literals, if the framework supports identifying \ac{ir}-elements as literal representations. The literal value is typically encoded in or referenced by the \ac{ir}-element. If we can access this value, we can directly query for its properties.
     
-    If the \ac{ir}-element is not representing a literal, we can check as next step if there are already cached run-time information available. If the framework and the language implementation support in-line evaluation, we can evaluate the \ac{ir}-element in the context of the cached information. \todo{hier noch mehr erklären - Beispiel geben mit frame usw oder dann in Impl erläutern?}
+    If the \ac{ir}-element is not representing a literal, we can check as next step if there are already cached run-time information available. If the framework and the language implementation support in-line evaluation, we can execute the \ac{ir}-element in the context of the cached information. \todo{hier noch mehr erklären? - Beispiel geben mit frame usw oder dann in Impl erläutern?}
 
-    If using cached run-time information returns no result, we need to execute unit tests or the current source code to get the required run-time object.
+    If there are no cached run-time information available, we need to execute unit tests or the current source code until the \ac{ir}-element is reached, to get the required run-time object.
 
     If there is still no result, because the source position of the completion request might not be reachable or a timeout occurred, we can use a last fallback. We suggest to evaluate the \ac{ir}-element in the global scope. This will at least provide a property completion for globals and context-independent expressions.
-
-    \todo{Sum up / Überleitung}
 
 \section{Transferring the Approach to Other Requests}
 \label{sec:appr:transferringApproachToOtherRequests}
@@ -680,7 +677,7 @@ natural.
         \end{threeparttable}
     \end{table}
 
-    \todo{Zusammenfassung, was wiederverwendet werden kann: run-to-section + static search for tagged \ac{ir}-elements + \ac{ir}-element lexical source section}
+    %\todo{Zusammenfassung, was wiederverwendet werden kann: run-to-section + static search for tagged \ac{ir}-elements + \ac{ir}-element lexical source section}
 
     \paragraph{Signature Help}
     The \emph{signatureHelp} request is auto-activated at client-side, like code completion, if the server includes trigger characters for signature help in the \emph{initialize} response. A \emph{signatureHelp} response consists of a list of signatures, because there might be different variants, if the language implementation supports function overloading. Furthermore, the response includes two indices, telling which signature and which parameter should be shown in detail in the UI. Every signature in the list consists of a label, a list of parameters, and an optional documentation. A parameter also consists of label and documentation.
@@ -694,28 +691,28 @@ natural.
         \item Query the callable for label, parameters and documentation
     \end{enumerate}
 
-    The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore this request might be supported only partial.
+    The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore, this request might be supported only partial, depending on the particular language syntax.
     
-    Having obtained a callable, the last step implies, that we can query the language implementation for information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
+    Having obtained a callable object, the last step implies, that we can query the language implementation for information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
     
     \paragraph{Hover Information}
     With the already described approaches, we can support the \emph{hover} request for variables and callables with minimal effort, if there are cached run-time information available. The steps to build the hover response are as follows.
 
     \begin{enumerate}
-        \item Find a matching \ac{ir}-element for a callable or variable at the requested position\todo{Punkt am Ende?}
+        \item Find a matching \ac{ir}-element for a callable or variable at the requested position
         \item Use the cached run-time information to perform an in-line evaluation
         \item Create a hover response from the evaluation result
     \end{enumerate}
 
     The first step requires again some kind of tagging of \ac{ir}-elements. If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result, we can build the hover response, which consists of plaintext or markup content.
 
-    \paragraph{Document Symbols}
+    \paragraph{Document and Workspace Symbols}
     % \begin{itemize}
     %     \item response: range + kind + container
     %     \item scan all \ac{ir}-elements for those representing a symbol definition, e.g. via tagging
     %     \item use lexical source section of \ac{ir}-element
     % \end{itemize}
-    The \emph{documentSymbol} response items consist of a label, range, symbol kind, and container name. To provide these information, we suggest the following steps.
+    The \emph{documentSymbol} and \emph{symbol} response items consist of a label, range, symbol kind, and container name. To provide these information, we suggest the following steps.
 
     \begin{enumerate}
         \item Find all \ac{ir}-elements representing symbol declarations in a source code file
@@ -723,11 +720,7 @@ natural.
         \item Create a response containing a list of symbol information
     \end{enumerate}
 
-    As for the \emph{hover} request, the first step requires some kind of tagging, to filter for the required \ac{ir}-elements. The second step requires, that we can obtain label and range, and optionally symbol kind and container name. The label and range can be derived from the \ac{ir}-element and its lexical source section. Supporting a symbol kind depends on the meta-information available for \ac{ir}-elements. The container name could be derived from the names of the surrounding lexical scopes.
-
-
-    \paragraph{Workspace Symbols}
-    The \emph{symbol} request is the union of \emph{documentSymbol} requests for all files in the workspace. Therefore, we can simply apply the approach explained in the previous section to support the workspace-wide \emph{symbol} request.
+    As for the \emph{hover} request, the first step requires some kind of tagging, to filter for the required \ac{ir}-elements. The second step requires, that we can obtain label and range, and optionally symbol kind and container name. The label and range can be derived from the \ac{ir}-element and its lexical source section. Supporting a symbol kind depends on the meta-information available for \ac{ir}-elements. The container name could be derived from the names of the surrounding lexical scopes. To support the workspace-wide \emph{symbol} request, we can build the the union of \emph{documentSymbol} requests for all files in the workspace.
 
     \paragraph{Document Highlight}
     The \emph{documentHighlight} response consists of a list of ranges in the source code. Each range can have an associated kind (\inlinecode{Text}, \inlinecode{Read}, or \inlinecode{Write}). To support highlighting of variables, we suggest the following steps.
@@ -741,7 +734,7 @@ natural.
     The first step requires again to search and filter for an \ac{ir}-element at the requested position, which represents a read- or write- access of a variable. For the second step, we suggest to search in the surrounding lexical scopes for all other \ac{ir}-elements representing an access to the same variable. The required range can be obtained from the lexical source section of the \ac{ir}-element. The kind can be mapped from the access kind of the variable.
 
 
-    \paragraph{Goto-definition}
+    \paragraph{Goto-definition (WIP)}
     \begin{itemize}
         \item response: Location[]
         \item local variables and callables
@@ -751,12 +744,12 @@ natural.
     \end{itemize}
 
 
-    \paragraph{Find All References}
+    \paragraph{Find All References (WIP)}
     \begin{itemize}
         \item response: Location[]
         \item local variables and callables
         \item local variables: like \emph{documentHighlight}
-        \item callables: find other \ac{ir}-elements tagged as calls with same identifier
+        \item callables: static workspace-wide search for other \ac{ir}-elements tagged as calls with same identifier
     \end{itemize}
 
 %\clearpage

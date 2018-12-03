@@ -30,6 +30,10 @@
 subject=master,degree={Master of Science},
 ]{hpi-swa}
 
+\usepackage{pifont}% http://ctan.org/pkg/pifont
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+
 \supervisors{%
 Prof.\,Dr.\,Robert Hirschfeld\and %
 Dr.\,John Doe%
@@ -1699,24 +1703,121 @@ def bar():
 
 \chapter{Experience Report}
 \label{cha:evaluation}
-\paragraph{Eat your own dog food}
-    Hover: We used the static hover information ourselves during implementation.
 
-\paragraph{GraalPython, SL, (GraalJS), FastR usage check}
-\begin{itemize}
-    \item matrix of \graallsp features x Truffle languages
-    \item list SLOC for adjustments of these langs
-    \item matrix of \graallsp features x Truffle languages without language adjustments? Should be only completion of globals/locals and static stuff possible -> or add a footnote in the first matrix, to mark that it is only working with adjustments
-    \item include screenshots of VSCode for important LSP features, put rest in appendix?
-\end{itemize}
+In \autoref{cha:implementation}, we have shown how \graallsp~was implemented. To support all the described \ac{lsp} features, language implementations need to implement existing Truffle \acp{api} and our proposed extensions. For some languages, this might be done with very low implementation effort, but for others, some features might require fundamental changes in their implementations. In this chapter, we show by means of the dynamic Truffle languages GraalPython\todo{ref}, SimpleLanguage, FastR, and GraalSqueak, that a basic support of some \ac{lsp} features can be achieved with minimal implementation effort. Furthermore, we explain, why certain \ac{lsp} features cannot be easily supported in some language implementations. Finally, we describe limitations of our approach and implementation of \graallsp. 
 
-\paragraph{Completion response time}
+\section{Comparison of Truffle Language Implementations}
+\ac{sl} is Truffle's exemplary language implementation, to showcase Truffle features and help understanding its ideas and concepts. \ac{sl} has first class functions. Objects are implemented as key-value stores.
 
-\paragraph{Between IDE and Language Workbench}
-    Language Workbench focus/aim: Efficient language (DSL) development, performance is not main focus
-    vs. Graal/Truffle aim: Efficient execution
+GraalPython \cite{Oracle2018GraalPython} is an early-stage experimental implementation of Python \cite{Rossum1995}. It does not support many libraries yet, but is mature enough for our use cases.
 
-    Assumption: Language Workbenches use static information only, our Truffle-based solution uses dynamic type information
+FastR \cite{Labs2018FastR} is a high-performance implementation of the R \cite{RFoundation2018RProject} programming language used for statistical computing and graphics. Its goal is to become a drop-in replacement for the reference implementation GNU-R.
+
+GraalSqueak \cite{niephaus2018graalsqueak} is a Squeak/Smalltalk \cite{ingalls1997back} implementation. In contrast to the other selected languages, it is an image-based live-programming environment.
+
+\begin{table}
+    \centering
+    \tableinsidecommand
+    \begin{threeparttable}
+      \caption{An overview of selected Truffle languages and their support of Truffle \acp{api}}
+      \label{tab:truffleAPIXLanguageMatrix}
+      \begin{tabular}{ l l l l l }
+        \toprule
+        Truffle \ac{api}                       & SimpleLanguage & GraalPython & FastR & GraalSqueak \\
+        \midrule
+        StatementTag                                    & \cmark & \cmark & \cmark & \cmark \\
+        ExpressionTag                                   & \cmark & \cmark & \nyi & \nyi \\
+        findTopScopes()                                 & \cmark & \cmark & \cmark & \cmark \\
+        findLocalScopes()                               & \cmark & \cmark & (\cmark) & \nyi \\
+        findMetaObject()                                & (\cmark) & \cmark & (\cmark) & \cmark \\
+        findSourceLocation()                            & \cmark & \cmark & \cmark & ? \\
+        parseInline()                                   & \xmark & \cmark & \cmark & \nyi \\
+        getNodeObject() for literal nodes               & \cmark & \cmark & \nyi & \nyi \\
+        \midrule
+        getCompletionTriggerCharacters()                & \cmark & \cmark & \cmark & \cmark \\
+        getSignatureHelpTriggerCharacters()                    & \nyi & \cmark & \nyi & \nyi \\
+        boxPrimitive()                                  & no boxing & \cmark & \nyi & \nyi \\
+        GetSignature custom message                     & \xmark & \cmark & \nyi & \nyi \\
+        GetDocumentation custom message                 & \xmark & \cmark & \nyi & \nyi \\
+        DefinitionTag, Read/WriteVariableTag            & \cmark & \cmark & \nyi & \nyi \\
+        \bottomrule
+      \end{tabular}
+    \end{threeparttable}
+\end{table}
+
+
+\begin{table}
+    \centering
+    \tableinsidecommand
+    \begin{threeparttable}
+      \caption{An overview of selected Truffle languages and their support of \graallsp~features}
+      \label{tab:lspFeatureXLanguageMatrix}
+      \begin{tabular}{ l l l l l }
+        \toprule
+        \ac{lsp} feature        & SimpleLanguage & GraalPython & FastR & GraalSqueak \\
+        \midrule
+        Completion (globals)    & \cmark & \cmark & \cmark & \cmark \\
+        Completion (locals)     & \cmark & \cmark & \cmark* & \xmark \\
+        Completion (properties) & \cmark* & \cmark* & (\cmark)* & \xmark \\
+        Signature Help          & \xmark & \cmark* & \xmark & \xmark \\
+        Hover                   & \cmark* & \cmark* & \xmark & \xmark \\
+        Symbols                 & \cmark & \cmark & (\cmark) & \xmark \\
+        Goto-definition (functions)              & \cmark* & \cmark* & \cmark* & \xmark \\
+        Goto-definition (local variables)              & \cmark* & \cmark* & \xmark & \xmark \\
+        References (static)     & \cmark & \cmark & \xmark & \xmark \\
+        Variable Highlighting   & \cmark & \cmark & \xmark & \xmark \\
+        \bottomrule
+        * requires run-time information
+      \end{tabular}
+    \end{threeparttable}
+\end{table}
+
+\paragraph{Code Completion}
+\autoref{fig:xp:completionGlobalsPython}, \autoref{fig:xp:completionLocalsSL}
+
+\begin{figure}
+    \includegraphics[width=\linewidth]{images/xp_report/code_completion_globals_python_with_docu.png}
+    \caption{Code completion for globals and locals for GraalPython}
+    \label{fig:xp:completionGlobalsPython}
+\end{figure}
+
+\begin{figure}
+    \includegraphics[width=\linewidth]{images/xp_report/code_completion_locals_sl.png}
+    \caption{Code completion for globals and locals for \ac{sl} }
+    \label{fig:xp:completionLocalsSL}
+\end{figure}
+
+
+\paragraph{Signature Help}
+\autoref{fig:xp:signatureHelpPython}
+
+\begin{figure}
+    \includegraphics[width=\linewidth]{images/xp_report/signature_help_python.png}
+    \caption{Signature help for GraalPython}
+    \label{fig:xp:signatureHelpPython}
+\end{figure}
+
+% \paragraph{GraalPython, SL, (GraalJS), FastR usage check}
+% \begin{itemize}
+%     \item matrix of \graallsp features x Truffle languages
+%     \item list SLOC for adjustments of these langs
+%     \item matrix of \graallsp features x Truffle languages without language adjustments? Should be only completion of globals/locals and static stuff possible -> or add a footnote in the first matrix, to mark that it is only working with adjustments
+%     \item include screenshots of VSCode for important LSP features, put rest in appendix?
+% \end{itemize}
+
+% \paragraph{other stuff}
+% \begin{itemize}
+%     \item Completion response time
+%     \item Eat your own dog food - Hover: We used the static hover information ourselves during implementation.
+%     \item Between IDE and Language Workbench
+% \end{itemize}
+    
+
+% \paragraph{Between IDE and Language Workbench}
+%     Language Workbench focus/aim: Efficient language (DSL) development, performance is not main focus
+%     vs. Graal/Truffle aim: Efficient execution
+
+%     Assumption: Language Workbenches use static information only, our Truffle-based solution uses dynamic type information
 
 \section{Limitations of \graallsp}
 \begin{itemize}

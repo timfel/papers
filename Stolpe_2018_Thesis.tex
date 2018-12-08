@@ -1975,13 +1975,20 @@ The Truffle framework allows to host language implementations in a multi-languag
 
 \chapter{Related Work}
 \label{cha:relatedwork}
-In this chapter, we describe approaches and solutions related to our work and compare them with our approach and implementation of \graallsp.
 
-Our focus: out of the box IDE-like tooling support for performance-focused implementations of dynamic languages.
+%As tooling support for programming languages is a wide field of research, we only focus on work related to language implementation frameworks for dynamic languages and language-agnostic tooling approaches for \acp{ide}.
+
+Our approach focuses on enabling performance-focused language implementation frameworks to provide their implemented dynamic languages with IDE-like tooling support with minimal effort. In this chapter, we describe related approaches and solutions and furthermore compare them with our approach and implementation of \graallsp. As a major part of our approach is based on collecting and using run-time information to enhance certain \ac{lsp} features, we will also discuss work related to that field.
+
+% To understand the challenging task of developing new languages and corresponding tools, we have to have a look at how existing and widely used \acp{ide} provide support for new languages. Among other \acs{ide}, Eclipse \cite{des2004eclipse}, VisualStudio \cite{Microsoft2018}, and IntelliJ \cite{JetBrains2018} provide extension points to develop \ac{ide}-specific plugins for new languages. Depending on the \ac{ide}, you have to implement lexer and parser yourself or provide at least grammar files to generate these components. Then, you have to manually implement further \ac{ide}-specific interfaces to support features like code completion, finding all references, or goto-definition. As already mentioned in \todo{motivation}, this will be difficult especially for dynamic languages. Another barrier for language or tool developers might be, that you have to implement these components in the \ac{ide}'s host language. Furthermore, if you want to support another \ac{ide}, the whole process needs to be repeated. The \ac{lsp} solves  some of these problems and the mentioned \acp{ide} support this protocol already. However, you still have to develope a language server for your language from scratch.
+
+\ac{ide}-frameworks like Eclipse \cite{des2004eclipse}, VisualStudio \cite{Microsoft2018}, or IntelliJ \cite{JetBrains2018} provide extension points to develop \ac{ide}-specific plugins for new languages or can be used as language clients if they implement the \ac{lsp}. But as they do not support language developers in implementing programming languages in the first place, we do not further discuss them here. Furthermore, there are lots of language-specific tooling solutions for dynamic languages, which are also not in our focus.
+
+
 
 \paragraph{Outline}
 \begin{itemize}
-    \item Typical IDE-frameworks used by performance-focused language implementations
+    \item ??? Typical IDE-frameworks used by performance-focused language implementations
     \begin{itemize}
         % Eclipse and IntelliJ -> you need to implement the custom IDE lang-specific parts in Java - you cannot use the language you implemented your language with
         % You need to implement lexer and parser again and all other required interfaces - gap between impls
@@ -2002,6 +2009,9 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
         \item Helvetia
         \item Squimera
         % Instead of providing tools to create new languages, our approach aims to provide existing tools for live data exploration and debugging that behave consistently across different languages.
+        \item Xtext
+        % language development framework -> DSLs
+        % Xtext is a framework for development of programming languages and domain-specific languages. With Xtext you define your language using a powerful grammar language. As a result you get a full infrastructure, including parser, linker, typechecker, compiler as well as editing support for Eclipse, any editor that supports the Language Server Protocol and your favorite web browser
     \end{itemize}
     \item Language-agnostic Approaches for IDE-like Features
     \begin{itemize}
@@ -2013,7 +2023,7 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
         \item Jedi (Python)
         \item Rsense (ruby)
     \end{itemize}
-    \item Approaches Exploiting run-time information
+    \item Improving \acs{ide} Features With Run-time Information
     \begin{itemize}
         \item Type harvesting
         \item PyCharm - dynamic type inference for code completion
@@ -2023,6 +2033,76 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
     \end{itemize}
 \end{itemize}
 
+
+\clearpage
+
+\section{Improving \acs{ide} Features With Run-time Information}
+\label{sec:rw:collectionRunTimeInformation}
+    \begin{itemize}
+        \item Type harvesting \cite{haupt2011type}
+        \item Hermion \cite{rothlisberger2008exploiting}
+        %\item Nemo Bachelor Project? -> sandboxed execution in Squeak
+        \item https://github.com/dropbox/pyannotate ->  Insert annotations into your source code based on call arguments and return types observed at runtime. - uses Python's sys.setprofile(profilefunc)
+        \item https://blog.jetbrains.com/pycharm/2013/02/dynamic-runtime-type-inference-in-pycharm-2-7/
+        \item Enhancing Static Source Code Search With Dynamic Data \cite{holmes2010enhancing}
+    \end{itemize}
+
+    A major part of our approach focuses on collecting and utilizing run-time information to answer \ac{lsp} requests. Therefore, we have a look at where and how other approaches apply run-time information to improve \acp{ide} features.
+
+    \paragraph{Type harvesting}
+    Haupt et al. have presented an approach called \emph{type harvesting} to collect type information for dynamic programming languages \cite{haupt2011type}. Their solution performs a stepwise execution of source code while observing the types of relevant components. The set of relevant components, which shall be observed, are called an \emph{acre}. A \emph{bucket} stores mappings of bytecode instructions, arguments, variables, etc., to the collected concrete types. Like in our approach, they suggest to use unit tests as execution entry points.
+
+%    This is similar to our approach to improve \ac{lsp} responses by collecting and caching run-time information.
+    In contrast to our approach, \emph{type harvesting} \todo{vergleicht man approach und oder impl?}
+    \begin{itemize}
+        \item they continuously observe the stepwise execution of bytecodes, leaving the actual bytecode instruction stream untouched. They need to check for every step, if the current bytecode is on an acre. \graallsp has to instruments \ac{ast} nodes, but only those matching a filter criterion. -> faster at execution and can be optimized
+        \item they collect types, we cache the actual run-time objects via their frames
+        \item we reference the collected infos via line+column, they use more specific mappings of variables etc.
+        \item collecting types only, is more memory efficient than frames
+        \item impl\todo{vergleicht man approach und oder impl?} of type harvesting observes variables continuously and therefore can store most common type -> we use the first frame/object at hand
+    \end{itemize}
+
+    \paragraph{Hermion}
+    % We address these questions and present our working prototype, an IDE called Hermion with the capability to capture runtime information from an application under development and to exploit this information by enhancing navigation and browsing of the source code.
+    The Hermion \cite{rothlisberger2008exploiting} \ac{ide} collects run-time information to improve static source code navigation and browsing.
+    
+    \begin{itemize}
+        \item Hermion builds upon partial behavioral reflection (ref?) to restrict the collection of run-time information only to places where it is needed. This is similar to Truffle's instrumentation of relevant \ac{ast} nodes, which we use in \graallsp. % E. Tanter, J. Noye, D. Caromel, and P. Cointe. Partial Behavioral Reflection: Spatial and Temporal Selection of Reification. In Proc. of the Conference on Object-oriented Programing, Systems, Languages, and Applications, pages 27–46. ACM, October 2003
+        % Another approach to gain performance is partial behavioral reflection [Tanter et al. 2003], which restricts the application of a MOP in spatial and temporal manner. Instead of applying to all program parts equally, the developer optimizes the MOP’s application to only the places where it is needed to avoid unnecessary overhead. However, this does not reduce the cost of reflective operations used. Furthermore, it burdens again the programmer with the optimization while dispatch chains are part of the language implementation and thus optimize reflective operations without programmer intervention
+    \end{itemize}
+
+    \paragraph{PyCharm Debugger}
+    The debugger of PyCharm is able to optionally collect run-time type information during a debug session \cite{Filippov2013Dynamic}. The information are used to improve code completion and documentation popups during and after the debugging session. The collected type information can also be persisted as docstrings in Python source code.
+    % PyCharm’s debugger is now capable of collecting type information at runtime and using this information for improving code completion suggestions, code insight and quick documentation popups. This needs to be enabled in the debugger settings.
+    % You debug your code all the time, and now in the course of debugging you can also collect type information. Afterwards, it will be used in auto-completion, and you will be able to put the collected type information into docstrings as well. Please note that enabling this feature may affect debugger performance, so use it with care.
+
+    Similar to our approach, the PyCharm's debugger can facilitate unit tests as execution entry point. \graallsp does not require to run code in debug mode to collect run-time information and can also make use of these information to answer goto-definition requests.
+    % If different calls to the same function use different argument types, PyCharm will remember all the variants of the types encountered.
+    \begin{itemize}
+        \item PyCharm collects types, we collect run-time objects
+    \end{itemize}
+ 
+    \paragraph{PyAnnotate}
+    PyAnnotate \cite{Dropbox2017PyAnnotate} is a Python library to collect type information (call arguments and return types) at run-time using a profiling hook. Afterwards, these information can be automatically inserted as annotations into the Python source code, so that other tools can make use of them.
+
+    \paragraph{Enhancing Static Source Code Search With Dynamic Data}
+    Holmes and Notkin \cite{holmes2010enhancing} described an approach to improve the find references feature of an IDE using collected run-time information. Only executed methods are included in the search results. % Holmes and Notkin [15] describe an approach when the “find references” capability of an IDE is filtered using information from dynamic analysis – only methods executed in the given scenario are returned.
+
+    Our \graallsp prototype does not facilitate run-time information to answer the \emph{references} request of the \ac{lsp} yet. We perform a static symbol-based search in files of the current workspace.
+
+    \paragraph{}
+    \begin{itemize}
+        \item all these solutions are language-specifically implemented
+        \item focus on a single aspects (code navigation, information on hover, or code completion)
+        \item they need to be triggered manually, we do auto-exec in sandbox
+        \item collect types, we collect run-time objects
+        \item we can do a specific run to the location we are interested and collect only a single run-time object
+    \end{itemize}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% old stuff
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % \paragraph{Outline old}
 % \begin{itemize}
@@ -2059,9 +2139,8 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
 %     \end{itemize}
 % \end{itemize}
 
-\clearpage
 
-\section{Supporting New Languages in Popular \acp{ide}}
+\section{Supporting New Languages in Popular \acp{ide}-frameworks}
 % \begin{itemize}
 %     % Eclipse and IntelliJ -> you need to implement the custom IDE lang-specific parts in Java - you cannot use the language you implemented your language with
 %     % You need to implement lexer and parser again and all other required interfaces - gap between impls
@@ -2073,18 +2152,22 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
 %     % http://www.jetbrains.org/intellij/sdk/docs/reference_guide/custom_language_support.html
 %     % http://www.jetbrains.org/intellij/sdk/docs/reference_guide/custom_language_support/code_completion.html
 % \end{itemize}
-\begin{itemize}
-    \item <- \todo{feels like a motivation section...}
-    \item To understand the challenging task of developing new languages and corresponding tools, we have to have a look at how existing and widely used \acp{ide} provide support for new languages.
-    \item Eclipse \cite{des2004eclipse}, VisualStudio \cite{Microsoft2018}, IntelliJ \cite{JetBrains2018}
-    \item have to develop a \ac{ide}-specific plugin
-    \item Eclipse and IntelliJ -> you need to implement the custom IDE lang-specific parts in Java - you cannot use the language you implemented your language with
-    \item You need to implement lexer and parser again and all other required interfaces - gap between impls
-    \item Features like code completion of properties and goto-definition are still hard to implement for dynamic languages
-    \item \ac{lsp} solves some of the problems -> language server can be written in the language you like
-    \item these \acp{ide} already support \ac{lsp}
-    \item but you still have to develop such a language server
-\end{itemize}
+% \begin{itemize}
+%     \item <- \todo{feels like a motivation section...}
+%     \item To understand the challenging task of developing new languages and corresponding tools, we have to have a look at how existing and widely used \acp{ide} provide support for new languages.
+%     \item Eclipse \cite{des2004eclipse}, VisualStudio \cite{Microsoft2018}, IntelliJ \cite{JetBrains2018}
+%     \item have to develop a \ac{ide}-specific plugin
+%     \item Eclipse and IntelliJ -> you need to implement the custom IDE lang-specific parts in Java - you cannot use the language you implemented your language with
+%     \item You need to implement lexer and parser again and all other required interfaces - gap between impls
+%     \item Features like code completion of properties and goto-definition are still hard to implement for dynamic languages
+%     \item \ac{lsp} solves some of the problems -> language server can be written in the language you like
+%     \item these \acp{ide} already support \ac{lsp}
+%     \item but you still have to develop such a language server
+% \end{itemize}
+%To understand the challenging task of developing new languages and corresponding tools, we have to have a look at how existing and widely used \acp{ide} provide support for new languages. Among other \acs{ide}, Eclipse \cite{des2004eclipse}, VisualStudio \cite{Microsoft2018}, and IntelliJ \cite{JetBrains2018} provide extension points to develop \ac{ide}-specific plugins for new languages. Depending on the \ac{ide}, you have to implement lexer and parser yourself or provide at least grammar files to generate these components. Then, you have to manually implement further \ac{ide}-specific interfaces to support features like code completion, finding all references, or goto-definition. As already mentioned in \todo{motivation}, this will be difficult especially for dynamic languages. Another barrier for language or tool developers might be, that you have to implement these components in the \ac{ide}'s host language. Furthermore, if you want to support another \ac{ide}, the whole process needs to be repeated. The \ac{lsp} solves  some of these problems and the mentioned \acp{ide} support this protocol already. However, you still have to develope a language server for your language from scratch.
+
+%\graallsp~provides the language server already as part of the language implementation framework, if the required Truffle \acp{api} are implemented
+
 
 \section{Tools-first language implementation frameworks}
 \paragraph{Language Workbenches}
@@ -2141,68 +2224,68 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
         % https://modeling-languages.com/enso-dont-design-your-programs-program-your-designs/
     \end{itemize}
     
-\section{Collecting and Using Run-time Types in \acp{ide}}
-\label{sec:rw:collectionRunTimeInformation}
-    \begin{itemize}
-        \item Type harvesting \cite{haupt2011type}
-        \item Hermion \cite{rothlisberger2008exploiting}
-        %\item Nemo Bachelor Project? -> sandboxed execution in Squeak
-        \item https://github.com/dropbox/pyannotate ->  Insert annotations into your source code based on call arguments and return types observed at runtime. - uses Python's sys.setprofile(profilefunc)
-        \item https://blog.jetbrains.com/pycharm/2013/02/dynamic-runtime-type-inference-in-pycharm-2-7/
-        \item Enhancing Static Source Code Search With Dynamic Data \cite{holmes2010enhancing}
-        \item Rsense \cite{Tomohiro2018Rsense}
-    \end{itemize}
+% \section{Collecting and Using Run-time Types in \acp{ide}}
+% \label{sec:rw:collectionRunTimeInformation}
+%     \begin{itemize}
+%         \item Type harvesting \cite{haupt2011type}
+%         \item Hermion \cite{rothlisberger2008exploiting}
+%         %\item Nemo Bachelor Project? -> sandboxed execution in Squeak
+%         \item https://github.com/dropbox/pyannotate ->  Insert annotations into your source code based on call arguments and return types observed at runtime. - uses Python's sys.setprofile(profilefunc)
+%         \item https://blog.jetbrains.com/pycharm/2013/02/dynamic-runtime-type-inference-in-pycharm-2-7/
+%         \item Enhancing Static Source Code Search With Dynamic Data \cite{holmes2010enhancing}
+%         \item Rsense \cite{Tomohiro2018Rsense}
+%     \end{itemize}
 
-    A major part of our approach focuses on collecting and utilizing run-time information to answer \ac{lsp} requests. Therefore, we have a look at where and how other approaches apply run-time information to improve \acp{ide} features.
+%     A major part of our approach focuses on collecting and utilizing run-time information to answer \ac{lsp} requests. Therefore, we have a look at where and how other approaches apply run-time information to improve \acp{ide} features.
 
-    \paragraph{Type harvesting}
-    Haupt et al. have presented an approach to collect type information for dynamic programming languages \cite{haupt2011type}. They perform a stepwise execution of source code while observing the types of relevant components. The set of relevant components, which shall be observed, are called an \emph{acre}. A \emph{bucket} stores mappings of bytecode instructions, arguments, variables, etc., to the collected concrete types.
+%     \paragraph{Type harvesting}
+%     Haupt et al. have presented an approach to collect type information for dynamic programming languages \cite{haupt2011type}. They perform a stepwise execution of source code while observing the types of relevant components. The set of relevant components, which shall be observed, are called an \emph{acre}. A \emph{bucket} stores mappings of bytecode instructions, arguments, variables, etc., to the collected concrete types.
 
-    This is similar to our approach to improve \ac{lsp} responses by collecting and caching run-time information. They also suggest to use unit tests as execution entry points. In contrast to our approach, \emph{type harvesting} \todo{vergleicht man approach und oder impl?}
-    \begin{itemize}
-        \item they continuously observe the stepwise execution of bytecodes, leaving the actual bytecode instruction stream untouched. They need to check for every step, if the current bytecode is on an acre. \graallsp has to instruments \ac{ast} nodes, but only those matching a filter criterion. -> faster at execution and can be optimized
-        \item they collect types, we cache the actual run-time objects via their frames
-        \item we reference the collected infos via line+column, they use more specific mappings of variables etc.
-        \item collecting types only, is more memory efficient than frames
-        \item impl\todo{vergleicht man approach und oder impl?} of type harvesting observes variables continuously and therefore can store most common type -> we use the first frame/object at hand
-    \end{itemize}
+%     This is similar to our approach to improve \ac{lsp} responses by collecting and caching run-time information. They also suggest to use unit tests as execution entry points. In contrast to our approach, \emph{type harvesting} \todo{vergleicht man approach und oder impl?}
+%     \begin{itemize}
+%         \item they continuously observe the stepwise execution of bytecodes, leaving the actual bytecode instruction stream untouched. They need to check for every step, if the current bytecode is on an acre. \graallsp has to instruments \ac{ast} nodes, but only those matching a filter criterion. -> faster at execution and can be optimized
+%         \item they collect types, we cache the actual run-time objects via their frames
+%         \item we reference the collected infos via line+column, they use more specific mappings of variables etc.
+%         \item collecting types only, is more memory efficient than frames
+%         \item impl\todo{vergleicht man approach und oder impl?} of type harvesting observes variables continuously and therefore can store most common type -> we use the first frame/object at hand
+%     \end{itemize}
 
-    \paragraph{Hermion}
-    % We address these questions and present our working prototype, an IDE called Hermion with the capability to capture runtime information from an application under development and to exploit this information by enhancing navigation and browsing of the source code.
-    The Hermion \cite{rothlisberger2008exploiting} \ac{ide} collects run-time information to improve static source code navigation and browsing.
+%     \paragraph{Hermion}
+%     % We address these questions and present our working prototype, an IDE called Hermion with the capability to capture runtime information from an application under development and to exploit this information by enhancing navigation and browsing of the source code.
+%     The Hermion \cite{rothlisberger2008exploiting} \ac{ide} collects run-time information to improve static source code navigation and browsing.
     
-    \begin{itemize}
-        \item Hermion builds upon partial behavioral reflection (ref?) to restrict the collection of run-time information only to places where it is needed. This is similar to Truffle's instrumentation of relevant \ac{ast} nodes, which we use in \graallsp. % E. Tanter, J. Noye, D. Caromel, and P. Cointe. Partial Behavioral Reflection: Spatial and Temporal Selection of Reification. In Proc. of the Conference on Object-oriented Programing, Systems, Languages, and Applications, pages 27–46. ACM, October 2003
-        % Another approach to gain performance is partial behavioral reflection [Tanter et al. 2003], which restricts the application of a MOP in spatial and temporal manner. Instead of applying to all program parts equally, the developer optimizes the MOP’s application to only the places where it is needed to avoid unnecessary overhead. However, this does not reduce the cost of reflective operations used. Furthermore, it burdens again the programmer with the optimization while dispatch chains are part of the language implementation and thus optimize reflective operations without programmer intervention
-    \end{itemize}
+%     \begin{itemize}
+%         \item Hermion builds upon partial behavioral reflection (ref?) to restrict the collection of run-time information only to places where it is needed. This is similar to Truffle's instrumentation of relevant \ac{ast} nodes, which we use in \graallsp. % E. Tanter, J. Noye, D. Caromel, and P. Cointe. Partial Behavioral Reflection: Spatial and Temporal Selection of Reification. In Proc. of the Conference on Object-oriented Programing, Systems, Languages, and Applications, pages 27–46. ACM, October 2003
+%         % Another approach to gain performance is partial behavioral reflection [Tanter et al. 2003], which restricts the application of a MOP in spatial and temporal manner. Instead of applying to all program parts equally, the developer optimizes the MOP’s application to only the places where it is needed to avoid unnecessary overhead. However, this does not reduce the cost of reflective operations used. Furthermore, it burdens again the programmer with the optimization while dispatch chains are part of the language implementation and thus optimize reflective operations without programmer intervention
+%     \end{itemize}
 
-    \paragraph{PyCharm Debugger}
-    The debugger of PyCharm is able to optionally collect run-time type information during a debug session \cite{Filippov2013Dynamic}. The information are used to improve code completion and documentation popups during and after the debugging session. The collected type information can also be persisted as docstrings in Python source code.
-    % PyCharm’s debugger is now capable of collecting type information at runtime and using this information for improving code completion suggestions, code insight and quick documentation popups. This needs to be enabled in the debugger settings.
-    % You debug your code all the time, and now in the course of debugging you can also collect type information. Afterwards, it will be used in auto-completion, and you will be able to put the collected type information into docstrings as well. Please note that enabling this feature may affect debugger performance, so use it with care.
+%     \paragraph{PyCharm Debugger}
+%     The debugger of PyCharm is able to optionally collect run-time type information during a debug session \cite{Filippov2013Dynamic}. The information are used to improve code completion and documentation popups during and after the debugging session. The collected type information can also be persisted as docstrings in Python source code.
+%     % PyCharm’s debugger is now capable of collecting type information at runtime and using this information for improving code completion suggestions, code insight and quick documentation popups. This needs to be enabled in the debugger settings.
+%     % You debug your code all the time, and now in the course of debugging you can also collect type information. Afterwards, it will be used in auto-completion, and you will be able to put the collected type information into docstrings as well. Please note that enabling this feature may affect debugger performance, so use it with care.
 
-    Similar to our approach, the PyCharm's debugger can facilitate unit tests as execution entry point. \graallsp does not require to run code in debug mode to collect run-time information and can also make use of these information to answer goto-definition requests.
-    % If different calls to the same function use different argument types, PyCharm will remember all the variants of the types encountered.
-    \begin{itemize}
-        \item PyCharm collects types, we collect run-time objects
-    \end{itemize}
+%     Similar to our approach, the PyCharm's debugger can facilitate unit tests as execution entry point. \graallsp does not require to run code in debug mode to collect run-time information and can also make use of these information to answer goto-definition requests.
+%     % If different calls to the same function use different argument types, PyCharm will remember all the variants of the types encountered.
+%     \begin{itemize}
+%         \item PyCharm collects types, we collect run-time objects
+%     \end{itemize}
  
-    \paragraph{PyAnnotate}
-    PyAnnotate \cite{Dropbox2017PyAnnotate} is a Python library to collect type information (call arguments and return types) at run-time using a profiling hook. Afterwards, these information can be automatically inserted as annotations into the Python source code, so that other tools can make use of them.
+%     \paragraph{PyAnnotate}
+%     PyAnnotate \cite{Dropbox2017PyAnnotate} is a Python library to collect type information (call arguments and return types) at run-time using a profiling hook. Afterwards, these information can be automatically inserted as annotations into the Python source code, so that other tools can make use of them.
 
-    \paragraph{Enhancing Static Source Code Search With Dynamic Data}
-    Holmes and Notkin \cite{holmes2010enhancing} described an approach to improve the find references feature of an IDE using collected run-time information. Only executed methods are included in the search results. % Holmes and Notkin [15] describe an approach when the “find references” capability of an IDE is filtered using information from dynamic analysis – only methods executed in the given scenario are returned.
+%     \paragraph{Enhancing Static Source Code Search With Dynamic Data}
+%     Holmes and Notkin \cite{holmes2010enhancing} described an approach to improve the find references feature of an IDE using collected run-time information. Only executed methods are included in the search results. % Holmes and Notkin [15] describe an approach when the “find references” capability of an IDE is filtered using information from dynamic analysis – only methods executed in the given scenario are returned.
 
-    Our \graallsp prototype does not facilitate run-time information to answer the \emph{references} request of the \ac{lsp} yet. We perform a static symbol-based search in files of the current workspace.
+%     Our \graallsp prototype does not facilitate run-time information to answer the \emph{references} request of the \ac{lsp} yet. We perform a static symbol-based search in files of the current workspace.
 
-    \paragraph{}
-    \begin{itemize}
-        \item all these solutions are language-specifically implemented
-        \item focus on a single aspects (code navigation, information on hover, or code completion)
-        \item they need to be triggered manually, we do auto-exec in sandbox
-        \item collect types, we collect run-time objects
-        \item we can do a specific run to the location we are interested and collect only a single run-time object
-    \end{itemize}
+%     \paragraph{}
+%     \begin{itemize}
+%         \item all these solutions are language-specifically implemented
+%         \item focus on a single aspects (code navigation, information on hover, or code completion)
+%         \item they need to be triggered manually, we do auto-exec in sandbox
+%         \item collect types, we collect run-time objects
+%         \item we can do a specific run to the location we are interested and collect only a single run-time object
+%     \end{itemize}
     
 
 
@@ -2251,7 +2334,11 @@ Our focus: out of the box IDE-like tooling support for performance-focused imple
 
 %Jedi uses a very simple API to connect with IDEs.
 -> again separate specialized parser
+\paragraph{RSense}
+\cite{Tomohiro2018Rsense}
+% RSense is a tool for doing static analysis of Ruby source code. Rsense is used in conjunction with an editor plugin.
 
+% RSense is currently under heavy development and ready for testing. Currently we need to improve the homepage and develop plugins for code_completion. In the near future we'll also be ready to implement some of the other basic features like find-definition. After that, there's plenty to do in the long term. See the waffle link below to find out where you can pitch in. It would be awesome if you helped get things done.
 
 \chapter{Conclusion and Future Work}
 \label{cha:conclusion}

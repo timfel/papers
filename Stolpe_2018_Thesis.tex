@@ -1290,20 +1290,21 @@ natural.
 \chapter{Implementation}
 \label{cha:implementation}
 
-    In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle \cite{wimmer2012truffle} as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented small Truffle \ac{api} extensions to support more \ac{lsp} features. As \ac{lsp} Java wrapper we used LSP4J \todo{name a version?}. Transportation for JSON-RPC is implemented using TCP sockets. In the following sections, we start by describing how we have implemented common features required for most \ac{lsp} requests and then explain in detail the implementation of selected \ac{lsp} requests in \graallsp.
+    In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented small Truffle \ac{api} extensions to support more \ac{lsp} features. As \ac{lsp} Java wrapper we used LSP4J \todo{name a version?}. Transportation for JSON-RPC is implemented using Java's TCP sockets. In the following sections, we start by describing how we have implemented common features required for most \ac{lsp} requests and then explain in detail the implementation of selected \ac{lsp} requests in \graallsp.
 
     \section{Prerequisites to Answer \acs{lsp} Requests with Truffle}
-        \begin{itemize}
-            \item our approach has some requirements on the language impl framework
-            \item influences project structure and dependencies
-            \item server init
-            \item things common for most requests:
-            \begin{itemize}
-                \item parsing + diagnostics
-                \item mapping caret to IR
-                \item obtaining run-time information
-            \end{itemize}
-        \end{itemize}
+        % \begin{itemize}
+        %     \item our approach has some requirements on the language impl framework
+        %     \item influences project structure and dependencies
+        %     \item server init
+        %     \item things common for most requests:
+        %     \begin{itemize}
+        %         \item parsing + diagnostics
+        %         \item mapping caret to IR
+        %         \item obtaining run-time information
+        %     \end{itemize}
+        % \end{itemize}
+    Implementing a language server on top of the Truffle framework with the requirements described in our approach, especially the sandboxing, has implications on our project structure, dependencies, and the bootstrapping process. Furthermore, there are common prerequisites to answer most \ac{lsp} requests. These are parsing source code, mapping the requested position to source sections of \ac{ast} nodes, and collecting and utilizing run-time information.
 
     \subsection{Project Structure and Dependencies}
     \label{sec:impl:projectStructure}
@@ -1322,11 +1323,60 @@ natural.
         %     \item lsp4j thread puts work in a queue which is polled by the context aware worker thread
         %     \item lsp4j threads await result via Futures
         % \end{itemize}
-        To facilitate Truffle instrumentation, we have to implement the interface \inlinecode{TruffleInstrument}, which is part of the Truffle \ac{api}. Instruments are loaded via Java's \ac{spi} and the framework calls their implemented \inlinecode{onCreate(Env)} method during initialization, to pass an instance of a Truffle instrumentation environment. This environment has a language-agnostic \ac{api} to parse source code, interact with loaded languages, and observe and inject behavior into the \ac{ast} interpreters. Most \ac{lsp} features can be mapped to that \ac{api}.
+        To use Truffle's instrumentation capabilities, we have to implement the interface \inlinecode{TruffleInstrument}, which is part of the Truffle \ac{api}. Instruments are loaded via Java's \ac{spi} and the framework calls their implemented \inlinecode{onCreate(Env)} method during initialization, to pass an instance of a Truffle instrumentation environment. This environment has a language-agnostic \ac{api} to parse source code, interact with loaded languages, and observe and inject behavior into the \ac{ast} interpreters. Most \ac{lsp} features can be mapped to that \ac{api}.
         
-        As described in \autoref{sec:newApproachCompletionProperties}, our approach requires to sandbox the execution of guest languages and redirect file accesses. Unfortunately, the Truffle instrumentation environment provides no \ac{api} to support that requirement. However, there is a separate Graal \ac{sdk} to embed and run code from guest languages in JVM-based host applications\todo{context?}. It allows to create and configure a Polyglot \inlinecode{Engine} and Polyglot \inlinecode{Context} instances. An \inlinecode{Engine} provides access to the installed languages and instruments. A \inlinecode{Context} instance allows to evaluate code of its associated languages and represents the global run-time state. Furthermore, it supports to set a custom file system. Multiple \inlinecode{Context} instances can share the same \inlinecode{Engine} instance and thereby all its registered instruments.
+        As described in \autoref{sec:newApproachCompletionProperties}, our approach requires to sandbox the execution of guest languages and redirect file accesses. Unfortunately, the Truffle instrumentation environment provides no \ac{api} to support that requirement. However, there is a separate Graal \ac{sdk} to embed and run code from guest languages in JVM-based host applications. It allows to create and configure Polyglot \inlinecode{Engine} and Polyglot \inlinecode{Context} instances. An \inlinecode{Engine} provides access to the installed languages and instruments. A \inlinecode{Context} instance allows to evaluate code of its associated languages and represents the global run-time state. Furthermore, it supports to set a custom file system. Multiple \inlinecode{Context} instances can share the same \inlinecode{Engine} instance and thereby all its registered instruments.
         
-        Therefore we decided to create three Java projects. The first contains a separate launcher which handles the whole bootstrapping and enables the creation of sandboxed \inlinecode{Context} instances using the Graal \ac{sdk}. The actual language server is implemented as Truffle instrument using the Truffle \ac{api} in the second project. During bootstrapping, out instrument will register some services which enable the launcher for example to explicitly start the language server. These service interfaces are part of a third project on which the others depend. \autoref{fig:graalLspPackageStructure} visualizes the resulting project structure and dependencies.
+        Therefore, we decided to create three Java projects. \autoref{fig:graalLspPackageStructure} visualizes the resulting project structure and dependencies. The first project contains a separate launcher which handles the whole bootstrapping and enables the creation of sandboxed \inlinecode{Context} instances using the Graal \ac{sdk}. The actual language server is implemented as Truffle instrument in a second project. The implementation of this instrument is shown in \autoref{lst:impl:javaLSPINstrument}. During bootstrapping, the instrument will register some services (lines 21-22) which enable the launcher for example to explicitly start the language server later. These service interfaces are part of a third project on which the others depend. 
+
+        \begin{code}[lst:impl:javaLSPINstrument]{[The Java class LSPInstrument]Our implementation of a \inlinecode{TruffleInstrument} used to initialize and start the language server.}{float,numbers=left,language=Java}
+@Registration(id = LSPInstrument.ID, name = "Language Server", version = "0.1",
+              services = {
+                VirtualLanguageServerFileProvider.class,
+                ContextAwareExecutorRegistry.class,
+                LanguageServerBootstrapper.class})
+public class LSPInstrument extends TruffleInstrument
+                           implements LanguageServerBootstrapper {
+  public static final String ID = "lsp";
+
+  private OptionValues options;
+  private LanguageServerImpl languageServer;
+
+  @Override
+  protected void onCreate(Env env) {
+    options = env.getOptions();
+    TruffleAdapter truffleAdapter = new TruffleAdapter(env);
+    PrintWriter info = new PrintWriter(env.out(), true);
+    PrintWriter err = new PrintWriter(env.err(), true);
+    languageServer = LanguageServerImpl.create(truffleAdapter, info, err);
+
+    env.registerService(truffleAdapter);
+    env.registerService(this);
+  }
+
+  @Override
+  protected OptionDescriptors getOptionDescriptors() {
+    return new LSOptionsOptionDescriptors();
+  }
+
+  public Future<?> startServer() {            
+    HostAndPort hostAndPort = options.get(LSOptions.Lsp);
+    try {
+      InetSocketAddress socketAddress = hostAndPort.createSocket();
+      int port = socketAddress.getPort();
+      Integer backlog = options.get(LSOptions.SocketBacklogSize);
+      InetAddress address = socketAddress.getAddress();
+      ServerSocket serverSocket = new ServerSocket(port, backlog, address);
+      return languageServer.start(serverSocket);
+    } catch (IOException e) {
+      String message = String.format("[Graal LSP] Starting server on %s failed: %s",
+          hostAndPort.getHostPort(),
+          e.getLocalizedMessage());
+      throw new LSPIOException(message, e);
+    }
+  }
+}
+            \end{code}
 
         \begin{figure}
             \includegraphics[width=\linewidth]{images/GraalLSP-package-structure.png}

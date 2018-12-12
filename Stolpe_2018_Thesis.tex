@@ -602,7 +602,7 @@ In the following, we use the example of code completion to describe our approach
     One of these entry points are unit tests. Programmers typically write them to ensure the desired behavior of their programs and avoid regression of bugs. Therefore, unit tests should cover most parts of the source code. Furthermore, most unit tests have a short execution time and are supposed to be free of unwanted side-effects -- or at least have a clean-up routine included. The systematic execution of unit tests is therefore a promising approach to get run-time information for code completion enhancement. This idea is inspired by \emph{type harvesting}~\cite{haupt2011type}, a practical approach to obtaining typing information in dynamic programming languages by exploiting unit tests. We only have to provide programmers a way to tell our language server how to execute the tests. This could be done via a separate configuration file or via a special comment in the first or last lines of a source code file, which encodes a path to a runnable script.
 
     Unit tests might not be available, especially if you start writing a small script or do not follow \ac{tdd} principles. Therefore we suggest as fallback to try executing the current source code, in which the code completion was triggered, if no path to an entry point is defined.
-    
+
     % \paragraph{Unsaved Changes}
     % \begin{itemize}
     %     \item language client might have unsaved changes in opened files
@@ -682,14 +682,14 @@ natural.
     To find an \ac{ir}-element in front of the completion trigger character, the source code needs to be parsable. We assume, that this is not always the case when a completion is triggered, because an inserted completion character might cause a syntax error. Therefore, we suggest to revert the last textual change which was sent from the client via the \emph{didChange} notification and then try to parse the reverted source code again. Translated to our Python example in \autoref{lst:pythonObjectPropertyCompletion1NewApproach}, the source code shown is no valid Python source code because of the last dot. Removing this dot makes the code parsable again.
     % \todo{add remark: approach only possible for languages which support "expression statements"? <- how can we name that? For example in Java this would not work.}
 
-    Now, we can search for a matching \ac{ir}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{ir}-elements whose lexical source sections end before the removed trigger character position. Furthermore, we are only interested in an \ac{ir}-element which represents an expression, because we want to obtain its result. Hence, it would be useful again, to have tagged \ac{ir}-elements, so that we can filter for example for expressions only.
+    Now, we can search for a matching \ac{ir}-element in front of the removed completion trigger character position, by checking its lexical source section. However, there might be multiple \ac{ir}-elements whose lexical source sections end before the removed trigger character position. Furthermore, we are only interested in an \ac{ir}-element which represents an expression, because we want to obtain its result. Hence, we assume again, that language implementations can expose meta-information of \ac{ir}-elements through the framework, so that we can filter for example for expressions only.
 
     \paragraph{Obtaining the Actual Properties}
     To get the expression result, we need to execute the corresponding \ac{ir}-element. In our Python example, we would evaluate an \ac{ir}-element representing a variable read for the symbol \inlinecode{natural}. We can use the already described approach for obtaining run-time information for locals, to execute the source code until the desired \ac{ir}-element is reached. Then, the framework needs to provide an \ac{api}, so that we can intercept the result of the \ac{ir}-element execution. Having the run-time object, we need the support of the framework to query the language implementation for properties of that object, together with further meta-information of these properties, to add details, kind, and documentation for each completion item.
 
     We suggest some optimizations to avoid executing source code for every property completion request. First of all we can optimize property completion for literals, if the framework supports identifying \ac{ir}-elements as literal representations. The literal value is typically encoded in or referenced by the \ac{ir}-element. If we can access this value, we can directly query for its properties.
     
-    If the \ac{ir}-element is not representing a literal, we can check as next step if there are already cached run-time information available. If the framework and the language implementation support in-line evaluation, we can execute the \ac{ir}-element in the context of the cached information. \todo{hier noch mehr erklären? - Beispiel geben mit frame usw oder dann in Impl erläutern?}
+    If the \ac{ir}-element is not representing a literal, we can check as next step if there are already cached run-time information available. If the framework and the language implementation support in-line evaluation, we can execute the \ac{ir}-element in the context of the cached information.
 
     If there are no cached run-time information available, we need to execute unit tests or the current source code until the \ac{ir}-element is reached, to get the required run-time object.
 
@@ -729,26 +729,27 @@ natural.
     To collect all the needed information, we suggest the following steps.
 
     \begin{enumerate}
-        \item Find a matching \ac{ir}-element at the requested position
+        \item Find an \ac{ir}-element representing a call to a callable at the requested position
         \item Execute the source code until the \ac{ir}-element is reached
         \item Intercept the callable run-time object represented by the \ac{ir}-element
         \item Query the callable for label, parameters and documentation
     \end{enumerate}
 
-    The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable, e.g. via a tag. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore, this request might be supported only partial, depending on the particular language syntax.
+    The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore, this request might be supported only partial, depending on the particular language syntax.
     
-    Having obtained a callable object, the last step implies, that we can query the language implementation for information about that callable. Among all parameter names and their documentation, we need for the label a formatted signature, which depends on the syntax of the language. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use the widely used Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
+    Having obtained a callable object, the last step implies, that we can query the framework for information about that callable. Among all parameter names and their documentation, we need a formatted, language-specific representation of signature to create the label. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use a Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
     
     \paragraph{Hover Information}
     With the already described approaches, we can support the \emph{hover} request for variables and callables with minimal effort, if there are cached run-time information available. The steps to build the hover response are as follows.
 
     \begin{enumerate}
-        \item Find a matching \ac{ir}-element for a callable or variable at the requested position
+        \item Find a matching \ac{ir}-element representing a call to a callable or a variable at the requested position
         \item Use the cached run-time information to perform an in-line evaluation
         \item Create a hover response from the evaluation result
     \end{enumerate}
 
-    The first step requires again some kind of tagging of \ac{ir}-elements. If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result, we can build the hover response, which consists of plaintext or markup content.
+    \todo{CONTINUE HERE: name only the diff to code completion?}
+    If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result, we can build the hover response, which consists of plaintext or markup content.
 
     \paragraph{Document and Workspace Symbols}
     % \begin{itemize}

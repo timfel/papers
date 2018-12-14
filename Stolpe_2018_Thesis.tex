@@ -697,7 +697,9 @@ natural.
 
 \section{Transferring the Approach to Other Requests}
 \label{sec:appr:transferringApproachToOtherRequests}
-    The approach of supporting code completion, described in the previous sections, includes parts, which can be used to support further \ac{lsp} requests. \autoref{tab:furtherLSPFeatures} shows selected \ac{lsp} requests, for which we will describe the approach transfer in the following.
+    The approach of supporting code completion, described in the previous sections, includes parts, which can be used to support further \ac{lsp} requests. \autoref{tab:furtherLSPFeatures} shows the selected \ac{lsp} requests, for which we will describe the approach transfer in the following. We have chosen these requests, because they build together with code completion the essential feature set of an \ac{ide} for dynamic languages in our opinion and work well with our approach for code completion.
+    
+    In particular, we will highlight how to support \emph{hover}, \emph{definition}, and \emph{references} requests for callables and local variables, the \emph{signatureHelp} request for callables, and the \emph{documentHighlight} and \emph{rename} requests for local variables only. Furthermore, we will highlight, how to support the \emph{symbol} and \emph{documentSymbol} requests for any kind of symbol declaration. As already described for code completion, we rely on meta-information exposed by the language implementation framework. These information allow us to search for certain kinds of \ac{ir}-elements representing a call to a callable or an access to a variable at the requested position, or to retrieve all kind of symbol declarations in a source code file.
     
     \begin{table}
         \centering
@@ -709,13 +711,14 @@ natural.
             \toprule
             Request/Notification    & Description\\
             \midrule
-            signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered signatureHelp trigger characters.     \\
-            hover                   & Request for information at caret-hovering position.\\
             documentSymbol          & Request for symbols of a specific source file (function names, variable names, module names, etc.).  \\
             symbol                  & Like documentSymbol, but for all files in the client workspace. \\
+            signatureHelp           & Request to find signature information (e.g. parameter names and details for a function) at caret position. Is triggered via registered trigger characters.     \\
+            hover                   & Request for information at caret-hovering position.\\
             definition              & Goto-definition request for functions, variables, etc. \\
             references              & Request to find all references of a symbol. \\
             documentHighlight       & Request to highlight all ranges related to a symbol (e.g. variable reads and writes).     \\
+            rename                  & Request to rename a symbol workspace-wide.     \\
             \bottomrule
           \end{tabular}
         \end{threeparttable}
@@ -723,7 +726,19 @@ natural.
 
     %\todo{Zusammenfassung, was wiederverwendet werden kann: run-to-section + static search for tagged \ac{ir}-elements + \ac{ir}-element lexical source section}
 
-    \paragraph{Signature Help}
+
+
+    \paragraph{Document and Workspace Symbols}
+    % \begin{itemize}
+    %     \item response: range + kind + container
+    %     \item scan all \ac{ir}-elements for those representing a symbol definition, e.g. via tagging
+    %     \item use lexical source section of \ac{ir}-element
+    % \end{itemize}
+    The \emph{documentSymbol} and \emph{symbol} response items consist of a label, range, symbol kind, and container name. To provide these information, we assume that the language implementations can expose these information through the framework.
+
+    First of all, we need to collect all \ac{ir}-elements for a source code file, which define a symbol. Having them, label, range and symbol kind could be derived from the \ac{ir}-element and it's lexical source section. The container name could be derived from the names of the surrounding lexical scopes. To support the workspace-wide \emph{symbol} request, we can build the the union of \emph{documentSymbol} requests for all files in the workspace.
+
+    \paragraph{Signature Help and Goto-definition for Callables}
     The \emph{signatureHelp} request is auto-activated at client-side, like code completion, if the server includes trigger characters for signature help in the \emph{initialize} response. A \emph{signatureHelp} response consists of a list of signatures, because there might be different variants, if the language implementation supports function overloading. Furthermore, the response includes two indices, telling which signature and which parameter should be shown in detail in the UI. Every signature in the list consists of a label, a list of parameters, and an optional documentation. A parameter also consists of label and documentation.
 
     To collect all the needed information, we suggest the following steps.
@@ -735,67 +750,21 @@ natural.
         \item Query the callable for label, parameters and documentation
     \end{enumerate}
 
-    The first to third steps equal those for code completion of properties. We only need to search for an \ac{ir}-element which represents a callable. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore, this request might be supported only partial, depending on the particular language syntax.
+    The first to third steps equal those for code completion of properties. A challenge is, that the signature help should be displayed from the time, the trigger character is inserted, until the user has completed the signature. During that process, the source code might contain syntax errors, so that we have no \ac{ir}-elements. Returning an empty response will end the displayed signature help. Therefore, this request might be supported only partial, depending on the particular language syntax.
     
     Having obtained a callable object, the last step implies, that we can query the framework for information about that callable. Among all parameter names and their documentation, we need a formatted, language-specific representation of signature to create the label. If this is not supported by the framework, but we can get at least access to a list of parameter names, we suggest to use a Python-like syntax \inlinecode{callableName(param1, param2, paramN)} as signature label.
+
+    The approach to support the \emph{definition} request for callables is quite similar. Only in the last step, we do not have to query the framework for signature information, but for the callable's definition location in the source code. Furthermore, we can apply a static search as fallback, if the dynamic approach does not yield a result. We can use the same approach as for the \emph{smybol} request, to find all definitions of callables in the workspace and filter those matching the identifier of the callable at the requested position. For non-unique identifiers, this might yield many results, which are not related to the desired definition location. But in our opinion, it is better to provide the users a list of potential matches instead of providing nothing.
     
+    \paragraph{Document Highlight, Rename and Find All References}
+    The \emph{documentHighlight}, \emph{rename} and the \emph{references} responses consist of a list of ranges in the source code. For the \emph{documentHighlight} response, each range can additionally have an associated kind (\inlinecode{Text}, \inlinecode{Read}, or \inlinecode{Write}), and for the \emph{rename} response, each range needs an associated file \ac{uri} and the new text.
+
+    To support these requests for local variables, first of all a \ac{ir}-element representing a read- or write-access of a variable at the requested position needs to be found. Having one, we suggest to search in the surrounding lexical scopes for all other \ac{ir}-elements representing an access to variables with the same identifier. The required range can be obtained from the lexical source section of the \ac{ir}-element. For the \emph{documentHighlight} response, the kind can be determined from the access kind of the variable. For the \emph{rename} response, the \ac{uri} is the one of the current file and the new text is already provided in the request.
+
+    Supporting \emph{references} also for callables workspace-wide, we could use the same static fallback approach as described for the \emph{definition} request. Due to potentially found false-positives, we do not suggest to also apply this static approach to the code-modifying \emph{rename} request.
+
     \paragraph{Hover Information}
-    With the already described approaches, we can support the \emph{hover} request for variables and callables with minimal effort, if there are cached run-time information available. The steps to build the hover response are as follows.
-
-    \begin{enumerate}
-        \item Find a matching \ac{ir}-element representing a call to a callable or a variable at the requested position
-        \item Use the cached run-time information to perform an in-line evaluation
-        \item Create a hover response from the evaluation result
-    \end{enumerate}
-
-    \todo{CONTINUE HERE: name only the diff to code completion?}
-    If we have found an \ac{ir}-element representing a variable or callable, we can perform an in-line evaluation as described for code completion. Using the evaluation result, we can build the hover response, which consists of plaintext or markup content.
-
-    \paragraph{Document and Workspace Symbols}
-    % \begin{itemize}
-    %     \item response: range + kind + container
-    %     \item scan all \ac{ir}-elements for those representing a symbol definition, e.g. via tagging
-    %     \item use lexical source section of \ac{ir}-element
-    % \end{itemize}
-    The \emph{documentSymbol} and \emph{symbol} response items consist of a label, range, symbol kind, and container name. To provide these information, we suggest the following steps.
-
-    \begin{enumerate}
-        \item Find all \ac{ir}-elements representing symbol declarations in a source code file
-        \item Query these \ac{ir}-elements for the requested information
-        \item Create a response containing a list of symbol information
-    \end{enumerate}
-
-    As for the \emph{hover} request, the first step requires some kind of tagging, to filter for the required \ac{ir}-elements. The second step requires, that we can obtain label and range, and optionally symbol kind and container name. The label and range can be derived from the \ac{ir}-element and its lexical source section. Supporting a symbol kind depends on the meta-information available for \ac{ir}-elements. The container name could be derived from the names of the surrounding lexical scopes. To support the workspace-wide \emph{symbol} request, we can build the the union of \emph{documentSymbol} requests for all files in the workspace.
-
-    \paragraph{Document Highlight}
-    The \emph{documentHighlight} response consists of a list of ranges in the source code. Each range can have an associated kind (\inlinecode{Text}, \inlinecode{Read}, or \inlinecode{Write}). To support highlighting of variables, we suggest the following steps.
-
-    \begin{enumerate}
-        \item Find a matching \ac{ir}-element representing a variable at the requested position
-        \item Search for all other \ac{ir}-elements representing the same variable in the current source code
-        \item Create a response containing the list of ranges and kinds
-    \end{enumerate}
-
-    The first step requires again to search and filter for an \ac{ir}-element at the requested position, which represents a read- or write-access of a variable. For the second step, we suggest to search in the surrounding lexical scopes for all other \ac{ir}-elements representing an access to the same variable. The required range can be obtained from the lexical source section of the \ac{ir}-element. The kind can be mapped from the access kind of the variable.
-
-
-    \paragraph{Goto-definition (WIP)}
-    \begin{itemize}
-        \item response: Location[]
-        \item local variables and callables
-        \item local variables: like \emph{documentHighlight} -> interpret first write as definition
-        \item callables: like code completion -> run to section + query callable run-time object for its source section
-        \item static fallback: like \emph{documentSymbol}, find all definitions of symbols in the workspace and match callable name. Might yield false-positives.
-    \end{itemize}
-
-
-    \paragraph{Find All References (WIP)}
-    \begin{itemize}
-        \item response: Location[]
-        \item local variables and callables
-        \item local variables: like \emph{documentHighlight}
-        \item callables: static workspace-wide search for other \ac{ir}-elements tagged as calls with same identifier
-    \end{itemize}
+    We can support the \emph{hover} request for variables and callables, if there are cached run-time information available. If we have found an \ac{ir}-element representing a variable or callable at the requested position, we can perform an in-line evaluation as described for code completion. Using the evaluation result, we can build the hover response, by querying the framework for information about run-time objects as described for code completion. The hover response consists of plaintext or markup content, so that we can put it together depending on the available information.
 
 %\clearpage
 
@@ -1685,7 +1654,7 @@ def bar():
 
     For nodes of callables, we obtain the corresponding run-time object as described for the completion of properties in \autoref{sec:impl:completionOfProperties}. Then, we use the method \inlinecode{findSourceLocation(LanguageInfo language, Object value)} of the instrumentation environment, to find the source section of the callable.
 
-    If the run-time approach yields no results, we use a static fallback search. As described in \autoref{sec:impl:symbol}, we search for all symbols in the workspace and take the ones matching the identifier of our callable node. For non-unique identifiers, this might yield many results, which are not related to the desired definition location. But in our opinion, it is better to provide the users a list of potential matches instead of providing nothing.
+    If the run-time approach yields no results, we use a static fallback search. As described in \autoref{sec:impl:symbol}, we search for all symbols in the workspace and take the ones matching the identifier of our callable node. As already mentioned in our approach, this might yield false-positive matches. But as the response consists of a list of locations, we can provide all of them and let the users choose from these suggestions.
 
     For variables, we assume that the first write of a local variable is its definition location. This way, we can reuse the implementation described in \autoref{sec:impl:documentHighlight}, to find all other occurrences of a local variable and pick the first write access as definition location.
 

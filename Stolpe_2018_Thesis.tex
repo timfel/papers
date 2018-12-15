@@ -1575,10 +1575,10 @@ def bar():
 
     % To sum it up, with the approach described in this section, we are able to provide a basic, language-agnostic code completion for object properties. This approach includes reverting source code to a parsable state, executing that source code in a sandbox to listen for specific execution events using Truffle instrumentation, and querying the obtained run-time language object for its properties.
 
-    \todo{summary?}
 
-
-\subsection{Signature Help}
+\subsection{Further Requests}
+    
+    \paragraph{Signature Help}
     % \begin{itemize}
     %     \item run-to-section but with inputFilter
     %     \item we assume code is parsable because of smart character insertion "()"
@@ -1590,7 +1590,7 @@ def bar():
     % \end{itemize}
     As described in our approach in \autoref{sec:appr:transferringApproachToOtherRequests}, we have implemented signature help support similar to the completion of properties. We added the method \inlinecode{getSignatureHelpTriggerCharacters(String languageId)} to the instrumentation environment, to retrieve the needed trigger characters. In contrast to the completion of properties implementation, we assume that the source code is parsable after the trigger character is inserted, because many language clients support smart character insertion, so that for example the insertion of the widely used trigger character `(' is automatically amended to `()'. Furthermore, we do not search for a node having a source section in front of the trigger character, but for a node at the requested position, tagged with a \inlinecode{CallTag}.
     
-    If found, we execute the source code as for completion of properties, but we listen for slightly different events, because we want to obtain the callable object itself instead of the return value of the called callable. Therefore, we have implemented the \inlinecode{onInputValue(EventContext context, VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)} method of the listener, which provides intermediate results of expressions. In our case, we can intercept the callable object before it is  called.
+    If found, we execute the source code as for completion of properties, but we listen for slightly different events, because we want to obtain the callable object itself, instead of the return value of the called callable. Therefore, we have implemented the \inlinecode{onInputValue(EventContext context, VirtualFrame frame, EventContext inputContext, int inputIndex, Object inputValue)} method of the listener, which provides intermediate results of expressions. In our case, we can intercept the callable object before it is  called.
     
     Having the callable, we send the added custom message \inlinecode{GetSignature} to retrieve a \inlinecode{TruffleObject} representing a list of signature parameters. As described in our approach, the language needs to provide a formatted string representation of the signature which we can use as label for the response. We assume therefore, that the retrieved \inlinecode{TruffleObject} has a \inlinecode{format()} method, which we can call by sending an \inlinecode{INVOKE} message.
 
@@ -1598,7 +1598,7 @@ def bar():
 
 
 
-\subsection{Hover Information}
+    \paragraph{Hover Information}
     % \begin{itemize}
     %     \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
     %     \item cached frame 2.: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame) <- same as for completion of locals using cached infos
@@ -1606,15 +1606,12 @@ def bar():
     % \end{itemize}
     Our implementation of \graallsp~supports hover information for variables and callables, if cached run-time information are available. We use the already described approach to find a node corresponding to the requested position. If found, we try two strategies to get a run-time object represented by that node.
     
-    First of all, we test if the text of the node's source section matches an identifier of one of the frame slots. We can access these slots by calling \inlinecode{frame.getFrameDescriptor().getSlots()}\todo{how to handle?}. If found, we use the value associated to that frame slot.
+    First of all, we test if the text of the node's source section matches an identifier of one of the frame slots. We can access these slots by calling \inlinecode{frame.getFrameDescriptor().getSlots()}. If found, we use the value associated to that frame slot. If not found, we in-line evaluate the text of the node's source section, as described for the completion of properties in \autoref{sec:impl:completionOfProperties}.
 
-    If not found, we in-line evaluate the text of the node's source section, as described for the completion of properties in \autoref{sec:impl:completionOfProperties}.
-
-    If one of the strategies yields a result, we use again the same implementation to query the object for meta-information, signature and documentation as described for the completion of properties.
+    If one of the strategies yields a result, we use again the same implementation as described for the completion of properties, to query the object for meta-information, signature, and documentation.
 
 
-\subsection{Document Symbols}
-\label{sec:impl:documentSymbol}
+    \paragraph{Document and Workspace Symbols}
     % \begin{itemize}
     %     \item SourceSectionFilter DeclarationTag + uri of current file
     %     \item getNodeObject() -> look-up keys: name, kind, container
@@ -1624,51 +1621,34 @@ def bar():
 
     To find symbol declarations in the current file, we added a new tag \inlinecode{DeclarationTag}. We use the instrumentation environment's \inlinecode{LoadSourceSectionListener} to search for all tagged nodes in the current \inlinecode{Source} object. Then, we assume that a call to \inlinecode{getNodeObject()} returns a \inlinecode{TruffleObject} supporting the look-up for the keys \inlinecode{"name"}, \inlinecode{"kind"}, and \inlinecode{"container"}. We can map these information together with the node's source section to the \emph{documentSymbol} response items.
 
-    If a Truffle languages supports no \inlinecode{DeclarationTag}, we use a simple fallback. We use the instrumentation environment to search for all nodes tagged with the already existing \inlinecode{RootTag} in the current \inlinecode{Source} object. This way, we get at least names and source sections of declarations of callables, to fill the \emph{documentSymbol} response items partially.
+    If a Truffle languages supports no \inlinecode{DeclarationTag}, we apply a simple fallback. We use the instrumentation environment to search for all nodes tagged with the already existing \inlinecode{RootTag} in the current \inlinecode{Source} object. This way, we get at least names and source sections of declarations of callables, to fill the \emph{documentSymbol} response items partially.
 
-\subsection{Workspace Symbols}
-\label{sec:impl:symbol}
     To search for symbols workspace-wide, we use the same implementation as described for the \emph{documentSymbol} request, but we omit the filter for the current \inlinecode{Source} object.
 
-\subsection{Document Highlight}
-\label{sec:impl:documentHighlight}
+
+    \paragraph{Document Highlight}
     % \begin{itemize}
     %     \item find node at caret: StandardTags.WriteVariableTag.class, StandardTags.ReadVariableTag.class
     %     \item getNodeObject() -> key look-up: name
     %     \item env.findLocalScopes(node, null) or env.findLocalScopes(node, frame) if cached frame available
     %     \item iterate scopes + scope.getNode().accept(NodeVisitor) -> search for all ReadVariableTag/WriteVariableTag annotated nodes
     % \end{itemize}
-    We implemented \emph{documentHighlight} support in \graallsp for variables. To make variable nodes detectable, we added two new tags, \inlinecode{ReadVariableTag} and \inlinecode{WriteVariableTag}. We assume, that nodes tagged with one of them implement \inlinecode{getNodeObject()}, returning a \inlinecode{TruffleObject} which supports the look-up key \inlinecode{"name"}. We use the instrumentation environment's \inlinecode{LoadSourceSectionListener} to search for all tagged nodes in the current \inlinecode{Source} object.
-
-    If found, we use the instrumentation environment to find local scopes for these nodes. Then, we traverse the root node of each scope by calling \inlinecode{accept(NodeVisitor nodeVisitor)} and search for children tagged with either \inlinecode{ReadVariableTag} or \inlinecode{WriteVariableTag}. We take those nodes providing the same \inlinecode{"name"} as our initial node and build the response using their source sections.
+    We have implemented \emph{documentHighlight} support in \graallsp~for variables. To make nodes representing a variable access detectable, we added two new tags, \inlinecode{ReadVariableTag} and \inlinecode{WriteVariableTag}. We assume, that nodes tagged with one of them further implement \inlinecode{getNodeObject()}, returning a \inlinecode{TruffleObject} which supports the look-up key \inlinecode{"name"}. If such a tagged node can be found at the requested position, we use the instrumentation environment to find local scopes based on that node. Then, we traverse the root node of each scope by calling \inlinecode{accept(NodeVisitor nodeVisitor)} and search for children tagged with either \inlinecode{ReadVariableTag} or \inlinecode{WriteVariableTag}. We take those nodes, having the same \inlinecode{"name"} as our initial node and build the response using their source sections.
 
 
-\subsection{Goto-definition}
-\label{sec:impl:definition}
+    \paragraph{Goto-definition and Finding All References}
     % \begin{itemize}
     %     \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag (no WriteVariableTag, because source sections of write include assignments in Python -> leads to unexpected behavior <- should we change this?)
     %     \item CallTag: run to section with inputFilter like signatureHelp -> Env.findSourceLocation(LanguageInfo language, Object value)
     %     \item ReadVariableTag: like documentHighlight via scopes and visitor, but interpret the first write node of the most outer scope as declaration
     % \end{itemize}
-    The \emph{definition} request has been implemented for callables workspace-wide and for variables source-local. As described in the previous sections, we search for a node at the requested position, which is tagged with \inlinecode{CallTag}, \inlinecode{ReadVariableTag}, or \inlinecode{WriteVariableTag}. If found, we use different approaches for callables and variables.
+    The \emph{definition} request has been implemented for callables workspace-wide and for variables source-local. We search for a node at the requested position, which is tagged with \inlinecode{CallTag}, \inlinecode{ReadVariableTag}, or \inlinecode{WriteVariableTag}. If found, we use different approaches for callables and variables.
 
     For nodes of callables, we obtain the corresponding run-time object as described for the completion of properties in \autoref{sec:impl:completionOfProperties}. Then, we use the method \inlinecode{findSourceLocation(LanguageInfo language, Object value)} of the instrumentation environment, to find the source section of the callable.
 
-    If the run-time approach yields no results, we use a static fallback search. As described in \autoref{sec:impl:symbol}, we search for all symbols in the workspace and take the ones matching the identifier of our callable node. As already mentioned in our approach, this might yield false-positive matches. But as the response consists of a list of locations, we can provide all of them and let the users choose from these suggestions.
+    If the run-time approach yields no results, we use a static fallback search. We take the implementation of the \emph{symbol} request to collect all symbol declarations in the workspace and filter for those matching the identifier of our callable node. This static search is also used to implement the \emph{references} request for callables. As already mentioned in our approach, this might yield false-positive matches. But as the response consists of a list of locations, we can provide all of them and let the users choose from these suggestions.
 
-    For variables, we assume that the first write of a local variable is its definition location. This way, we can reuse the implementation described in \autoref{sec:impl:documentHighlight}, to find all other occurrences of a local variable and pick the first write access as definition location.
-
-\subsection{Finding All References}
-    % \begin{itemize}
-    %     \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag or WriteVariableTag
-    %     \item CallTag: env.attachLoadSourceSectionListener with SourceSectionFilter for CallTag, then match names
-    %     \item ReadVariableTag/WriteVariableTag: like documentHighlight
-    % \end{itemize}
-    The \emph{references} requests has been implemented for callables and local variables using a static search. As described in the previous sections, we search for a node at the requested position, which is tagged with \inlinecode{CallTag}, \inlinecode{ReadVariableTag}, or \inlinecode{WriteVariableTag}. If found, we use different approaches for callables and variables.
-
-    For nodes of callables, we reuse the static fallback search described in \autoref{sec:impl:definition}, to find all potential matches in the workspace.
-
-    For variables, we reuse the implementation described in \autoref{sec:impl:documentHighlight}, to find all occurrences of variable accesses in the current \inlinecode{Source}.
+    For variables, we assume that the first write of a local variable is its definition location. This way, we can reuse the implementation described for the \emph{documentHighlight} request, to find all other occurrences of a local variable and pick the first write access as definition location. To implement the \emph{references} request for variables, we also reuse the \emph{documentHighlight} implementation, to find all occurrences of a local variable.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

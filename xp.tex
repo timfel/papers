@@ -232,11 +232,18 @@ The support for highlighting of variable accesses depends on the usage of \inlin
     
     \item \todo{open limitations}TruffleObject KEYS not hierarchical
     \item + no differentiation between properties of objects and methods of class
+    \item Run-time type collection / type harvesting
+    \begin{itemize}
+        %\item caching is poorly conceived: storing frames / objects -> memory? + in-line eval without call stack difficult
+        %\item framework needs to support instrumentation / tracing to find the desired run-time object
+        %\item needs possibility to query the resulting host language object about its guest language semantics (e.g. a TruffleObject understanding a KEYS message)
+        \item we query the actual run-time object, which might be really specialized, whereas type harvesting builds generalizations on seen types and yields only the generalized type
+    \end{itemize}
     %\item code completion of properties only possible if dot is the last char inserted
 \end{itemize}
 Due to time constraints and limitations of the Truffle framework, we were unable to fully implement the approach described in \autoref{cha:solution}. We have not yet implemented a timeout or cancellation support for requests, to avoid an endless execution of source code when collecting run-time information. The suggested sandboxing of the execution engine is limited to file I/O for now, because Truffle does not support restriction of other I/O kinds yet. Furthermore, the sandbox is always activated when source code is executed, because we have not yet implemented a possibility to deactivate sandboxing when the user classifies the occurring side-effects as uncritical. Therefore, all features of \graallsp, which require collecting run-time information, are not supported yet, if the executed source code requires write access to the file system. For GraalSqueak, this is a serious limitation, because it continuously stores actions and source code modifications of the current image in a separate \inlinecode{*.changes} file and wants therefore to open this file with write permissions during start-up. This fails at the moment due to our read-only file system, so that the whole image is not initialized correctly and we are unable to retrieve documentations for classes for example yet. 
 
-\paragraph{Limitations of Caching Run-time Information and Reusing Contexts}
+\paragraph{Caching Run-time Information and Reusing Contexts}
 As described in \autoref{sec:impl:obtainingRunTimeInfos}, we introduced caching of run-time information and reusing of Truffle language contexts, to improve performance especially for code completion. Unfortunately, this implies some new limitations. To cache run-time information, we create a snapshot of the current \inlinecode{MaterializedFrame} instance at a specific source section. This snapshot is not a deep frame copy, so that only primitive values are actually copied. If fields of referenced objects are changed later, the frame snapshot will still reference these mutated objects. \autoref{fig:xp:limitationCachedCompletionPython} illustrates the problem using a GraalPython code snippet.
 
 \begin{figure}
@@ -253,7 +260,7 @@ As already mentioned, we also reuse language contexts to avoid their expensive c
 
 With regard to the numerous limitations which arise due to our current implementation of caching run-time information, we have to admit, that this part needs further improvements. It works well for context independent scripts, but is not yet mature enough for lager software projects.
 
-\paragraph{Limitations of a Polyglot Language Server}
+\paragraph{A Polyglot Language Server}
 The Truffle framework allows hosting language implementations in a multi-language run-time environment. We have already explained, that \graallsp~supports polyglot code completion, but with some limitations. A language server is typically developed for exactly one language. During initialization, we have to tell the language client the set of completion and signature help trigger characters to support auto-activation. If the installed languages have different trigger characters, like a dot for GraalPython, a \inlinecode{\$} for FastR, and a space for GraalSqueak, a completion might be triggered in unwanted situations and might cancel other requests. FastR for example allows to use dots in variable identifiers, as can be seen in the already mentioned \autoref{fig:xp:completionGlobalsR}. Typing a dot in FastR code while having GraalPython installed, will trigger a code completion request. At server-side, we can detect, that the dot is no trigger character of FastR and return no completion items, but the current request, which might be a previous completion request of FastR, will be cancelled. Furthermore, Visual Studio Code displays a default, token-based code completion, if \graallsp~returns no results. This is quite confusing for the language users, because a language's code completion behavior might change depending on the set of installed languages.
 
 Another limitation occurs for the code completion of properties of foreign objects, if the foreign languages have different syntaxes, as already described for FastR and GraalPython. The suggested properties are formatted in the syntax of the foreign language and might therefore yield a syntax or run-time error in the current language. It lies therefore in the responsibility of the developer to deal with mismatching syntaxes and transform suggested code elements, which do not match the language's syntax, to a generic, foreign message send using the polyglot \ac{api} of their current language.
@@ -261,28 +268,24 @@ Another limitation occurs for the code completion of properties of foreign objec
 
 
 \section{Limitations of Our Approach}
-\begin{itemize}
+There are further limitations of our approach, independent of the current implementation of \graallsp, which we describe in the following.
 
-    % LSP
-    \item LSP: Syntax highlighting defined at client-side, semantic coloring is on the agenda of the \ac{lsp} specification team and might be supported in a future version of \ac{lsp}. It remains to be seen, if semantic coloring might be exploited to provide a complete syntax highlighting from server-side.
-    \item LSP: No incremental sending of (completion) results
-    %\item LSP: has file-based code focus (GraalSqueak integration really hard)
-    \item LSP+VSCode: Need to define supported languages in extension up-front
-    \item Out of the box support for every language client is not given -> still need to implement an extension / lsp adapter at client-side
-    \item We will not be able to compete with a tailor-made language-specific language server
-    
-    % Executing code
-    \item Run-time type collection / type harvesting
-        \begin{itemize}
-            %\item caching is poorly conceived: storing frames / objects -> memory? + in-line eval without call stack difficult
-            %\item framework needs to support instrumentation / tracing to find the desired run-time object
-            %\item needs possibility to query the resulting host language object about its guest language semantics (e.g. a TruffleObject understanding a KEYS message)
-            \item we query the actual run-time object, which might be really specialized, whereas type harvesting builds generalizations on seen types and yields only the generalized type
-        \end{itemize}
-    \item Reusing run-time focused parser: Only first syntax error is reported. Lang parsers fail on first error.
+\paragraph{Language Server Protocol}
+One of the shortcomings of the \ac{lsp} is the lack of being able to provide hints for syntax highlighting from server-side. Syntax highlighting helps to read and understand source code, especially if it is an unfamiliar language. Although most editors support the usage of editor-independent formats like TextMate grammar files\footnote{\url{https://macromates.com/manual/en/language_grammars} (accessed 2018-12-20)}, it is additional effort for the language developers to provide and maintain these files for multiple editors. However, a support for semantic coloring is planned for a future version of \ac{lsp}, which might be exploited also for syntax highlighting.
+
+As the \ac{lsp} is an abstraction over a set of typical \ac{ide} features and we add another layer of abstraction for GraalVM languages, there will most likely be language-specific \acp{ide}, which can provide a more tailor-made and suitable tooling support. 
+
+\paragraph{Executing Source Code}
+\begin{itemize}
     \item Sandboxing: if user does not want to disable the sandbox, only very limited feature support possible, if code yields access exceptions due to sandboxing
     \item Unknown execution time -> timeout -> no completion (or unpredictable behavior)
     \item uncovered code
+\end{itemize}
+
+\paragraph{Reusing Existing Language Parsers}
+\begin{itemize}
+    \item Reusing run-time focused parser: Only first syntax error is reported. Lang parsers fail on first error.
+    \item Lack of infos
 \end{itemize}
 
 

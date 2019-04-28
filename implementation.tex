@@ -1,12 +1,12 @@
 % !TEX root = Stolpe_2018_Thesis.tex
 % !TEX encoding = UTF-8
 
-\chapter{Implementation}
+\section{Implementation}
 \label{cha:implementation}
 
     In this chapter, we describe how we have implemented our prototype \graallsp, based on the approach described in \autoref{cha:solution}. \graallsp~uses Truffle as underlying language implementation framework and exploits Truffle's instrumentation environment to access the required information in a language-agnostic way. We also implemented a Truffle \ac{api} extension to support more \ac{lsp} features. As \ac{lsp} Java wrapper we used LSP4J. Transportation for \acs{json}-\acs{rpc} is implemented using Java's \acs{tcp} sockets. In the following sections, we start by describing how we have implemented common features required for most \ac{lsp} requests and then explain in detail the implementation of selected \ac{lsp} requests in \graallsp.
 
-    \section{Prerequisites to Answer \acs{lsp} Requests with Truffle}
+    \subsection{Prerequisites to Answer \acs{lsp} Requests with Truffle}
         % \begin{itemize}
         %     \item our approach has some requirements on the language impl framework
         %     \item influences project structure and dependencies
@@ -20,7 +20,7 @@
         % \end{itemize}
     Implementing a language server on top of the Truffle framework with the requirements described in our approach, especially the sandboxing, has implications on our project structure, dependencies, and the bootstrapping process. Furthermore, there are common prerequisites to answer most \ac{lsp} requests. These are parsing source code, mapping the requested position to source sections of \ac{ast} nodes, and collecting and utilizing run-time information.
 
-    \subsection{Project Structure and Dependencies}
+    \subsubsection{Project Structure and Dependencies}
     \label{sec:impl:projectStructure}
         % \begin{itemize}
         %     \item Building tool for Truffle = using instrumentation API
@@ -98,7 +98,7 @@ public class LSPInstrument extends TruffleInstrument
             \label{fig:graalLspPackageStructure}
         \end{figure}
 
-\subsection{Threads and Context Activation}
+\subsubsection{Threads and Context Activation}
     % \begin{itemize}
     %     \item every action on the Truffle instrumentation env requires the current Thread to have entered a Context
     %     \item LSP threads -> worker queue
@@ -106,7 +106,7 @@ public class LSPInstrument extends TruffleInstrument
     % \end{itemize}
     Every operation performed on the Truffle instrumentation environment requires, that the current Thread has entered a Polyglot \inlinecode{Context}. Because some Truffle language implementations do not support multi-threaded access, we decided to have only one worker Thread, which performs operations on the Truffle instrumentation environment. Our launcher ensures, that this Thread explicitly enters a \inlinecode{Context} instance at start-up once. We use a \inlinecode{java.util.concurrent.ExecutorService} instance to submit tasks to that worker Thread. Incoming \ac{lsp} requests are accepted by a Thread of the LSP4J framework. To avoid blocking this Thread, it only wraps a request into a task and submits it to the executor service. A separate Thread picked from a dynamic pool will await the processing results of the context-entered worker Thread using a \inlinecode{Future}. It will send the prepared response to the client and handle occurred errors by sending diagnostics in addition.
 
-\subsection{Language Server Initialization}
+\subsubsection{Language Server Initialization}
 \label{sec:impl:initialization}
     % \begin{itemize}
     %     \item new API for trigger chars to feed init request -> env.getCompletionTriggerCharacters()
@@ -114,7 +114,7 @@ public class LSPInstrument extends TruffleInstrument
     The first request sent from the client to the server is the \emph{initialize} request. To support auto-activation of code completion and signature help, the response has to include trigger characters. A language-specific language server implementation can provide these characters statically, because the set of supported languages is well known. In our language-agnostic implementation, where Truffle languages can be installed dynamically, we have to collect these characters for all available languages during server initialization. Using the Truffle instrumentation environment, we can get a list of all registered languages, but there is no \ac{api} to obtain trigger characters for code completion and signature help from a language. Therefore, we have extended the classes \inlinecode{TruffleInstrument.Env} and \inlinecode{TruffleLanguage} with methods to retrieve these characters.
 
 
-\subsection{Parsing Source Code}
+\subsubsection{Parsing Source Code}
     % \begin{itemize}
     %     \item env.parse(Source)
     %     \item Source is built from source code and language
@@ -136,14 +136,14 @@ public class LSPInstrument extends TruffleInstrument
 
     In case of a parsing error, we can notify the client using the \emph{publishDiagnostics} notification.
 
-    \paragraph{Diagnostics}
+    \subparagraph{Diagnostics}
     % \begin{itemize}
     %     \item TruffleException -> ast node -> source section -> map to lsp4j Range (zero- vs one-based lines)
     %     \item LanguageClient.publishDiagnostics(PublishDiagnosticsParams)
     % \end{itemize}
     Truffle languages typically throw a \inlinecode{TruffleException} in case of a parsing error. The parsers are not designed to be syntax error tolerant and will stop parsing at the first syntax error. A \inlinecode{TruffleException} can store an \ac{ast} node as location where the exception occurred. If available, we map the node's source section to line and column of the original source code and send a \emph{publishDiagnostics} notification to the client. If the location is not available, we use the first column in the first line as reference for the notification. The error message needed for the notification is also obtained from the \inlinecode{TruffleException}.
 
-\subsection{Mapping Requested Source Position to \acs{ast} Node}
+\subsubsection{Mapping Requested Source Position to \acs{ast} Node}
 \label{sec:impl:mappingToAstNode}
     % \begin{itemize}
     %     \item zero- vs one-based lines
@@ -159,7 +159,7 @@ public class LSPInstrument extends TruffleInstrument
     
     As another prerequisite, we assume that source code is eagerly parsed when calling \inlinecode{parse(Source source, String... argumentNames)} and not lazily when the code is going to be executed. Otherwise, no nodes and source sections will be available via the instrumentation environment.
 
-\subsection{Obtaining Run-time Information}
+\subsubsection{Obtaining Run-time Information}
 \label{sec:impl:obtainingRunTimeInfos}
     % \begin{itemize}
     %     \item sandboxing: Context.Builder.fileSystem(FileSystem fileSystem)
@@ -173,25 +173,25 @@ public class LSPInstrument extends TruffleInstrument
 
     In \autoref{sec:newApproachCompletionLocalsUsingRuntimeInfo} we explained an approach to provide a richer code completion for locals and support further \ac{lsp} requests by observing the executing of source code. We describe in the following how we have implemented most of that approach in \graallsp.
 
-    \paragraph{Observing the Execution}
+    \subparagraph{Observing the Execution}
     The instrumentation environment provides the method \inlinecode{attachExecutionEventListener(SourceSectionFilter, ExecutionEventListener)} to observe executions of the current \inlinecode{Engine}. The \inlinecode{ExecutionEventListener} will be notified immediately before and after an instrumented node is executed. The \inlinecode{SourceSectionFilter} allows to filter for which source sections or node types the listener shall be activated.
 
-    \paragraph{Long Running or Non-terminating Executions}
+    \subparagraph{Long Running or Non-terminating Executions}
     If we observe the execution using an \inlinecode{ExecutionEventListener}, we can stop when we have collected required run-time information. Therefore, we simply throw a special \inlinecode{ThreadDeath} exception, containing the collected run-time object. This exception is also used by other Truffle tools to stop or unwind the current execution. We catch this exception in our language server implementation, to retrieve the run-time object. In our approach, we have also suggested to cancel the execution in case of a timeout or when we receive a certain notification from the client. Due to time constraints, we have not implemented this feature yet. However, this could be easily achieved with a timer and regular checks through an execution listener by throwing a \inlinecode{ThreadDeath} exception when the timer has expired or a cancel-notification has been received.
 
-    \paragraph{Unreachable Source Sections}
+    \subparagraph{Unreachable Source Sections}
     As described in our approach, we need to define an entry point, e.g. a path to a script which triggers unit tests, to cover a maximum of source code. For now, we have implemented to search for the string \inlinecode{"RUN\_SCRIPT\_PATH:"} in the first line of the source code and interpret the rest of the line as file path. We create a \inlinecode{Source} object for that file and parse it using the instrumentation environment's \inlinecode{parse(Source source, String... argumentNames)} method. The return value is a \inlinecode{CallTarget} which we can execute. As further proposed in the approach, we fall back to executing the current source code, in which the request was triggered, if no \inlinecode{"RUN\_SCRIPT\_PATH:"} string is found.
 
-    \paragraph{Unsaved Changes}
+    \subparagraph{Unsaved Changes}
     To handle unsaved changes, we have suggested in our approach to install a custom file system, which intercepts read accesses to files and delegates them to a virtual file system which includes the changes. By using the Graal \ac{sdk} as described in \autoref{sec:impl:projectStructure}, we can create \inlinecode{Context} instances and can use the method \inlinecode{Context.Builder.fileSystem(FileSystem fileSystem)} to install our own file system. We have implemented such a file system in the class \inlinecode{LSPFileSystem}. It holds a callback to our language server, to delegate read accesses, if the file is known by the language server.
 
-    \paragraph{Sandboxing the Execution Environment}
+    \subparagraph{Sandboxing the Execution Environment}
     To support basic sandboxing of the file system, we made our \inlinecode{LSPFileSystem} read-only. At the date of writing, Truffle supports restrictions on file I/O, host language access, and native calls only. Therefore, network and standard I/O is still unrestricted in our implementation. Global execution state of languages is represented in the Truffle framework by \inlinecode{Context} objects. After executing source code to collect run-time information, the global state will certainly be modified. Therefore, sandboxing global state can be simply realized by creating new \inlinecode{Context} instances.
 
-    \paragraph{Reusing Context Objects}
+    \subparagraph{Reusing Context Objects}
     Unfortunately, creating new \inlinecode{Context} objects might be quite expensive, depending on the language implementation. Therefore, we do not want to create them for every incoming \ac{lsp} request. Especially code completion requests need to be answered fast enough, so that users are not interrupted in their flow of writing source code. Although the global state might be modified by source code executions, we decided to reuse \inlinecode{Context} objects until the user manually triggers a full collection run to cache run-time information.
 
-    \paragraph{Caching Run-time Information}
+    \subparagraph{Caching Run-time Information}
     To cache run-time information, we use the instrumentation environment to attach an \inlinecode{ExecutionEventNodeFactory}. We let the factory create special \inlinecode{ExecutionEventNode} instances, which capture a snapshot of the passed frame at the first call of \inlinecode{onEnter(VirtualFrame frame)}. As data structure, we use a \inlinecode{Map} associating \inlinecode{MutableSourceSection} with \inlinecode{CoverageData}. Every \inlinecode{TextDocumentSurrogate} instance holds a reference to such a \inlinecode{Map}. A \inlinecode{MutableSourceSection} is a light-weight references to a node's source section by storing only line, and column for start and end. A \inlinecode{CoverageData} instance stores a \inlinecode{MaterializedFrame} and the \inlinecode{ExecutionEventNode} which captured the data.
 
     The collection of run-time information can be started manually by the user by activating a command, which we provide via the \emph{codeLense} request in the first source code line.
@@ -207,10 +207,10 @@ public class LSPInstrument extends TruffleInstrument
 
     This way, we can migrate cached run-time information mappings for simple changes. But we can only assume that the adjusted mappings are still valid. The user has to trigger a new collection run manually, if a change alters execution flow, names of variables, or types of variables.
 
-\section{Implementing \acs{lsp} Request Handlers}
+\subsection{Implementing \acs{lsp} Request Handlers}
 In this section we will explain how we have utilized the Truffle instrumentation environment to support selected \ac{lsp} requests. For or most \ac{lsp} requests, we have implemented a separate Java class, bundling common features in their super class \inlinecode{AbstractRequestHandler}.
 
-\subsection{Completion of Globals and Locals}
+\subsubsection{Completion of Globals and Locals}
 \label{sec:impl:completionGlobalsLocals}
     % \begin{itemize}
     %     \item code snippet: findNearestNode() ?
@@ -228,7 +228,7 @@ In this section we will explain how we have utilized the Truffle instrumentation
     % \end{itemize}
     To implement the code completion approach described in \autoref{sec:newApproach:completionOfGlobals}, we can mostly use already existing methods from the Truffle instrumentation environment. The method \inlinecode{findTopScopes(String languageId)} provides global scopes of a language and the method \inlinecode{findLocalScopes(Node node, Frame frame)} provides the local scopes. To use the latter, we have to find a node representing a source section near the requested completion position.
     
-    \paragraph{Finding the Nearest Node}
+    \subparagraph{Finding the Nearest Node}
     We explain the difficulty of finding that node by using the following Python code snippet.
 
     \begin{code}[lst:pythonNearCaretExample1Impl]{[A Python code snippet used to explain how to find a node near the requested position]An example Python code snippet to explain how to find the best matching node having a source section near the requested completion position.}{float,numbers=left,language=Python}
@@ -253,7 +253,7 @@ def bar():
         \item If there is still no match, we use \inlinecode{containingNode}. (Example: line 4, offset 10; picking the node representing \inlinecode{param1})
     \end{enumerate}
 
-    \paragraph{Querying Properties of Scope Values}
+    \subparagraph{Querying Properties of Scope Values}
     Calling \inlinecode{findTopScopes(String languageId)} or \inlinecode{findLocalScopes(Node node, Frame frame)} returns a collection of \inlinecode{Scope} objects. A \inlinecode{Scope} can be lexical and dynamic. \inlinecode{Scope.getVariables()} returns a \inlinecode{TruffleObject}, which can be queried in a language-agnostic way via sending messages. Using a \inlinecode{KEYS} and a \inlinecode{READ} message, we can obtain key-value pairs, where the key is the name of the declared variable and the value is again a \inlinecode{TruffleObject} representing the assigned value.
 
     For locals, we can only obtain lexical scopes when calling \inlinecode{findLocalScopes(Node node, Frame frame)} with \inlinecode{frame=null}. The returned local \inlinecode{Scope} objects might contain declared variable names, but no values will be available. Therefore, we create completion items for locals by using the variable name as display name, the scope name as detail text, and \inlinecode{CompletionItemKind.VARIABLE} as default completion item kind.
@@ -262,10 +262,10 @@ def bar():
 
     We added two more custom messages (\inlinecode{GetDocumentation} and \inlinecode{GetSignature}) to support querying a \inlinecode{TruffleObject} for documentation and signature of callables. If a language implementation does not support \inlinecode{GetDocumentation}, we try if we can get the source code of the callable definition as documentation for the completion item, using the method \inlinecode{findSourceLocation(LanguageInfo language, Object value)} of the instrumentation environment.
 
-    \paragraph{Using Cached Run-time Information}
+    \subparagraph{Using Cached Run-time Information}
     If cached run-time information are available when a completion for globals and locals is triggered, we use the nearest node's source section to search for a cached \inlinecode{CoverageData} object. If found, we can call \inlinecode{findLocalScopes(Node node, Frame frame)} with the cached frame. Now, the resulting \inlinecode{Scope} objects will also give access to declared local variables. We can use the same approach as described for globals to get details and documentation for the completion items.
 
-\subsection{Completion of Properties}
+\subsubsection{Completion of Properties}
 \label{sec:impl:completionOfProperties}
     % \begin{itemize}
     %     \item detecting: env.getCompletionTriggerCharacters(langId) comparing last change
@@ -290,17 +290,17 @@ def bar():
 
     Following the approach described in \autoref{sec:newApproachCompletionProperties}, we have implemented the \completionOfProperties~in our \graallsp~prototype.
 
-    \paragraph{Detecting an Object Property Completion}
+    \subparagraph{Detecting an Object Property Completion}
     To distinguish a completion request for globals and locals from one for object properties, we can use the \ac{api} extension already suggested in \autoref{sec:impl:initialization}, which allows us to ask a Truffle language for its completion trigger characters. Because the \emph{initialize} response contains the trigger characters of all installed languages, the client will automatically trigger completion requests for all these characters. Therefore we have to check every request, if the trigger character belongs to the current language. If not, we have to skip the request.
 
     Including the completion trigger character in the request is an optional feature of the client. Furthermore, the character is only included if the completion was triggered automatically. To support code completion of properties also when triggered manually, we assume, that we can distinguish the two kinds of completion by comparing the character directly in front of the requested position with the registered trigger characters of the current language. If there is a match, we try an object property completion.
 
-    \paragraph{Finding the Desired Node}
+    \subparagraph{Finding the Desired Node}
     As described in our approach, the source code will most likely not be parsable when a completion of properties is triggered. We assume that the last inserted text snippet is the completion trigger character, which caused the syntax error. Therefore, we simply store the last change for every \inlinecode{TextDocumentSurrogate} object to replace the last inserted text snippet with an empty string in the source code.
 
     Having parsable source code, we can search for a node directly in front of the removed text snippet. We use the same approach as for finding the nearest node for a completion of locals and globals, but filter for nodes tagged with \inlinecode{ExpressionTag} only. If we find a \inlinecode{containingNode} whose source section ends directly in front of the removed text snippet, we take it to obtain its corresponding run-time object. In the following we refer to this node as \inlinecode{propertiesRequestedNode}.
 
-    \paragraph{Strategies to Obtain Properties}
+    \subparagraph{Strategies to Obtain Properties}
     The next step we have to do is getting the run-time object represented by the \inlinecode{propertiesRequestedNode}, to finally query that object for its properties. We obtain run-time information as described in \autoref{sec:impl:obtainingRunTimeInfos}, but we have implemented further optimizations for this kind of completion.
 
     First of all we can optimize property completion for literal nodes in Truffle. For instrumentable nodes, we can use the method \inlinecode{getNodeObject()} to get a \inlinecode{TruffleObject}. We assume, that it supports reading a value for the key \inlinecode{"literal"}. If supported, we can use the read value to create completion items for its properties. If the value is a \inlinecode{TruffleObject}, we obtain its properties as described for globals and locals in \autoref{sec:impl:completionGlobalsLocals}. But the returned value might also be a primitive Java type, which needs to be boxed into a language-specific \inlinecode{TruffleObject}, so that we can query it for properties. Therefore, we added the method \inlinecode{boxPrimitive(String languageId, Object primitive)} to the instrumentation environment \ac{api}.
@@ -314,9 +314,9 @@ def bar():
     % To sum it up, with the approach described in this section, we are able to provide a basic, language-agnostic code completion for object properties. This approach includes reverting source code to a parsable state, executing that source code in a sandbox to listen for specific execution events using Truffle instrumentation, and querying the obtained run-time language object for its properties.
 
 
-\subsection{Further Requests}
+\subsubsection{Further Requests}
     
-    \paragraph{Signature Help}
+    \subparagraph{Signature Help}
     % \begin{itemize}
     %     \item run-to-section but with inputFilter
     %     \item we assume code is parsable because of smart character insertion "()"
@@ -336,7 +336,7 @@ def bar():
 
 
 
-    \paragraph{Hover Information}
+    \subparagraph{Hover Information}
     % \begin{itemize}
     %     \item cached frame 1.: frame.getFrameDescriptor().getSlots().stream().filter(slot -> slot.getIdentifier().equals(textAtHoverPosition)).findFirst().orElseGet(() -> null);
     %     \item cached frame 2.: Env.parseInline(Source source, Node node, MaterializedFrame frame) + insert into coverage data node + node.execute(frame) <- same as for completion of locals using cached infos
@@ -349,7 +349,7 @@ def bar():
     If one of the strategies yields a result, we use again the same implementation as described for the completion of properties, to query the object for meta-information, signature, and documentation.
 
 
-    \paragraph{Document and Workspace Symbols}
+    \subparagraph{Document and Workspace Symbols}
     % \begin{itemize}
     %     \item SourceSectionFilter DeclarationTag + uri of current file
     %     \item getNodeObject() -> look-up keys: name, kind, container
@@ -364,7 +364,7 @@ def bar():
     To search for symbols workspace-wide, we use the same implementation as described for the \emph{documentSymbol} request, but we omit the filter for the current \inlinecode{Source} object.
 
 
-    \paragraph{Document Highlight}
+    \subparagraph{Document Highlight}
     % \begin{itemize}
     %     \item find node at caret: StandardTags.WriteVariableTag.class, StandardTags.ReadVariableTag.class
     %     \item getNodeObject() -> key look-up: name
@@ -374,7 +374,7 @@ def bar():
     We have implemented \emph{documentHighlight} support in \graallsp~for variables. To make nodes representing a variable access detectable, we added two new tags, \inlinecode{ReadVariableTag} and \inlinecode{WriteVariableTag}. We assume, that nodes tagged with one of them further implement \inlinecode{getNodeObject()}, returning a \inlinecode{TruffleObject} which supports the look-up key \inlinecode{"name"}. If such a tagged node can be found at the requested position, we use the instrumentation environment to find local scopes based on that node. Then, we traverse the root node of each scope by calling \inlinecode{accept(NodeVisitor nodeVisitor)} and search for children tagged with either \inlinecode{ReadVariableTag} or \inlinecode{WriteVariableTag}. We take those nodes, having the same \inlinecode{"name"} as our initial node and build the response using their source sections.
 
 
-    \paragraph{Goto-definition and Finding All References}
+    \subparagraph{Goto-definition and Finding All References}
     % \begin{itemize}
     %     \item find node at caret: SourceSectionFilter with CallTag or ReadVariableTag (no WriteVariableTag, because source sections of write include assignments in Python -> leads to unexpected behavior <- should we change this?)
     %     \item CallTag: run to section with inputFilter like signatureHelp -> Env.findSourceLocation(LanguageInfo language, Object value)

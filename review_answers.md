@@ -103,10 +103,12 @@ give up and ask the developer to write a unit test with appropriate mocking.
     Perhaps language 4 mixes techniques from 3 previous ones, well that's fine,
     again, point back to the concrete descriptions of those features or
     implementations, describe differences.
-    
+
 We have completely reworked sections 3 and 4 of the paper according to the
 suggestions. We hope this makes it much clearer how much a language developer
-really needs to implement.
+really needs to implement, and we mention whenever a new API was introduced to
+support LSP that the developer needs to implement, and refer back to the UML
+diagram.
 
     Review A: The caching aspect needs a bit of clarification. The paper states the
     user needs to initiate it at appropriate times. How does the user know when to
@@ -119,8 +121,9 @@ all, it is triggered automatically if necessary. The manual triggering was a
 cludge that we used during exploration of our approach. In particular, we added
 further explanation of how we attempt to create a parseable state after a change
 to gather information and that our heuristic is very naive at the moment. We
-have instead added a reference to related work that we think will help alleviate
-this problem and obsolet the need for the user manually triggering this.
+have instead explained that further work is required to support parsing mid-edit
+to alleviate this problem and obsolete the need for the user manually triggering
+a parse.
 
     Review B: IDE use in particular, is an area where "lag" can make the difference
     between a practical implementation of an idea that has a chance of adoption, and
@@ -132,7 +135,8 @@ this problem and obsolet the need for the user manually triggering this.
 We have extended our discussion of lag by moving our description of gathering
 runtime information earlier in the paper and extending it. In our discussion of
 caching, we mentioned our experience. Due to time and page constraints, we feel
-unable to include proper benchmarking in the paper now.
+unable to include proper benchmarking in the paper right now, but we have added
+this to our future work.
 
     Review C: You are not presenting properly the context of your contribution when
     you are speaking about "tools" in general that are lacking when building new
@@ -158,21 +162,31 @@ implementation frameworks.
     show us a fraction of the features covered compared to your baseline BUT on top
     of Truffle it is still a WIN.
 
-We added some text to make it clearer that all the existing LSP servers also
-work with the Truffle implementations. Our goal in providing this support in a
-language independent manner is to argue that there should be no need for
-separate server implementations at all. As part of the rewrite to make it
-clearer how our approach works for SL (a language without a dedicated language
-server) and how it works for Squeak/Smalltalk (another language without a
-language server) we hope this has become clearer.
+We removed most of the general information and added some text to make it
+clearer that all the existing LSP servers also work with the Truffle
+implementations. Our goal in providing this support in a language independent
+manner is to argue that there should be no need for separate server
+implementations at all. As part of the rewrite to make it clearer how our
+approach works for SL (a language without a dedicated language server) and how
+it works for Squeak/Smalltalk (another language without a language server) we
+hope this has become clearer.
 
     Review C: Sec 3. Approach: Try to extract a model/design pattern from the
     textual description of page 4 and walk-us through some "idealized"
     code/pseudo-code for your solution. Imagine that we are implementors to whom you
     are suggesting a general solution by giving them an idealized example and not
     only textual "guidelines".
-    
-# TODO
+
+    Review C: Sec 3. Approach: You need to organize your material / challenges /
+    solutions in a table, give examples and tell us how your proposed model solves
+    the problem (related to c1). Giving textual general guidelines is ok but only
+    for corner cases that you judge as "implementation specific", the rest should be
+    linked with a concrete description (UML and code) of a proposed solution.
+
+We have added a more detailed (but still simplified) UML diagram and explain the
+features in terms of the classes and methods presented in the diagram. We hope
+this makes it much clearer what our approach is and what an implementor has to
+do in order to support our or a similar approach.
 
     Review C: Sec 3. Approach: The "Obtaining run-time information" challenge for
     dynamic languages in order to do code completion is an orthogonal/independent
@@ -181,29 +195,25 @@ language server) we hope this has become clearer.
     current state-of-the-art is.
 
 It can be an independent problem, but in our case we start from the same basic
-requirement: the language developer should not have to do do anything that is
-not related to only the execution of their language. In particular, they should
-not have to add hooks to their interpreter to extract runtime information,
-instead the framework should be able to gather as much information as possible
+requirement: the language developer should not have to do do too much that is
+not related to the execution of their language. In particular, they should not
+have to add hooks to their interpreter to extract runtime information, instead
+the framework should be able to gather as much information as possible
 completely transparently to the language runtime. We have made this clearer in
 the introduction to our "Obtaining Run-time Information" section, and we also
 emphasized more how the FastR was not extended at all to gather runtime
 information, yet our approach immediately allows to collect types and provide
 some useful features.
 
-    Review C: Sec 3. Approach: You need to organize your material / challenges /
-    solutions in a table, give examples and tell us how your proposed model solves
-    the problem (related to c1). Giving textual general guidelines is ok but only
-    for corner cases that you judge as "implementation specific", the rest should be
-    linked with a concrete description (UML and code) of a proposed solution.
-
-# TODO
-
     Review C: Sec 4. Impem. + Validation: What is the baseline ? Where are the
     implementation details ? What resources are being used by your proposal,
     compared to other solutions ? What are the trade-offs ?
 
-# TODO
+We merged sections 3 and 4 and give more details of the implementation with the
+help of the UML diagram. We hope that this makes it clearer that our approach
+relies on the resources provided by Truffle (and that are partially also
+available in RPython). We also made clearer in the introduction what our
+baseline is.
 
     Review C: for that matter, can an implementation really run a whole batch of
     unit tests in response to a code completion request?
@@ -215,11 +225,15 @@ this moment, however, this is not implemented we always run everything.
 
     Review C: the suggestions on unsaved changes seem even less practical (459)
 
-We're not sure what is unpractical about it. Virtualizing the file system in the
-manner we propose is easy in both the Truffle and RPython sandboxes.
+Virtualizing the file system in the manner we propose is easy in both the
+Truffle and RPython sandboxes. We have explained a bit more about our sandboxing
+approach. The things we mention are available with both the Truffle and RPython
+sandboxes to languages developed in those frameworks.
 
     Review C: Actually page 5 gets more and more far-fetched - is this
     implemented???
 
-Yes, these things are implemented. We have moved this discussion within the
-paper and noe give more details to make clear that these things are implemented.
+Yes, these things are implemented. Our choice of conditionals and wording was
+very confusing here, we apologize for the confusion this caused. We have moved
+this discussion within the paper and now give more details to make clear that
+these things are implemented.

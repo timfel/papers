@@ -1,3 +1,32 @@
+### General description of changes
+
+As requested by the reviewers, we have adapted large parts of the paper to focus
+more specifically on the implementation while describing our approach. We have
+changed the language throughout the paper to make it clearer that our
+contribution is in the area of code editing assistance (and thus only forms a
+part of a larger developer toolset). We have also changed the wording throughout
+to make it clear what our implementation can already do and what we are planning
+to do, rather than mixing these up in an abstract "approach" section. These
+changes lead to us combining (as suggested by the reviewers) our "approach" and
+"implementation" sections into one.
+
+We have furthermore improved our discussion around our runtime gathering of
+information to argue better why we think this approach is feasible and may scale
+to larger code-bases, and we've given additional references there as evidence.
+
+We have also cut down the context section. As mentioned by the reviewers, the
+detail of the LSP can be found online and thus we now only give a cursory
+overview here. We hope this also streamlines the experience of reading the
+paper.
+
+We have not added benchmarks, even though some reviewers asked about them. The
+reviewers are rightly concerned about the performance of our approach, but given
+the stricter page-limit (10 pages rather than 12 pages for the revision) we have
+not seen how we could fit them. We have only added a few words on our experience
+with performance.
+
+### Answers to particular reviewer concerns
+
     What is the research problem?
 
     Adapt the introduction and abstract to reflect the lack of current tools and
@@ -62,7 +91,8 @@ Indeed this is a problem of the approach, yet we think it is one that is out of
 the scope of this work to overcome. Bogus code is just as likely to trip up any
 attempt of static analysis for dynamic languages as well. We have added a few
 sentences, however, to make it clear that our approach heavily favors
-test-driven development with small unittests.
+test-driven development with small unittests or approaches similar to
+"Babylonian programming" or the Go language's "testable examples".
 
     Review A: Second, the ability to execute code assumes that the code is in good
     enough shape. For example, the developer might first write the overall logic

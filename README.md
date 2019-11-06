@@ -66,4 +66,4 @@ Wird für drei Optimierungen genutzt:
 - Size overhead messen
 - Was passiert eigentlich in Chrome gerade bei Branching?
 - 4 Seiten für MoreVMs bis Januar?
-- Größerer Prototyp mit Benchmarks für ICOOLPS?
+- Größerer Prototyp mit Benchmarks für ICOOOLPS?

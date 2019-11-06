@@ -52,7 +52,11 @@ Wird für drei Optimierungen genutzt:
 	- Kommt nicht in der Evaluierung oder Related Work vor
 	- Einzige Evaluierung:
 	``` 
-	Encouragingly, our prototype was able to learn the optimum allocation size for the important sites in the very sensitive DeltaBlue benchmark without prior knowledge, and preliminary measurements indicated a slight decrease in the maximum overall heap size in Octane, with no other performance loss. 
+		Encouragingly, our prototype was able to learn the optimum
+	allocation size for the important sites in the very sensitive
+	DeltaBlue benchmark without prior knowledge, and preliminary
+	measurements indicated a slight decrease in the maximum overall
+	heap size in Octane, with no other performance loss. 
 	```
 	- Scheinen sie auch später nicht ausgebaut zu haben... Vielleicht
       weil es primär GC Leute sind?

@@ -71,3 +71,18 @@ Wird für drei Optimierungen genutzt:
 - Was passiert eigentlich in Chrome gerade bei Branching?
 - 4 Seiten für MoreVMs bis Januar?
 - Größerer Prototyp mit Benchmarks für ICOOOLPS?
+
+#### GraalSqueak Findings
+Branch: https://github.com/hpi-swa/graalsqueak/tree/wip/memento
+
+##### Insights / Learnings
+Squeak arrays are too low-level for the optimization to be effective. Splitting cannot be forced in the compiler, but it's necessary for the optimization. Otherwise, it leads to too many arrays to be generic (and therefore a *decrease* in performance).
+Also, elimination of resizing does not apply. Arrays are of fixed size in Smalltalk. `OrderedCollection` and `Dictionary` use arrays, but are implemented in the language (unlike JS, Python, etc.).
+
+##### Benchmark results
+
+- Significant slowdown in Queens and Havlak
+- Insignificant speedups in DeltaBlue
+
+![image](https://user-images.githubusercontent.com/2368856/68404593-169bb900-017f-11ea-9181-457e3567f2be.png)
+

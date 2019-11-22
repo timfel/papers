@@ -119,6 +119,7 @@ def compare(at, af):
     print("\tAverage Speedup with True: %f times" % (numpy.average(af)/numpy.average(at)))
     print("\tAverage Speedup without Warmup (excluding first 4): %f times" % (numpy.average(af[4:])/numpy.average(at[4:])))
     print("\tAverage Slowdown of Warmup (first 4 only): %f times" % (numpy.average(af[:4])/numpy.average(at[:4])))
+    print("\tSpeedup best-case: %f times" % (min(af)/min(at)))
 
 print("1k results:")
 compare(at1k, af1k)
@@ -133,12 +134,14 @@ Prints:
         Average Speedup with True: 1.115530 times
         Average Speedup without Warmup (excluding first 4): 1.213521 times
         Average Slowdown of Warmup (first 4 only): 0.962949 times
+        Speedup best-case: 2.694737 times
 5k results:
         Average time Overallocate=True: 1.630533 seconds
         Average time Overallocate=False: 2.242833 seconds
         Average Speedup with True: 1.375521 times
         Average Speedup without Warmup (excluding first 4): 1.975737 times
         Average Slowdown of Warmup (first 4 only): 0.862430 times
+        Speedup best-case: 3.701149 times
 ```
 
 

@@ -9,6 +9,18 @@
 \makeatother
 %% </remove below>
 
+\usepackage{listings}
+\usepackage[acronym]{glossaries}
+\newcommand{\ac}[1]{\gls*{#1}}
+\newcommand{\acdesc}[1]{\glsdesc*{#1}}
+\newcommand{\Ac}[1]{\Gls*{#1}}
+\newcommand{\acp}[1]{\glspl*{#1}}
+\newcommand{\Acp}[1]{\Gls*{#1}}
+
+\newacronym{vm}{\textsc{VM}}{virtual machine}
+\newacronym{gc}{\textsc{GC}}{garbage collector}
+\newacronym{jit}{\textsc{JIT}}{just in time}
+
 %% Rights management information.  This information is sent to you
 %% when you complete the rights form.  These commands have SAMPLE
 %% values in them; it is your responsibility as an author to replace
@@ -218,12 +230,21 @@ in other cases. Which variables should be weighted in order to make
 this decision? We address this question in
 section~\ref{sec:pretransitioning}. 
 
+\begin{figure}
+\begin{lstlisting}[language=Python,label={listing:simple_presizing}, caption={*Take from memento mori*}]
+    var a = []
+    for i in range(0, 10000):
+      a.append(1)
+\end{lstlisting}   
+\end{figure}
+
 \section{Our Prototype}
 \label{sec:prototype}
 \todo{Memento Mori reference vorher diskutieren und
   presizing/tenuring/transitioning darüber einführen (related work?)
   und anmerken, dass presizing nur wie eine Idee scheint, die bisher
   niemand aufgegriffen hat}
+\todo{Branch idea not clear from google/ performance in chrome; }
 Building on the idea of Mementos~\cite{clifford2015memento} we added
 allocation-site tracking to GraalPython thus allowing to to link the
 information of a array growth back to its allocation site. Based on
@@ -232,25 +253,125 @@ strategies for determining the optimal size for presizing. Our code
 and benchmarks are available on
 Github~\footnote{https://github.com/johenning/graalpython/tree/overallocate}. 
 
+In this section we will first discuss the difference in implementation
+strategy between our approach and the approach of Clifford et al. We
+will then present our observations of the allocation sizes of the
+DeltaBlue benchmark and discuss the results of our benchmark
+evaluations.
+
+\subsection{Memento Implementation}
+In contrast to the V8 \ac{vm}, we are working in the Graal
+ecosystem, which relies on a Java \ac{vm} for many of its features, in
+particular for memory management and garbage collection. Subsequently,
+where Clifford et al. implemented their Mementos by storing
+information inside the fields used by the \ac{gc}, getting the information
+about a final list size when the \ac{gc} collects it, we
+do not have access to the \ac{gc} and cannot easily modify it.
+
+Instead we opted to instrument the append and declaration operations
+of Python. We thus can store the size of a list on every append that
+is called on it and accumulate this information for all invocations of
+a list identified by its position in the source code.
+
+While Clifford et al. payed particular attention to the performance
+implications of the book-keeping added by Mementos through their
+allocation strategy and \ac{gc} cycles, our approach gets rid of its
+book-keeping cost by only doing it during interpretation. We do no
+book-keeping in compiled code and assume that list sizes are stable by
+the time the program is compiled.
+
+\subsubsection{Limitations of our appraoch}
+As the only information about the allocation site we have is its
+position in the source code, our approach does not work for
+abstractions build on top of array that provid a different
+interface. For example, all OrderedCollections would share the same
+allocation site in the class definition of OrderedCollection, thereby
+making the information collected useless.
+\todo{Idea for overcoming this/Future work?}
+
+
 \subsection{Evaluation}
 \subsubsection{Delta Blue}
+Constraint solver using both small lists and very large ones.
+\todo{Explanation of DeltaBlue}
+\todo{Visualization of Allocation sites and min/max/avg sizes}
+
+\begin{figure*}
+    \includegraphics[width=0.99\textwidth]{allocation_sites.png} 
+    \caption{Allocation sites and their respective observed sizes in
+      the DeltaBlue benchmark}
+    \label{fig:allocation_sites}
+\end{figure*}
+
+
 \subsubsection{Benchmark Results}
-Memory consumption / Execution time
+\todo{Memory consumption / Execution time, at most a table, not really
+  enough meassurements for a diagram}
 
 \subsection{GraalSqueak Evaluation}
 \todo{Discuss why presizing is not that usefull for Smalltalk}
 
 \section{Presizing}
 \label{sec:presizing}
+\begin{figure}
+\begin{lstlisting}[language=Python,label={listing:presizing_branching},
+  caption={Simple example of branches impacting allocation sizes depending on
+  external factors for the same allocation site}]
+var a = []
+if flag:
+    for i in range(0, 10000):
+        a.append(1)
+else:
+    a.append(1)
+\end{lstlisting}   
+\end{figure}
 \todo{Code snippet as example, explain different paths/cost, variables
   that could be adjusted}
 
 
 \section{Pretransitioning}
 \label{sec:pretransitioning}
+\begin{figure}
+\begin{lstlisting}[language=Python,label={listing:transitions},
+  caption={Unoptimized transition of storage strategies in GraalPython}]
+var a = [] # Initialized with Empty strategy
+for i in range(0, 10000):
+    a.append(1) # Transition to Integer strategy 
+                # on first execution
+
+a.append(1.0)   # Transition to Double strategy
+a.append('1')   # Transition to Object strategy
+    
+\end{lstlisting}   
+\end{figure}
+Listing~\ref{listing:transitions} shows the unoptimized storage
+strategy transitions an array might go through. In this example, as
+the array will always end up as a general object strategy,
+\emph{pretransitioning}, i.e. initializing it with the object strategy
+instead of empty, would 3 transitions, with the last 2 in particular
+being expensive, as a large lists needs to be copied in both cases.
 \todo{Code snippet with branching as example (reference/consider
   memento paper), Explain difference between Python and Javascript
   storage strategies}
+\todo{Empty; Integer; String; ((Char)ByteObjects); Double; Object;}
+\todo{Downside: Branches, wenn man es nicht richtig macht; Maybe its okay
+because you shouldn't do it;}
+\begin{figure}
+\begin{lstlisting}[language=Python,label={listing:pretransition_worstcase},
+  caption={Example with branches where by pretransitioning to the object
+    strategy our optimization could have the opposite of the desired
+    effect on performance}]
+var a = []
+if flag:
+    a.append(1)
+else:
+    a.append(Object())
+if flag:
+    sum(a)
+\end{lstlisting}   
+\end{figure}
+
+
 
 
 \section{Future Work}
@@ -260,6 +381,9 @@ Dictionaries;
 Mostly read/written;
 Sorting/Sorted Strategy;}
 
+\todo{List/Arrays/Collections, choose one word and stick with it}
+\todo{transitioning copies, realloc likely also copies; explain that in the
+  discussion of the cost of transitions}
 
 \end{document}
 \endinput

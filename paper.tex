@@ -241,20 +241,49 @@ section~\ref{sec:pretransitioning}.
 \end{lstlisting}   
 \end{figure}
 
+\section{Related Work}
+\label{sec:related_work}
+\subsection{Memento Mori - Dynamic Allocation-site-based Optimizations}
+Our work is closely related to the work of Clifford et
+al. ~\cite{clifford2015memento} on the V8
+\ac{vm}. Their main focus was on a differnent optimization:
+pretenuring. Essentially using allocation sites to speculate about
+objects that were likely to survive the next \ac{gc} cycles and
+direclty allocating them in the older generation to improve \ac{gc}
+performance.
+
+As we have no access to the \ac{gc}, as we will discuss in
+section~\ref{sec:prototype}, we do not consider pretenuring in our
+work. The other two optimizations discussed by Clifford et al. are the
+ones we target in this paper. While pretransitioning was discussed and
+evaluated thoroughly, presizing was only discussed briefly and the
+how the evaluation was done was not entirely clear:
+\begin{quote}
+Encouragingly, our prototype was able to learn the optimum
+allocation size for the important sites in the very sensitive
+DeltaBlue benchmark without prior knowledge, and preliminary
+measurements indicated a slight decrease in the maximum overall
+heap size in Octane, with no other performance loss. 
+\end{quote}
+We also found no further mentions of presizing being implemented
+inside V8 or any mention in later works. Thus we do believe that there
+are relevant and open questions to investigate in this area.
+\todo{Other related work?}
+\todo{Clean up what belongs in this and what in the next section}
+ 
+
+
 \section{Our Prototype}
 \label{sec:prototype}
-\todo{Memento Mori reference vorher diskutieren und
-  presizing/tenuring/transitioning darüber einführen (related work?)
-  und anmerken, dass presizing nur wie eine Idee scheint, die bisher
-  niemand aufgegriffen hat}
 \todo{Branch idea not clear from google/ performance in chrome; }
-Building on the idea of Mementos~\cite{clifford2015memento} we added
+Building on the ideas of Mementos, see section~\ref{sec:related_work},
+we implemented 
 allocation-site tracking to GraalPython thus allowing to to link the
 information of a array growth back to its allocation site. Based on
 this information, we did preliminary experiments with different
 strategies for determining the optimal size for presizing. Our code
 and benchmarks are available on
-Github~\footnote{https://github.com/johenning/graalpython/tree/overallocate}. 
+Github~\footnote{\url{https://github.com/johenning/graalpython/tree/overallocate}}.
 
 In this section we will first discuss the difference in implementation
 strategy between our approach and the approach of Clifford et al. We
@@ -313,6 +342,11 @@ else:
 
 \section{Pretransitioning}
 \label{sec:pretransitioning}
+Pretransitioning relies on the language internal optimization of
+storage strategies and tries to avoid unnecessary transitions between
+such strategies by speculating on the stability of the type of objects
+added to arrays bound to an allocation site.
+
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:transitions},
   caption={Unoptimized transition of storage strategies in GraalPython}]
@@ -327,10 +361,10 @@ a.append('1')   # Transition to Object strategy
 \end{lstlisting}   
 \end{figure}
 Listing~\ref{listing:transitions} shows the unoptimized storage
-strategy transitions an array might go through. In this example, as
+strategy transitions an array might go through in GraalPython. In this example, as
 the array will always end up as a general object strategy,
 \emph{pretransitioning}, i.e. initializing it with the object strategy
-instead of empty, would 3 transitions, with the last 2 in particular
+instead of empty, would avoid 3 transitions, with the last 2 in particular
 being expensive, as a large lists needs to be copied in both cases.
 \todo{Code snippet with branching as example (reference/consider
   memento paper), Explain difference between Python and Javascript
@@ -338,6 +372,18 @@ being expensive, as a large lists needs to be copied in both cases.
 \todo{Empty; Integer; String; ((Char)ByteObjects); Double; Object;}
 \todo{Downside: Branches, wenn man es nicht richtig macht; Maybe its okay
 because you shouldn't do it;}
+
+While pretransitioning is straight-forward when no branches are
+involved, a solution that does not consider branches will have an
+adverse effect on performance, as illustrated in 
+listing~\ref{listing:pretransition_worstcase}. One way to avoid this
+scenario could be to consider branching information collected during
+interpretation and pretransitioning to the more likely branch. This is
+speculative however, as has so far proved to complex to implement in
+our prototype. 
+
+Another answer to this problem might be to consider this example as
+unlikey and suboptimal practice and thus accept decrease in performance.
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:pretransition_worstcase},
   caption={Example with branches where by pretransitioning to the object
@@ -360,6 +406,10 @@ pretransitioning look promising. In order to not rely on
 micro-benchmarks, we chose the DeltaBlue benchmark, which tests both the
 performance impacts for small and large lists simultaneously.
 \subsection{Delta Blue}
+DeltaBlue is a one way constraint solver originally developed for
+Smalltalk which has been implemented in several languages and has been
+suggested for cross-languages benchmarking by Marr et
+al~\cite{marr2016cross}. 
 \todo{Explanation of DeltaBlue}
 \todo{Visualization of Allocation sites and min/max/avg sizes}
 
@@ -409,8 +459,29 @@ section.
 \subsubsection{Naive strategy} The easiest solution for testing the
 maximum achievable performance with disregard for the increase in
 memory consumption is to take each newly observed maximum size as the
-new presize.
+new presize. Our naive strategy works similarly, expect that we
+inhibit the growth of presize by a factor for 8 \todo{check
+  factor}. Hence, we only grow the presize if the current size has
+been exceeded 8 times.
 
+Promisingly, we observed a significant impact on performance on the
+DeltaBlue benchmark with the size configuration at 5000. The average
+speed-up was by a factor for 1.37, the maximum speedup observed
+(shortest runtime with optimizations vs shortest runtime without) was
+a factor of 3.7. This was at the cost of memory consumption (increased
+by a factor for 2) and longer warmup times by a factor of 0.8.
+
+\subsubsection{Naive strategy with shrinking}
+
+\subsubsection{Average size strategy}
+
+\subsubsection{Summary of our current knowledge}
+As observed with the naive strategy, presizing can have a positive
+effect on performance, but needs to be considered carefully in order
+to find the sweetspot, where we maximize the performance benefits
+while minimizing the impact on memory consumption.
+
+Further research is needed for any definite solution in this regard.
 
 
 \subsection{Benchmark Results}
@@ -429,11 +500,25 @@ Dictionaries;
 Mostly read/written;
 Sorting/Sorted Strategy;}
 
+\section{Conclusion}
+With have shown that the, so far no implemented, optimization of
+presizing can provide performance benefits for certain
+applications. Our naive solution implemented in our prototype shows
+an average speedup of 37\%, at the cost of increased memory
+consumption and longer warmup times.
+
+While these initial findings are promising, more work is needed in
+order to find an optimal strategy for maximizing performance while
+minimizing the additional memory consumption.
+
 \todo{List/Arrays/Collections, choose one word and stick with it}
 \todo{transitioning copies, realloc likely also copies; explain that in the
   discussion of the cost of transitions}
 \todo{Why is line 360 an allocation site? (self.constraints.remove(constraint))}
 \todo{Introduce presize as word}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
 
 \end{document}
 \endinput

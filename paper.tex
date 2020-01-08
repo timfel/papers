@@ -21,6 +21,7 @@
 \newacronym{gc}{\textsc{GC}}{garbage collector}
 \newacronym{jit}{\textsc{JIT}}{just in time}
 
+
 %% Rights management information.  This information is sent to you
 %% when you complete the rights form.  These commands have SAMPLE
 %% values in them; it is your responsibility as an author to replace
@@ -66,7 +67,7 @@
 %%
 %% The "title" command has an optional parameter,
 %% allowing the author to define a "short title" to be used in page headers.
-\title{Toward Pretransition and Preallocation Strategies for GraalPython}
+\title{Toward Pretransition and Presizing Strategies for GraalPython}
 
 %%
 %% The "author" command and its associated commands are used to define
@@ -116,7 +117,7 @@
 %% The abstract is a short summary of the work to be presented in the
 %% article.
 \begin{abstract}
-  Pretransition and preallocation are runtime optimization
+  Pretransition and presizing are runtime optimization
   technologies available in runtime environments like V8. Graal does
   not yet contain these optimizations. In this paper we offer our
   thoughts and analysis on how Graal could incorporate these
@@ -158,11 +159,10 @@ allocating, deallocating, growing, and shriking data structures.
 The optimization of data structures makes up a significant portion of
 the performance benefits provides by a \ac{jit} compiler. In this
 paper we focus on three optimization technologies that aim to optimize
-the efficiency of array- or list-like structures:
-- Presizing/Preallocation
-- Pretransitioning 
+the efficiency of array- or list-like structures: Presizing \&
+Pretransitioning.  
 
-\paragraph{Preallocation} As the size of arrays and lists that the
+\paragraph{Presizing} As the size of arrays and lists that the
 runtime system manages for the programmer changes over the execution
 time of the program, part of the execution time is spent growing or
 shrinking these structures according to the current needs.
@@ -181,12 +181,12 @@ allocate a predetermined static amount, but instead uses the
 previously observed size of the array to compute the optimal size to
 allocate. While this optimization should have little to no effect on
 lists that are used infrequently and stay small, it can save a
-significant amount of growing operations for list that get very large
-and are used in a \emph{hot} part of the code.
+significant amount of growing operations for lists that get very large
+and are used in a \emph{hot} portion of the code.
 
 For example, a list allocated with size 4 that grows by a factor of
 2 whenever it hits its limit will grow 12 times if 10.000 elements are
-added to it. By adjusting the initial size or the grow factor the
+added to it. By adjusting the initial size or the growth factor the
 amount of operations needed to reach the optimal size to be reduced
 significantly or eliminated entirely.
 
@@ -229,6 +229,9 @@ where an array only transitions \emph{sometimes}, but stays homogenous
 in other cases. Which variables should be weighted in order to make
 this decision? We address this question in
 section~\ref{sec:pretransitioning}. 
+
+\todo{use listing}
+\todo{The rest of this paper is structured thus}
 
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:simple_presizing}, caption={*Take from memento mori*}]
@@ -289,28 +292,6 @@ allocation site in the class definition of OrderedCollection, thereby
 making the information collected useless.
 \todo{Idea for overcoming this/Future work?}
 
-
-\subsection{Evaluation}
-\subsubsection{Delta Blue}
-Constraint solver using both small lists and very large ones.
-\todo{Explanation of DeltaBlue}
-\todo{Visualization of Allocation sites and min/max/avg sizes}
-
-\begin{figure}
-    \includegraphics[width=0.49\textwidth]{allocation_sites.png} 
-    \caption{Allocation sites and their respective observed sizes in
-      the DeltaBlue benchmark excluding lists that never contain more
-      than 5 elements}
-    \label{fig:allocation_sites}
-\end{figure}
-
-
-\subsubsection{Benchmark Results}
-\todo{Memory consumption / Execution time, at most a table, not really
-  enough meassurements for a diagram}
-
-\subsection{GraalSqueak Evaluation}
-\todo{Discuss why presizing is not that usefull for Smalltalk}
 
 \section{Presizing}
 \label{sec:presizing}
@@ -373,6 +354,72 @@ if flag:
 \end{figure}
 
 
+\section{Performance Analysis and Initial Results}
+The first indications on the performance impact of presizing and
+pretransitioning look promising. In order to not rely on
+micro-benchmarks, we chose the DeltaBlue benchmark, which tests both the
+performance impacts for small and large lists simultaneously.
+\subsection{Delta Blue}
+\todo{Explanation of DeltaBlue}
+\todo{Visualization of Allocation sites and min/max/avg sizes}
+
+\subsection{Allocation Sites Delta Blue}
+As the solver relies on arrays for storing and evaluating its
+constraints, there are several performance relevant allocation sites
+in the source code~\footnote{Allocation sites are identified by their
+  line number in the benchmark source code availble here:
+  \url{https://git.io/Jve2G}}. Figure~\ref{fig:allocation_sites}
+illustrates the list sizes observed through our append instrumentation
+when running DeltaBlue 30 times with an input size of 5000. 
+
+\begin{figure}
+    \includegraphics[width=0.49\textwidth]{allocation_sites.png} 
+    \caption{Allocation sites and their respective observed sizes in
+      the DeltaBlue benchmark excluding lists that never contain more
+      than 5 elements}
+    \label{fig:allocation_sites}
+\end{figure}
+
+Figure~\ref{fig:allocation_sites} provides several insights and
+illustrates, why there isn't an obvious answer to what the optimal
+size for presizing might be. There are several observations we would
+like to make:
+\begin{itemize}
+\item Presizing works fine for list that have stable sizes, like 32
+  and 360.
+\item All other allocations sites have a bottom heavy distribution,
+  meaning that there are many small lists and some very large ones.
+\item In particular 445 and 558 have local maxima, where there are
+  many lists of medium size.
+\item All lists other than 32 and 360 approximately reach the maximum
+  size given as the benchmark input (5000).
+\end{itemize}
+As expected, the optimization is straight forward and useful for lists
+that reach a stable size. But lists that vary widely present an
+interesting tradeoff: Choosing a small presize limits the usefulness
+of the optimizations, but choosing one too large can explode the
+memory usage of the program. In fact, at the time of writing, our
+version crashes with and out of memory error, when we run the
+benchmark with input sizes larger than 8000. We will explain which
+strategies we tested so far for weighing this tradeoff in the next
+section. 
+\todo{How often is each list declared?}
+
+\subsection{Tested presizing strategies}
+\subsubsection{Naive strategy} The easiest solution for testing the
+maximum achievable performance with disregard for the increase in
+memory consumption is to take each newly observed maximum size as the
+new presize.
+
+
+
+\subsection{Benchmark Results}
+\todo{Memory consumption / Execution time, at most a table, not really
+  enough meassurements for a diagram}
+
+\subsection{GraalSqueak Evaluation}
+\todo{Discuss why presizing is not that usefull for Smalltalk}
+
 
 
 \section{Future Work}
@@ -385,6 +432,8 @@ Sorting/Sorted Strategy;}
 \todo{List/Arrays/Collections, choose one word and stick with it}
 \todo{transitioning copies, realloc likely also copies; explain that in the
   discussion of the cost of transitions}
+\todo{Why is line 360 an allocation site? (self.constraints.remove(constraint))}
+\todo{Introduce presize as word}
 
 \end{document}
 \endinput

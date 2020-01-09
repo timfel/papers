@@ -1,7 +1,6 @@
 %% The first command in your LaTeX source must be the \documentclass command.
 \documentclass[sigconf, review]{acmart}
 \settopmatter{printfolios=true}
-
 %% <remove below before publication>
 \usepackage[obeyFinal,colorinlistoftodos,prependcaption]{todonotes}
 \usepackage{regexpatch}
@@ -9,7 +8,6 @@
 \xpatchcmd{\@todo}{\setkeys{todonotes}{#1}}{\setkeys{todonotes}{inline,#1}}{}{}
 \makeatother
 %% </remove below before publication>
-
 \usepackage{listings}
 \usepackage[acronym]{glossaries}
 \newcommand{\ac}[1]{\gls*{#1}}
@@ -17,12 +15,9 @@
 \newcommand{\Ac}[1]{\Gls*{#1}}
 \newcommand{\acp}[1]{\glspl*{#1}}
 \newcommand{\Acp}[1]{\Gls*{#1}}
-
 \newacronym{vm}{\textsc{VM}}{virtual machine}
 \newacronym{gc}{\textsc{GC}}{garbage collector}
 \newacronym{jit}{\textsc{JIT}}{just in time}
-
-
 
 %% Rights management information.  This information is sent to you
 %% when you complete the rights form.  These commands have SAMPLE
@@ -180,38 +175,8 @@ array or on by what factor the arrays size is increased when it resized. This is
 trade-off between ease of programming and fine-tuning
 performance. Presizing aims to lessen the thus entailed performance
 degradation by propagating the observed array-sizes back to their
-positions in the source code (allocation sites). Speculating that
-arrays from the same allocation site will have similar resource
-consumption over time. Hence, when a new array is created the runtime
-environment does not allocate a predetermined static amount, but
-instead uses the previously observed sizes of the array to compute the
-optimal size to allocate.
-
-While this optimization should have little
-to no effect on arrays that are used infrequently and stay small, it
-can save a significant amount of resizing operations for arrays that
-grow multiple times and are used in a \emph{hot} portion of the code. 
-For example, an array allocated with size 4 that grows by a factor of
-2 whenever it hits its limit will grow 12 times if 10.000 elements are
-added to it, like in listing~\ref{listing:simple_presizing}. By
-adjusting the initial size or the growth factor, the amount of
-operations needed to reach the optimal size can be reduced
-significantly or even eliminated entirely.
-
-However, this poses the question: Given the history of all sizes a
-specific array had during the execution of a program, how do we
-determine the optimal \emph{presize}? There is no straight forward answer that
-works in every scenario, we will provide further analysis and examples in
-section~\ref{sec:presizing}.
-
-\begin{figure}
-\begin{lstlisting}[language=Python,label={listing:simple_presizing},
-  caption={A simple example for the motivation of presizing}]
-    var a = []
-    for i in range(0, 10000):
-      a.append(1)
-\end{lstlisting}   
-\end{figure}
+positions in the source code (allocation sites), which we will expand
+on in section~\ref{sec:presizing}.
 
 \paragraph{Pretransitioning} The size of an array is not the only
 thing that can change over time, the types of the objects stored
@@ -228,33 +193,18 @@ The downside of storage strategies is, that they only work as long as
 all objects in an array have specific types. If a floating point
 number is added to an array of integers, the storage strategy has to
 be changed and the entire array has to be converted to a different
-format. This can happen multiple times in a row if objects keep
-getting added to the array that do not fit to the current storage
-strategy. Such a conversion is called \emph{transition} and can be a costly
-operations on large arrays.
+format.  Such a conversion is called \emph{transition} and can be a costly
+operations on large arrays. Pretransitioning aims to avoid these
+transitions, for more detail see section~\ref{sec:pretransitioning}.
+\\
 
-Pretransitioning relies on the same
-speculation as presizing: arrays from the same allocation
-site will likely contain the same type of objects over time. Thus, for
-example, instead of starting out with an \emph{empty} strategy,
-transitioning to an \emph{int} strategy when an integer is added, then
-transitioning to a \emph{double} strategy when an double is added,
-before finally transitioning to an \emph{object} strategy when a
-string is added, the array would already be created with the
-\emph{object} strategy. While this example is straight forward, the
-question remains of how to handle cases where an array only
-transitions \emph{sometimes}, but stays homogeneous in other
-cases. Which variables should be weighted in order to make this
-decision? We expand on this question in
-section~\ref{sec:pretransitioning}.
 
 The rest of this paper is structured thus: We introduce the basis of
 the ideas presented here in section~\ref{sec:related_work}, present
 our prototype in section~\ref{sec:prototype}, describe the challenges
 of presizing and pretransitionin in section~\ref{sec:presizing} and
 seciton~\ref{sec:pretransitioning} respectively, present our findings
-in section~\ref{sec:evaluation}, and close with future work in section
-~\ref{sec:future_work} and our conclusion in
+in section~\ref{sec:evaluation}, and conclude with future work in
 section~\ref{sec:conclusion}. 
 
 \section{Related Work on Allocation-site-based Optimizations}
@@ -286,7 +236,6 @@ size in Octane, with no other performance loss.
 implemented inside V8 or any mention in later works. Thus we believe
 that there are relevant and open questions to investigate in this
 area.
-\todo{Branch idea not clear from google/ performance in chrome; }
  
 \section{Our Prototype}
 \label{sec:prototype}
@@ -357,23 +306,51 @@ other languages.
 
 \section{Presizing}
 \label{sec:presizing}
-Presizing uses the collected information at the allocation sites in
-order to detemine a likely size for the next array allocated at the
-same site. Presizing works well for arrays
-whose sizes stabilize over time, as the presize will approximate the
-maximum size and eventually eliminate all resizing operations.
+Presizing relies on the assumption that arrays from the same
+allocation site will have similar resource consumption over
+time. Hence, when a new array is created the runtime environment does
+not allocate a predetermined static amount, but instead uses the
+previously observed sizes of the array to compute the optimal size to
+allocate.
 
+While this optimization should have little to no effect on arrays that
+are used infrequently and stay small, it can save a significant amount
+of resizing operations for arrays that grow multiple times and are
+used in a \emph{hot} portion of the code.  For example, an array
+allocated with size 4 that grows by a factor of 2 whenever it hits its
+limit will grow 12 times if 10.000 elements are added to it, like in
+listing~\ref{listing:simple_presizing}. By adjusting the initial size
+or the growth factor, the amount of operations needed to reach the
+optimal size can be reduced significantly or even eliminated entirely.
 
-The challenge in determining the optimal presize comes with arrays that
-do not reach a stable size. Consider
+\begin{figure}
+\begin{lstlisting}[language=Python,label={listing:simple_presizing},
+  caption={A simple example for the motivation of presizing}]
+    var a = []
+    for i in range(0, 10000):
+      a.append(1)
+\end{lstlisting}   
+\end{figure}
+
+This poses the question: Given the history of all sizes a specific
+array had during the execution of a program, how do we determine the
+optimal \emph{presize}? There is no straight forward answer that works
+in every scenario.
+
+Presizing works well for arrays whose sizes stabilize over time, as
+the presize can approximate the maximum size and eventually eliminate
+all resizing operations.
+
+The challenge in determining the optimal presize comes with arrays
+that do not reach a stable size. Consider
 listing~\ref{listing:presizing_branching} as an example. Whether the
 appropriate presize is closer to 1 or 10000 depends on the likelyhood
 of \lstinline{flag} being true. For each time it is true,
-\lstinline{a} could grow over 10 times using the example from the
-introduction. Whereas, for each time it is false we would
-unnecessarily allocate $(presize - 1) * size(1)$ bytes. While the
-optimal solution remains an open question, we discuss what we have
-learned so far in section~\ref{sec:evaluation}.
+\lstinline{a} could grow over 10 times using the example from
+above. Whereas, for each time it is false we would unnecessarily
+allocate $(presize - 1) * size(1)$ bytes. While the optimal solution
+remains an open question, we discuss what we have learned so far in
+section~\ref{sec:evaluation}.
 
 
 \begin{figure}
@@ -391,10 +368,19 @@ else:
 
 \section{Pretransitioning}
 \label{sec:pretransitioning}
-Pretransitioning relies on the language internal optimization of
-storage strategies and tries to avoid unnecessary transitions between
-such strategies by speculating on the stability of the type of objects
-added to arrays bound to an allocation site.
+Pretransitioning relies on the same
+speculation as presizing: arrays from the same allocation
+site will likely contain the same type of objects over time. Thus, for
+example, instead of starting out with an \emph{empty} strategy,
+transitioning to an \emph{int} strategy when an integer is added, then
+transitioning to a \emph{double} strategy when an double is added,
+before finally transitioning to an \emph{object} strategy when a
+string is added, the array would already be created with the
+\emph{object} strategy. While this example is straight forward, the
+question remains of how to handle cases where an array only
+transitions \emph{sometimes}, but stays homogeneous in other
+cases. Which variables should be weighted in order to make this
+decision? 
 
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:transitions},
@@ -422,11 +408,11 @@ adverse effect on performance, as illustrated in
 listing~\ref{listing:pretransition_worstcase}. One way to avoid this
 scenario could be to consider branching information collected during
 interpretation and pretransitioning to the more likely branch. This is
-speculative however, as has so far proved to complex to implement in
+speculative however, as this has so far proved to complex to implement in
 our prototype. 
 
 Another answer to this problem might be to consider this example as
-unlikely and sub-optimal practice and thus accept decrease in performance.
+unlikely and sub-optimal practice and thus accept the decrease in performance.
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:pretransition_worstcase},
   caption={Example with branches where by pretransitioning to the object
@@ -509,14 +495,14 @@ have been resized or transitioned.
 In addition, avoiding resizing and transitioning can help other
 optimizations to be more effective. For example, allocation removal
 aims to avoid allocations of objects that are only short lived and do
-not escape outside the current context. Graal is able to perform
+not escape outside the scope of the compilation unit. Graal is able to perform
 allocation removal on small arrays, but this is limited by the amount
 of operations performed on the arrays. The default size for arrays in
 Graal is 4, so any array larger than that will require resizing and
 potentially transition operations. These operations make it less
 likely that the array will be allocation removed. But with presizing
 and pretransitioning we are able to avoid these operations, which
-simplifies the trace and thereby increases the probability, that small
+simplifies the trace which in turn increases the probability that small
 lists (between roughly 5 and 30 elements) can be allocation removed.
 
 \subsection{Tested presizing strategies}
@@ -568,6 +554,7 @@ while minimizing the impact on memory consumption.
 Further research is needed for any definite answer in this regard.
 
 \section{Conclusion \& Future Work}
+\label{sec:conclusion}
 With have shown that the, so far no implemented, optimization of
 presizing can provide performance benefits for certain
 applications. Our naive solution implemented in our prototype shows
@@ -576,15 +563,16 @@ consumption and longer warm-up times.
 
 While these initial findings are promising, more work is needed in
 order to find an optimal strategy for maximizing performance while
-minimizing the additional memory consumption.
+minimizing the additional memory consumption. In particular we want to
+leverage more of the variables discussed in
+section~\ref{sec:implementation} and different heuristics for
+determining the presize. Increasing the mentioned growth factor, which
+unfortunately is not easily accessible in Java, could be a good way to
+avoid exploding memory consumption while still reducing the amount of
+resizing operations for list that infrequently get very large.
 
-\todo{More benchmarks;
-Growth factor;~\ref{sec:implementation}, other heuristics and variables.
-Dictionaries;
-Mostly read/written;
-Sorting/Sorted Strategy;}
-
-\todo{Why is line 360 an allocation site? (self.constraints.remove(constraint))}
+Finally, the impact of our optimizations on other benchmarks needs to
+be evaluated as well.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}

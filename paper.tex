@@ -261,20 +261,24 @@ section~\ref{sec:conclusion}.
 \section{Related Work}
 \label{sec:related_work}
 \subsection{Memento Mori - Dynamic Allocation-site-based Optimizations}
-\todo{explain mementos}
 The basis of our work is the previous work of Clifford et
-al. ~\cite{clifford2015memento} on the V8 \ac{vm}. Though, their main focus
-was on a different optimization: pretenuring. Essentially using
-allocation sites to speculate about objects that were likely to
-survive the next \ac{gc} cycles and directly allocating them in the
-older generation to improve \ac{gc} performance.
+al. ~\cite{clifford2015memento} on the V8 \ac{vm}. They extended
+memory management with \emph{Mementos}, short lived objects used to
+assosicate lists with their allocation sites, i.e. the position in the
+source code where they were declared. The informations gather this way
+would then be used to optimize the future allocations of lists from
+the same site. Their main focus was on a optimization not mentioned
+yet: pretenuring. Essentially using the Mementos to speculate about
+objects that were likely to survive the next \ac{gc} cycles and
+directly allocating them in the older generation, improving \ac{gc}
+performance.
 
-As we have no access to the \ac{gc}, as we will discuss in
+As we have no access to the \ac{gc}, discussed in
 section~\ref{sec:prototype}, we do not consider pretenuring in our
 work. The other two optimizations discussed by Clifford et al. are the
 ones we target in this paper. While pretransitioning was discussed and
-evaluated thoroughly, presizing was only discussed briefly and 
-how the evaluation was done was not entirely clear:
+evaluated thoroughly, presizing was only discussed briefly and how the
+evaluation was done was not entirely clear:
 \begin{quote}
 Encouragingly, our prototype was able to learn the optimum
 allocation size for the important sites in the very sensitive
@@ -294,12 +298,11 @@ are relevant and open questions to investigate in this area.
 \section{Our Prototype}
 \label{sec:prototype}
 Building on the ideas of Mementos, see section~\ref{sec:related_work},
-we implemented 
-allocation-site tracking to GraalPython thus allowing to to link the
-information of a array growth back to its allocation site. Based on
-this information, we did preliminary experiments with different
-strategies for determining the optimal size for presizing. Our code
-and benchmarks are available on
+we implemented allocation-site tracking to GraalPython thus allowing
+to to link the information of a array growth back to its allocation
+site. Based on this information, we did preliminary experiments with
+different strategies for determining the optimal size for
+presizing. Our code and benchmarks are available on
 Github~\footnote{\url{https://github.com/johenning/graalpython/tree/overallocate}}.
 
 In this section we will first discuss the difference in implementation
@@ -308,7 +311,7 @@ will then present our observations of the allocation sizes of the
 DeltaBlue benchmark and discuss the results of our benchmark
 evaluations.
 
-\subsection{Memento Implementation}
+\subsection{Tracking Allocation-sites}
 \label{sec:implementation}
 In contrast to the V8 \ac{vm}, we are working in the Graal
 ecosystem, which relies on a Java \ac{vm} for many of its features, in
@@ -368,12 +371,6 @@ same site. Presizing works well for arrays
 whose sizes stabilize over time, as the presize will approximate the
 maximum size and eventually eliminate all resizing operations.
 
-It is important to point out that transitions, discussed in
-section~\ref{sec:pretransitioning}, as well as resizing involve
-copying the array, which entails performance overhead proportional to
-the array size. Hence, the performance gains of presizing are
-proportinal to the size of the array and the amount of times it would
-have been resized.
 
 The challenge in determining the optimal presize comes with arrays that
 do not reach a stable size. Consider
@@ -511,6 +508,27 @@ strategies we tested so far for weighing this trade-off in the next
 section. 
 \todo{How often is each array declared?}
 
+\subsection{Optimization Potential}
+It is important to point out that transitions as well as resizing involve
+copying the array, which entails performance overhead proportional to
+the array size. Hence, the performance gains of presizing and
+pretransitioning are
+proportinal to the size of the array and the amount of times it would
+have been resized or transitioned.
+
+In addition, avoiding resizing and transitioning can help other
+optimizations to be more effective. For example, allocation removal
+aims to avoid allocations of objects that are only short lived and do
+not escape outside the current context. Graal is able to perform
+allocation removal on small arrays, but this is limited by the amount
+of operations performed on the arrays. The default size for arrays in
+Graal is 4, so any array larger than that will require resizing and
+potentially transition operations. These operations make it less
+likely that the array will be allocation removed. But with presizing
+and pretransitioning we are able to avoid these operations, which
+simplifies the trace and thereby increases the probability, that small
+lists (between roughly 5 and 30 elements) can be allocation removed.
+
 \subsection{Tested presizing strategies}
 \subsubsection{Naive strategy} The easiest solution for testing the
 maximum achievable performance with disregard for the increase in
@@ -538,9 +556,6 @@ to find the sweet-spot, where we maximize the performance benefits
 while minimizing the impact on memory consumption.
 
 Further research is needed for any definite solution in this regard.
-
-\subsection{GraalSqueak Evaluation}
-\todo{Discuss why presizing is not that useful for Smalltalk}
 
 \section{Future Work}
 \todo{More benchmarks;

@@ -124,13 +124,13 @@
 \begin{abstract}
 To improve programming productivity, the right tools are crucial.
 This starts with the choice of the programming language, which often predetermines the libraries and frameworks one can use.
-Polyglot runtime environments, such as GraalVM, provide mechanisms for sending messages across language boundaries, which allow developers to combine different languages, libraries, and frameworks with each other.
+Polyglot runtime environments, such as GraalVM, provide mechanisms for exchanging objects and sending messages across language boundaries, which allow developers to combine different languages, libraries, and frameworks with each other.
 However, polyglot application developers are obligated to properly use the right interfaces for accessing their data and objects from different languages.
 % Especially if multiple languages are involved, it is often not clear which language interface can be expected.
 
 To reduce the mental complexity for developers and let them focus on the business logic, we introduce user-defined class mappings --
 an approach for adapting cross-language messages at run-time to match an expected interface.
-Thereby, the translation strategies are defined in an exchangeable and easy-to-edit file format.
+Thereby, the translation strategies are defined in an exchangeable and easy-to-edit configuration file.
 Thus, different stakeholders ranging from library and framework developers up to application developers can use and extend these mappings for their needs.
 \end{abstract}
 
@@ -204,11 +204,11 @@ Thereby, the runtime provides access to objects across language borders.
 
 In the case of GraalVM, the underlying framework provides interchangeability of primitive types and some selected basic data structures such as lists.
 Since this mechanism is deeply integrated into the framework, it is rather hard to extend for other objects like dictionaries or even more domain-specific data types like data frames.
-That makes it challenging to use them from different language contexts and therefore reduces the portability~\cite{Brown:1977:SPA} of these language constructs.
+This makes them cumbersome to use from different language contexts and therefore reduces the portability~\cite{Brown:1977:SPA} of code.
 
 To address this issue, we introduce user-defined class mappings --
 an approach to provide cross-language interface mappings by generating suitable adapters.
-Thereby, application and library developers can extend the underlying interoperability mechanism to generate these adapters for their needs and can even share them.
+Thereby, application and library developers can extend the underlying interoperability mechanism to generate these adapters for their needs and can even share them with others.
 
 % \begin{itemize}
 %   \item Goal: increase portability of code (e.g. black-box library/framework)
@@ -217,10 +217,10 @@ Thereby, application and library developers can extend the underlying interopera
 
 
 \paragraph{Contributions}
-In this work, we introduce a concept to enable the polyglot application developer to define and to use cross-language method mappings.
-Thereby, these predefined mappings can be used in a semi-automatic fashion by determining the expected user interface from a method call and applying the corresponding mapping.
-To do so, the underlying polyglot environment was extended to make the internal message information accessible for tooling developers.
-In the course of the development, some questions and challenges were revealed, which will be discussed at the end.
+In this work, we introduce a concept to enable polyglot application developers to define and to use cross-language method mappings.
+Thereby, these predefined mappings can be used in a semi-automatic fashion by determining the expected interface from a method call and applying the corresponding mapping.
+To do so, the underlying polyglot environment is extended to make the internal message information accessible for tooling developers.
+In the course of the development, some questions and challenges are revealed, which will be discussed at the end.
 
 % This paper makes the following contributions:
 % begin{enumerate}
@@ -234,63 +234,62 @@ In the course of the development, some questions and challenges were revealed, w
 In the next section, the required context for this work is given.
 Thereby, the underlying polyglot environment, GraalVM, and especially the interoperability mechanisms are explained.
 Building on this, the represented approach is outlined in the following section.
-This is followed by a discussion about the trade-offs and challenges of this approach.
-Afterward, the approach is compared with other methods to use data structures and objects across different language runtimes.
+This is followed by a discussion about the trade-offs and challenges.
+Afterward, the approach is compared with other mechanisms providing access to data structures and object of different languages.
 Finally, the results are summarized, and we give an outlook for future work.
 
 \section{Context}
 
 This work focuses on language interoperability as provided by the GraalVM~\cite{Wurthinger:2013:OVR:2509578.2509581}.
-GraalVM is based on Java HotSpot VM and provides interoperability between different programming languages.
+GraalVM is based on the Java HotSpot VM and provides interoperability between different programming languages.
 To archive this, language interpreters have to be implemented in Truffle, GraalVM's language implementation framework.
 Thereby, objects that can be shared between languages implement a common interface for interoperability.
 In this way, all languages have a shared understanding of message communication and messages can be sent to objects across language boundaries~\cite{10.1145/2816707.2816714}.
 
 Moreover, GraalVM can be embedded into Java applications.
 For this, it provides proxy interfaces\footnote{org.graalvm.polyglot.proxy package (\url{https://git.io/Jvvkz}).}, ranging from array interfaces (e.g., \classname{ProxyArray}) up to time zone interfaces (e.g., \classname{ProxyTimeZone}).
-These interfaces can be implemented by Java objects to mimic behavior of specific language objects.
+These interfaces can be implemented by Java objects to mimic behavior of specific objects in the target language.
 This way, it is possible to expose a domain-specific date object as a JavaScript \lstinline{Date} object when passed to JavaScript for example.
 
 Additionally, GraalVM has support for \emph{custom target type mappings}\footnote{HostAccess.Builder API (\url{https://git.io/Jvvko}).}.
 This mechanism allows the conversion of objects given a custom mapping.
-However, this functionality is also limited to Java embeddings and thus cannot be used by developers of polyglot applications.
+This functionality, however, is also limited to Java embeddings and thus cannot be used by developers of polyglot applications.
 
 \section{Approach}
 
 Our approach applies the adapter design pattern~\cite{Gamma:1995:DPE:186897}.
 By wrapping an object from one language with an adapter, it can expose with an appropriate interface from another language when called from there.
 
-To build the adapter, the adaptee interface as well as the desired interface is needed.
+To build the adapter, the adaptee interface as well as the desired interface is needed. 
 While the former one can be determined by exploring the wrapped object itself, the latter is more critical.
 We assume that the desired interface can be derived from the concept represented by the adaptee together with the language from which the adapter gets called.
 The underlying concept can be either expressed by the class of the wrapped object, or the user can explicitly define it, as shown in \autoref{lst:interface_first_adapter}.
 
 \begin{lstlisting}[caption={Example interface to generate the first half of the adapter}, label={lst:interface_first_adapter}, language=python]
-from polyglot_ds import PolyglotDS
-ds = PolyglotDS(dict(), 'Dictionary')
+from polyglot import PolyglotAdapter, mapping
+adapter = PolyglotAdapter(dict(), mapping['Dictionary'])
 \end{lstlisting}
 
 To be able to share an understanding of concepts and their interfaces, these are defined as a language-independent representation.
 For the sake of simplicity, we describe the interface as a set of method names, as shown in \autoref{lst:interface_collection}.
 
-\begin{lstlisting}[caption={Interface definition of Dictionary}, label={lst:interface_collection}]
-  lookup
-  add
-  includes
+\begin{lstlisting}[caption={Interface definition of Dictionary}, label={lst:interface_collection}]/todo{valid Yaml?}
+Dictionary
+- lookup
+- add
+- includes
   ...
-  \end{lstlisting}
+\end{lstlisting}
 
-Given that interface definition, the method names are mapped in a YAML~\cite{YAML} file, as shown in \autoref{lst:mapping_file}.
-Thereby each operation specified in the intermediate representation is assigned with a list of callee operations that implement the corresponding behavior.
+Given this interface definition, the method names are mapped in a YAML~\cite{YAML} file, as shown in \autoref{lst:mapping_file}.
+Thereby, each operation specified in the intermediate representation is assigned with a list of callee operations that implement the corresponding behavior.
 Whereas, it is not necessary to provide alias names for wrapped objects, since every translation should lead to the same result,
 it is crucial if the mapping is used in the other direction, as explained later.
 If the desired behavior is not provided from the callee, the format can be extended to define specific implementations on top of the shared operations.
 
 \begin{lstlisting}[caption={Mapping file for Ruby hash and dictionary}, label={lst:mapping_file}]
-  lookup:
-    - []
-  add:
-    - []=
+  lookup: []
+  add: []=
   includes:
     - include?
     - member?
@@ -311,28 +310,28 @@ If the desired behavior is not provided from the callee, the format can be exten
   \label{seq:deployment}
 \end{figure*}
 
-By introducing this intermediate representation of a shared interface, the implementation effort can be reduced.
-Through this division, the adapter consists of two components:
-The first part of the adapter, called intermediate part,  maps from the wrapped object to the intermediate representation,
-and the second part, called callee part,  maps from the intermediate representation to the target interface, as shown in \autoref{fig:adapter_diagram}.
-Thus, instead of providing a mapping for each concept between every language implementation, only the mapping to the intermediate representation has to be given to integrating it fully.
+By introducing an common representation of a shared interface, the implementation effort can be reduced.
+Through this split, the adapter consists of two components:
+The first part of the adapter, called \emph{intermediate part},  maps from the wrapped object to the intermediate representation,
+and the second part, called \emph{callee part},  maps from the intermediate representation to the target interface, as shown in \autoref{fig:adapter_diagram}.
+Thus, instead of providing a mapping for each concept between every language implementation, only the mapping to the intermediate representation has to be given to fully integrate it.
 
 Besides the mapping, the creation of the callee adapter part also needs the desired language interface.
 Thereby, determining the desired target language is challenging.
 During the initialization of the intermediate part, it is not known from which language it will be called.
 
 To overcome this issue, the user could explicitly state the desired interface if the required information is present.
-This can be done either by an explicit call to the adapter, such as \lstinline{ds.adapt_to_ruby_array()}, or by utilizing Context-oriented Programming.
+This can be done either by an explicit call to the adapter, such as \lstinline{ds.adapt_to_ruby_array()}. %, or by utilizing Context-oriented Programming.
 
 While this approach provides fine-granular control by stating everything explicitly, it can be quite cumbersome. 
 Primarily because, in many cases, the mapping intent is already expressed in the underlying algorithm.
-If for example a \classname{Collection} is passed to a Ruby algorithm, it is pretty clear that the desired interface is at least a Ruby object
-and has probably also an array-like interface.
+If, for example, a \classname{Dictionary} is passed to a Ruby algorithm, it is pretty clear that the desired interface is at least a Ruby object
+and has probably also a Ruby \lstinline{Hash}-like interface.
 
 Therefore, the mapping is created during runtime, if the adapter gets called from a language context, as shown in \autoref{seq:deployment}.
 
 Although from a user perspective, the desired language is clear, it is not intended from the Truffle framework to be able to find out the language of an object.
-While from an application developer view, the transparency between languages is desirable, it limits the design space for tooling developers.
+While, from an application developer view, the transparency between languages is desirable, it limits the design space for tooling developers.
 Therefore, as part of the implementation, such functionality was integrated into the Truffle framework.
 
 Every time a language context is requested, a newly introduced management object saves the corresponding language.
@@ -340,9 +339,9 @@ If now, a method is called on one of the adapters, which are internally \classna
 
 Since the adapter is written in TruffleRuby~\cite{TruffleRuby}, a new primitive function is added to provide an entry point from the language level to access this value and use it to build the desired mapping.
 
-To identify the right data structure interface from the given language,
+To identify the right interface from the given language,
 the language-independent, generic interface can specify default mappings for the different languages. 
-Given that information, the adapter can fully automatically adapt to the desired target interface.
+Given that information, the adapter can fully automatically configure itself to the desired target interface.
 
 From an application developer's view, the boundary between the languages disappear.
 
@@ -354,14 +353,15 @@ From an application developer's view, the boundary between the languages disappe
 
 \section{Discussion}
 
-There is always a trade-off between automatization and user control.
-By making the interface translation process transparent to the user, it could result in unexpected behavior.
+There is always a trade-off between automatization and customization.
+But making the interface translation process fully transparent to the user could result in behavior not intended by the user.
 Therefore, this approach tries to balance both sides.
 
 On the one hand, the application developers are in charge of explicitly declaring an adapter with its corresponding concept.
 That way, the users are aware of the adapter, and overhead introduced by the adapter is prevented if not needed.
-The mechanism to determine the target language, as well as the creation of the mapping behavior during runtime, introduces additional function calls.
-While these can be reduced by utilizing caching and reusing the mapping behaviors, there is still some overhead added that should be reduced.
+
+The mechanism to determine the target language, as well as the creation of the mapping behavior during runtime, introduces additional function calls and therefore performance overhead.
+This overhead could be further reduced by utilizing caching and reusing the mapping behaviors.
 
 On the other hand, a lot of the process is performed automatically and, therefore, transparent for the user.
 Instead of using explicit conversion calls, the calls are translated automatically based on predefined configuration files.
@@ -392,11 +392,11 @@ The need to use existing data structures and objects across different runtimes h
 \paragraph{Serialization}
 During serialization~\cite{10.1007/BFb0097962}, an object is translated into a format that can be stored, transmitted, and later reconstructed.
 The advantage of this approach is that it can be integrated into nearly every language as a library.
-However, it has its limits by more complex objects.
-Since the memory is not shared between the runtimes, the object exists as a separate object in each runtime.
-Resulting in different identities, more memory consumption, and performance overhead to transfer the object.
+However, complex object graphs are often not supported.
+Since the memory is not shared between the runtimes, each object exists as a separate object in each runtime.
+Resulting in different identities, more memory consumption, performance overhead to transfer the object, and the need for sychronization.
 
-In comparison, our approach preserves the identity by keeping the same object between runtimes and translating the messages accordingly.
+In comparison, our approach preserves the identity by sharing the same object across languages and translating messages accordingly.
 Instead of representing a specific instance of an object in a language-independent format, the underlying concept itself is represented that way. 
 Thereby, several challenges are shared between these approaches, such as schema evolution.
 Although this challenge is not directly addressed in this work, corresponding ideas can be borrowed from this field.
@@ -411,7 +411,7 @@ There, a columnar memory layout is shared between different libraries to provide
 
 \paragraph{Polyglot Adapters}
 The idea to provide adapters for the GraalVM was discussed in related work~\cite{Niephaus:2019:TPA:3328433.3328458}.
-They demonstrated that the adapter pattern is suitable to translate messages between languages and mimic language-specific behavior, but the approach was purely on the language level.
+It demonstrates that the adapter pattern is suitable to translate messages between languages and mimic language-specific behavior, but the approach was purely on the language level.
 In the course of this, scaling and usability challenges were revealed, which are tackled by this work.
 By introducing a language-independent, generic interface representation and splitting the adapter into two parts, the mapping overhead can be reduced.
 Further, the language resolution, which creates the callee part of the adapter on the fly, improves the overall usability.
@@ -420,8 +420,8 @@ Further, the language resolution, which creates the callee part of the adapter o
 \section{Conclusion and Future Work}
 
 In this work, user-defined class mappings for the GraalVM are introduced.
-These allow developers of polyglot applications to combine algorithms and data structures from different languages.
-Thereby, mechanisms are introduced to make the whole process transparent to the user.
+These allow developers of polyglot applications to combine algorithms and data structures from different languages more effectively by making code more portable.
+Thereby, a mechanism is introduced to make the whole process more transparent to the user.
 There is no need to adjust either the interface from the object or the calls out of the algorithm by hand.
 This approach enables the application developer to focus on the domain-specific challenges and using the best-fitted language concepts without being bothered with language boundaries.
 

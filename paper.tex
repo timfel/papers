@@ -63,7 +63,7 @@
 	captionpos=b,
 	xleftmargin=0pt,
 	frame=lines,
-	aboveskip=10pt,
+	aboveskip=0pt,
 }
 
 %%
@@ -181,7 +181,6 @@ use resizable arrays as shorthand for lists and other similar structures, as our
 current prototype only works for arrays.  But our findings can also be applied
 other collection types, since one can be (and in practice often is) implemented
 using the other.
-
 \paragraph{Presizing} As the size of arrays that the \ac{vm}
 manages for the programmer changes over the run-time of the program,
 part of the execution time is spent growing or shrinking these
@@ -195,13 +194,12 @@ fine-tuning performance. Presizing aims to lessen the thus entailed
 performance degradation by propagating the observed array-sizes back
 to their positions in the source code (allocation sites), which we
 will expand on in section~\ref{sec:presizing}.
-
 \paragraph{Pretransitioning} The size of an array is not the only
 thing that can change over time, the types of the objects stored
 inside it can also vary.  Similarly to automatic memory management,
-this also is a performance disadvantage added in order to improve the
+this also is a performance disadvantage added to improve the
 programming experience by allowing for collections of dynamically
-typed objects. In order to reduce the footprint and improve
+typed objects. To reduce the footprint and improve
 operations on arrays of numbers, many dynamically typed
 object oriented runtimes use storage strategies that only store
 numbers unboxed, thereby saving several indirections when performing
@@ -214,8 +212,6 @@ be changed and the entire array has to be converted to a different
 format.  Such a conversion is called \emph{transition} and can be a costly
 operation on large arrays. Pretransitioning aims to avoid these
 transitions, for more detail see section~\ref{sec:pretransitioning}.
-\\
-
 
 The rest of this paper is structured thus: We introduce the basis of
 the ideas presented here in section~\ref{sec:related_work}, present
@@ -299,7 +295,7 @@ We believe that the variables relevant for profiling are:
 \item Is the array mostly read or mostly written?
 \end{itemize}
 
-Whereas the most important cogs that could be tweaked in order to
+Whereas the most important cogs that could be tweaked to
 approach an optimal solution are:
 \begin{itemize}
 \item Presize, i.e. initially allocated size
@@ -318,7 +314,7 @@ same allocation site would be seen for all arrays used in OrderedCollections,
 regardless of where the OrderedCollection was instantiated. This means that rich
 high-level collection libraries cannot benefit from our approach.
 
-Secondly, our current approach cannot observe if branches in the control
+Secondly, our current approach cannot observe branches in the control
 flow of the program after the allocation of an array lead to vastly different
 characteristics and requirements for the initial allocation. This, however, is
 also a limitation of the prior work that we also have yet to solve.
@@ -337,21 +333,11 @@ are used infrequently and stay small, it can save a significant amount
 of resizing operations for arrays that grow multiple times and are
 used in a \emph{hot} portion of the code.  For example, an array
 allocated with size 4 that grows by a factor of 2 whenever it hits its
-limit will grow 12 times if 10.000 elements are added to it, like in
-listing~\ref{listing:simple_presizing}. By adjusting the initial size
+limit will grow 12 times if 10.000 elements are added to it. By adjusting the initial size
 or the growth factor, the amount of operations needed to reach the
 optimal size can be reduced significantly or even eliminated entirely.
 
-\begin{figure}
-\begin{lstlisting}[language=Python,label={listing:simple_presizing},
-  caption={A simple example for the motivation of presizing}]
-var a = []
-for i in range(0, 10000):
-    a.append(1)
-\end{lstlisting}   
-\end{figure}
-
-In order to achieve this we need to answer how, given the history of all sizes a specific
+To achieve this we need to answer how, given the history of all sizes a specific
 array had during the execution of a program, do we determine the
 optimal \emph{presize}? There is no straight forward answer that works
 in every scenario.
@@ -373,18 +359,6 @@ optimal solution remains an open question, we discuss what we have
 found so far in section~\ref{sec:evaluation}.
 
 
-\begin{figure}
-\begin{lstlisting}[language=Python,label={listing:presizing_branching},
-  caption={Simple example of branches impacting allocation sizes depending on
-  external factors for the same allocation site}]
-var a = []
-if flag:
-    for i in range(0, 10000):
-        a.append(1)
-else:
-    a.append(1)
-\end{lstlisting}   
-\end{figure}
 
 \section{Pretransitioning}
 \label{sec:pretransitioning}
@@ -399,22 +373,9 @@ string is added, the array would already be created with the
 \emph{object} strategy. While this example is straight forward, the
 question remains of how to handle cases where an array only
 transitions \emph{sometimes}, but stays homogeneous in other
-cases. Which variables should be weighted in order to make this
+cases. Which variables should be weighted to make this
 decision? 
 
-\begin{figure}
-\begin{lstlisting}[language=Python,label={listing:transitions},
-  caption={Unoptimized transition of storage strategies in GraalPython}]
-var a = [] # Initialized with Empty strategy
-for i in range(0, 10000):
-    a.append(1) # Transition to 32-bit Integer strategy 
-                # on first execution
-
-a.append(1.0)   # Transition to Double&Integer strategy
-a.append('1')   # Transition to Object strategy
-    
-\end{lstlisting}   
-\end{figure}
 Listing~\ref{listing:transitions} shows the unoptimized storage
 strategy transitions an array might go through in GraalPython. In this example, as
 the array will always end up as a general object strategy,
@@ -433,11 +394,35 @@ our prototype.
 
 Another answer to this problem might be to consider this example as
 unlikely and sub-optimal practice and thus accept the decrease in performance.
-\begin{figure}
+
+\begin{figure}[h]
+\begin{lstlisting}[language=Python,label={listing:presizing_branching},
+  caption={Simple example of branches impacting array-size depending on
+  external factors for the same allocation site}]
+var a = []
+if flag:
+    for i in range(0, 10000):
+        a.append(1)
+else:
+    a.append(1)
+\end{lstlisting}   
+
+\begin{lstlisting}[language=Python,label={listing:transitions},
+  caption={Storage strategy transitions in GraalPython}]
+var a = [] # Initialized with Empty strategy
+for i in range(0, 10000):
+    a.append(1) # Transition to 32-bit Integer strategy 
+                # on first execution
+
+a.append(1.0)   # Transition to Double&Integer strategy
+a.append('1')   # Transition to Object strategy
+    
+\end{lstlisting}   
+
+
 \begin{lstlisting}[language=Python,label={listing:pretransition_worstcase},
-  caption={Example with branches where by pretransitioning to the object
-    strategy our optimization could have the opposite of the desired
-    effect on performance}]
+  caption={Example of pretransitioning adversely affecting performance
+    due to branching}]
 var a = []
 if flag:
     a.append(1)
@@ -474,9 +459,8 @@ of our prototype when running DeltaBlue 30 times with an input size of
 
 \begin{figure}
     \includegraphics[width=0.49\textwidth]{allocation_sites.png} 
-    \caption{Allocation sites and their respective observed sizes in
-      the DeltaBlue benchmark excluding arrays that never contain more
-      than 5 elements}
+    \caption{DeltaBlue allocation sites and their observed sizes
+      excluding arrays that never contain more than 5 elements}
     \label{fig:allocation_sites}
 \end{figure}
 
@@ -525,9 +509,7 @@ we are able to avoid these operations, which removes these branches, which
 in turn increases the probability that some lists can be allocation removed.
 
 \subsection{Tested presizing strategies}
-This section describes the presizing strategies we have experimented
-with so far.
-\subsubsection{Naive strategy} The easiest solution for testing the
+\paragraph{Naive strategy} The easiest solution for testing the
 maximum achievable performance with disregard for the increase in
 memory consumption is to take each newly observed maximum size as the
 new presize. Our naive strategy works similarly, except that we
@@ -541,7 +523,7 @@ speed-up was by a factor for 1.37, the maximum speedup observed
 a factor of 3.7. This was at the cost of memory consumption (increased
 by a factor of 2) and slower warm-up by a factor of 0.8.
 
-\subsubsection{Naive strategy with shrinking}
+\paragraph{Naive strategy with shrinking}
 Without shrinking, our naive strategy approximated the maximum array
 size over time and never went back. Our next step was to shrink the
 estimate when the list was observed to be smaller, again inhibited by
@@ -553,20 +535,20 @@ sizes are thus over represented in the history of all sizes.
 We experimented with different growth and shrinking factors, but did
 not find any way to balance the presize with this approach.
 
-\subsubsection{Average size strategy}
+\paragraph{Average size strategy}
 When only saving the presize for each allocation site and reducing or
 increasing it did not work as we hoped, we decided to record all sizes
-encountered at each allocation site in order to determine the average
-size. While figure~\ref{figure:allocation_sites} was created from this
+encountered at each allocation site to determine the average
+size. While figure~\ref{fig:allocation_sites} was created from this
 data, we have yet to measure the performance characteristics of this
 strategy. To our best knowledge though, it seems like that the average would still be to
 large, but the median size looks promising and will be the subject of
 our next experiments.
 
 
-\subsubsection{Summary of our current knowledge}
+\paragraph{Summary of our current knowledge}
 As observed with the naive strategy, presizing can have a positive
-effect on performance, but needs to be considered carefully in order
+effect on performance, but needs to be considered carefully 
 to find the sweet-spot, where we maximize the performance benefits
 while minimizing the impact on memory consumption.
 

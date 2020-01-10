@@ -182,107 +182,113 @@
 \maketitle
 
 \section{Introduction}
-From the programmers perspective, one of the biggest differences between managed
-and unmanaged languages is the level of control over when and how memory for an
-object is allocated and structured. Beyond that, many dynamic programming
-languages offer only high-level, resizable, and untyped array data structures.
+From the programmers perspective, one of the biggest differences
+between managed and unmanaged languages is the level of control over
+when and how memory for an object is allocated and structured. Beyond
+that, many dynamic programming languages offer only high-level,
+resizable, and untyped array data structures.
 
-The optimization of such data structures can make up a significant portion of
-the work of a \ac{jit} compiler and the performance benefits provided by it~\cite{gal2009trace}. One
-well-known optimization applied to resizable arrays in multiple dynamic language
+The optimization of such data structures can make up a significant
+portion of the work of a \ac{jit} compiler and the performance
+benefits provided by it~\cite{gal2009trace}. One well-known
+optimization applied to resizable arrays in multiple dynamic language
 \acp{vm} are storage strategies~\cite{bolz2013storage,
-  grimmer2017applying, pape2015language}.
+grimmer2017applying, pape2015language}.
 
-In this paper we focus on two additional optimizations that aim to improve the
-efficiency of these data structures further: \emph{presizing} and \emph{pretransitioning}. We
-use resizable arrays as shorthand for lists and other similar structures, as our
-current prototype only works for arrays. But our findings can also be applied
+In this paper we focus on two additional optimizations that aim to
+improve the efficiency of these data structures further:
+\emph{presizing} and \emph{pretransitioning}. We use resizable arrays
+as shorthand for lists and other similar structures, as our current
+prototype only works for arrays. But our findings can also be applied
 to other collection types.
-\paragraph{Presizing} As the size of arrays that the \ac{vm}
-manages for the programmer changes over time,
-part of the execution time is spent growing or shrinking these
-structures according to their usage.
+\paragraph{Presizing} As the size of arrays that the \ac{vm} manages
+for the programmer changes over time, part of the execution time is
+spent growing or shrinking these structures according to their usage.
 
-To avoid some of this overhead, some array implementations allow programmers to
-control their initial size.
-Appropriate size values, however, are often unknown at development time and are usually only
-used when resizing is a significant performance overhead.
-Therefore, automatic resizing is a trade-off between ease of programming and
+To avoid some of this overhead, some array implementations allow
+programmers to control their initial size.  Appropriate size values,
+however, are often unknown at development time and are usually only
+used when resizing is a significant performance overhead.  Therefore,
+automatic resizing is a trade-off between ease of programming and
 run-time performance.
 
-Presizing aims to lessen this negative impact on the 
-performance by propagating the observed array-sizes back
-to their original positions in the program (allocation sites), which we
-will expand on in \autoref{sec:presizing}.
+Presizing aims to lessen this negative impact on the performance by
+propagating the observed array-sizes back to their original positions
+in the program (allocation sites), which we will expand on in
+\autoref{sec:presizing}.
 
 
 \paragraph{Pretransitioning} The size of an array is not the only
 property that can change over time, the types of the objects stored
 inside it can also vary.  Similarly to automatic memory management,
-the thus incurred lookup overhead is a performance disadvantage added to improve the
-programming experience by allowing for collections of dynamically
-typed objects. To reduce the footprint and improve
-operations on arrays of primitive values, many dynamic, object-oriented
-runtimes use storage strategies that store values without boxing,
-thereby saving several indirections when performing
+the thus incurred lookup overhead is a performance disadvantage added
+to improve the programming experience by allowing for collections of
+dynamically typed objects. To reduce the footprint and improve
+operations on arrays of primitive values, many dynamic,
+object-oriented runtimes use storage strategies that store values
+without boxing, thereby saving several indirections when performing
 computations on them.
 
 The downside of storage strategies is, that they only work as long as
-all objects in an array are supported by the active strategy. If a floating point
-number is added to an array of integers, the storage strategy has to
-be changed and the entire array has to be converted to a different
-format. Such a conversion is called \emph{transition} and can be a costly
-operation on large arrays. Pretransitioning aims to avoid these
-transitions, as layed out in \autoref{sec:pretransitioning}.
+all objects in an array are supported by the active strategy. If a
+floating point number is added to an array of integers, the storage
+strategy has to be changed and the entire array has to be converted to
+a different format. Such a conversion is called \emph{transition} and
+can be a costly operation on large arrays. Pretransitioning aims to
+avoid these transitions, as laid out in
+\autoref{sec:pretransitioning}.
 
-In the following, we introduce the basis of
-the ideas presented here in \autoref{sec:related_work}, present
-our prototype in \autoref{sec:prototype}, describe the challenges
-of presizing and pretransitioning in \autoref{sec:presizing}
-and \ref{sec:pretransitioning} respectively, present our findings 
-in \autoref{sec:evaluation}, and end with our conclusion and
-future work in \autoref{sec:conclusion}.  
+In the following, we introduce the basis of the ideas presented here
+in \autoref{sec:related_work}, present our prototype in
+\autoref{sec:prototype}, describe the challenges of presizing and
+pretransitioning in \autoref{sec:presizing} and
+\ref{sec:pretransitioning} respectively, present our findings in
+\autoref{sec:evaluation}, and end with our conclusion and future work
+in \autoref{sec:conclusion}.
 
 \section{Allocation-site-based Optimizations}
 \label{sec:related_work}
 The closest related work we are aware of was done by Clifford et
-al.~\cite{clifford2015memento} on the V8 \ac{vm}. They extended
-memory management with \emph{Mementos}, short-lived objects used to
-associate lists with their allocation sites, i.e. the original position in the
-program where they were declared. The information gathered this
-way would then be used to optimize future allocations of lists
-from the same allocation site. Their main focus was on an optimization not
-mentioned yet: \emph{pretenuring}. Essentially improving the performance of
-the \ac{gc} by using the Memento information to speculate
-on objects that were likely to survive the next \ac{gc} cycles and
-directly allocating them in the older generation.
+al.~\cite{clifford2015memento} on the V8 \ac{vm}. They extended memory
+management with \emph{Mementos}, short-lived objects used to associate
+lists with their allocation sites, i.e. the original position in the
+program where they were declared. The information gathered this way
+would then be used to optimize future allocations of lists from the
+same allocation site. Their main focus was on an optimization not
+mentioned yet: \emph{pretenuring}. Essentially improving the
+performance of the \ac{gc} by using the Memento information to
+speculate on objects that were likely to survive the next \ac{gc}
+cycles and directly allocating them in the older generation.
 
-GraalVM languages~\cite{wurthinger2013one} do not have this level of access to the \ac{gc}, as we will explain in
-\autoref{sec:prototype}, so we do not consider pretenuring in this
-work. However, the other two optimizations discussed by Clifford et
-al. are the ones we target in this paper. While pretransitioning was
-discussed and evaluated thoroughly, presizing was only discussed
-briefly and the evaluation is only anecdotally. The paper mentions that their
-prototype ``was able to learn the optimum allocation size for the important
-sites in the very sensitive DeltaBlue benchmark without prior knowledge, and preliminary
-measurements indicated a slight decrease in the maximum overall heap
-size in Octane, with no other performance loss''\cite{clifford2015memento}. We also found no further
-indication that presizing was used in V8.
+GraalVM languages~\cite{wurthinger2013one} do not have this level of
+access to the \ac{gc}, as we will explain in \autoref{sec:prototype},
+so we do not consider pretenuring in this work. However, the other two
+optimizations discussed by Clifford et al. are the ones we target in
+this paper. While pretransitioning was discussed and evaluated
+thoroughly, presizing was only discussed briefly and the evaluation is
+only anecdotally. The paper mentions that their prototype ``was able
+to learn the optimum allocation size for the important sites in the
+very sensitive DeltaBlue benchmark without prior knowledge, and
+preliminary measurements indicated a slight decrease in the maximum
+overall heap size in Octane, with no other performance
+loss''\cite{clifford2015memento}. We also found no further indication
+that presizing was used in V8.
  
 
 \section{Prototype for GraalPython}
 \label{sec:prototype}
-Building on the ideas of Mementos,
-we implemented allocation-site tracking in GraalPython\footnote{\url{https://github.com/graalvm/graalpython}}. allowing us to
-link the information of an array resizing operation back to its
+Building on the ideas of Mementos, we implemented allocation-site
+tracking in
+GraalPython\footnote{\url{https://github.com/graalvm/graalpython}}. allowing
+us to link the information of an array resizing operation back to its
 allocation site. Based on this information, we conducted preliminary
 experiments with different strategies for determining the presize. Our
 code and benchmarks are available on
 Github\footnote{\url{https://github.com/hpi-swa-lab/graalpython/tree/morevms/2020-presizing}}.
 
 In this section, we will discuss the difference in implementation
-strategy between our approach and the one of Clifford et al. and
-the limitations of our proposal.
+strategy between our approach and the one of Clifford et al. and the
+limitations of our proposal.
 
 \subsection*{Tracking Allocation-sites}
 \label{sec:implementation}
@@ -290,10 +296,10 @@ In contrast to the V8 \ac{vm}, we are working within the GraalVM
 ecosystem, which relies on a Java \ac{vm} for many of its features, in
 particular for memory management and garbage collection. Subsequently,
 where Clifford et al. implemented their Mementos by storing
-information inside the fields used by the \ac{gc}, getting the information
-about a final list size when the \ac{gc} collects it, we
-do not have this level of access to the \ac{gc} and cannot easily implement
-this strategy.
+information inside the fields used by the \ac{gc}, getting the
+information about a final list size when the \ac{gc} collects it, we
+do not have this level of access to the \ac{gc} and cannot easily
+implement this strategy.
 
 Instead, we decided to instrument list creation and append operations
 of Python. We thus can observe the size of an array on every append
@@ -304,18 +310,19 @@ While Clifford et al. payed particular attention to the performance
 implications of the book-keeping added by Mementos through their
 allocation strategy and \ac{gc} cycles, our approach eliminates its
 book-keeping cost by only doing it during interpretation. We do no
-book-keeping in compiled code and assume that array sizes are stable by
-the time the program is compiled.
+book-keeping in compiled code and assume that array sizes are stable
+by the time the program is compiled.
 
 We believe that the variables relevant for profiling are:
 \begin{itemize}
 \item The amount of times the array grows
-\item The amount of elements the array contains at most, at least,
-  and on average
-\item The size of the array when it is garbage collected,
-  including actual size and allocated but empty space
+\item The amount of elements the array contains at most, at least, and
+on average
+\item The size of the array when it is garbage collected, including
+actual size and allocated but empty space
 \item The types of objects the array contains
-\item The primary operations performed on the array, i.e. mostly read or mostly written
+\item The primary operations performed on the array, i.e. mostly read
+or mostly written
 \end{itemize}
 
 Whereas the most important ways the performance could be influenced to
@@ -324,26 +331,27 @@ approach an optimal solution are:
 \item Presize, i.e. initially allocated size
 \item Initial storage strategy
 \item Growth factor, i.e. by how much does the array grow when it hits
-  its limit
+its limit
 \end{itemize}
 
 \subsection*{Limitations of our approach}
-As the only information about the allocation site we have is its original
-position in the program, our approach does not work for
+As the only information about the allocation site we have is its
+original position in the program, our approach does not work for
 abstractions build on top of resizable arrays that provide a different
-interface. For example, Smalltalk's \lstinline{OrderedCollection} type is
-written in Smalltalk itself and holds primitive arrays in a field, so the
-same allocation site would be seen for all arrays used in OrderedCollections,
-regardless of where the OrderedCollection was instantiated. This means that 
-high-level collection libraries cannot benefit from our
-approach. This limits the applicability of our solution to other
-languages, as we realized when we tried to implement presizing for
-GraalSqueak~\cite{niephaus2019graalsqueak}. 
+interface. For example, Smalltalk's \lstinline{OrderedCollection} type
+is written in Smalltalk itself and holds primitive arrays in a field,
+so the same allocation site would be seen for all arrays used in
+OrderedCollections, regardless of where the OrderedCollection was
+instantiated. This means that high-level collection libraries cannot
+benefit from our approach. This limits the applicability of our
+solution to other languages, as we realized when we tried to implement
+presizing for GraalSqueak~\cite{niephaus2019graalsqueak}.
 
 Secondly, our current approach cannot observe branches in the control
-flow of the program after the allocation of an array led to vastly different
-characteristics and requirements for the initial allocation. This, however, is
-also a limitation of the prior work that we also have yet to solve.
+flow of the program after the allocation of an array led to vastly
+different characteristics and requirements for the initial
+allocation. This, however, is also a limitation of the prior work that
+we also have yet to solve.
 
 \section{Presizing}
 \label{sec:presizing}
@@ -358,30 +366,31 @@ While this optimization should have little to no effect on arrays that
 are used infrequently and stay small, it can save a significant amount
 of resizing operations for arrays that grow multiple times and are
 used in a \emph{hot} portion of the code.  For example, an array
-allocated with size $4$ that grows by a factor of $2$ whenever it hits its
-limit will grow $12$ times if $10.000$ elements are added to it. By adjusting the initial size
-or the growth factor, the amount of operations needed to reach the
-optimal size can be reduced significantly or even eliminated entirely.
+allocated with size $4$ that grows by a factor of $2$ whenever it hits
+its limit will grow $12$ times if $10.000$ elements are added to
+it. By adjusting the initial size or the growth factor, the amount of
+operations needed to reach the optimal size can be reduced
+significantly or even eliminated entirely.
 
-To achieve this we need to answer how, given the history of all sizes a specific
-array had during the execution of a program, do we determine the
-optimal \emph{presize}? There is no straightforward answer that works
-in every scenario.
+To achieve this we need to answer how, given the history of all sizes
+a specific array had during the execution of a program, do we
+determine the optimal \emph{presize}? There is no straightforward
+answer that works in every scenario.
 
 Presizing works well for arrays whose sizes stabilize over time, as
 the presize can approximate the maximum size and eventually eliminate
 all resizing operations.
 
-The challenge in determining a reasonable presize value comes with arrays
-that do not reach a stable size. Consider
+The challenge in determining a reasonable presize value comes with
+arrays that do not reach a stable size. Consider
 \autoref{listing:presizing_branching} as an example. Whether the
-appropriate presize is closer to $1$ or $10000$ depends on the likelihood
-of \lstinline{flag} being true. If we choose to not modify the
-presize, for each time \lstinline{flag} is true \lstinline{a} could
-grow over 10 times using the example from above. Whereas if we
+appropriate presize is closer to $1$ or $10000$ depends on the
+likelihood of \lstinline{flag} being true. If we choose to not modify
+the presize, for each time \lstinline{flag} is true \lstinline{a}
+could grow over 10 times using the example from above. Whereas if we
 increase the presize, for each time \lstinline{flag} is false we would
-unnecessarily allocate $(presize - 1) * size(1)$ bytes. While finding an
-optimal solution remains an open question, we discuss what we have
+unnecessarily allocate $(presize - 1) * size(1)$ bytes. While finding
+an optimal solution remains an open question, we discuss what we have
 found so far in \autoref{sec:evaluation}.
 \begin{figure}[h]
 \begin{lstlisting}[language=Python,label={listing:presizing_branching},
@@ -400,19 +409,17 @@ else:
 
 \section{Pretransitioning}
 \label{sec:pretransitioning}
-Pretransitioning relies on the same
-speculation as presizing: arrays from the same allocation
-site will likely contain the same type of objects over time. Thus, for
-example, instead of starting out with an \emph{empty} strategy,
-transitioning to an \emph{int} strategy when an integer is added, then
-transitioning to a \emph{double} strategy when a double is added,
-before finally transitioning to an \emph{object} strategy when a
-string is added, the array would already be created with the
-\emph{object} strategy. While this example is straightforward, the
-question remains of how to handle cases where an array only
-transitions \emph{sometimes}, but stays homogeneous in other
-cases. Which variables should be weighted to make this
-decision? 
+Pretransitioning relies on the same speculation as presizing: arrays
+from the same allocation site will likely contain the same type of
+objects over time. Thus, for example, instead of starting out with an
+\emph{empty} strategy, transitioning to an \emph{int} strategy when an
+integer is added, then transitioning to a \emph{double} strategy when
+a double is added, before finally transitioning to an \emph{object}
+strategy when a string is added, the array would already be created
+with the \emph{object} strategy. While this example is
+straightforward, the question remains of how to handle cases where an
+array only transitions \emph{sometimes}, but stays homogeneous in
+other cases. Which variables should be weighted to make this decision?
 
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:transitions},
@@ -428,24 +435,26 @@ a.append('1')   # Transition to Object strategy
 \end{lstlisting}   
 \end{figure}
 
-\autoref{listing:transitions} shows the unoptimized storage
-strategy transitions an array might go through in GraalPython. In this example, as
-the array will always end up as a general object strategy,
+\autoref{listing:transitions} shows the unoptimized storage strategy
+transitions an array might go through in GraalPython. In this example,
+as the array will always end up as a general object strategy,
 \emph{pretransitioning}, i.e. initializing it with the object strategy
-instead of empty, would avoid 3 transitions, with the last 2 in particular
-being expensive, as a large arrays needs to be copied in both cases.
+instead of empty, would avoid 3 transitions, with the last 2 in
+particular being expensive, as a large arrays needs to be copied in
+both cases.
 
 While pretransitioning is straightforward when no branches are
 involved, a solution that does not consider branches will have an
-adverse effect on performance, as illustrated in 
+adverse effect on performance, as illustrated in
 \autoref{listing:pretransition_worstcase}. One way to avoid this
 scenario could be to consider branching information collected during
 interpretation and pretransitioning to the more likely branch. This is
-speculative however, as this has so far proved to be too complex to implement in
-our prototype. 
+speculative however, as this has so far proved to be too complex to
+implement in our prototype.
 
 Another answer to this problem might be to consider this example as
-unlikely and sub-optimal practice and thus accept the decrease in performance.
+unlikely and sub-optimal practice and thus accept the decrease in
+performance.
 
 
 
@@ -477,7 +486,7 @@ DeltaBlue is an incremental constraint hierarchy
 solver~\cite{freeman1989deltablue} originally developed for Smalltalk,
 which has been implemented in several languages and thus can be useful
 for cross-languages benchmarking, as suggested by Marr et
-al~\cite{marr2016cross}.
+al.~\cite{marr2016cross}.
 
 \subsection{Allocation Sites in DeltaBlue}
 As the solver relies on arrays for storing and evaluating its
@@ -486,13 +495,13 @@ in the source code. Allocation sites are identified by their line
 number in the benchmark source code\footnote{Available here:
 \url{https://git.io/Jve2G}}. \autoref{fig:allocation_sites}
 illustrates the array sizes observed through our the instrumentation
-of our prototype when running DeltaBlue $30$ times with an input size of
-$5000$.
+of our prototype when running DeltaBlue $30$ times with an input size
+of $5000$.
 
 \begin{figure}
-    \includegraphics[width=0.49\textwidth]{allocation_sites.png} 
+\includegraphics[width=0.49\textwidth]{allocation_sites.png}
     \caption{DeltaBlue allocation sites and their observed sizes
-      excluding arrays that never contain more than 5 elements}
+excluding arrays that never contain more than 5 elements}
     \label{fig:allocation_sites}
 \end{figure}
 
@@ -501,23 +510,22 @@ illustrates, why there isn't an obvious answer to what the optimal
 size for presizing might be. There are several observations we would
 like to make:
 \begin{itemize}
-\item Presizing works fine for arrays that have stable sizes, like $32$
-  and $360$.
+\item Presizing works fine for arrays that have stable sizes, like
+$32$ and $360$.
 \item All other allocations sites have a bottom heavy distribution,
-  meaning that there are many small arrays and some very large ones.
+meaning that there are many small arrays and some very large ones.
 \item In particular $445$ and $558$ have local maxima, where there are
-  many large arrays that are still smaller than the maximum size.
-\item All arrays other than $32$ and $360$ approximately reach the maximum
-  size given as the benchmark input ($5000$).
-\end{itemize}
-As expected, the optimization is straightforward and useful for arrays
-that reach a stable size. But arrays that vary widely present an
-interesting trade-off: choosing a small presize limits the usefulness
-of the optimizations, but choosing a too large one can explode the
-memory usage of the program. In fact, at the time of writing, our
-version aborts with an out-of-memory error, when we run the
-benchmark with input sizes larger than $8000$. We will explain which
-strategies we tested so far for weighing this trade-off below.
+many large arrays that are still smaller than the maximum size.
+\item All arrays other than $32$ and $360$ approximately reach the
+maximum size given as the benchmark input ($5000$).
+\end{itemize} As expected, the optimization is straightforward and
+useful for arrays that reach a stable size. But arrays that vary
+widely present an interesting trade-off: choosing a small presize
+limits the usefulness of the optimizations, but choosing a too large
+one can explode the memory usage of the program. In fact, at the time
+of writing, our version aborts with an out-of-memory error, when we
+run the benchmark with input sizes larger than $8000$. We will explain
+which strategies we tested so far for weighing this trade-off below.
 
 \subsection{Optimization Potential}
 It is important to point out that transitions as well as resizing
@@ -543,71 +551,74 @@ turn increases the probability that some lists can be
 allocation-removed.
 
 \subsection{Tested presizing strategies}
-\paragraph{Naive strategy} The easiest solution for testing the
-achievable performance with disregard for the increase in memory
-consumption is to take each newly observed maximum size as the new
-presize. Our naive strategy works similarly, except that we inhibit
-the growth of presize by a factor of $8$. Hence, we only increase the
-presize if the current size has been exceeded $8$ times.
+\paragraph{Naive strategy}
+The easiest solution for testing the achievable performance with
+disregard for the increase in memory consumption is to take each newly
+observed maximum size as the new presize. Our naive strategy works
+similarly, except that we inhibit the growth of presize by a factor of
+$8$. Hence, we only increase the presize if the current size has been
+exceeded $8$ times.
 
 Promisingly, we observed a significant impact on performance on the
 DeltaBlue benchmark with the size configuration at $5000$. The average
-run-time speed-up was by a factor for $1.37$, the maximum speedup observed
-(shortest run-time with optimizations versus shortest run-time without) was
-a factor of $3.7$. This was at the cost of memory consumption (increased
-by a factor of $2$) and slower warm-up by a factor of $0.8$.
+run-time speed-up was by a factor for $1.37$, the maximum speedup
+observed (shortest run-time with optimizations versus shortest
+run-time without) was a factor of $3.7$. This was at the cost of
+memory consumption (increased by a factor of $2$) and slower warm-up
+by a factor of $0.8$.
 
 \paragraph{Naive strategy with shrinking}
 Without shrinking, our naive strategy approximated the maximum array
 size over time and never went back. Our next step was to shrink the
 estimate when the list was observed to be smaller, again inhibited by
-a factor of $8$. This did not produce satisfying results, most likely because we have no
-way of observing the final size of the array, but as discussed are
-notified of every append operation performed on it. Smaller array
-sizes are thus over-represented in the history of all sizes.
+a factor of $8$. This did not produce satisfying results, most likely
+because we have no way of observing the final size of the array, but
+as discussed are notified of every append operation performed on
+it. Smaller array sizes are thus over-represented in the history of
+all sizes.
 
 We experimented with different growth and shrinking factors, but did
 not find any way to balance the presize with this approach.
 
 \paragraph{Average size strategy}
 When only saving the presize for each allocation site and reducing or
-increasing it did not produce balanced results, we decided to record all sizes
-encountered at each allocation site to determine the average
-size. While \autoref{fig:allocation_sites} was created from this
-data, we have yet to measure the performance characteristics of this
-strategy. To our best knowledge though, it seems like that the average would still be to
-large, but the median size looks promising and will be the subject of
-our next experiments.
+increasing it did not produce balanced results, we decided to record
+all sizes encountered at each allocation site to determine the average
+size. While \autoref{fig:allocation_sites} was created from this data,
+we have yet to measure the performance characteristics of this
+strategy. To our best knowledge though, it seems like that the average
+would still be to large, but the median size looks promising and will
+be the subject of our next experiments.
 
 
 \paragraph{Summary of our current insights}
 As observed with the naive strategy, presizing can have a positive
-effect on performance, but needs to be considered carefully 
-to find the sweet-spot, where we maximize the performance benefits
-while minimizing the impact on memory consumption.
+effect on performance, but needs to be considered carefully to find
+the sweet-spot, where we maximize the performance benefits while
+minimizing the impact on memory consumption.
 
 Further research is needed for any definite answer in this regard.
 
 \section{Conclusion \& Future Work}
 \label{sec:conclusion}
-We presented preliminary evidence that pretransitioning and presizing using our
-approach can be implemented in GraalVM languages and provide performance
-benefits for certain applications. Our naive solution shows a speedup of 37\% in
-the DeltaBlue benchmark, at the cost of a 200\% increase in memory
-consumption and 20\% longer
-warm-up times. Micro benchmarks for the presented code snippets also showed
-smaller compiler graphs with fewer allocations. How these findings generalize to
-other benchmarks is the subject of ongoing work.
+We presented preliminary evidence that pretransitioning and presizing
+using our approach can be implemented in GraalVM languages and provide
+performance benefits for certain applications. Our naive solution
+shows a speedup of 37\% in the DeltaBlue benchmark, at the cost of a
+200\% increase in memory consumption and 20\% longer warm-up
+times. Micro benchmarks for the presented code snippets also showed
+smaller compiler graphs with fewer allocations. How these findings
+generalize to other benchmarks is the subject of ongoing work.
 
 While these initial findings are promising, more work is needed in
 order to find an optimal strategy for increasing performance while
 decreasing the additional memory consumption. In particular we want to
 leverage more of the variables discussed in
-\autoref{sec:implementation} and different heuristics for
-determining the presize. Increasing the mentioned growth factor, which
-unfortunately is not easily accessible in Java, could be a good way to
-avoid exploding memory consumption while still reducing the amount of
-resizing operations needed for arrays that infrequently get very large.
+\autoref{sec:implementation} and different heuristics for determining
+the presize. Increasing the mentioned growth factor could be a good
+way to avoid exploding memory consumption while still reducing the
+amount of resizing operations needed for arrays that infrequently get
+very large.
 
 Finally, the impact of our optimizations needs to be evaluated with
 additional benchmarks.

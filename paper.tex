@@ -122,14 +122,21 @@
 %% The abstract is a short summary of the work to be presented in the
 %% article.
 \begin{abstract}
-  Pretransition and presizing are run-time optimization
-  technologies presented in previous work. Graal languages do
-  not yet use these optimizations. In this paper we offer our
-  thoughts and analysis on how Graal could incorporate these
-  optimizations on the example of GraalPython.
+  Pretransition and presizing are run-time optimizations to avoid reallocations
+  resizable arrays at run-time after they have been allocated. These
+  optimizations were previously presented for VMs where the run-time optimizer
+  can interact with the garbage collection (GC) system.
 
-  We substantiate these thoughts with rough performance numbers taken
-  from a prototype on which we tested different implementation approaches. 
+  Dynamic language runtimes written for the GraalVM do not have such access to
+  the GC. These implementations cannot directly apply the prior work to optimize
+  resizable arrays and alternative implementation strategies pose different
+  challenges.
+
+  In this paper we explore and analyze one approach on how GraalVM languages
+  could incorporate these optimizations using the Python implementation for
+  GraalVM as an example. We substantiate these thoughts with rough performance
+  numbers taken from a prototype on which we tested different implementation
+  approaches.
 \end{abstract}
 
 %%
@@ -157,21 +164,23 @@
 %% information and builds the first part of the formatted document.
 \maketitle
 
-\section{Introduction} From the programmers perspective, one of the
-biggest differences between managed languages and the languages that
-came before them, are automatic memory management and dynamically
-typed objects.
+\section{Introduction}
+From the programmers perspective, one of the biggest differences between managed
+and unmanaged languages is the level of control over when and how memory for an
+object is allocated and structured. Beyond that, many dynamic programming
+languages offer only high-level, resizable, and untyped array data structures.
 
-Automatic memory management involves allocating, deallocating,
-growing, and shrinking data structures. Consequently, the optimization
-of data structures makes up a significant portion of the work of a
-\ac{jit} compiler and the performance benefits provided by it. In this
-paper we focus on two optimization technologies that aim to optimize
-the efficiency of array-like structures: Presizing \&
-Pretransitioning. We use re-sizable arrays as shorthand for lists and other
-similar structures, as our current prototype only works for arrays.
-But our findings can also be applied to list and other collections,
-since one can be (and in practice often is) implemented using the other.
+The optimization of such data structures can make up a significant portion of
+the work of a \ac{jit} compiler and the performance benefits provided by it. One
+well-known optimization applied to resizable arrays in multiple dynamic language
+\acp{vm} are storage strategies~\cite{bolz2013storage}.
+
+In this paper we focus on two further optimizations that aim to improve the
+efficiency of these data structures further: Presizing \& Pretransitioning. We
+use resizable arrays as shorthand for lists and other similar structures, as our
+current prototype only works for arrays.  But our findings can also be applied
+other collection types, since one can be (and in practice often is) implemented
+using the other.
 
 \paragraph{Presizing} As the size of arrays that the \ac{vm}
 manages for the programmer changes over the run-time of the program,
@@ -192,11 +201,11 @@ thing that can change over time, the types of the objects stored
 inside it can also vary.  Similarly to automatic memory management,
 this also is a performance disadvantage added in order to improve the
 programming experience by allowing for collections of dynamically
-typed objects. In order to support performant execution of arithmetic
+typed objects. In order to reduce the footprint and improve
 operations on arrays of numbers, many dynamically typed
-object oriented runtimes use specialized arrays that only store
+object oriented runtimes use storage strategies that only store
 numbers unboxed, thereby saving several indirections when performing
-computations on them. These are called storage strategies in Graal.
+computations on them.
 
 The downside of storage strategies is, that they only work as long as
 all objects in an array have specific types. If a floating point
@@ -226,29 +235,25 @@ source code where they were declared. The information gathered this
 way would then be used to optimize the future allocations of lists
 from the same allocation site. Their main focus was on an optimization not
 mentioned yet: pretenuring. Essentially improving the performance of
-the generational \ac{gc} by using the Memento information to speculate
+the \ac{gc} by using the Memento information to speculate
 about objects that were likely to survive the next \ac{gc} cycles and
 directly allocating them in the older generation.
 
-As we have no access to the \ac{gc}, as we will explain in
-section~\ref{sec:prototype}, we do not consider pretenuring in this
+GraalVM languages do not have this level of access to the \ac{gc}, as we will explain in
+section~\ref{sec:prototype}, so we do not consider pretenuring in this
 work. However, the other two optimizations discussed by Clifford et
 al. are the ones we target in this paper. While pretransitioning was
 discussed and evaluated thoroughly, presizing was only discussed
-briefly and how the evaluation was done was not entirely clear:
-\begin{quote} Encouragingly, our prototype was able to learn the
-optimum allocation size for the important sites in the very sensitive
-DeltaBlue benchmark without prior knowledge, and preliminary
+briefly and the evaluation is only anecdotal. The paper mentions that their
+prototype ``was able to learn the optimum allocation size for the important
+sites in the very sensitive DeltaBlue benchmark without prior knowledge, and preliminary
 measurements indicated a slight decrease in the maximum overall heap
-size in Octane, with no other performance loss.
-\end{quote} We also found no further mentions of presizing being
-implemented inside V8 or any mention in later works. Thus, we believe
-that there are relevant and open questions to investigate in this
-area.
+size in Octane, with no other performance loss.'' We also found no further
+indication that presizing was used in V8.
  
 \section{Our Prototype}
 \label{sec:prototype}
-Building on the ideas of Mementos, see section~\ref{sec:related_work},
+Building on the ideas of Mementos (c.f. Section~\ref{sec:related_work}),
 we implemented allocation-site tracking in GraalPython allowing us to
 link the information of an array resizing operation back to its
 allocation site. Based on this information, we did preliminary
@@ -260,17 +265,18 @@ In this section, we will discuss the difference in implementation
 strategy between our approach and the approach of Clifford et al. and
 the limitations of our version.
 
-\subsection{Tracking Allocation-sites}
+\subsection*{Tracking Allocation-sites}
 \label{sec:implementation}
-In contrast to the V8 \ac{vm}, we are working in the Graal
+In contrast to the V8 \ac{vm}, we are working within the GraalVM
 ecosystem, which relies on a Java \ac{vm} for many of its features, in
 particular for memory management and garbage collection. Subsequently,
 where Clifford et al. implemented their Mementos by storing
 information inside the fields used by the \ac{gc}, getting the information
 about a final list size when the \ac{gc} collects it, we
-do not have access to the \ac{gc} and cannot easily modify it.
+do not have this level of access to the \ac{gc} and cannot easily implement
+this strategy.
 
-Instead we opted to instrument the append and declaration operations
+Instead we opted to instrument list creation and append operations
 of Python. We thus can observe the size of an array on every append
 that is called on it and use this information to compute the presize
 for all other instances sharing its allocation site.
@@ -302,16 +308,20 @@ approach an optimal solution are:
   its limit
 \end{itemize}
 
-\subsubsection{Limitations of our approach}
+\subsection*{Limitations of our approach}
 As the only information about the allocation site we have is its
 position in the source code, our approach does not work for
-abstractions build on top of array that provide a different
-interface. For example, all OrderedCollections would share the same
-allocation site in the class definition of OrderedCollection, thereby
-making the information collected useless. This means that rich
-high-level collection libraries cannot benefit from our approach. We
-believe this has implications for the applicability of this approach to
-other languages.
+abstractions build on top of resizable arrays that provide a different
+interface. For example, Smalltalk's \texttt{OrderedCollection} type is
+written in Smalltalk itself and holds primitive arrays in a field, so the
+same allocation site would be seen for all arrays used in OrderedCollections,
+regardless of where the OrderedCollection was instantiated. This means that rich
+high-level collection libraries cannot benefit from our approach.
+
+Secondly, our current approach cannot observe if branches in the control
+flow of the program after the allocation of an array lead to vastly different
+characteristics and requirements for the initial allocation. This, however, is
+also a limitation of the prior work that we also have yet to solve.
 
 \section{Presizing}
 \label{sec:presizing}
@@ -335,9 +345,9 @@ optimal size can be reduced significantly or even eliminated entirely.
 \begin{figure}
 \begin{lstlisting}[language=Python,label={listing:simple_presizing},
   caption={A simple example for the motivation of presizing}]
-    var a = []
-    for i in range(0, 10000):
-      a.append(1)
+var a = []
+for i in range(0, 10000):
+    a.append(1)
 \end{lstlisting}   
 \end{figure}
 
@@ -397,10 +407,10 @@ decision?
   caption={Unoptimized transition of storage strategies in GraalPython}]
 var a = [] # Initialized with Empty strategy
 for i in range(0, 10000):
-    a.append(1) # Transition to Integer strategy 
+    a.append(1) # Transition to 32-bit Integer strategy 
                 # on first execution
 
-a.append(1.0)   # Transition to Double strategy
+a.append(1.0)   # Transition to Double&Integer strategy
 a.append('1')   # Transition to Object strategy
     
 \end{lstlisting}   
@@ -505,14 +515,14 @@ In addition, avoiding resizing and transitioning can help other
 optimizations to be more effective. For example, allocation removal
 aims to avoid allocations of objects that are only short lived and do
 not escape outside the scope of the compilation unit. Graal is able to perform
-allocation removal on small arrays, but this is limited by the amount
+allocation removal on small arrays, but this is limited by the kind
 of operations performed on them. The default size for arrays in
 Graal is 4, so any array larger than that will require resizing and
 potentially transition operations. These operations make it less
-likely that the array will be allocation removed. But with presizing
-and pretransitioning we are able to avoid these operations, which
-simplifies the trace, which in turn increases the probability that small
-lists (between roughly 5 and 30 elements) can be allocation removed.
+likely that the array will be allocation removed, because they will create branches in
+the resulting compiler graph. With presizing and pretransitioning, however,
+we are able to avoid these operations, which removes these branches, which
+in turn increases the probability that some lists can be allocation removed.
 
 \subsection{Tested presizing strategies}
 This section describes the presizing strategies we have experimented
@@ -564,11 +574,13 @@ Further research is needed for any definite answer in this regard.
 
 \section{Conclusion \& Future Work}
 \label{sec:conclusion}
-We presented preliminary evidence that pretransitioning and presizing can
-provide performance benefits for certain applications. Our naive
-solution implemented in our prototype shows an average speedup of
-37\%, at the cost of increased memory consumption and longer warm-up
-times. 
+We presented preliminary evidence that pretransitioning and presizing using our
+approach can be implemented in GraalVM languages and provide performance
+benefits for certain applications. Our naive solution shows a speedup of 37\% in
+the DeltaBlue benchmark, at the cost of increased memory consumption and longer
+warm-up times. Micro benchmarks for the presented code snippets also showed
+smaller compiler graphs with fewer allocations. How these findings generalize to
+other benchmarks is the subject of ongoing work.
 
 While these initial findings are promising, more work is needed in
 order to find an optimal strategy for maximizing performance while
@@ -590,3 +602,4 @@ additional benchmarks.
 \endinput
 %%
 %% End of file `sample-sigconf.tex'.
+ 

@@ -235,29 +235,25 @@ source code where they were declared. The information gathered this
 way would then be used to optimize the future allocations of lists
 from the same allocation site. Their main focus was on an optimization not
 mentioned yet: pretenuring. Essentially improving the performance of
-the generational \ac{gc} by using the Memento information to speculate
+the \ac{gc} by using the Memento information to speculate
 about objects that were likely to survive the next \ac{gc} cycles and
 directly allocating them in the older generation.
 
-As we have no access to the \ac{gc}, as we will explain in
-section~\ref{sec:prototype}, we do not consider pretenuring in this
+GraalVM languages do not have this level of access to the \ac{gc}, as we will explain in
+section~\ref{sec:prototype}, so we do not consider pretenuring in this
 work. However, the other two optimizations discussed by Clifford et
 al. are the ones we target in this paper. While pretransitioning was
 discussed and evaluated thoroughly, presizing was only discussed
-briefly and how the evaluation was done was not entirely clear:
-\begin{quote} Encouragingly, our prototype was able to learn the
-optimum allocation size for the important sites in the very sensitive
-DeltaBlue benchmark without prior knowledge, and preliminary
+briefly and the evaluation is only anecdotal. The paper mentions that their
+prototype ``was able to learn the optimum allocation size for the important
+sites in the very sensitive DeltaBlue benchmark without prior knowledge, and preliminary
 measurements indicated a slight decrease in the maximum overall heap
-size in Octane, with no other performance loss.
-\end{quote} We also found no further mentions of presizing being
-implemented inside V8 or any mention in later works. Thus, we believe
-that there are relevant and open questions to investigate in this
-area.
+size in Octane, with no other performance loss.'' We also found no further
+indication that presizing was used in V8.
  
 \section{Our Prototype}
 \label{sec:prototype}
-Building on the ideas of Mementos, see section~\ref{sec:related_work},
+Building on the ideas of Mementos (c.f. Section~\ref{sec:related_work}),
 we implemented allocation-site tracking in GraalPython allowing us to
 link the information of an array resizing operation back to its
 allocation site. Based on this information, we did preliminary
@@ -269,17 +265,18 @@ In this section, we will discuss the difference in implementation
 strategy between our approach and the approach of Clifford et al. and
 the limitations of our version.
 
-\subsection{Tracking Allocation-sites}
+\subsection*{Tracking Allocation-sites}
 \label{sec:implementation}
-In contrast to the V8 \ac{vm}, we are working in the Graal
+In contrast to the V8 \ac{vm}, we are working within the GraalVM
 ecosystem, which relies on a Java \ac{vm} for many of its features, in
 particular for memory management and garbage collection. Subsequently,
 where Clifford et al. implemented their Mementos by storing
 information inside the fields used by the \ac{gc}, getting the information
 about a final list size when the \ac{gc} collects it, we
-do not have access to the \ac{gc} and cannot easily modify it.
+do not have this level of access to the \ac{gc} and cannot easily implement
+this strategy.
 
-Instead we opted to instrument the append and declaration operations
+Instead we opted to instrument list creation and append operations
 of Python. We thus can observe the size of an array on every append
 that is called on it and use this information to compute the presize
 for all other instances sharing its allocation site.
@@ -311,16 +308,20 @@ approach an optimal solution are:
   its limit
 \end{itemize}
 
-\subsubsection{Limitations of our approach}
+\subsection*{Limitations of our approach}
 As the only information about the allocation site we have is its
 position in the source code, our approach does not work for
-abstractions build on top of array that provide a different
-interface. For example, all OrderedCollections would share the same
-allocation site in the class definition of OrderedCollection, thereby
-making the information collected useless. This means that rich
-high-level collection libraries cannot benefit from our approach. We
-believe this has implications for the applicability of this approach to
-other languages.
+abstractions build on top of resizable arrays that provide a different
+interface. For example, Smalltalk's \texttt{OrderedCollection} type is
+written in Smalltalk itself and holds primitive arrays in a field, so the
+same allocation site would be seen for all arrays used in OrderedCollections,
+regardless of where the OrderedCollection was instantiated. This means that rich
+high-level collection libraries cannot benefit from our approach.
+
+Secondly, our current approach cannot observe if branches in the control
+flow of the program after the allocation of an array lead to vastly different
+characteristics and requirements for the initial allocation. This, however, is
+also a limitation of the prior work that we also have yet to solve.
 
 \section{Presizing}
 \label{sec:presizing}

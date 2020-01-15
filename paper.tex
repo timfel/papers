@@ -276,85 +276,6 @@ overall heap size in Octane, with no other performance
 loss''\cite{clifford2015memento}. We also found no further indication
 that presizing was used in V8.
  
-
-\section{Prototype for GraalPython}
-\label{sec:prototype}
-Building on the idea of Mementos, we implemented allocation-site
-tracking in
-GraalPython\footnote{\url{https://github.com/graalvm/graalpython}} allowing
-us to link the information of an array resizing operation back to its
-allocation site. Based on this information, we conducted preliminary
-experiments with different strategies for determining the presize. Our
-code and benchmarks are available on
-Github\footnote{\url{https://github.com/hpi-swa-lab/graalpython/tree/morevms/2020-presizing}}.
-
-In this section, we will discuss the difference in implementation
-strategy between our approach and the one of Clifford et al. as well as the
-limitations of our proposal.
-
-\subsection*{Tracking Allocation-sites}
-\label{sec:implementation}
-In contrast to the V8 \ac{vm}, we are working within the GraalVM
-ecosystem, which relies on a Java \ac{vm} for many of its features, in
-particular for memory management and garbage collection. Subsequently,
-where Clifford et al. implemented their Mementos by storing
-information inside the fields used by the \ac{gc}, getting the
-information about a final list size when the \ac{gc} collects it, we
-do not have this level of access to the \ac{gc} and cannot easily
-implement this strategy.
-
-Instead, we decided to instrument the list creation and append operations
-of Python. We thus can observe the size of an array on every append
-that is called on it and use this information to compute the presize
-for all other instances sharing its allocation site.
-
-While Clifford et al. payed particular attention to the performance
-implications of the book-keeping added by Mementos through their
-allocation strategy and \ac{gc} cycles, our approach eliminates its
-book-keeping cost by only doing it during interpretation. We do no
-book-keeping in compiled code and assume that array sizes are stable
-by the time the program is compiled.
-
-We believe that the variables relevant for profiling are:
-\begin{itemize}
-\item The amount of times the array grows
-\item The amount of elements the array contains at most, at least, and
-on average
-\item The size of the array when it is garbage collected, including
-actual size and allocated but empty space
-\item The types of objects the array contains
-\item The primary operations performed on the array, i.e. mostly read
-or mostly written
-\end{itemize}
-
-Whereas the most important ways the performance could be influenced to
-approach an optimal solution are:
-\begin{itemize}
-\item Presize, i.e. initially allocated size
-\item Initial storage strategy
-\item Growth factor, i.e. by how much does the array grow when its
-  allocated size is exhausted
-\end{itemize}
-
-\subsection*{Limitations of this approach}
-As the only information about the allocation site we have is its
-original position in the program, our approach does not work for
-abstractions build on top of resizable arrays that provide a different
-interface. For example, Smalltalk's \lstinline{OrderedCollection} type
-is written in Smalltalk itself and holds primitive arrays in a field,
-so the same allocation site would be seen for all arrays used in
-OrderedCollections, regardless of where the OrderedCollection was
-instantiated. This means that high-level collection libraries cannot
-benefit from our approach. This limits the applicability of our
-solution to other languages, as we realized when we tried to implement
-presizing for GraalSqueak~\cite{niephaus2019graalsqueak}.
-
-Secondly, our current approach cannot observe branches in the control
-flow of the program after the allocation of an array led to vastly
-different characteristics and requirements for the initial
-allocation. This, however, is also a limitation of the prior work that
-we also have yet to solve.
-
 \section{Presizing}
 \label{sec:presizing}
 Presizing relies on the assumption that arrays from the same
@@ -468,6 +389,85 @@ if flag:
                 # but will be slow on the Object strategy
 \end{lstlisting}   
 \end{figure}
+
+
+\section{Prototype for GraalPython}
+\label{sec:prototype}
+Building on the idea of Mementos, we implemented allocation-site
+tracking in
+GraalPython\footnote{\url{https://github.com/graalvm/graalpython}} allowing
+us to link the information of an array resizing operation back to its
+allocation site. Based on this information, we conducted preliminary
+experiments with different strategies for determining the presize. Our
+code and benchmarks are available on
+Github\footnote{\url{https://github.com/hpi-swa-lab/graalpython/tree/morevms/2020-presizing}}.
+
+In this section, we will discuss the difference in implementation
+strategy between our approach and the one of Clifford et al. as well as the
+limitations of our proposal.
+
+\subsection*{Tracking Allocation-sites}
+\label{sec:implementation}
+In contrast to the V8 \ac{vm}, we are working within the GraalVM
+ecosystem, which relies on a Java \ac{vm} for many of its features, in
+particular for memory management and garbage collection. Subsequently,
+where Clifford et al. implemented their Mementos by storing
+information inside the fields used by the \ac{gc}, getting the
+information about a final list size when the \ac{gc} collects it, we
+do not have this level of access to the \ac{gc} and cannot easily
+implement this strategy.
+
+Instead, we decided to instrument the list creation and append operations
+of Python. We thus can observe the size of an array on every append
+that is called on it and use this information to compute the presize
+for all other instances sharing its allocation site.
+
+While Clifford et al. payed particular attention to the performance
+implications of the book-keeping added by Mementos through their
+allocation strategy and \ac{gc} cycles, our approach eliminates its
+book-keeping cost by only doing it during interpretation. We do no
+book-keeping in compiled code and assume that array sizes are stable
+by the time the program is compiled.
+
+We believe that the variables relevant for profiling are:
+\begin{itemize}
+\item The amount of times the array grows
+\item The amount of elements the array contains at most, at least, and
+on average
+\item The size of the array when it is garbage collected, including
+actual size and allocated but empty space
+\item The types of objects the array contains
+\item The primary operations performed on the array, i.e. mostly read
+or mostly written
+\end{itemize}
+
+Whereas the most important ways the performance could be influenced to
+approach an optimal solution are:
+\begin{itemize}
+\item Presize, i.e. initially allocated size
+\item Initial storage strategy
+\item Growth factor, i.e. by how much does the array grow when its
+  allocated size is exhausted
+\end{itemize}
+
+\subsection*{Limitations of this approach}
+As the only information about the allocation site we have is its
+original position in the program, our approach does not work for
+abstractions build on top of resizable arrays that provide a different
+interface. For example, Smalltalk's \lstinline{OrderedCollection} type
+is written in Smalltalk itself and holds primitive arrays in a field,
+so the same allocation site would be seen for all arrays used in
+OrderedCollections, regardless of where the OrderedCollection was
+instantiated. This means that high-level collection libraries cannot
+benefit from our approach. This limits the applicability of our
+solution to other languages, as we realized when we tried to implement
+presizing for GraalSqueak~\cite{niephaus2019graalsqueak}.
+
+Secondly, our current approach cannot observe branches in the control
+flow of the program after the allocation of an array led to vastly
+different characteristics and requirements for the initial
+allocation. This, however, is also a limitation of the prior work that
+we also have yet to solve.
 
 
 \section{Performance Analysis}% and Initial Results

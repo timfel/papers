@@ -76,6 +76,19 @@ anstellen?
 > growth/resizing factor, and never try to shrink the list?  This might
 > be good in conjunction with an initial list size equal to the average
 > or median.
+
+Ich merke gerade, dass ich mich daran gar nicht mehr richtig erinnern
+kann. Warum bekommen wir jeh mit, ob eine Liste zu groß ist? Wenn sie
+mit der Presize angelegt wird, bekommen wir ja nie ein append auf
+einer kleineren Liste.
+Also schon, append wird ja in jedem Fall gerufen wenn neue Elemente
+hinzugefügt werden. Wir könnten sehen wie groß bei jedem append die
+Liste gerade ist und könnten daher auch wieder Schrumpfen. Aber wir
+gucken ja nicht auf die Length, sonder auf die Capacity der Liste. Die
+sollte ja eigentlich von der Presize vorgegeben sein und damit würde
+wir von da an nie kleinere Listen sehen.
+
+
 > 
 > It would be nice to compare average and median in regards to performance.
 > 
@@ -224,6 +237,10 @@ hier eine bessere Erklärung?
 > - [x] 110: delete "thus"
 > - [x] 112: "added to improve" => "which, in return, improves..."
 > - [ ] 132: why are mementos short-lived? why are they objects? It seems the basic idea is to remember some extra data over the lifetime of an object, so that it can be mapped back to its allocation site at GC time
+
+Okay, das ist nicht offensichtlich... Aber für Details kann man ja das
+original Paper lesen, oder? Platz ist eh schon knapp.
+
 > - [x] 137: "Essentially improving" -- this sentence needs a verb. "This improves" perhaps.
 > - [x] 143: It's clunky to spend this time talking about pretenuring and then abruptly move on. Perhaps instead delete "However, the" and start a new paragraph: "Two other..."
 > - [x] 146: "anecdotally" => "anecdotal"

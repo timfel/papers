@@ -136,7 +136,13 @@ entsprechenden kleineren Eintrag in der Liste löschen?
 > the target sizes of pre-sizing.
 > 
 > * [ ] I think the author could discuss the ideal target sizes of pre-sizing.
-> Although the authors presented three strategies to decide the target
+
+Das diskutieren wir schon, schließlich ist das die RQ und wir sagen
+explizit "While finding an optimal solution remains an open question,
+we discuss what we have found so far in section 6", da wir ja nicht
+die ideale Größe kennen. 
+
+> * [x] Although the authors presented three strategies to decide the target
 > sizes, the first two of them do not show the goal of the sizes
 > (and even what sizes were obtained by the strategy).
 > 

@@ -214,14 +214,7 @@ hier eine bessere Erklärung?
 > - [x] 80: "Beyond that" -- beyond what? Perhaps delete these words.
 > - [x] 89: "shorthand" -- doesn't seem like the right word
 > - [x] 91: "But our findings are applicable" -- delete the "but", and say "potentially applicable" (do you *really* know?)
-> - [ ] 109: "time," -- comma should be semicolon or dash
-
-Es geht um den Satz: "Presizing works well for arrays at allocation
-sites that have stable array sizes over time, as the presize can
-approximate the maximum size and eventually eliminate all resizing
-operations.". Stimmt das mit dem dash/semicolon? Und welches von
-beidem findet ihr den besseren Stil?
-
+> - [x] 109: "time," -- comma should be semicolon or dash
 > - [x] 110: delete "thus"
 > - [x] 112: "added to improve" => "which, in return, improves..."
 > - [ ] 132: why are mementos short-lived? why are they objects? It seems the basic idea is to remember some extra data over the lifetime of an object, so that it can be mapped back to its allocation site at GC time

@@ -223,13 +223,12 @@ hier eine bessere Erklärung?
 > - [x] 146: "anecdotally" => "anecdotal"
 > - [x] 163 and elsewhere: "amount" => "number". Discrete quantities come in numbers, not amounts. This substitution needs to be applied in many places in the text.
 > - [x] 175: "whose sizes stabilize" -- this is unclear, because there are two dimensions of stability (at least). One is a single array object's size stabilizing. Another is *the sizes reached by arrays allocated at a given allocation site* stabilizing, in aggregate, over time. Which do you mean? "Both" would be a possible answer.
-> - [ ] 207: "object" and "empty" strategies need explaining somewhere
 > - [x] 207: "object" and "empty" strategies need explaining somewhere
 > - [x] 220: "unlikely and sub-optimal" seems redundant. If the net-gain scenario is unlikely, the practice is suboptimal by definition.
 > - [x] 270: "payed" => "paid"
 > - [x] 280: "actual size and allocated but empty space" -- I wasn't clear what counted as "actual" size. Maybe just "object size, and how much of this was empty"?
 > - [x] 299: "build" => "built"
-> - [ ] 300: is the point here that only an allocation *site*, not an allocating *call chain*, is available?
+> - [x] 300: is the point here that only an allocation *site*, not an allocating *call chain*, is available?
 > - [ ] 308--312: this paragraph goes awry, at least from the word "led" onwards -- suggest rewriting
 > - [ ] 338: "like 32 and 360" => like *lines* 32 and 360 (otherwise you're saying that 32 and 360 are especially stable numbers)
 > - [x] 340: "bottom heavy" => "bottom-heavy"

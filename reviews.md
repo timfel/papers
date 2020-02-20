@@ -195,7 +195,7 @@ hier eine bessere Erklärung?
 > More generally, the writing is not great, although it can be fixed up
 > without too much effort. I've put detailed comments below.
 > 
-> * [ ] When first mentioning (line 273) "during interpretation", it's
+> * [x] When first mentioning (line 273) "during interpretation", it's
 > important to explain when/how these language impls transition from
 > interpreted to compiled. This makes a huge difference to how much
 > information may be gathered, and hence to the feasibility of sensible

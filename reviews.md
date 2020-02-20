@@ -32,7 +32,7 @@ SCORE: 2 (accept)
 > Memories," ACM International Conference on Measurement and Modeling
 > of Computer Systems (SIGMETRICS), 2019.
 > 
-> * [ ] What are storage strategies mentioned in the introduction?
+> * [x] What are storage strategies mentioned in the introduction?
 > The text is vague.  Since they are explained later, a forward
 > reference would make it clearer.
 > 

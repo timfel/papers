@@ -231,6 +231,7 @@ beidem findet ihr den besseren Stil?
 > - [x] 163 and elsewhere: "amount" => "number". Discrete quantities come in numbers, not amounts. This substitution needs to be applied in many places in the text.
 > - [x] 175: "whose sizes stabilize" -- this is unclear, because there are two dimensions of stability (at least). One is a single array object's size stabilizing. Another is *the sizes reached by arrays allocated at a given allocation site* stabilizing, in aggregate, over time. Which do you mean? "Both" would be a possible answer.
 > - [ ] 207: "object" and "empty" strategies need explaining somewhere
+> - [x] 207: "object" and "empty" strategies need explaining somewhere
 > - [x] 220: "unlikely and sub-optimal" seems redundant. If the net-gain scenario is unlikely, the practice is suboptimal by definition.
 > - [x] 270: "payed" => "paid"
 > - [x] 280: "actual size and allocated but empty space" -- I wasn't clear what counted as "actual" size. Maybe just "object size, and how much of this was empty"?

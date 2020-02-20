@@ -229,7 +229,7 @@ hier eine bessere Erklärung?
 > - [x] 280: "actual size and allocated but empty space" -- I wasn't clear what counted as "actual" size. Maybe just "object size, and how much of this was empty"?
 > - [x] 299: "build" => "built"
 > - [x] 300: is the point here that only an allocation *site*, not an allocating *call chain*, is available?
-> - [ ] 308--312: this paragraph goes awry, at least from the word "led" onwards -- suggest rewriting
+> - [x] 308--312: this paragraph goes awry, at least from the word "led" onwards -- suggest rewriting
 > - [ ] 338: "like 32 and 360" => like *lines* 32 and 360 (otherwise you're saying that 32 and 360 are especially stable numbers)
 > - [x] 340: "bottom heavy" => "bottom-heavy"
 > - [x] 371: "a too large one" => "too large a presize"

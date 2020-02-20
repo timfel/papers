@@ -182,7 +182,7 @@ hier eine bessere Erklärung?
 > which does not make it possible to gather the information at GC time
 > as the Memento Mori work had done on V8.
 > 
-> * [ ] So, a high-level comment: the *essential novelty* of the approach
+> * [x] So, a high-level comment: the *essential novelty* of the approach
 > described in the paper is buried, rather than explicit. This can
 > easily be fixed.
 >

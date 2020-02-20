@@ -230,7 +230,7 @@ hier eine bessere Erklärung?
 > - [x] 299: "build" => "built"
 > - [x] 300: is the point here that only an allocation *site*, not an allocating *call chain*, is available?
 > - [x] 308--312: this paragraph goes awry, at least from the word "led" onwards -- suggest rewriting
-> - [ ] 338: "like 32 and 360" => like *lines* 32 and 360 (otherwise you're saying that 32 and 360 are especially stable numbers)
+> - [x] 338: "like 32 and 360" => like *lines* 32 and 360 (otherwise you're saying that 32 and 360 are especially stable numbers)
 > - [x] 340: "bottom heavy" => "bottom-heavy"
 > - [x] 371: "a too large one" => "too large a presize"
 > - [x] 399: "with disregard for" => "without regard for"

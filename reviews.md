@@ -186,7 +186,7 @@ hier eine bessere Erklärung?
 > described in the paper is buried, rather than explicit. This can
 > easily be fixed.
 >
-> * [ ] Also, a question: why is it good to avoid the GC-time approach? Is
+> * [x] Also, a question: why is it good to avoid the GC-time approach? Is
 > this just a case of "we don't want to get our hands dirty modifying
 > the GC"? Perhaps there are better arguments in terms of
 > "accessibility" in the sense of Maxine, e.g. if the GC is buried in

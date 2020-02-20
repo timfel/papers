@@ -48,15 +48,15 @@ Bzw. geht es eher um die Schlußfolgerungen, die im Paper stehen?
 > Why do you need all of this information: “The amount of elements the
 > array contains at most, at least, and on average”?  Wouldn’t you just
 > presize to the maximum?  
-> * [ ] Ah, you answer these questions later in the
+> * [x] Ah, you answer these questions later in the
 > paper, but it was confusing at the time of reading.  
-> * [ ] And why do you need to know if most operations are read or
+> * [x] And why do you need to know if most operations are read or
 > write?  
 > Also, the text mentions you can’t coordinate with the garbage
 > collector, but you collect this information: “The size of the array
 > when it is garbage collected, including actual size and allocated
 > but empty space”.
-> * [ ] First do you really collect this information?  Second, do you use it?
+> * [x] First do you really collect this information?  Second, do you use it?
 > 
 > * [ ] You mention optimization potential, but did you measure any extra
 > allocation removal because of your naive strategy?
